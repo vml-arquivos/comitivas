@@ -62,19 +62,7 @@ export default function Checkout() {
         state: { pagamentoData: response.data } 
       });
     } catch (err: any) {
-      setError(err.response?.data?.erro || 'Erro ao processar checkout');
-      // Mock para continuar teste se API falhar
-      if (!err.response) {
-        navigate(`/confirmacao/${reservaId}`, { 
-          state: { 
-            pagamentoData: { 
-              metodo: metodoPagamento, 
-              qr_code: 'mock-qr-code-data',
-              url_pagamento: 'https://sandbox.mercadopago.com.br/checkout/mock'
-            } 
-          } 
-        });
-      }
+      setError(err.response?.data?.erro || 'Erro ao processar checkout. Tente novamente.');
     } finally {
       setIsProcessing(false);
     }
