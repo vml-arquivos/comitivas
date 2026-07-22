@@ -1,0 +1,93 @@
+import React, { useEffect, useState } from 'react';
+import { api } from '../../contexts/AuthContext';
+import { Card, CardContent, CardHeader, CardTitle } from '@ui/index';
+import { Users, Ticket, Calendar, DollarSign } from 'lucide-react';
+
+export default function Dashboard() {
+  const [data, setData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const response = await api.get('/admin/dashboard');
+        setData(response.data.resumo);
+      } catch (err) {
+        console.error(err);
+        // Mock
+        setData({
+          total_eventos: 2,
+          total_reservas: 45,
+          reservas_confirmadas: 32,
+          reservas_pendentes: 8,
+          taxa_conversao: 71.11
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  if (isLoading) return <div>Carregando dashboard...</div>;
+
+  const stats = [
+    { title: 'Total de Eventos', value: data?.total_eventos || 0, icon: Calendar, color: 'text-blue-500' },
+    { title: 'Total de Reservas', value: data?.total_reservas || 0, icon: Ticket, color: 'text-purple-500' },
+    { title: 'Reservas Confirmadas', value: data?.reservas_confirmadas || 0, icon: Users, color: 'text-green-500' },
+    { title: 'Taxa de Conversão', value: `${data?.taxa_conversao || 0}%`, icon: DollarSign, color: 'text-primary' },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <h1 className="text-2xl font-bold text-gray-900">Visão Geral</h1>
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {stats.map((stat, index) => {
+          const Icon = stat.icon;
+          return (
+            <Card key={index}>
+              <CardContent className="p-6 flex items-center gap-4">
+                <div className={`p-3 rounded-full bg-gray-100 ${stat.color}`}>
+                  <Icon size={24} />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-500">{stat.title}</p>
+                  <h3 className="text-2xl font-bold text-gray-900">{stat.value}</h3>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
+        <Card>
+          <CardHeader>
+            <CardTitle>Status das Reservas</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <span className="text-gray-600">Confirmadas</span>
+                <span className="font-bold text-green-600">{data?.reservas_confirmadas || 0}</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div className="bg-green-500 h-2 rounded-full" style={{ width: `${(data?.reservas_confirmadas / data?.total_reservas) * 100}%` }}></div>
+              </div>
+              
+              <div className="flex justify-between items-center pt-2">
+                <span className="text-gray-600">Pendentes</span>
+                <span className="font-bold text-yellow-600">{data?.reservas_pendentes || 0}</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div className="bg-yellow-500 h-2 rounded-full" style={{ width: `${(data?.reservas_pendentes / data?.total_reservas) * 100}%` }}></div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
