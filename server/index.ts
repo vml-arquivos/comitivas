@@ -4,6 +4,13 @@ import dotenv from "dotenv";
 import { initializeDatabase, closeDatabase } from "./db/index.js";
 import { authMiddleware, requireRole } from "./middleware/authMiddleware.js";
 import authRoutes from "./routes/auth.js";
+import pacotesRoutes from "./routes/pacotes.js";
+import contratosRoutes from "./routes/contratos.js";
+import pagamentosRoutes from "./routes/pagamentos.js";
+import emailsRoutes from "./routes/emails.js";
+import cupomsRoutes from "./routes/cupons.js";
+import jornadadRoutes from "./routes/jornada.js";
+import adminRoutes from "./routes/admin.js";
 
 dotenv.config();
 
@@ -26,18 +33,26 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// Middleware de autenticação para rotas protegidas
-app.use("/api/protected", authMiddleware);
+// Rotas de pacotes (público para listar, autenticado para reservar)
+app.use("/api/pacotes", pacotesRoutes);
 
-// Rota protegida de exemplo
-app.get("/api/protected/me", (req, res) => {
-  res.json({ usuario: req.usuario });
-});
+// Rotas de contratos (autenticado)
+app.use("/api/contratos", authMiddleware, contratosRoutes);
 
-// Rota admin de exemplo
-app.get("/api/admin/dashboard", authMiddleware, requireRole("admin"), (req, res) => {
-  res.json({ mensagem: "Bem-vindo ao dashboard admin", usuario: req.usuario });
-});
+// Rotas de pagamentos (autenticado)
+app.use("/api/pagamentos", pagamentosRoutes);
+
+// Rotas de e-mails (autenticado)
+app.use("/api/emails", emailsRoutes);
+
+// Rotas de cupons (admin)
+app.use("/api/cupons", authMiddleware, requireRole("admin"), cupomsRoutes);
+
+// Rotas de jornada CRM (autenticado)
+app.use("/api/jornada", jornadadRoutes);
+
+// Rotas administrativas (admin)
+app.use("/api/admin", authMiddleware, requireRole("admin"), adminRoutes);
 
 // Error handling
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
