@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: comitiva-db
+    environment:
+      POSTGRES_USER: comitiva
+      POSTGRES_PASSWORD: comitiva_dev_password
+      POSTGRES_DB: comitiva
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U comitiva"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: comitiva-cache
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    container_name: comitiva-app
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://comitiva:comitiva_dev_password@postgres:5432/comitiva
+      JWT_SECRET: dev-secret-change-in-production
+      PORT: 3000
+      API_URL: http://localhost:3000
+      WEB_URL: http://localhost:5173
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      SMTP_FROM: ${SMTP_FROM:-noreply@comitiva.com.br}
+      PAYMENT_GATEWAY: ${PAYMENT_GATEWAY:-mercadopago}
+      MERCADOPAGO_ACCESS_TOKEN: ${MERCADOPAGO_ACCESS_TOKEN}
+      MERCADOPAGO_PUBLIC_KEY: ${MERCADOPAGO_PUBLIC_KEY}
+      ASAAS_API_KEY: ${ASAAS_API_KEY}
+      STORAGE_TYPE: local
+      STORAGE_PATH: ./uploads
+      LOG_LEVEL: info
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./uploads:/app/uploads
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
