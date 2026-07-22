@@ -63,20 +63,10 @@ export default function ConfiguradorPacote() {
         });
         
         setCalculo(response.data);
-      } catch (err) {
-        console.error("Erro no cálculo da API, fazendo cálculo local como fallback", err);
-        // Fallback local apenas se a API falhar no ambiente de teste
-        const subtotal = Object.entries(itensSelecionados).reduce((acc, [id, qtd]) => {
-          const item = itensDisponiveis.find(i => i.id === id);
-          return acc + (item ? item.valor * qtd : 0);
-        }, 1500); // 1500 é o valor base mockado
-        
-        setCalculo({
-          valor_base: 1500,
-          subtotal,
-          desconto_cupom: 0,
-          valor_total: subtotal
-        });
+      } catch (err: any) {
+        console.error("Erro ao calcular valor:", err);
+        setError('Erro ao calcular valor do pacote. Tente novamente.');
+        setCalculo(null);
       } finally {
         setIsCalculating(false);
       }
@@ -109,13 +99,9 @@ export default function ConfiguradorPacote() {
       });
       
       navigate(`/checkout/${response.data.reserva_id}`);
-    } catch (err: any) {
-      setError(err.response?.data?.erro || 'Erro ao criar reserva');
-      // Mock para prosseguir no teste se a API falhar
-      if (!err.response) {
-        navigate(`/checkout/reserva-mock-${Date.now()}`);
-      }
-    } finally {
+          } catch (err: any) {
+        setError(err.response?.data?.erro || 'Erro ao criar reserva. Tente novamente.');
+      } finally {
       setIsReserving(false);
     }
   };
