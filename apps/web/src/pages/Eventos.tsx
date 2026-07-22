@@ -2,44 +2,73 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../contexts/AuthContext';
 import { Button, Card, CardContent, CardFooter } from '@ui/index';
-import { Calendar, MapPin } from 'lucide-react';
+import { Calendar, MapPin, AlertCircle } from 'lucide-react';
 
 export default function Eventos() {
   const [eventos, setEventos] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchEventos = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const res = await api.get('/api/eventos');
+      setEventos(res.data.eventos || []);
+    } catch (err: any) {
+      setError(err.response?.data?.erro || 'Erro ao carregar eventos. Tente novamente.');
+      setEventos([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    // Para simplificar o teste, vamos mockar a listagem se a API falhar
-    // pois não temos rotas públicas de listagem de eventos configuradas
-    const fetchEventos = async () => {
-      try {
-        // Tentativa de buscar da API (se existir)
-        const res = await api.get('/pacotes/lotes/mock-id/itens').catch(() => null);
-        
-        // Mocking dados para demonstração do frontend
-        setEventos([
-          {
-            id: '1',
-            nome: 'Festa do Peão de Barretos 2026',
-            descricao: 'A maior festa do peão da América Latina. Saída de Goiânia com pacote completo.',
-            data_inicio: '2026-08-20T00:00:00.000Z',
-            data_fim: '2026-08-30T00:00:00.000Z',
-            local: 'Barretos - SP',
-            lote_id: 'lote-123',
-            valor_base: 1500.00
-          }
-        ]);
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
     fetchEventos();
   }, []);
 
-  if (isLoading) return <div className="py-12 text-center">Carregando eventos...</div>;
+  if (isLoading) {
+    return (
+      <div className="py-12 text-center">
+        <div className="inline-block">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
+        <p className="mt-4 text-gray-600">Carregando eventos...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="py-12">
+        <div className="max-w-md mx-auto bg-red-50 border border-red-200 rounded-lg p-6">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="text-red-500 mt-0.5" size={24} />
+            <div>
+              <h3 className="font-semibold text-red-900">Erro ao carregar eventos</h3>
+              <p className="text-sm text-red-700 mt-1">{error}</p>
+              <Button 
+                onClick={fetchEventos} 
+                variant="outline" 
+                className="mt-4"
+              >
+                Tentar Novamente
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (eventos.length === 0) {
+    return (
+      <div className="py-12 text-center">
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">Nenhum evento disponível</h2>
+        <p className="text-gray-600">Volte mais tarde para ver novos eventos.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -79,7 +108,7 @@ export default function Eventos() {
                   R$ {evento.valor_base.toFixed(2)}
                 </div>
               </div>
-              <Link to={`/pacote/${evento.lote_id}`}>
+              <Link to={`/pacote/${evento.id}`}>
                 <Button>Montar Pacote</Button>
               </Link>
             </CardFooter>
