@@ -5,6 +5,8 @@ import { initializeDatabase, closeDatabase } from "./db/index.js";
 import { authMiddleware, requireRole } from "./middleware/authMiddleware.js";
 import { followupScheduler } from "./services/followupScheduler.js";
 import authRoutes from "./routes/auth.js";
+import eventosRoutes from "./routes/eventos.js";
+import lotesRoutes from "./routes/lotes.js";
 import pacotesRoutes from "./routes/pacotes.js";
 import contratosRoutes from "./routes/contratos.js";
 import pagamentosRoutes from "./routes/pagamentos.js";
@@ -33,6 +35,12 @@ app.use("/api/auth", authRoutes);
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
+
+// Rotas de eventos (público para listar, admin para criar/editar)
+app.use("/api/eventos", eventosRoutes);
+
+// Rotas de lotes (público para listar, admin para criar/editar)
+app.use("/api/lotes", lotesRoutes);
 
 // Rotas de pacotes (público para listar, autenticado para reservar)
 app.use("/api/pacotes", pacotesRoutes);
