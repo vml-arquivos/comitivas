@@ -1,0 +1,14 @@
+{
+  "appId": "com.comitiva.app",
+  "appName": "Comitiva",
+  "webDir": "dist",
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 0
+    }
+  },
+  "server": {
+    "url": "http://localhost:5173",
+    "cleartext": true
+  }
+}
