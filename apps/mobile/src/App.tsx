@@ -1,42 +1,131 @@
-import { useEffect, useState } from 'react'
-import { App as CapacitorApp } from '@capacitor/app'
-import './App.css'
+import React, { useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import { App as CapacitorApp } from '@capacitor/app';
+import { AuthProvider, useAuth } from '../../../apps/web/src/contexts/AuthContext';
+import { MainLayout } from '../../../apps/web/src/layouts/MainLayout';
+import { AdminLayout } from '../../../apps/web/src/layouts/AdminLayout';
 
-export function App() {
-  const [appReady, setAppReady] = useState(false)
+// Importar páginas do web (reutilização de componentes)
+import Login from '../../../apps/web/src/pages/Login';
+import Cadastro from '../../../apps/web/src/pages/Cadastro';
+import Eventos from '../../../apps/web/src/pages/Eventos';
+import ConfiguradorPacote from '../../../apps/web/src/pages/cliente/ConfiguradorPacote';
+import Checkout from '../../../apps/web/src/pages/cliente/Checkout';
+import Confirmacao from '../../../apps/web/src/pages/cliente/Confirmacao';
+import MinhasReservas from '../../../apps/web/src/pages/cliente/MinhasReservas';
+import Dashboard from '../../../apps/web/src/pages/admin/Dashboard';
+import Reservas from '../../../apps/web/src/pages/admin/Reservas';
+import Cupons from '../../../apps/web/src/pages/admin/Cupons';
+import Jornada from '../../../apps/web/src/pages/admin/Jornada';
+
+import './App.css';
+
+// Proteção de rotas
+const ProtectedRoute = ({ children, roles }: { children: React.ReactNode, roles?: string[] }) => {
+  const { user, isLoading } = useAuth();
+  const navigate = useNavigate();
+
+  if (isLoading) return <div className="flex h-screen items-center justify-center">Carregando...</div>;
+  
+  if (!user) {
+    navigate('/login', { replace: true });
+    return null;
+  }
+  
+  if (roles && !roles.includes(user.tipo)) {
+    navigate('/', { replace: true });
+    return null;
+  }
+
+  return <>{children}</>;
+};
+
+// Componente para gerenciar o backButton do Capacitor
+function BackButtonHandler() {
+  const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
-    CapacitorApp.addListener('backButton', () => {
-      // Implementar lógica de volta
-    })
+    const handleBackButton = async () => {
+      // Se estamos na página raiz, fechar o app
+      if (location.pathname === '/') {
+        await CapacitorApp.exitApp();
+      } else {
+        // Caso contrário, voltar uma página
+        navigate(-1);
+      }
+    };
 
-    setAppReady(true)
-  }, [])
+    const listener = CapacitorApp.addListener('backButton', handleBackButton);
 
-  return (
-    <div className="app-container">
-      <header className="app-header">
-        <div className="logo-container">
-          <img src="/assets/brand/icon.svg" alt="Comitiva" className="logo" />
-          <h1>Comitiva</h1>
-        </div>
-      </header>
+    return () => {
+      listener.remove();
+    };
+  }, [navigate, location.pathname]);
 
-      <main className="app-content">
-        {appReady ? (
-          <div className="welcome-section">
-            <h2>Bem-vindo ao Comitiva</h2>
-            <p>Aplicativo de excursões e eventos</p>
-            <button className="btn-primary">Começar</button>
-          </div>
-        ) : (
-          <div className="loading">Carregando...</div>
-        )}
-      </main>
-
-      <footer className="app-footer">
-        <p>&copy; 2024 Comitiva. Todos os direitos reservados.</p>
-      </footer>
-    </div>
-  )
+  return null;
 }
+
+function AppRoutes() {
+  return (
+    <Routes>
+      {/* Rotas Públicas */}
+      <Route element={<MainLayout />}>
+        <Route path="/" element={<Eventos />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/cadastro" element={<Cadastro />} />
+        
+        {/* Rotas de Cliente */}
+        <Route path="/pacote/:loteId" element={
+          <ProtectedRoute>
+            <ConfiguradorPacote />
+          </ProtectedRoute>
+        } />
+        <Route path="/checkout/:reservaId" element={
+          <ProtectedRoute>
+            <Checkout />
+          </ProtectedRoute>
+        } />
+        <Route path="/confirmacao/:reservaId" element={
+          <ProtectedRoute>
+            <Confirmacao />
+          </ProtectedRoute>
+        } />
+        <Route path="/minhas-reservas" element={
+          <ProtectedRoute>
+            <MinhasReservas />
+          </ProtectedRoute>
+        } />
+      </Route>
+
+      {/* Rotas Administrativas */}
+      <Route path="/admin" element={
+        <ProtectedRoute roles={['admin', 'vendedor']}>
+          <AdminLayout />
+        </ProtectedRoute>
+      }>
+        <Route index element={<Dashboard />} />
+        <Route path="reservas" element={<Reservas />} />
+        <Route path="jornada" element={<Jornada />} />
+        <Route path="cupons" element={
+          <ProtectedRoute roles={['admin']}>
+            <Cupons />
+          </ProtectedRoute>
+        } />
+      </Route>
+    </Routes>
+  );
+}
+
+export function App() {
+  return (
+    <Router>
+      <AuthProvider>
+        <BackButtonHandler />
+        <AppRoutes />
+      </AuthProvider>
+    </Router>
+  );
+}
+
+export default App;
