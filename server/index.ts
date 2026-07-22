@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { initializeDatabase, closeDatabase } from "./db/index.js";
 import { authMiddleware, requireRole } from "./middleware/authMiddleware.js";
+import { followupScheduler } from "./services/followupScheduler.js";
 import authRoutes from "./routes/auth.js";
 import pacotesRoutes from "./routes/pacotes.js";
 import contratosRoutes from "./routes/contratos.js";
@@ -69,8 +70,13 @@ async function start() {
       process.exit(1);
     }
 
+    // Iniciar scheduler de follow-up automatico
+    const followupInterval = parseInt(process.env.FOLLOWUP_CHECK_INTERVAL_MINUTOS || '5', 10);
+    followupScheduler.start(followupInterval);
+
     app.listen(PORT, () => {
       console.log(`[SERVER] Comitiva rodando em http://localhost:${PORT}`);
+      console.log(`[SERVER] Follow-up scheduler ativo (intervalo: ${followupInterval} minutos)`);
     });
   } catch (error) {
     console.error("Erro ao iniciar servidor:", error);
@@ -81,6 +87,7 @@ async function start() {
 // Graceful shutdown
 process.on("SIGINT", async () => {
   console.log("\n[SERVER] Encerrando...");
+  followupScheduler.stop();
   await closeDatabase();
   process.exit(0);
 });
