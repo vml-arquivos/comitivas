@@ -30,6 +30,11 @@ app.use(cors({
   credentials: true,
 }));
 
+// Servir o frontend (SPA) já buildado pelo Vite — o mesmo container
+// atende tanto a API (/api/*) quanto o site em comitivas.permupay.com.br
+const webDistPath = path.join(process.cwd(), "apps", "web", "dist");
+app.use(express.static(webDistPath));
+
 // Rotas públicas
 app.use("/api/auth", authRoutes);
 app.use("/api/publico", publicoRoutes);
@@ -65,11 +70,6 @@ app.use("/api/jornada", jornadadRoutes);
 
 // Rotas administrativas (admin)
 app.use("/api/admin", authMiddleware, requireRole("admin"), adminRoutes);
-
-// Servir o frontend (SPA) já buildado pelo Vite — o mesmo container
-// atende tanto a API (/api/*) quanto o site em comitivas.permupay.com.br
-const webDistPath = path.join(process.cwd(), "apps", "web", "dist");
-app.use(express.static(webDistPath));
 
 // Fallback de SPA: qualquer rota GET que não seja /api/* devolve o index.html,
 // deixando o React Router decidir a tela (ex.: /eventos, /login, /minhas-reservas)
