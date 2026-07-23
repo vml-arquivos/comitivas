@@ -1,0 +1,233 @@
+================================================================================
+VARIÁVEIS COMPLETAS PARA COOLIFY - COPIAR E COLAR
+================================================================================
+Data: 23 de julho de 2026
+Ambiente: Coolify + Traefik (sem conflitos de porta)
+Repositório: vml-arquivos/comitivas (público)
+
+INSTRUÇÕES:
+1. Copie TUDO abaixo (todas as linhas)
+2. Acesse seu Coolify: https://seu-coolify.com:8000
+3. Crie novo serviço (Docker > Dockerfile)
+4. Vá para Settings > Environment Variables
+5. Cole TUDO aqui
+6. Edite os valores marcados com [EDITAR]
+7. Clique em Save
+8. Faça Deploy
+
+================================================================================
+COPIE E COLE NO COOLIFY (COMEÇANDO AQUI)
+================================================================================
+
+DATABASE_URL=postgresql://postgres:8eLcYsrs7mbFExkW2WJUfONPaz1CSNfTh2M89U6QSO9te8zoqZO4rOVzEBGCGnGl@vnviiqwmxeq52p65ytvviqlj:5432/postgres
+REDIS_URL=redis://default:SEWhFeP4N70sSJl6edfv4j1AwonD9uitFflyD3QoVxMMX5upphQvHZPwGOzKhn6r@artf87ais0vxumeet4nao0gr:6379/0
+JWT_SECRET=DoUvDEjvPc8BMrVK+X6aioM+9/4rTIL5ro9H/8qENok=
+NODE_ENV=production
+PORT=3000
+API_URL=https://apicomitivas.permupay.com.br
+WEB_URL=https://comitivas.permupay.com.br
+MOBILE_URL=comitiva://
+SMTP_HOST=smtp.mailtrap.io
+SMTP_PORT=587
+SMTP_USER=[EDITAR] seu_usuario_mailtrap@mailtrap.io
+SMTP_PASS=[EDITAR] sua_senha_mailtrap_aqui
+SMTP_FROM=noreply@comitivas.permupay.com.br
+STORAGE_TYPE=local
+STORAGE_PATH=/app/uploads
+FOLLOWUP_CHECK_INTERVAL_MINUTOS=5
+LOG_LEVEL=info
+PAYMENT_GATEWAY=mock
+MERCADOPAGO_ACCESS_TOKEN=
+MERCADOPAGO_PUBLIC_KEY=
+
+================================================================================
+TERMINE DE COLAR AQUI
+================================================================================
+
+VARIÁVEIS EXPLICADAS:
+
+DATABASE_URL
+  PostgreSQL temporário (fornecido)
+  Não altere
+
+REDIS_URL
+  Redis temporário (fornecido)
+  Não altere
+
+JWT_SECRET
+  Chave de assinatura de tokens
+  Gerado com: openssl rand -base64 32
+  Não altere (use este ou gere um novo)
+
+NODE_ENV
+  Ambiente: production
+  Não altere
+
+PORT
+  Porta interna: 3000
+  Não altere
+
+API_URL
+  URL pública da API
+  https://apicomitivas.permupay.com.br
+  Não altere (ou mude para seu domínio)
+
+WEB_URL
+  URL pública do frontend
+  https://comitivas.permupay.com.br
+  Não altere (ou mude para seu domínio)
+
+MOBILE_URL
+  Scheme do app mobile
+  comitiva://
+  Não altere
+
+SMTP_HOST
+  Servidor SMTP: smtp.mailtrap.io
+  Não altere
+
+SMTP_PORT
+  Porta SMTP: 587
+  Não altere
+
+SMTP_USER [EDITAR]
+  Seu email Mailtrap
+  Exemplo: seu_email@mailtrap.io
+  MUDE PARA SUAS CREDENCIAIS
+
+SMTP_PASS [EDITAR]
+  Sua senha Mailtrap
+  MUDE PARA SUAS CREDENCIAIS
+
+SMTP_FROM
+  E-mail de origem
+  noreply@comitivas.permupay.com.br
+  Pode deixar como está
+
+STORAGE_TYPE
+  Tipo de armazenamento: local
+  Não altere
+
+STORAGE_PATH
+  Caminho para uploads: /app/uploads
+  Não altere
+
+FOLLOWUP_CHECK_INTERVAL_MINUTOS
+  Intervalo do job de follow-up: 5 minutos
+  Não altere
+
+LOG_LEVEL
+  Nível de logging: info
+  Não altere
+
+PAYMENT_GATEWAY
+  Gateway de pagamento: mock (sem pagamento real)
+  Não altere (ou mude para "mercadopago" com credenciais reais)
+
+MERCADOPAGO_*
+  Deixe vazio (mock desabilitado)
+  Não altere
+
+================================================================================
+CONFIGURAÇÕES NO COOLIFY (APÓS COLAR VARIÁVEIS)
+================================================================================
+
+PASSO 1: Settings > General
+- Nome: comitiva-prime-test
+- Descrição: Comitiva Prime - Teste
+
+PASSO 2: Settings > Build
+- Build Command: npm install && npm run build
+- Start Command: npm start
+
+PASSO 3: Settings > Ports (IMPORTANTE - SEM CONFLITOS)
+- Container Port: 3000
+- NÃO marque "Expose port" (deixe Traefik gerenciar)
+
+PASSO 4: Settings > Domains
+- Adicione: comitivas.permupay.com.br
+- Adicione: apicomitivas.permupay.com.br
+- Clique em Save
+
+PASSO 5: Settings > Environment Variables
+- Cole TUDO acima
+- Edite SMTP_USER e SMTP_PASS
+- Clique em Save
+
+PASSO 6: Deploy
+- Clique em "Deploy"
+- Aguarde 5-10 minutos
+- Verifique logs
+
+PASSO 7: Validar
+- Acesse: https://comitivas.permupay.com.br
+- Acesse: https://apicomitivas.permupay.com.br/api/health
+
+================================================================================
+REPOSITÓRIO PÚBLICO (DOCKERFILE)
+================================================================================
+
+Repositório: https://github.com/vml-arquivos/comitivas
+Branch: main
+Dockerfile: ./Dockerfile (raiz do projeto)
+
+Coolify detectará automaticamente:
+- Dockerfile na raiz
+- package.json
+- npm scripts
+
+Build automático:
+- npm install
+- npm run build
+- npm start
+
+Migrations automáticas:
+- Executam ao iniciar (server/db/index.ts)
+- Sem necessidade de comando manual
+
+================================================================================
+APÓS COLAR NO COOLIFY
+================================================================================
+
+1. Edite SMTP_USER com seu email Mailtrap
+2. Edite SMTP_PASS com sua senha Mailtrap
+3. Clique em "Save"
+4. Clique em "Deploy"
+5. Aguarde 5-10 minutos
+6. Acesse https://comitivas.permupay.com.br
+
+================================================================================
+SEGURANÇA
+================================================================================
+
+✅ Nenhuma credencial no repositório público
+✅ Todas as variáveis no Coolify (seguro)
+✅ Dockerfile não expõe segredos
+✅ Sem conflitos de porta (Traefik gerencia)
+✅ SSL/TLS automático (Let's Encrypt)
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+Erro: "Build failed"
+  Solução: Verifique logs em Coolify > Logs
+
+Erro: "Port 3000 already in use"
+  Solução: Desmarque "Expose port" em Settings > Ports
+
+Erro: "Cannot connect to domain"
+  Solução: Aguarde 2-3 minutos + Redeploy
+
+Erro: "SMTP connection refused"
+  Solução: Verifique SMTP_USER e SMTP_PASS
+
+================================================================================
+SUPORTE
+================================================================================
+
+Documentação: https://coolify.io/docs
+Repositório: https://github.com/vml-arquivos/comitivas
+Guia: COOLIFY_SEM_CONFLITOS.md
+
+================================================================================
