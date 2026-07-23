@@ -1,4 +1,5 @@
 import express from "express";
+import path from "path";
 import cors from "cors";
 import dotenv from "dotenv";
 import { initializeDatabase, closeDatabase } from "./db/index.js";
@@ -64,6 +65,20 @@ app.use("/api/jornada", jornadadRoutes);
 
 // Rotas administrativas (admin)
 app.use("/api/admin", authMiddleware, requireRole("admin"), adminRoutes);
+
+// Servir o frontend (SPA) já buildado pelo Vite — o mesmo container
+// atende tanto a API (/api/*) quanto o site em comitivas.permupay.com.br
+const webDistPath = path.join(process.cwd(), "apps", "web", "dist");
+app.use(express.static(webDistPath));
+
+// Fallback de SPA: qualquer rota GET que não seja /api/* devolve o index.html,
+// deixando o React Router decidir a tela (ex.: /eventos, /login, /minhas-reservas)
+app.get("*", (req, res, next) => {
+  if (req.path.startsWith("/api")) return next();
+  res.sendFile(path.join(webDistPath, "index.html"), (err) => {
+    if (err) next(err);
+  });
+});
 
 // Error handling
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

@@ -32,6 +32,9 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/packages ./packages
 COPY --from=builder /app/apps/web/src/assets ./apps/web/src/assets
 
+# Copiar o build do frontend (React/Vite) para o Express servir como site
+COPY --from=builder /app/apps/web/dist ./apps/web/dist
+
 # Criar diretório de uploads
 RUN mkdir -p uploads
 
