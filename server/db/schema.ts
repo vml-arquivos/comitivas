@@ -225,3 +225,51 @@ export const leadsRelations = relations(leads_origem, ({ one }) => ({
   vendedor: one(usuarios, { fields: [leads_origem.vendedor_id], references: [usuarios.id] }),
   usuario: one(usuarios, { fields: [leads_origem.usuario_id], references: [usuarios.id] }),
 }));
+
+// Tabelas para área pública premium
+
+export const fotos_evento = pgTable("fotos_evento", {
+  id: uuid("id").primaryKey().default(() => createId()),
+  evento_id: varchar("evento_id", { length: 255 }).notNull().references(() => eventos.id),
+  url_foto: varchar("url_foto", { length: 500 }).notNull(),
+  legenda: varchar("legenda", { length: 500 }),
+  ordem: integer("ordem").default(0),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+}, (table) => ({
+  eventoIdx: index("fotos_evento_idx").on(table.evento_id),
+}));
+
+export const avaliacoes = pgTable("avaliacoes", {
+  id: uuid("id").primaryKey().default(() => createId()),
+  evento_id: varchar("evento_id", { length: 255 }).notNull().references(() => eventos.id),
+  usuario_id: uuid("usuario_id").notNull().references(() => usuarios.id),
+  reserva_id: varchar("reserva_id", { length: 255 }).notNull().references(() => reservas.id),
+  nota: integer("nota").notNull(), // 1-5
+  comentario: text("comentario"),
+  aprovado: boolean("aprovado").default(false),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+  atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
+}, (table) => ({
+  eventoIdx: index("avaliacoes_evento_idx").on(table.evento_id),
+  usuarioIdx: index("avaliacoes_usuario_idx").on(table.usuario_id),
+  reservaIdx: index("avaliacoes_reserva_idx").on(table.reserva_id),
+}));
+
+// Relações
+
+export const fotosRelations = relations(fotos_evento, ({ one }) => ({
+  evento: one(eventos, { fields: [fotos_evento.evento_id], references: [eventos.id] }),
+}));
+
+export const avaliacoesRelations = relations(avaliacoes, ({ one }) => ({
+  evento: one(eventos, { fields: [avaliacoes.evento_id], references: [eventos.id] }),
+  usuario: one(usuarios, { fields: [avaliacoes.usuario_id], references: [usuarios.id] }),
+  reserva: one(reservas, { fields: [avaliacoes.reserva_id], references: [reservas.id] }),
+}));
+
+export const eventosRelations = relations(eventos, ({ many }) => ({
+  lotes: many(lotes),
+  cupons: many(cupons),
+  fotos: many(fotos_evento),
+  avaliacoes: many(avaliacoes),
+}));
