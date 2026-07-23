@@ -5,6 +5,7 @@ import { initializeDatabase, closeDatabase } from "./db/index.js";
 import { authMiddleware, requireRole } from "./middleware/authMiddleware.js";
 import { followupScheduler } from "./services/followupScheduler.js";
 import authRoutes from "./routes/auth.js";
+import publicoRoutes from "./routes/publico.js";
 import eventosRoutes from "./routes/eventos.js";
 import lotesRoutes from "./routes/lotes.js";
 import pacotesRoutes from "./routes/pacotes.js";
@@ -30,6 +31,7 @@ app.use(cors({
 
 // Rotas públicas
 app.use("/api/auth", authRoutes);
+app.use("/api/publico", publicoRoutes);
 
 // Health check
 app.get("/api/health", (req, res) => {
