@@ -15,13 +15,13 @@ export default function Home() {
     const fetchPublicData = async () => {
       try {
         // Buscar evento principal ativo (Barretos)
-        const resEventos = await api.get('/api/publico/eventos-ativos');
+        const resEventos = await api.get('/publico/eventos-ativos');
         if (resEventos.data.eventos && resEventos.data.eventos.length > 0) {
           setEventoAtivo(resEventos.data.eventos[0]);
         }
 
         // Buscar avaliações aprovadas
-        const resAvaliacoes = await api.get('/api/publico/avaliacoes');
+        const resAvaliacoes = await api.get('/publico/avaliacoes');
         setAvaliacoes(resAvaliacoes.data.avaliacoes?.slice(0, 3) || []);
 
         // Na vida real, clientes confirmados viria de um endpoint de stats público

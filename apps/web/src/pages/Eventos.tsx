@@ -13,7 +13,7 @@ export default function Eventos() {
     setIsLoading(true);
     setError(null);
     try {
-      const res = await api.get('/api/eventos');
+      const res = await api.get('/eventos');
       setEventos(res.data.eventos || []);
     } catch (err: any) {
       setError(err.response?.data?.erro || 'Erro ao carregar eventos. Tente novamente.');

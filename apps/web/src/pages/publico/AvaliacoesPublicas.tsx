@@ -11,7 +11,7 @@ export default function AvaliacoesPublicas() {
   useEffect(() => {
     const fetchAvaliacoes = async () => {
       try {
-        const response = await api.get('/api/publico/avaliacoes');
+        const response = await api.get('/publico/avaliacoes');
         setAvaliacoes(response.data.avaliacoes || []);
       } catch (err: any) {
         setError(err.response?.data?.erro || 'Erro ao carregar avaliações. Tente novamente.');

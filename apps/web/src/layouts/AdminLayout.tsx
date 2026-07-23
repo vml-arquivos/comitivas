@@ -10,6 +10,7 @@ import {
   ArrowLeft
 } from 'lucide-react';
 import { clsx } from 'clsx';
+import iconUrl from '../assets/brand/icon.svg';
 
 export function AdminLayout() {
   const { user, logout } = useAuth();
@@ -35,7 +36,7 @@ export function AdminLayout() {
         <div className="h-16 flex items-center px-6 border-b border-white/10">
           <Link to="/" className="flex items-center gap-2">
             <div className="bg-white rounded-full p-1">
-              <img src="/src/assets/brand/icon.svg" alt="Comitiva" className="h-6 w-6" />
+              <img src={iconUrl} alt="Comitiva" className="h-6 w-6" />
             </div>
             <span className="font-bold text-lg">Painel {user?.tipo === 'admin' ? 'Admin' : 'Vendedor'}</span>
           </Link>

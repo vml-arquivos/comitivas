@@ -2,6 +2,7 @@ import React from 'react';
 import { Outlet, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { LogOut, User as UserIcon } from 'lucide-react';
+import iconUrl from '../assets/brand/icon.svg';
 
 export function MainLayout() {
   const { user, logout } = useAuth();
@@ -19,7 +20,7 @@ export function MainLayout() {
           <div className="flex justify-between h-16 items-center">
             <Link to="/" className="flex items-center gap-2">
               <div className="bg-white rounded-full p-1">
-                <img src="/src/assets/brand/icon.svg" alt="Comitiva Prime" className="h-8 w-8" />
+                <img src={iconUrl} alt="Comitiva Prime" className="h-8 w-8" />
               </div>
               <span className="font-bold text-xl tracking-tight">Comitiva Prime</span>
             </Link>

@@ -13,7 +13,7 @@ export default function Historia() {
   useEffect(() => {
     const fetchEventosRealizados = async () => {
       try {
-        const response = await api.get('/api/publico/eventos-realizados');
+        const response = await api.get('/publico/eventos-realizados');
         setEventos(response.data.eventos || []);
       } catch (err: any) {
         setError(err.response?.data?.erro || 'Erro ao carregar histórico. Tente novamente.');
