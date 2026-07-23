@@ -1,5 +1,5 @@
 import { PDFDocument, StandardFonts as StandardFontsRef, rgb as rgbRef } from "pdf-lib";
-import { DESTRAVA_LOGO_B64, PERMUPAY_LOGO_B64 } from "../logo_constants";
+import { DESTRAVA_LOGO_B64, PERMUPAY_LOGO_B64 } from "./logo_constants";
 import { closeChromium, launchChromium } from "./chromiumLauncher";
 
 export type PdfBrand = "destrava" | "permupay" | "aragao";

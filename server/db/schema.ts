@@ -188,11 +188,6 @@ export const usuariosRelations = relations(usuarios, ({ many }) => ({
   leads: many(leads_origem),
 }));
 
-export const eventosRelations = relations(eventos, ({ many }) => ({
-  lotes: many(lotes),
-  cupons: many(cupons),
-}));
-
 export const lotesRelations = relations(lotes, ({ one, many }) => ({
   evento: one(eventos, { fields: [lotes.evento_id], references: [eventos.id] }),
   pacotes: many(pacotes),

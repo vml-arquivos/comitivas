@@ -56,7 +56,7 @@ export class RelatorioService {
         .where(eq(lotes.evento_id, evento_id));
 
       let faturamentoTotal = new Decimal(0);
-      let desconto Total = new Decimal(0);
+      let descontoTotal = new Decimal(0);
       const relatorio = [];
 
       for (const lote of lotesResult) {

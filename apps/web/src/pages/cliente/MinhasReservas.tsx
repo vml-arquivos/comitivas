@@ -7,6 +7,7 @@ import { Calendar, Ticket, Download } from 'lucide-react';
 export default function MinhasReservas() {
   const [reservas, setReservas] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchReservas = async () => {
@@ -44,6 +45,10 @@ export default function MinhasReservas() {
   return (
     <div className="space-y-6">
       <h1 className="text-3xl font-bold text-secondary">Minhas Reservas</h1>
+
+      {error && (
+        <div className="bg-red-50 text-red-700 p-4 rounded-lg">{error}</div>
+      )}
 
       {reservas.length === 0 ? (
         <Card className="text-center py-12">

@@ -6,6 +6,7 @@ import { Download, Eye, Mail } from 'lucide-react';
 export default function Reservas() {
   const [reservas, setReservas] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchReservas = async () => {
@@ -45,6 +46,10 @@ export default function Reservas() {
           <Download size={16} /> Exportar CSV
         </Button>
       </div>
+
+      {error && (
+        <div className="bg-red-50 text-red-700 p-4 rounded-lg">{error}</div>
+      )}
 
       <Card>
         <CardContent className="p-0">

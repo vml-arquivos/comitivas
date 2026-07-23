@@ -6,6 +6,7 @@ import { api } from '../../contexts/AuthContext';
 export default function Jornada() {
   const [link, setLink] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const gerarLink = async () => {
     setIsLoading(true);
@@ -22,6 +23,10 @@ export default function Jornada() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">Jornada do Cliente & CRM</h1>
+
+      {error && (
+        <div className="bg-red-50 text-red-700 p-4 rounded-lg">{error}</div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-1">

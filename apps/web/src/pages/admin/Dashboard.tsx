@@ -6,6 +6,7 @@ import { Users, Ticket, Calendar, DollarSign } from 'lucide-react';
 export default function Dashboard() {
   const [data, setData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -34,6 +35,10 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">Visão Geral</h1>
+
+      {error && (
+        <div className="bg-red-50 text-red-700 p-4 rounded-lg">{error}</div>
+      )}
       
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {stats.map((stat, index) => {

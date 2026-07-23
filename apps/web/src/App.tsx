@@ -7,6 +7,9 @@ import { AdminLayout } from './layouts/AdminLayout';
 import Login from './pages/Login';
 import Cadastro from './pages/Cadastro';
 import Eventos from './pages/Eventos';
+import Home from './pages/publico/Home';
+import Historia from './pages/publico/Historia';
+import AvaliacoesPublicas from './pages/publico/AvaliacoesPublicas';
 
 // Páginas do cliente
 import ConfiguradorPacote from './pages/cliente/ConfiguradorPacote';

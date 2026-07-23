@@ -3,7 +3,6 @@ import { db } from '../db/index.js';
 import { reservas, emails_enviados } from '../db/schema.js';
 import { eq, lt, and, sql } from 'drizzle-orm';
 import { emailService } from './emailService.js';
-import { DateTime } from 'luxon';
 
 interface FollowupConfig {
   etapa: string;
@@ -73,7 +72,7 @@ export class FollowupScheduler {
 
   private async checkEtapa(config: FollowupConfig) {
     try {
-      const horasAtras = DateTime.now().minus({ hours: config.horas_espera }).toISO();
+      const horasAtras = new Date(Date.now() - config.horas_espera * 60 * 60 * 1000).toISOString();
 
       // Buscar reservas nessa etapa que não receberam follow-up recentemente
       const reservasParaFollowup = await db

@@ -3,8 +3,9 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Copiar package.json
+# Copiar package.json (raiz + workspace do frontend)
 COPY package*.json ./
+COPY apps/web/package.json ./apps/web/package.json
 
 # Instalar dependências com timeout aumentado
 RUN npm ci --audit=false --fund=false --prefer-offline --no-audit
