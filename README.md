@@ -30,12 +30,12 @@
 ## 🏗️ Arquitetura
 
 ### Stack Tecnológico
-- **Backend:** Node.js + Express + tRPC
+- **Backend:** Node.js + Express (REST)
 - **Frontend Web:** React + Vite + TypeScript
 - **Mobile:** React Native + Capacitor
 - **Banco de Dados:** PostgreSQL + Drizzle ORM
 - **Autenticação:** JWT + bcrypt
-- **Pagamentos:** Adapter (Mercado Pago/Asaas)
+- **Pagamentos:** Mercado Pago (Pix, crédito, débito)
 - **E-mail:** Nodemailer (SMTP)
 - **Contratos:** PDF-lib + Puppeteer
 - **Deployment:** Docker + Coolify
