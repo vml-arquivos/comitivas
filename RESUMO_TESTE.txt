@@ -1,0 +1,114 @@
+================================================================================
+COMITIVA PRIME - RESUMO DE TESTE COM SUBDOMÍNIOS
+================================================================================
+
+QUANTOS SUBDOMÍNIOS?
+====================
+2 APENAS (não precisa mais)
+
+1. comitivaprime-test.com.br              (site + sistema)
+2. api-test.comitivaprime-test.com.br     (API backend)
+
+Configure no DNS:
+comitivaprime-test.com.br          A  SEU_IP
+api-test.comitivaprime-test.com.br A  SEU_IP
+
+
+VARIÁVEIS NECESSÁRIAS (8 MÍNIMAS)
+==================================
+
+1. DATABASE_URL
+   Valor: postgresql://user:pass@seu-postgres.com:5432/comitiva_teste
+   Onde: Supabase (gratuito) ou Railway
+
+2. JWT_SECRET
+   Valor: (gere com: openssl rand -base64 32)
+   Onde: Gere um novo
+
+3. API_URL
+   Valor: https://api-test.comitivaprime-test.com.br
+   Onde: Seu subdomínio de API
+
+4. WEB_URL
+   Valor: https://comitivaprime-test.com.br
+   Onde: Seu subdomínio público
+
+5. SMTP_HOST
+   Valor: smtp.mailtrap.io
+   Onde: Mailtrap.io (gratuito)
+
+6. SMTP_USER
+   Valor: seu_usuario@mailtrap.io
+   Onde: Mailtrap.io
+
+7. SMTP_PASS
+   Valor: sua_senha_mailtrap
+   Onde: Mailtrap.io
+
+8. PAYMENT_GATEWAY
+   Valor: mock
+   Onde: Deixe como "mock" (sem pagamento real)
+
+
+ARQUIVO DE CONFIGURAÇÃO
+=======================
+Use: .env.teste (já preparado)
+
+Copie para .env:
+  cp .env.teste .env
+
+Edite as 8 variáveis acima e inicie:
+  npm install
+  npm run dev
+
+
+FLUXO DE TESTE (SEM PAGAMENTO)
+==============================
+1. Acesse: https://comitivaprime-test.com.br
+2. Cadastre um usuário
+3. Faça login
+4. Crie um evento (admin)
+5. Monte um pacote
+6. Vá ao checkout
+7. Verifique e-mail no Mailtrap
+8. Verifique status no banco (aguardando_pagamento)
+9. Teste webhook manualmente (curl)
+10. Teste avaliações (criar, aprovar, verificar no público)
+
+
+APÓS TESTES
+===========
+1. Revogue credenciais Mailtrap
+2. Delete banco de dados de teste
+3. Gere novo JWT_SECRET
+4. NÃO faça commit do .env
+
+
+PARA PRODUÇÃO (DEPOIS)
+======================
+1. Registre domínio: comitivaprime.com.br
+2. Configure mesmos 2 subdomínios (sem -test)
+3. Use banco de produção (Supabase/Railway maior)
+4. Use SMTP de produção (SendGrid/AWS SES)
+5. Mude PAYMENT_GATEWAY=mercadopago (com credenciais reais)
+6. Configure SSL/TLS (Let's Encrypt)
+
+
+ARQUIVOS IMPORTANTES
+====================
+- .env.teste              (configuração de teste)
+- TESTE_SUBDOMIOS.md      (guia detalhado)
+- GUIA_DEPLOY_PRODUCAO.md (guia de produção)
+- MERCADO_PAGO_SETUP.md   (quando quiser pagamento real)
+
+
+PRÓXIMAS AÇÕES
+==============
+1. Prepare o arquivo .env.teste com suas credenciais
+2. Configure DNS (2 registros A)
+3. Inicie: npm run dev
+4. Teste o fluxo completo
+5. Revogue credenciais após testes
+6. Pronto para produção!
+
+================================================================================
