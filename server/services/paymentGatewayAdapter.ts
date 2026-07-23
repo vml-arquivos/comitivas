@@ -62,7 +62,7 @@ export class PaymentGatewayAdapter {
           email: "cliente@comitiva.com.br",
         },
         external_reference: request.reserva_id,
-        notification_url: `${process.env.API_URL}/api/webhooks/pagamento/mercadopago`,
+        notification_url: `${process.env.API_URL}/api/pagamentos/webhook/mercadopago`,
       };
 
       // Fazer requisição
@@ -116,7 +116,7 @@ export class PaymentGatewayAdapter {
         dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split("T")[0],
         description: request.descricao || `Reserva ${request.reserva_id}`,
         externalReference: request.reserva_id,
-        notificationUrl: `${process.env.API_URL}/api/webhooks/pagamento/asaas`,
+        notificationUrl: `${process.env.API_URL}/api/pagamentos/webhook/asaas`,
       };
 
       // Fazer requisição

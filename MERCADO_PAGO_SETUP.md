@@ -69,12 +69,12 @@ MERCADOPAGO_PUBLIC_KEY=APP_USR-1234567890abcdefghijklmnopqrst
 
 ### Configurar no Painel Mercado Pago
 1. Vá para "Notificações" > "Webhooks"
-2. Adicione URL: `https://seu-dominio.com/api/pagamentos/webhook`
+2. Adicione URL: `https://seu-dominio.com/api/pagamentos/webhook/mercadopago`
 3. Selecione eventos: `payment.created`, `payment.updated`
 
 ### Endpoint Backend
 ```
-POST /api/pagamentos/webhook
+POST /api/pagamentos/webhook/mercadopago
 ```
 Recebe notificações de status de pagamento e atualiza banco de dados.
 
