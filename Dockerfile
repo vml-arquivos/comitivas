@@ -39,7 +39,14 @@ COPY --from=builder /app/apps/web/dist ./apps/web/dist
 RUN mkdir -p uploads
 
 # wget necessário para o healthcheck (mais leve/rápido que subir um novo processo Node a cada checagem)
-RUN apk add --no-cache wget
+# chromium necessário para gerar os PDFs de contrato (via puppeteer-core) — o pacote 'chromium'
+# do Alpine é compilado para musl libc, diferente do Chromium que o puppeteer baixaria sozinho
+# (compilado para glibc), que não roda nesta imagem.
+RUN apk add --no-cache wget chromium
+
+ENV PUPPETEER_BROWSER_PROVIDER=system
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 
 # Expor porta
 EXPOSE 3000

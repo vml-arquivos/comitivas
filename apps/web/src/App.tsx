@@ -23,6 +23,8 @@ import Dashboard from './pages/admin/Dashboard';
 import Reservas from './pages/admin/Reservas';
 import Cupons from './pages/admin/Cupons';
 import Jornada from './pages/admin/Jornada';
+import EventosAdmin from './pages/admin/Eventos';
+import Relatorios from './pages/admin/Relatorios';
 
 // Proteção de rotas
 const ProtectedRoute = ({ children, roles }: { children: React.ReactNode, roles?: string[] }) => {
@@ -83,6 +85,16 @@ function AppRoutes() {
         <Route index element={<Dashboard />} />
         <Route path="reservas" element={<Reservas />} />
         <Route path="jornada" element={<Jornada />} />
+        <Route path="eventos" element={
+          <ProtectedRoute roles={['admin']}>
+            <EventosAdmin />
+          </ProtectedRoute>
+        } />
+        <Route path="relatorios" element={
+          <ProtectedRoute roles={['admin']}>
+            <Relatorios />
+          </ProtectedRoute>
+        } />
         <Route path="cupons" element={
           <ProtectedRoute roles={['admin']}>
             <Cupons />

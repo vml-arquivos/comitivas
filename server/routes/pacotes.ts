@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 import { PacoteService, ConfiguracaoPacote } from "../services/pacoteService.js";
 import { db } from "../db/index.js";
-import { lotes, itens_addon } from "../db/schema.js";
+import { lotes, itens_addon, reservas } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 
 const router = Router();
@@ -83,13 +83,10 @@ router.get("/minhas-reservas", authMiddleware, async (req: Request, res: Respons
       return res.status(401).json({ erro: "Não autenticado" });
     }
 
-    const { db } = await import("../db/index.js");
-    const { reservas } = await import("../db/schema.js");
-
     const minhasReservas = await db
       .select()
       .from(reservas)
-      .where(reservas.usuario_id === req.usuario.id);
+      .where(eq(reservas.usuario_id, req.usuario.id));
 
     res.json({
       total: minhasReservas.length,
@@ -109,13 +106,11 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
     }
 
     const { reserva_id } = req.params;
-    const { db } = await import("../db/index.js");
-    const { reservas } = await import("../db/schema.js");
 
     const reserva = await db
       .select()
       .from(reservas)
-      .where(reservas.id === reserva_id)
+      .where(eq(reservas.id, reserva_id))
       .limit(1);
 
     if (reserva.length === 0) {

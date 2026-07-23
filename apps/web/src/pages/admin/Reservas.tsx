@@ -7,6 +7,7 @@ export default function Reservas() {
   const [reservas, setReservas] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [acaoMsg, setAcaoMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchReservas = async () => {
@@ -38,6 +39,26 @@ export default function Reservas() {
     }
   };
 
+  const handleVerContrato = async (reservaId: string) => {
+    try {
+      const response = await api.get(`/contratos/download/${reservaId}`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+      window.open(url, '_blank');
+    } catch (err: any) {
+      alert(err.response?.data?.erro || 'Contrato ainda não disponível para esta reserva.');
+    }
+  };
+
+  const handleReenviarContrato = async (reservaId: string) => {
+    setAcaoMsg(null);
+    try {
+      await api.post(`/admin/reenviar-contrato/${reservaId}`);
+      setAcaoMsg('Contrato reenviado com sucesso.');
+    } catch (err: any) {
+      setAcaoMsg(err.response?.data?.erro || 'Erro ao reenviar contrato.');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -49,6 +70,10 @@ export default function Reservas() {
 
       {error && (
         <div className="bg-red-50 text-red-700 p-4 rounded-lg">{error}</div>
+      )}
+
+      {acaoMsg && (
+        <div className="bg-blue-50 text-blue-700 p-4 rounded-lg">{acaoMsg}</div>
       )}
 
       <Card>
@@ -80,10 +105,18 @@ export default function Reservas() {
                     </td>
                     <td className="px-6 py-4">R$ {reserva.valor_total}</td>
                     <td className="px-6 py-4 text-right space-x-2">
-                      <button className="text-gray-500 hover:text-primary transition-colors p-1" title="Visualizar">
+                      <button
+                        onClick={() => handleVerContrato(reserva.id)}
+                        className="text-gray-500 hover:text-primary transition-colors p-1"
+                        title="Ver/baixar contrato"
+                      >
                         <Eye size={18} />
                       </button>
-                      <button className="text-gray-500 hover:text-primary transition-colors p-1" title="Reenviar E-mail">
+                      <button
+                        onClick={() => handleReenviarContrato(reserva.id)}
+                        className="text-gray-500 hover:text-primary transition-colors p-1"
+                        title="Reenviar E-mail"
+                      >
                         <Mail size={18} />
                       </button>
                     </td>

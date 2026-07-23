@@ -4,7 +4,7 @@ import { RelatorioService } from "../services/relatorioService.js";
 import { EmailService } from "../services/emailService.js";
 import { db } from "../db/index.js";
 import { reservas, eventos, lotes, usuarios } from "../db/schema.js";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 
 const router = Router();
 
@@ -55,14 +55,27 @@ router.get("/reservas", async (req: Request, res: Response) => {
   try {
     const { evento_id, status, pagina = "1", limite = "20" } = req.query;
 
-    let query = db.select().from(reservas);
+    const condicoes = [];
 
     if (evento_id) {
-      query = query.where(eq(reservas.lote_id, evento_id as string));
+      // reservas não tem evento_id direto, só lote_id — buscar os lotes do evento primeiro
+      const lotesDoEvento = await db
+        .select()
+        .from(lotes)
+        .where(eq(lotes.evento_id, evento_id as string));
+      const loteIds = lotesDoEvento.map((l) => l.id);
+      condicoes.push(
+        loteIds.length > 0 ? inArray(reservas.lote_id, loteIds) : eq(reservas.id, "__nenhum__")
+      );
     }
 
     if (status) {
-      query = query.where(eq(reservas.status, status as string));
+      condicoes.push(eq(reservas.status, status as string));
+    }
+
+    let query = db.select().from(reservas);
+    if (condicoes.length > 0) {
+      query = query.where(and(...condicoes));
     }
 
     const offset = (parseInt(pagina as string) - 1) * parseInt(limite as string);
@@ -182,7 +195,7 @@ router.get("/exportar/reservas/:evento_id", async (req: Request, res: Response) 
     // Buscar reservas
     let query = db.select().from(reservas);
     if (loteIds.length > 0) {
-      query = query.where(reservas.lote_id.inArray(loteIds));
+      query = query.where(inArray(reservas.lote_id, loteIds));
     }
 
     const reservasResult = await query;

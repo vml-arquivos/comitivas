@@ -1,8 +1,7 @@
 import cron from 'node-cron';
 import { db } from '../db/index.js';
-import { reservas, emails_enviados } from '../db/schema.js';
-import { eq, lt, and, sql } from 'drizzle-orm';
-import { emailService } from './emailService.js';
+import { reservas, emails_enviados, usuarios } from '../db/schema.js';
+import { eq, lt, and } from 'drizzle-orm';
 
 interface FollowupConfig {
   etapa: string;
@@ -72,7 +71,7 @@ export class FollowupScheduler {
 
   private async checkEtapa(config: FollowupConfig) {
     try {
-      const horasAtras = new Date(Date.now() - config.horas_espera * 60 * 60 * 1000).toISOString();
+      const horasAtras = new Date(Date.now() - config.horas_espera * 60 * 60 * 1000);
 
       // Buscar reservas nessa etapa que não receberam follow-up recentemente
       const reservasParaFollowup = await db
@@ -111,25 +110,33 @@ export class FollowupScheduler {
 
   private async enviarFollowup(reserva: any, config: FollowupConfig) {
     try {
-      const usuario = reserva.usuario_id; // Aqui você buscaria os dados do usuário real
-      
+      const usuarioResult = await db
+        .select()
+        .from(usuarios)
+        .where(eq(usuarios.id, reserva.usuario_id))
+        .limit(1);
+
+      if (usuarioResult.length === 0) {
+        console.warn(`[FOLLOWUP] Usuário ${reserva.usuario_id} não encontrado, pulando follow-up`);
+        return;
+      }
+
+      const usuario = usuarioResult[0];
+
       // Construir conteúdo do e-mail baseado no template
       const corpoEmail = this.construirCorpoFollowup(config.template, reserva);
 
-      // Enviar e-mail (simulado aqui, em produção usar emailService real)
+      // Enviar e-mail (simulado aqui — integrar com EmailService/SMTP real quando configurado)
       console.log(`[FOLLOWUP] Enviando follow-up para reserva ${reserva.id} - etapa: ${config.etapa}`);
 
       // Registrar o envio
       await db.insert(emails_enviados).values({
-        id: `email-${Date.now()}`,
         reserva_id: reserva.id,
-        usuario_id: usuario,
         tipo: `followup_${config.etapa}`,
+        destinatario: usuario.email,
         assunto: config.assunto,
         corpo: corpoEmail,
-        status: 'enviado',
-        criado_em: new Date().toISOString(),
-        atualizado_em: new Date().toISOString()
+        enviado_em: new Date(),
       });
 
       console.log(`[FOLLOWUP] Follow-up registrado para reserva ${reserva.id}`);

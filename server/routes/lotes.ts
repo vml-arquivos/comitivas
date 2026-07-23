@@ -46,10 +46,21 @@ router.get("/:lote_id", async (req: Request, res: Response) => {
 // Criar lote (admin)
 router.post("/", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
   try {
-    const { evento_id, nome, vagas_totais, vagas_disponiveis, data_abertura, data_fechamento } = req.body;
+    const {
+      evento_id,
+      nome,
+      descricao,
+      vagas_totais,
+      vagas_disponiveis,
+      data_inicio,
+      data_fim,
+      valor_base,
+    } = req.body;
 
-    if (!evento_id || !nome || !vagas_totais) {
-      return res.status(400).json({ erro: "evento_id, nome e vagas_totais são obrigatórios" });
+    if (!evento_id || !nome || !vagas_totais || !data_inicio || !data_fim || valor_base === undefined) {
+      return res.status(400).json({
+        erro: "evento_id, nome, vagas_totais, data_inicio, data_fim e valor_base são obrigatórios",
+      });
     }
 
     // Verificar se evento existe
@@ -69,13 +80,15 @@ router.post("/", authMiddleware, requireRole("admin"), async (req: Request, res:
         id: `lote-${Date.now()}`,
         evento_id,
         nome,
+        descricao: descricao || "",
         vagas_totais: parseInt(vagas_totais),
-        vagas_disponiveis: parseInt(vagas_disponiveis || vagas_totais),
-        data_abertura: data_abertura ? new Date(data_abertura) : new Date(),
-        data_fechamento: data_fechamento ? new Date(data_fechamento) : null,
+        "vagas_disponíveis": parseInt(vagas_disponiveis ?? vagas_totais),
+        data_inicio: new Date(data_inicio),
+        data_fim: new Date(data_fim),
+        valor_base: valor_base.toString(),
         ativo: true,
-        criado_em: new Date().toISOString(),
-        atualizado_em: new Date().toISOString(),
+        criado_em: new Date(),
+        atualizado_em: new Date(),
       })
       .returning();
 
@@ -93,18 +106,29 @@ router.post("/", authMiddleware, requireRole("admin"), async (req: Request, res:
 router.put("/:lote_id", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
   try {
     const { lote_id } = req.params;
-    const { nome, vagas_totais, vagas_disponiveis, data_abertura, data_fechamento, ativo } = req.body;
+    const {
+      nome,
+      descricao,
+      vagas_totais,
+      vagas_disponiveis,
+      data_inicio,
+      data_fim,
+      valor_base,
+      ativo,
+    } = req.body;
 
     const loteAtualizado = await db
       .update(lotes)
       .set({
         nome: nome || undefined,
-        vagas_totais: vagas_totais ? parseInt(vagas_totais) : undefined,
-        vagas_disponiveis: vagas_disponiveis ? parseInt(vagas_disponiveis) : undefined,
-        data_abertura: data_abertura ? new Date(data_abertura) : undefined,
-        data_fechamento: data_fechamento ? new Date(data_fechamento) : undefined,
+        descricao: descricao !== undefined ? descricao : undefined,
+        vagas_totais: vagas_totais !== undefined ? parseInt(vagas_totais) : undefined,
+        "vagas_disponíveis": vagas_disponiveis !== undefined ? parseInt(vagas_disponiveis) : undefined,
+        data_inicio: data_inicio ? new Date(data_inicio) : undefined,
+        data_fim: data_fim ? new Date(data_fim) : undefined,
+        valor_base: valor_base !== undefined ? valor_base.toString() : undefined,
         ativo: ativo !== undefined ? ativo : undefined,
-        atualizado_em: new Date().toISOString(),
+        atualizado_em: new Date(),
       })
       .where(eq(lotes.id, lote_id))
       .returning();

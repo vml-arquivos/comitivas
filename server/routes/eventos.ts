@@ -41,7 +41,7 @@ router.get("/:evento_id", async (req: Request, res: Response) => {
 // Criar evento (admin)
 router.post("/", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
   try {
-    const { nome, descricao, data_inicio, data_fim, local, valor_base } = req.body;
+    const { nome, descricao, data_inicio, data_fim, local } = req.body;
 
     if (!nome || !data_inicio || !data_fim) {
       return res.status(400).json({ erro: "Nome, data_inicio e data_fim são obrigatórios" });
@@ -56,10 +56,9 @@ router.post("/", authMiddleware, requireRole("admin"), async (req: Request, res:
         data_inicio: new Date(data_inicio),
         data_fim: new Date(data_fim),
         local: local || "",
-        valor_base: valor_base ? valor_base.toString() : "0",
         ativo: true,
-        criado_em: new Date().toISOString(),
-        atualizado_em: new Date().toISOString(),
+        criado_em: new Date(),
+        atualizado_em: new Date(),
       })
       .returning();
 
@@ -77,7 +76,7 @@ router.post("/", authMiddleware, requireRole("admin"), async (req: Request, res:
 router.put("/:evento_id", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
   try {
     const { evento_id } = req.params;
-    const { nome, descricao, data_inicio, data_fim, local, valor_base, ativo } = req.body;
+    const { nome, descricao, data_inicio, data_fim, local, ativo } = req.body;
 
     const eventoAtualizado = await db
       .update(eventos)
@@ -87,9 +86,8 @@ router.put("/:evento_id", authMiddleware, requireRole("admin"), async (req: Requ
         data_inicio: data_inicio ? new Date(data_inicio) : undefined,
         data_fim: data_fim ? new Date(data_fim) : undefined,
         local: local !== undefined ? local : undefined,
-        valor_base: valor_base !== undefined ? valor_base.toString() : undefined,
         ativo: ativo !== undefined ? ativo : undefined,
-        atualizado_em: new Date().toISOString(),
+        atualizado_em: new Date(),
       })
       .where(eq(eventos.id, evento_id))
       .returning();

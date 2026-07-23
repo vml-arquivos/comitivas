@@ -7,7 +7,9 @@ import {
   Ticket, 
   Users, 
   LogOut,
-  ArrowLeft
+  ArrowLeft,
+  PartyPopper,
+  BarChart3
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import iconUrl from '../assets/brand/icon.svg';
@@ -24,9 +26,11 @@ export function AdminLayout() {
 
   const navItems = [
     { name: 'Dashboard', path: '/admin', icon: LayoutDashboard, roles: ['admin', 'vendedor'] },
+    { name: 'Eventos & Lotes', path: '/admin/eventos', icon: PartyPopper, roles: ['admin'] },
     { name: 'Reservas', path: '/admin/reservas', icon: CalendarDays, roles: ['admin', 'vendedor'] },
     { name: 'Jornada (CRM)', path: '/admin/jornada', icon: Users, roles: ['admin', 'vendedor'] },
     { name: 'Cupons', path: '/admin/cupons', icon: Ticket, roles: ['admin'] },
+    { name: 'Relatórios', path: '/admin/relatorios', icon: BarChart3, roles: ['admin'] },
   ];
 
   return (

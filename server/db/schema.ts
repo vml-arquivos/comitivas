@@ -32,7 +32,7 @@ export const usuarioTipoEnum = pgEnum("usuario_tipo", [
 // Tabelas
 
 export const usuarios = pgTable("usuarios", {
-  id: uuid("id").primaryKey().default(() => createId()),
+  id: uuid("id").primaryKey().$defaultFn(() => createId()),
   nome: varchar("nome", { length: 255 }).notNull(),
   email: varchar("email", { length: 255 }).notNull().unique(),
   cpf: varchar("cpf", { length: 14 }).unique(),
@@ -48,7 +48,7 @@ export const usuarios = pgTable("usuarios", {
 }));
 
 export const eventos = pgTable("eventos", {
-  id: uuid("id").primaryKey().default(() => createId()),
+  id: uuid("id").primaryKey().$defaultFn(() => createId()),
   nome: varchar("nome", { length: 255 }).notNull(),
   descricao: text("descricao"),
   data_inicio: timestamp("data_inicio").notNull(),
@@ -62,7 +62,7 @@ export const eventos = pgTable("eventos", {
 }));
 
 export const lotes = pgTable("lotes", {
-  id: uuid("id").primaryKey().default(() => createId()),
+  id: uuid("id").primaryKey().$defaultFn(() => createId()),
   evento_id: uuid("evento_id").notNull().references(() => eventos.id),
   nome: varchar("nome", { length: 255 }).notNull(),
   descricao: text("descricao"),
@@ -79,7 +79,7 @@ export const lotes = pgTable("lotes", {
 }));
 
 export const pacotes = pgTable("pacotes", {
-  id: uuid("id").primaryKey().default(() => createId()),
+  id: uuid("id").primaryKey().$defaultFn(() => createId()),
   lote_id: uuid("lote_id").notNull().references(() => lotes.id),
   nome: varchar("nome", { length: 255 }).notNull(),
   descricao: text("descricao"),
@@ -93,7 +93,7 @@ export const pacotes = pgTable("pacotes", {
 }));
 
 export const itens_addon = pgTable("itens_addon", {
-  id: uuid("id").primaryKey().default(() => createId()),
+  id: uuid("id").primaryKey().$defaultFn(() => createId()),
   lote_id: uuid("lote_id").notNull().references(() => lotes.id),
   nome: varchar("nome", { length: 255 }).notNull(),
   descricao: text("descricao"),
@@ -106,7 +106,7 @@ export const itens_addon = pgTable("itens_addon", {
 }));
 
 export const cupons = pgTable("cupons", {
-  id: uuid("id").primaryKey().default(() => createId()),
+  id: uuid("id").primaryKey().$defaultFn(() => createId()),
   evento_id: uuid("evento_id").notNull().references(() => eventos.id),
   codigo: varchar("codigo", { length: 50 }).notNull().unique(),
   desconto_percentual: decimal("desconto_percentual", { precision: 5, scale: 2 }),
@@ -122,7 +122,7 @@ export const cupons = pgTable("cupons", {
 }));
 
 export const reservas = pgTable("reservas", {
-  id: uuid("id").primaryKey().default(() => createId()),
+  id: uuid("id").primaryKey().$defaultFn(() => createId()),
   usuario_id: uuid("usuario_id").notNull().references(() => usuarios.id),
   lote_id: uuid("lote_id").notNull().references(() => lotes.id),
   status: reservaStatusEnum("status").default("visitante"),
@@ -142,7 +142,7 @@ export const reservas = pgTable("reservas", {
 }));
 
 export const pagamentos = pgTable("pagamentos", {
-  id: uuid("id").primaryKey().default(() => createId()),
+  id: uuid("id").primaryKey().$defaultFn(() => createId()),
   reserva_id: uuid("reserva_id").notNull().references(() => reservas.id),
   status: pagamentoStatusEnum("status").default("pendente"),
   valor: decimal("valor", { precision: 12, scale: 2 }).notNull(),
@@ -157,7 +157,7 @@ export const pagamentos = pgTable("pagamentos", {
 }));
 
 export const emails_enviados = pgTable("emails_enviados", {
-  id: uuid("id").primaryKey().default(() => createId()),
+  id: uuid("id").primaryKey().$defaultFn(() => createId()),
   reserva_id: uuid("reserva_id").notNull().references(() => reservas.id),
   tipo: varchar("tipo", { length: 50 }).notNull(), // confirmacao, contrato, reenvio
   destinatario: varchar("destinatario", { length: 255 }).notNull(),
@@ -172,7 +172,7 @@ export const emails_enviados = pgTable("emails_enviados", {
 }));
 
 export const leads_origem = pgTable("leads_origem", {
-  id: uuid("id").primaryKey().default(() => createId()),
+  id: uuid("id").primaryKey().$defaultFn(() => createId()),
   codigo_origem: varchar("codigo_origem", { length: 100 }).notNull(),
   vendedor_id: uuid("vendedor_id").references(() => usuarios.id),
   usuario_id: uuid("usuario_id").references(() => usuarios.id),
@@ -224,7 +224,7 @@ export const leadsRelations = relations(leads_origem, ({ one }) => ({
 // Tabelas para área pública premium
 
 export const fotos_evento = pgTable("fotos_evento", {
-  id: uuid("id").primaryKey().default(() => createId()),
+  id: uuid("id").primaryKey().$defaultFn(() => createId()),
   evento_id: varchar("evento_id", { length: 255 }).notNull().references(() => eventos.id),
   url_foto: varchar("url_foto", { length: 500 }).notNull(),
   legenda: varchar("legenda", { length: 500 }),
@@ -235,7 +235,7 @@ export const fotos_evento = pgTable("fotos_evento", {
 }));
 
 export const avaliacoes = pgTable("avaliacoes", {
-  id: uuid("id").primaryKey().default(() => createId()),
+  id: uuid("id").primaryKey().$defaultFn(() => createId()),
   evento_id: varchar("evento_id", { length: 255 }).notNull().references(() => eventos.id),
   usuario_id: uuid("usuario_id").notNull().references(() => usuarios.id),
   reserva_id: varchar("reserva_id", { length: 255 }).notNull().references(() => reservas.id),
