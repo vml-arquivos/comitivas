@@ -40,7 +40,10 @@ function AppRoutes() {
     <Routes>
       {/* Rotas Públicas */}
       <Route element={<MainLayout />}>
-        <Route path="/" element={<Eventos />} />
+        <Route path="/" element={<Home />} />
+        <Route path="/historia" element={<Historia />} />
+        <Route path="/avaliacoes" element={<AvaliacoesPublicas />} />
+        <Route path="/eventos" element={<Eventos />} />
         <Route path="/login" element={<Login />} />
         <Route path="/cadastro" element={<Cadastro />} />
         

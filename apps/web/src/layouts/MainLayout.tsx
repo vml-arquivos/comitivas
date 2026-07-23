@@ -19,11 +19,17 @@ export function MainLayout() {
           <div className="flex justify-between h-16 items-center">
             <Link to="/" className="flex items-center gap-2">
               <div className="bg-white rounded-full p-1">
-                <img src="/src/assets/brand/icon.svg" alt="Comitiva" className="h-8 w-8" />
+                <img src="/src/assets/brand/icon.svg" alt="Comitiva Prime" className="h-8 w-8" />
               </div>
-              <span className="font-bold text-xl tracking-tight">Comitiva</span>
+              <span className="font-bold text-xl tracking-tight">Comitiva Prime</span>
             </Link>
             
+            <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
+              <Link to="/eventos" className="hover:text-accent transition-colors">Excursões</Link>
+              <Link to="/historia" className="hover:text-accent transition-colors">Nossa História</Link>
+              <Link to="/avaliacoes" className="hover:text-accent transition-colors">Avaliações</Link>
+            </nav>
+
             <nav className="flex items-center gap-4">
               {user ? (
                 <div className="flex items-center gap-4">
