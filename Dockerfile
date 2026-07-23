@@ -6,8 +6,8 @@ WORKDIR /app
 # Copiar package.json
 COPY package*.json ./
 
-# Instalar dependências
-RUN npm ci
+# Instalar dependências com timeout aumentado
+RUN npm ci --audit=false --fund=false --prefer-offline --no-audit
 
 # Copiar código
 COPY . .
@@ -22,7 +22,7 @@ WORKDIR /app
 
 # Instalar apenas dependências de produção
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm ci --only=production --audit=false --fund=false --prefer-offline --no-audit
 
 # Copiar build do stage anterior
 COPY --from=builder /app/dist ./dist
