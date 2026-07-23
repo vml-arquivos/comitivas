@@ -12,9 +12,8 @@ export default function Jornada() {
     try {
       const response = await api.post('/jornada/gerar-link', { evento_id: 'lote-123' });
       setLink(response.data.url_rastreio);
-    } catch (err) {
-      // Mock para teste
-      setLink('http://localhost:5173/?ref=vend-123-abc');
+    } catch (err: any) {
+      setError(err.response?.data?.erro || 'Erro ao gerar link. Tente novamente.');
     } finally {
       setIsLoading(false);
     }

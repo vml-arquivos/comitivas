@@ -12,16 +12,8 @@ export default function Dashboard() {
       try {
         const response = await api.get('/admin/dashboard');
         setData(response.data.resumo);
-      } catch (err) {
-        console.error(err);
-        // Mock
-        setData({
-          total_eventos: 2,
-          total_reservas: 45,
-          reservas_confirmadas: 32,
-          reservas_pendentes: 8,
-          taxa_conversao: 71.11
-        });
+      } catch (err: any) {
+        setError(err.response?.data?.erro || 'Erro ao carregar dashboard. Tente novamente.');
       } finally {
         setIsLoading(false);
       }

@@ -13,18 +13,8 @@ export default function MinhasReservas() {
       try {
         const response = await api.get('/pacotes/minhas-reservas');
         setReservas(response.data.reservas || []);
-      } catch (err) {
-        console.error(err);
-        // Mock para teste
-        setReservas([
-          {
-            id: 'mock-1',
-            status: 'cliente_confirmado',
-            valor_total: '1850.00',
-            criado_em: new Date().toISOString(),
-            lote_id: 'lote-123'
-          }
-        ]);
+      } catch (err: any) {
+        setError(err.response?.data?.erro || 'Erro ao carregar reservas. Tente novamente.');
       } finally {
         setIsLoading(false);
       }

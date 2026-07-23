@@ -12,13 +12,8 @@ export default function Reservas() {
       try {
         const response = await api.get('/admin/reservas');
         setReservas(response.data.reservas || []);
-      } catch (err) {
-        console.error(err);
-        // Mock
-        setReservas([
-          { id: '1', usuario_id: 'user-1', status: 'cliente_confirmado', valor_total: '1850.00', criado_em: new Date().toISOString() },
-          { id: '2', usuario_id: 'user-2', status: 'aguardando_pagamento', valor_total: '1500.00', criado_em: new Date().toISOString() }
-        ]);
+      } catch (err: any) {
+        setError(err.response?.data?.erro || 'Erro ao carregar reservas. Tente novamente.');
       } finally {
         setIsLoading(false);
       }

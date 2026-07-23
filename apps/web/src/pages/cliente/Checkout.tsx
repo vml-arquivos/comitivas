@@ -21,15 +21,8 @@ export default function Checkout() {
       try {
         const response = await api.get(`/pacotes/reservas/${reservaId}`);
         setReserva(response.data);
-      } catch (err) {
-        console.error(err);
-        // Fallback mock para teste
-        setReserva({
-          id: reservaId,
-          status: 'pacote_montado',
-          valor_total: 1850.00,
-          itens_selecionados: JSON.stringify([{nome: 'Translado VIP', valor: 350}])
-        });
+      } catch (err: any) {
+        setError(err.response?.data?.erro || 'Erro ao carregar reserva. Tente novamente.');
       } finally {
         setIsLoading(false);
       }
