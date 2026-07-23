@@ -20,24 +20,10 @@ export default function ConfiguradorPacote() {
     const fetchItens = async () => {
       try {
         const response = await api.get(`/pacotes/lotes/${loteId}/itens`);
-        setItensDisponiveis(response.data.itens);
-        
-        // Se a API não retornar nada (por ex, lote não existe), usar dados mockados para o teste E2E
-        if (!response.data.itens || response.data.itens.length === 0) {
-          setItensDisponiveis([
-            { id: '1', nome: 'Translado VIP', descricao: 'Ônibus leito com open bar', valor: 350.00, tipo: 'translado' },
-            { id: '2', nome: 'Camarote Brahma', descricao: 'Acesso todos os dias', valor: 1200.00, tipo: 'camarote' },
-            { id: '3', nome: 'Hospedagem', descricao: 'Hotel 4 estrelas (4 diárias)', valor: 850.00, tipo: 'hospedagem' }
-          ]);
-        }
-      } catch (err) {
-        console.error(err);
-        // Fallback para o teste E2E
-        setItensDisponiveis([
-          { id: '1', nome: 'Translado VIP', descricao: 'Ônibus leito com open bar', valor: 350.00, tipo: 'translado' },
-          { id: '2', nome: 'Camarote Brahma', descricao: 'Acesso todos os dias', valor: 1200.00, tipo: 'camarote' },
-          { id: '3', nome: 'Hospedagem', descricao: 'Hotel 4 estrelas (4 diárias)', valor: 850.00, tipo: 'hospedagem' }
-        ]);
+        setItensDisponiveis(response.data.itens || []);
+      } catch (err: any) {
+        setError(err.response?.data?.erro || 'Erro ao carregar itens. Tente novamente.');
+        setItensDisponiveis([]);
       } finally {
         setIsLoading(false);
       }
