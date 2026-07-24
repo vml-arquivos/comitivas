@@ -45,7 +45,7 @@ export default function Historia() {
       <div className="bg-secondary py-20 text-center px-4">
         <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">Excursões Realizadas</h1>
         <p className="text-xl text-gray-300 max-w-2xl mx-auto">
-          Mais de 10 anos colecionando momentos inesquecíveis. Veja por onde a Comitiva Prime já passou.
+          Raízes de quase 18 anos de estrada. Veja por onde a Excursão das Comitivas já passou desde 2015.
         </p>
       </div>
 

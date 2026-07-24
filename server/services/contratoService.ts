@@ -1,7 +1,7 @@
 import { generateBrandedPdfBuffer } from "../../packages/contract-engine/brandedPdfLayout.js";
 import { CONTRATADA_DADOS } from "../../packages/contract-engine/letterhead.js";
 import { db } from "../db/index.js";
-import { reservas, usuarios, lotes, eventos } from "../db/schema.js";
+import { reservas, usuarios, lotes, eventos, pacotes } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import fs from "fs/promises";
 import path from "path";
@@ -79,247 +79,173 @@ export class ContratoService {
         year: "numeric",
       });
 
-      // Gerar HTML do contrato
+      // Modalidade de hospedagem do pacote contratado, usada para marcar
+      // a cláusula correta (camping / quarto com ventilador / quarto com ar)
+      const pacoteResult = await db
+        .select()
+        .from(pacotes)
+        .where(eq(pacotes.lote_id, lote.id))
+        .limit(1);
+      const modalidade = pacoteResult[0]?.modalidade_hospedagem || "quarto_ventilador";
+      const marcarCamping = modalidade === "camping" ? "(x)" : "()";
+      const marcarVentilador = modalidade === "quarto_ventilador" ? "(x)" : "()";
+      const marcarArCondicionado = modalidade === "quarto_ar_condicionado" ? "(x)" : "()";
+
+      const dataIdaFormatada = new Date(evento.data_inicio).toLocaleDateString("pt-BR");
+      const dataVoltaFormatada = new Date(evento.data_fim).toLocaleDateString("pt-BR");
+
+      // Gerar HTML do contrato — cláusulas do Contrato de Pacote de Viagem
+      // Excursão das Comitivas (mesma base legal usada para os 3 modelos de
+      // pacote: camping, quarto com ventilador e quarto com ar condicionado)
       const html = `
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Contrato de Reserva - ${evento.nome}</title>
+  <title>Contrato de Pacote de Viagem - ${evento.nome}</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      line-height: 1.6;
-      color: #333;
-      margin: 0;
-      padding: 0;
-    }
-    .container {
-      max-width: 800px;
-      margin: 0 auto;
-      padding: 20px;
-    }
-    .header {
-      text-align: center;
-      margin-bottom: 30px;
-      border-bottom: 2px solid #1D3557;
-      padding-bottom: 20px;
-    }
-    .header h1 {
-      margin: 0;
-      color: #E63946;
-      font-size: 24px;
-    }
-    .header p {
-      margin: 5px 0;
-      color: #666;
-      font-size: 12px;
-    }
-    .section {
-      margin-bottom: 25px;
-    }
-    .section-title {
-      background-color: #1D3557;
-      color: white;
-      padding: 10px 15px;
-      margin-bottom: 15px;
-      font-weight: bold;
-      font-size: 14px;
-    }
-    .field {
-      display: flex;
-      margin-bottom: 12px;
-      font-size: 13px;
-    }
-    .field-label {
-      font-weight: bold;
-      width: 180px;
-      color: #1D3557;
-    }
-    .field-value {
-      flex: 1;
-      border-bottom: 1px dotted #ccc;
-      padding-left: 10px;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-bottom: 15px;
-      font-size: 12px;
-    }
-    table th {
-      background-color: #E63946;
-      color: white;
-      padding: 8px;
-      text-align: left;
-      font-weight: bold;
-    }
-    table td {
-      padding: 8px;
-      border-bottom: 1px solid #ddd;
-    }
-    table tr:nth-child(even) {
-      background-color: #f9f9f9;
-    }
-    .total-row {
-      font-weight: bold;
-      background-color: #f0f0f0;
-      font-size: 14px;
-    }
-    .signature-section {
-      margin-top: 40px;
-      display: flex;
-      justify-content: space-between;
-    }
-    .signature {
-      width: 45%;
-      text-align: center;
-      border-top: 1px solid #333;
-      padding-top: 40px;
-      font-size: 12px;
-    }
-    .footer {
-      text-align: center;
-      font-size: 10px;
-      color: #999;
-      margin-top: 40px;
-      padding-top: 20px;
-      border-top: 1px solid #ddd;
-    }
-    .terms {
-      font-size: 11px;
-      line-height: 1.8;
-      margin-top: 20px;
-      padding: 15px;
-      background-color: #f5f5f5;
-      border-left: 3px solid #E63946;
-    }
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #222; margin: 0; padding: 0; font-size: 12px; }
+    .container { max-width: 800px; margin: 0 auto; padding: 20px; }
+    h1 { text-align: center; font-size: 16px; color: #1D3557; }
+    .clausula-titulo { font-weight: bold; color: #1D3557; margin-top: 16px; }
+    .campo-assinatura { margin-top: 50px; display: flex; justify-content: space-between; }
+    .assinatura { width: 45%; text-align: center; border-top: 1px solid #333; padding-top: 8px; }
+    table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+    table th, table td { border: 1px solid #999; padding: 6px; font-size: 11px; }
+    .footer { text-align: center; font-size: 9px; color: #999; margin-top: 30px; border-top: 1px solid #ddd; padding-top: 10px; }
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="header">
-      <h1>CONTRATO DE RESERVA DE PACOTE</h1>
-      <p>Comitiva - Excursões e Eventos</p>
-      <p>Data: ${dataFormatada}</p>
-    </div>
+    <h1>CONTRATO DE PACOTE DE VIAGEM - EXCURSÃO DAS COMITIVAS</h1>
+    <p>As partes qualificadas neste instrumento celebram, pelo presente, contrato para a prestação de
+    serviços de pacote turístico de viagem terrestre nacional, no valor total de
+    <strong>R$ ${Number(reserva.valor_total).toFixed(2)}</strong>.</p>
 
-    <div class="section">
-      <div class="section-title">DADOS DO CONTRATANTE (CLIENTE)</div>
-      <div class="field">
-        <span class="field-label">Nome:</span>
-        <span class="field-value">${usuario.nome}</span>
-      </div>
-      <div class="field">
-        <span class="field-label">CPF:</span>
-        <span class="field-value">${usuario.cpf || "Não informado"}</span>
-      </div>
-      <div class="field">
-        <span class="field-label">Email:</span>
-        <span class="field-value">${usuario.email}</span>
-      </div>
-      <div class="field">
-        <span class="field-label">Telefone:</span>
-        <span class="field-value">${usuario.telefone || "Não informado"}</span>
-      </div>
-    </div>
+    <p><strong>Contratada:</strong> ${CONTRATADA_DADOS.razao_social}, empresa inscrita no CNPJ
+    ${CONTRATADA_DADOS.cnpj}, com sede na ${CONTRATADA_DADOS.endereco_sede}, e-mail:
+    ${CONTRATADA_DADOS.email}</p>
 
-    <div class="section">
-      <div class="section-title">DADOS DA CONTRATADA</div>
-      <div class="field">
-        <span class="field-label">Razão Social:</span>
-        <span class="field-value">${CONTRATADA_DADOS.razao_social}</span>
-      </div>
-      <div class="field">
-        <span class="field-label">CNPJ:</span>
-        <span class="field-value">${CONTRATADA_DADOS.cnpj}</span>
-      </div>
-      <div class="field">
-        <span class="field-label">Endereço:</span>
-        <span class="field-value">${CONTRATADA_DADOS.endereco_sede}</span>
-      </div>
-    </div>
+    <p><strong>Contratante:</strong> ${usuario.nome}, ${usuario.nacionalidade || "Brasileira"},
+    ${usuario.estado_civil || "________"}, ${usuario.profissao || "________"},
+    ${usuario.data_nascimento ? "nascido(a) em " + new Date(usuario.data_nascimento).toLocaleDateString("pt-BR") : ""},
+    portador(a) do RG nº ${usuario.rg || "________"} e CPF ${usuario.cpf || "________"},
+    residente em ${usuario.endereco || "________"}, telefone: ${usuario.telefone || "________"},
+    e-mail: ${usuario.email}, têm entre si, justo e contratados, o que mutuamente outorgam,
+    aceitam e assinam, convencionados pelas cláusulas, termos e condições a seguir devidamente enumeradas.</p>
 
-    <div class="section">
-      <div class="section-title">INFORMAÇÕES DO EVENTO</div>
-      <div class="field">
-        <span class="field-label">Evento:</span>
-        <span class="field-value">${evento.nome}</span>
-      </div>
-      <div class="field">
-        <span class="field-label">Lote:</span>
-        <span class="field-value">${lote.nome}</span>
-      </div>
-      <div class="field">
-        <span class="field-label">Local:</span>
-        <span class="field-value">${evento.local}</span>
-      </div>
-      <div class="field">
-        <span class="field-label">Data do Evento:</span>
-        <span class="field-value">${new Date(evento.data_inicio).toLocaleDateString("pt-BR")} a ${new Date(evento.data_fim).toLocaleDateString("pt-BR")}</span>
-      </div>
-    </div>
+    <p class="clausula-titulo">CLÁUSULA PRIMEIRA – DO OBJETO DO CONTRATO</p>
+    <p>1.1 Contratação de excursão com destino a ${evento.local || evento.nome} de
+    ${dataIdaFormatada} a ${dataVoltaFormatada}.<br>
+    1.2 É de responsabilidade do contratante a leitura do contrato.</p>
 
-    <div class="section">
-      <div class="section-title">ITENS SELECIONADOS</div>
-      <table>
-        <thead>
-          <tr>
-            <th>Descrição</th>
-            <th style="text-align: right; width: 80px;">Quantidade</th>
-            <th style="text-align: right; width: 100px;">Valor Unitário</th>
-            <th style="text-align: right; width: 100px;">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${itens.map((item: any) => {
-            const total = (item.valor * item.quantidade).toFixed(2);
-            return `
-            <tr>
-              <td>${item.nome}</td>
-              <td style="text-align: right;">${item.quantidade}</td>
-              <td style="text-align: right;">R$ ${item.valor.toFixed(2)}</td>
-              <td style="text-align: right;">R$ ${total}</td>
-            </tr>
-            `;
-          }).join("")}
-          <tr class="total-row">
-            <td colspan="3" style="text-align: right;">VALOR TOTAL:</td>
-            <td style="text-align: right;">R$ ${reserva.valor_total}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <p class="clausula-titulo">CLÁUSULA SEGUNDA – DADOS DA VIAGEM</p>
+    <p>2.1 IDA: destino ${lote.nome} — data prevista ${dataIdaFormatada}.<br>
+    2.2 VOLTA: retorno com data prevista ${dataVoltaFormatada}.<br>
+    Observações: poderá haver ajustes nos horários se houver necessidade. A distribuição dos assentos
+    será realizada pelos responsáveis da excursão na hora do embarque.</p>
 
-    <div class="section">
-      <div class="terms">
-        <strong>TERMOS E CONDIÇÕES:</strong>
-        <p>1. O cliente confirma a recepção deste contrato e concorda com os termos e condições de reserva.</p>
-        <p>2. O pagamento deve ser realizado conforme as instruções fornecidas no e-mail de confirmação.</p>
-        <p>3. Cancelamentos devem ser solicitados com no mínimo 30 dias de antecedência.</p>
-        <p>4. Este contrato é válido apenas com a assinatura digital do cliente.</p>
-        <p>5. Para dúvidas, entre em contato através do email ou telefone fornecido.</p>
-      </div>
-    </div>
+    <p class="clausula-titulo">CLÁUSULA TERCEIRA – DA HOSPEDAGEM</p>
+    <p>3.1 A hospedagem será em chácara ou camping previamente contratados.<br>
+    3.2 Se houver necessidade de mudança de local, a Contratada poderá substituir por outro de padrão
+    equivalente ou a sua escolha.<br>
+    3.3 Modalidade de hospedagem contratada:
+    ${marcarCamping} CAMPING &nbsp;&nbsp; ${marcarVentilador} QUARTO COM VENTILADOR &nbsp;&nbsp;
+    ${marcarArCondicionado} QUARTO COM AR CONDICIONADO.</p>
 
-    <div class="signature-section">
-      <div class="signature">
-        <strong>Cliente</strong><br>
-        ${usuario.nome}<br>
-        CPF: ${usuario.cpf || "_______________"}
-      </div>
-      <div class="signature">
-        <strong>Comitiva</strong><br>
-        ${CONTRATADA_DADOS.representante}<br>
-        ${CONTRATADA_DADOS.cargo_representante}
-      </div>
+    <p class="clausula-titulo">CLÁUSULA QUARTA - SERVIÇOS INCLUSOS NO PACOTE</p>
+    <table>
+      <thead><tr><th>Item</th><th>Qtd</th><th>Valor Unit.</th><th>Total</th></tr></thead>
+      <tbody>
+        ${itens.map((item: any) => `<tr><td>${item.nome}</td><td>${item.quantidade}</td>
+          <td>R$ ${Number(item.valor).toFixed(2)}</td>
+          <td>R$ ${(item.valor * item.quantidade).toFixed(2)}</td></tr>`).join("")}
+        <tr><td colspan="3" style="text-align:right;"><strong>VALOR TOTAL</strong></td>
+          <td><strong>R$ ${Number(reserva.valor_total).toFixed(2)}</strong></td></tr>
+      </tbody>
+    </table>
+
+    <p class="clausula-titulo">CLÁUSULA QUINTA - FORMAS DE PAGAMENTO</p>
+    <p>5.1 Via PIX com desconto de 5% para pagamento à vista — chave: ${CONTRATADA_DADOS.pix_chave}
+    / Banco: ${CONTRATADA_DADOS.pix_banco}.<br>
+    5.2 Parcelamento no boleto bancário sem juros: o número de parcelas disponíveis é decrescente
+    conforme a proximidade do evento, respeitada a quitação total até a data do evento.<br>
+    5.3 Parcelamento no cartão de crédito em até 10 vezes, com as taxas da operadora do cartão.</p>
+
+    <p class="clausula-titulo">CLÁUSULA SEXTA – DO ATRASO NO PAGAMENTO DOS BOLETOS</p>
+    <p>6.1 Em caso de atraso, incidirá multa de 2% sobre o valor da parcela, juros de 1% e correção
+    monetária pelo IPCA.</p>
+
+    <p class="clausula-titulo">CLÁUSULA SÉTIMA – DO VALOR E VENCIMENTO DAS PARCELAS</p>
+    <p>Conforme condições de pagamento acordadas no momento da reserva, refletidas no valor total acima.</p>
+
+    <p class="clausula-titulo">CLÁUSULA OITAVA - DO EMBARQUE E DESEMBARQUE</p>
+    <p>8.1 Embarque e desembarque no mesmo local de início da viagem.<br>
+    8.2 O passageiro só poderá embarcar se estiver na relação de autorização da ANTT, com documento
+    de identificação original ou cópia autenticada.<br>
+    8.3 O passageiro só poderá embarcar se estiver com o contrato quitado.</p>
+
+    <p class="clausula-titulo">CLÁUSULA NONA - DA RESPONSABILIDADE</p>
+    <p>O CONTRATANTE poderá desistir deste contrato em até 7 (sete) dias corridos da assinatura, com
+    devolução integral, conforme art. 49 do CDC, se a contratação ocorreu fora do estabelecimento
+    comercial. Após esse prazo, cancelamento por iniciativa do CONTRATANTE pode gerar multa de 30%
+    sobre o valor total do pacote, a título de despesas administrativas e operacionais.</p>
+
+    <p class="clausula-titulo">CLÁUSULA DÉCIMA – DOS DANOS</p>
+    <p>10.1 Danos causados pelo Contratante nas instalações do ônibus ou da chácara serão cobrados
+    conforme regras do fornecedor.</p>
+
+    <p class="clausula-titulo">CLÁUSULA DÉCIMA PRIMEIRA – DAS EXCLUSÕES</p>
+    <p>11.1 O pacote não inclui passeios opcionais e pessoais, lavanderia, telefonemas, refeições não
+    especificadas, ingressos para eventos/shows e serviços não listados neste contrato.</p>
+
+    <p class="clausula-titulo">CLÁUSULA DÉCIMA SEGUNDA – DA INSCRIÇÃO</p>
+    <p>12.1 A inscrição é confirmada mediante pagamento do sinal estipulado. Não são aceitos cheques.</p>
+
+    <p class="clausula-titulo">CLÁUSULA DÉCIMA TERCEIRA – DA INTERRUPÇÃO DA VIAGEM</p>
+    <p>13.1 Em caso de desistência durante a viagem por iniciativa do Contratante, não há devolução de
+    valores já pagos.</p>
+
+    <p class="clausula-titulo">CLÁUSULA DÉCIMA QUARTA – DAS DESPESAS NÃO PREVISTAS</p>
+    <p>14.1 Despesas pessoais ou hospedagens não incluídas no programa são de responsabilidade
+    exclusiva do Contratante.</p>
+
+    <p class="clausula-titulo">CLÁUSULA DÉCIMA QUINTA – DO NÚMERO MÍNIMO DE PASSAGEIROS</p>
+    <p>15.1 A saída do ônibus está condicionada ao mínimo de 35 passageiros; podendo ser feita em vans
+    (mín. 12) ou micro-ônibus (mín. 22) caso o número seja inferior.</p>
+
+    <p class="clausula-titulo">CLÁUSULA DÉCIMA SEXTA – DO DESLIGAMENTO</p>
+    <p>16.1 A Contratada poderá desligar da excursão qualquer passageiro que causar transtornos ou
+    desrespeitar as regras de convivência.</p>
+
+    <p class="clausula-titulo">CLÁUSULA DÉCIMA SÉTIMA – IMPORTANTE</p>
+    <p>17.1 O guia da excursão é a autoridade máxima durante a viagem.<br>
+    17.2 O itinerário poderá sofrer alterações devido a clima, trânsito ou questões técnicas.<br>
+    17.3 É proibido fumar ou usar entorpecentes no interior do veículo, sob pena de retirada do
+    passageiro.</p>
+
+    <p class="clausula-titulo">CLÁUSULA DE AUTORIZAÇÃO DE USO DE IMAGEM</p>
+    <p>O contratante autoriza, de forma gratuita, definitiva e irrevogável, o uso de sua imagem, voz e
+    nome, captados durante a excursão, para fins de divulgação, promoção e registro do evento, em
+    qualquer meio de comunicação. Caso não deseje autorizar, deverá manifestar-se expressamente por
+    escrito até a data de início da excursão.</p>
+
+    <p class="clausula-titulo">DO FORO</p>
+    <p>As partes elegem o foro da ${CONTRATADA_DADOS.foro}, renunciando a qualquer outro, para
+    eventuais controvérsias decorrentes deste contrato. Em sinal de concordância, assinam o presente
+    instrumento em duas vias de igual teor, na presença de duas testemunhas.</p>
+
+    <p>${(evento.local || "Brasília")}, ${dataFormatada}.</p>
+
+    <div class="campo-assinatura">
+      <div class="assinatura">CONTRATANTE<br>${usuario.nome}<br>CPF: ${usuario.cpf || "________"}</div>
+      <div class="assinatura">CONTRATADO<br>${CONTRATADA_DADOS.razao_social}<br>CNPJ: ${CONTRATADA_DADOS.cnpj}</div>
     </div>
 
     <div class="footer">
-      <p>Contrato gerado em ${dataFormatada} às ${dataAceite.toLocaleTimeString("pt-BR")}</p>
-      <p>IP de Aceite: ${dadosContrato.aceite_ip}</p>
-      <p>Reserva ID: ${dadosContrato.reserva_id}</p>
+      <p>Contrato gerado em ${dataFormatada} às ${dataAceite.toLocaleTimeString("pt-BR")} — Aceite digital
+      registrado com IP ${dadosContrato.aceite_ip} — Reserva ID: ${dadosContrato.reserva_id}</p>
     </div>
   </div>
 </body>

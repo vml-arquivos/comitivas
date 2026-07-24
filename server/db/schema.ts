@@ -39,6 +39,13 @@ export const usuarios = pgTable("usuarios", {
   telefone: varchar("telefone", { length: 20 }),
   senha_hash: varchar("senha_hash", { length: 255 }).notNull(),
   tipo: usuarioTipoEnum("tipo").default("cliente"),
+  // Dados adicionais exigidos pelo contrato de excursão
+  rg: varchar("rg", { length: 20 }),
+  data_nascimento: timestamp("data_nascimento"),
+  estado_civil: varchar("estado_civil", { length: 30 }),
+  profissao: varchar("profissao", { length: 100 }),
+  endereco: text("endereco"),
+  nacionalidade: varchar("nacionalidade", { length: 50 }).default("Brasileira"),
   ativo: boolean("ativo").default(true),
   criado_em: timestamp("criado_em").defaultNow().notNull(),
   atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
@@ -85,6 +92,9 @@ export const pacotes = pgTable("pacotes", {
   descricao: text("descricao"),
   valor_total: decimal("valor_total", { precision: 12, scale: 2 }).notNull(),
   itens_selecionados: jsonb("itens_selecionados").notNull(),
+  // Modalidade de hospedagem do pacote, usada para marcar a cláusula correta
+  // no contrato gerado: "camping" | "quarto_ventilador" | "quarto_ar_condicionado"
+  modalidade_hospedagem: varchar("modalidade_hospedagem", { length: 30 }).default("quarto_ventilador"),
   ativo: boolean("ativo").default(true),
   criado_em: timestamp("criado_em").defaultNow().notNull(),
   atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),

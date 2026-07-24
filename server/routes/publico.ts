@@ -1,9 +1,40 @@
 import { Router, Request, Response } from "express";
 import { db } from "../db/index.js";
-import { eventos, lotes, fotos_evento, avaliacoes } from "../db/schema.js";
-import { eq, and, gt, lt, desc } from "drizzle-orm";
+import { eventos, lotes, fotos_evento, avaliacoes, reservas } from "../db/schema.js";
+import { eq, and, gt, lt, desc, sql } from "drizzle-orm";
 
 const router = Router();
+
+// GET /api/publico/stats - Números reais para prova social da landing page
+router.get("/stats", async (req: Request, res: Response) => {
+  try {
+    const agora = new Date();
+
+    const [{ count: clientesConfirmados }] = await db
+      .select({ count: sql<number>`count(distinct ${reservas.usuario_id})` })
+      .from(reservas)
+      .where(eq(reservas.status, "cliente_confirmado"));
+
+    const [{ count: excursoesRealizadas }] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(eventos)
+      .where(lt(eventos.data_fim, agora));
+
+    const [{ media }] = await db
+      .select({ media: sql<number>`coalesce(avg(${avaliacoes.nota}), 0)` })
+      .from(avaliacoes)
+      .where(eq(avaliacoes.aprovado, true));
+
+    res.json({
+      clientesConfirmados: Number(clientesConfirmados) || 0,
+      excursoesRealizadas: Number(excursoesRealizadas) || 0,
+      notaMedia: media ? Number(Number(media).toFixed(1)) : null,
+    });
+  } catch (error: any) {
+    console.error("[PUBLICO] Erro ao calcular estatísticas:", error);
+    res.status(500).json({ erro: "Erro ao calcular estatísticas" });
+  }
+});
 
 // GET /api/publico/eventos-ativos - Eventos abertos para reserva
 router.get("/eventos-ativos", async (req: Request, res: Response) => {

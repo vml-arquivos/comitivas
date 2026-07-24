@@ -26,7 +26,12 @@ export default function Home() {
 
         // Na vida real, clientes confirmados viria de um endpoint de stats público
         // Aqui simulamos o número para a prova social, mas deve ser conectado à API real
-        setStats(prev => ({ ...prev, clientes: 5432 }));
+        const resStats = await api.get('/publico/stats');
+        setStats(prev => ({
+          ...prev,
+          clientes: resStats.data.clientesConfirmados ?? prev.clientes,
+          nota: resStats.data.notaMedia ?? prev.nota,
+        }));
       } catch (err) {
         console.error("Erro ao carregar dados públicos:", err);
       } finally {
@@ -50,14 +55,14 @@ export default function Home() {
         <div 
           className="absolute inset-0 bg-cover bg-center bg-no-repeat"
           style={{ 
-            backgroundImage: 'url("https://images.unsplash.com/photo-1540039155732-684736825700?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80")',
+            backgroundImage: 'url("/images/hero-parque-peao.jpg")',
           }}
         />
         <div className="absolute inset-0 bg-black/60" /> {/* Overlay escuro */}
 
         <div className="relative z-10 text-center px-4 max-w-5xl mx-auto mt-16">
           <span className="inline-block py-1 px-3 rounded-full bg-primary/20 text-primary border border-primary/30 text-sm font-semibold mb-6 backdrop-blur-sm">
-            10 ANOS DE TRADIÇÃO
+            DESDE 2015 • RAÍZES DE QUASE 18 ANOS DE ESTRADA
           </span>
           <h1 className="text-5xl md:text-7xl font-extrabold text-white mb-6 leading-tight">
             A Maior Experiência <br />do <span className="text-primary">Barretão</span>
@@ -158,13 +163,17 @@ export default function Home() {
       <section className="py-24 bg-white">
         <div className="max-w-7xl mx-auto px-4 flex flex-col lg:flex-row items-center gap-16">
           <div className="lg:w-1/2 space-y-6">
-            <h2 className="text-3xl md:text-4xl font-bold text-secondary">Nossa História: Mais de uma década de Barretão</h2>
+            <h2 className="text-3xl md:text-4xl font-bold text-secondary">Nossa História: Uma Paixão de Mais de Duas Décadas</h2>
             <div className="w-20 h-1 bg-primary rounded-full"></div>
             <p className="text-lg text-gray-600 leading-relaxed">
-              Desde 2016, nossa equipe transforma a viagem para a Festa do Peão de Barretos em uma experiência inesquecível. Não somos apenas uma agência de turismo, somos uma verdadeira comitiva de amigos apaixonados pelo sertanejo.
+              A Excursão das Comitivas nasceu do amor pela Festa do Peão de Barretos e pelo estilo de vida country. As raízes dessa
+              caravana remontam a quase 18 anos de estrada, e em 2015 o grupo se oficializou com a equipe atual, dando início a uma
+              nova fase — a mesma dedicação de sempre, agora com estrutura profissional.
             </p>
             <p className="text-lg text-gray-600 leading-relaxed">
-              Nossos fundadores começaram levando apenas uma van de conhecidos de Goiânia para o interior paulista. A energia foi tão boa que no ano seguinte fretamos nosso primeiro ônibus. Hoje, levamos dezenas de veículos com estrutura de camarote móvel.
+              Não somos apenas uma agência de turismo: somos uma comitiva de verdade, apaixonada pelo sertanejo e movida pela vontade
+              de compartilhar essa emoção com quem viaja com a gente. Ano após ano, aperfeiçoamos cada detalhe para entregar a melhor
+              experiência da Festa do Peão.
             </p>
             <p className="text-lg font-semibold text-secondary">
               Nossa missão é simples: você só se preocupa em curtir a festa. O resto é com a gente.
@@ -179,9 +188,9 @@ export default function Home() {
           </div>
           <div className="lg:w-1/2">
             <div className="relative rounded-2xl overflow-hidden shadow-2xl">
-              <img 
-                src="https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80" 
-                alt="Galera curtindo evento sertanejo" 
+              <img
+                src="/images/gallery/estatua-peao.jpg"
+                alt="Estátua do Peão, símbolo da Festa de Barretos"
                 className="w-full h-auto object-cover"
               />
               <div className="absolute inset-0 border-4 border-white/20 rounded-2xl"></div>

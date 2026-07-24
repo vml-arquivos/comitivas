@@ -6,12 +6,13 @@
 
 /** Dados fixos da CONTRATADA */
 export const CONTRATADA_DADOS = {
-  razao_social: 'DESTRAVA CREDITO LTDA',
-  cnpj: '35.427.182/0001-66',
-  endereco_sede: 'QD QND 25, LOTE 40, Taguatinga Norte – Brasília - DF, Cep: 72.120-250',
-  representante: 'FERNANDO ELI OLIVEIRA MARQUES',
-  cargo_representante: 'sócio administrador',
-  cpf_representante: '718.517.041-91',
+  razao_social: 'HENRIQUE SANTOS CUNHA',
+  cnpj: '39.763.571/0001-13',
+  endereco_sede: 'QR 502 Conjunto 20 – Samambaia Sul/DF, CEP 72.210-420',
+  email: 'excursaodascomitivas@gmail.com',
+  pix_chave: '43.580.053/0001-31',
+  pix_banco: 'CORA',
+  foro: 'Comarca de Brasília/DF',
 };
 
 /**
