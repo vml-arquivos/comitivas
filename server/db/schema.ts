@@ -135,6 +135,7 @@ export const reservas = pgTable("reservas", {
   id: uuid("id").primaryKey().$defaultFn(() => createId()),
   usuario_id: uuid("usuario_id").notNull().references(() => usuarios.id),
   lote_id: uuid("lote_id").notNull().references(() => lotes.id),
+  pacote_id: uuid("pacote_id").references(() => pacotes.id),
   status: reservaStatusEnum("status").default("visitante"),
   itens_selecionados: jsonb("itens_selecionados").notNull(),
   valor_total: decimal("valor_total", { precision: 12, scale: 2 }).notNull(),
@@ -148,6 +149,7 @@ export const reservas = pgTable("reservas", {
 }, (table) => ({
   usuarioIdx: index("reservas_usuario_id_idx").on(table.usuario_id),
   loteIdx: index("reservas_lote_id_idx").on(table.lote_id),
+  pacoteIdx: index("reservas_pacote_id_idx").on(table.pacote_id),
   statusIdx: index("reservas_status_idx").on(table.status),
 }));
 

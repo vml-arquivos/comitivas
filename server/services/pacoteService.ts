@@ -1,5 +1,5 @@
 import { db } from "../db/index.js";
-import { lotes, itens_addon, cupons, reservas } from "../db/schema.js";
+import { lotes, pacotes, itens_addon, cupons, reservas } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import Decimal from "decimal.js";
 
@@ -13,6 +13,7 @@ export interface ItemSelecionado {
 
 export interface ConfiguracaoPacote {
   lote_id: string;
+  pacote_id?: string;
   itens: ItemSelecionado[];
   cupom_codigo?: string;
 }
@@ -23,6 +24,9 @@ export interface ResultadoCalculo {
   subtotal: number;
   desconto_cupom: number;
   valor_total: number;
+  pacote_id?: string;
+  pacote_nome?: string;
+  modalidade_hospedagem?: string;
   cupom_id?: string;
   mensagem?: string;
 }
@@ -76,7 +80,23 @@ export class PacoteService {
       }
 
       const lote = loteResult[0];
-      const valorBase = new Decimal(lote.valor_base.toString());
+      let valorBase = new Decimal(lote.valor_base.toString());
+      let pacoteSelecionado: typeof pacotes.$inferSelect | undefined;
+
+      if (config.pacote_id) {
+        const pacoteResult = await db
+          .select()
+          .from(pacotes)
+          .where(and(eq(pacotes.id, config.pacote_id), eq(pacotes.lote_id, config.lote_id), eq(pacotes.ativo, true)))
+          .limit(1);
+
+        if (pacoteResult.length === 0) {
+          throw new Error("Pacote selecionado não encontrado ou indisponível");
+        }
+
+        pacoteSelecionado = pacoteResult[0];
+        valorBase = new Decimal(pacoteSelecionado.valor_total.toString());
+      }
 
       // Validar itens selecionados e calcular subtotal
       const itensValidados: ItemSelecionado[] = [];
@@ -173,6 +193,9 @@ export class PacoteService {
         subtotal: parseFloat(subtotal.toString()),
         desconto_cupom: parseFloat(desconto.toString()),
         valor_total: parseFloat(valorTotal.toString()),
+        pacote_id: pacoteSelecionado?.id,
+        pacote_nome: pacoteSelecionado?.nome,
+        modalidade_hospedagem: pacoteSelecionado?.modalidade_hospedagem || undefined,
         cupom_id,
       };
     } catch (error) {
@@ -203,6 +226,7 @@ export class PacoteService {
         .values({
           usuario_id,
           lote_id,
+          pacote_id: config.pacote_id || null,
           status: "pacote_montado",
           itens_selecionados: JSON.stringify(calculo.itens_selecionados),
           valor_total: calculo.valor_total.toString(),

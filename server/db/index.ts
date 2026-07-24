@@ -114,6 +114,7 @@ const CREATE_TABLES: string[] = [
     id TEXT PRIMARY KEY,
     usuario_id TEXT NOT NULL REFERENCES usuarios(id),
     lote_id TEXT NOT NULL REFERENCES lotes(id),
+    pacote_id TEXT REFERENCES pacotes(id),
     status VARCHAR(50) DEFAULT 'visitante',
     itens_selecionados JSONB NOT NULL,
     valor_total DECIMAL(12,2) NOT NULL,
@@ -127,6 +128,7 @@ const CREATE_TABLES: string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS reservas_usuario_id_idx ON reservas (usuario_id)`,
   `CREATE INDEX IF NOT EXISTS reservas_lote_id_idx ON reservas (lote_id)`,
+  `CREATE INDEX IF NOT EXISTS reservas_pacote_id_idx ON reservas (pacote_id)`,
   `CREATE INDEX IF NOT EXISTS reservas_status_idx ON reservas (status)`,
 
   `CREATE TABLE IF NOT EXISTS pagamentos (
