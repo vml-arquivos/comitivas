@@ -1,113 +1,66 @@
-# Teste End-to-End (E2E) - Comitiva
+# Testes End-to-End — Excursão das Comitivas
 
 ## Objetivo
-Validar o fluxo completo da plataforma desde o cadastro até a confirmação de pagamento.
+
+Este roteiro valida o fluxo real de contratação da plataforma, desde a criação administrativa de uma excursão até a geração e o download de contratos PDF. O cenário automatizado utiliza três pacotes de hospedagem e registra condições de pagamento distintas, garantindo que a modalidade, os dados do cliente e os valores persistidos estejam coerentes em cada contrato.
+
+| Etapa | Validação executada | Resultado esperado |
+| --- | --- | --- |
+| Administração | Criação de evento, lote e três pacotes publicados | Camping, quarto com ventilador e quarto com ar-condicionado aparecem na API pública |
+| Cadastro | Cadastro de cliente com dados contratuais completos | Cliente autenticado com CPF, RG, nascimento, endereço e demais campos persistidos |
+| Reserva | Criação de uma reserva por modalidade | A reserva mantém o `pacote_id` e retorna a modalidade selecionada |
+| Aceite | Aceite digital com forma de pagamento e parcelas | Valor, desconto, parcelas e IP são registrados antes do PDF |
+| Contrato | Visualização e download de PDF | Documento exibe dados da contratada, cliente, itens, condição e checkbox correto |
+| Pagamento de teste | Criação de intenção com `PAYMENT_GATEWAY=mock` | Registro pendente sem QR Code ou link de cobrança artificial |
 
 ## Pré-requisitos
-- Node.js 22+
-- PostgreSQL 16+ rodando
-- Variáveis de ambiente configuradas em `.env`
 
-## Passos para Executar
+O teste exige Node.js 22 ou superior, PostgreSQL 16 ou superior e uma instância da aplicação disponível. As migrations são executadas automaticamente no bootstrap; ainda assim, a aplicação precisa iniciar com uma `DATABASE_URL` válida.
 
-### 1. Iniciar o Backend
+> O modo `PAYMENT_GATEWAY=mock` é adequado para validação técnica. Ele registra a intenção de pagamento no banco, mas não envia cobranças nem gera códigos ou links fictícios.
+
+## Execução automatizada
+
+Compile a aplicação antes de iniciar o servidor de teste:
+
 ```bash
-npm run dev:server
+npm run build
 ```
 
-Verificar logs:
-- `[SERVER] Comitiva rodando em http://localhost:3000`
-- `[SERVER] Follow-up scheduler ativo (intervalo: 5 minutos)`
-- Todas as rotas devem estar registradas
+Em outro terminal, inicialize o servidor com uma base isolada e o gateway de teste:
 
-### 2. Iniciar o Frontend Web
 ```bash
-npm run dev:web
+DATABASE_URL="postgresql://USUARIO:SENHA@HOST:5432/comitiva_e2e" \
+PAYMENT_GATEWAY="mock" \
+STORAGE_PATH="/tmp/comitiva-e2e-uploads" \
+PORT="3001" \
+WEB_URL="http://localhost:3001" \
+API_URL="http://localhost:3001" \
+node dist/index.js
 ```
 
-Acessar: `http://localhost:5173`
+Com a API disponível, execute o cenário:
 
-### 3. Fluxo de Teste Completo
+```bash
+E2E_BASE_URL="http://127.0.0.1:3001" \
+E2E_OUTPUT_DIR="/tmp/comitiva-e2e-artifacts" \
+npm run test:e2e
+```
 
-#### Etapa 1: Cadastro e Login
-- Clicar em "Cadastrar"
-- Preencher: Nome, E-mail, CPF, Telefone, Senha
-- Submeter formulário
-- Verificar se foi redirecionado para a página de eventos
+O script `scripts/e2e-fluxo-completo.mts` cria dados isolados e produz três PDFs temporários no diretório configurado.
 
-**Resultado esperado:** Usuário cadastrado e autenticado com JWT
+| Modalidade | Forma de pagamento | Parcelas | Valor de validação | Resultado contratual esperado |
+| --- | --- | ---: | ---: | --- |
+| Camping | PIX | 1 | R$ 1.000,00 | Total de R$ 950,00 e desconto PIX de R$ 50,00 |
+| Quarto com ventilador | Boleto | 3 | R$ 1.400,00 | Total de R$ 1.400,00 e três parcelas registradas |
+| Quarto com ar-condicionado | Cartão de crédito | 10 | R$ 1.800,00 | Total de R$ 1.800,00 e dez parcelas registradas |
 
-#### Etapa 2: Listagem de Eventos
-- Página inicial deve mostrar pelo menos 1 evento
-- Evento deve exibir: nome, descrição, data, local, valor base
-- Botão "Montar Pacote" deve estar visível
+## Verificações manuais recomendadas
 
-**Resultado esperado:** Eventos carregados da API ou fallback mockado
+Após a execução automatizada, abra uma reserva criada no checkout e confirme que a modalidade e todos os dados contratuais aparecem antes do aceite. Para reservas que já possuem contrato emitido, a condição de pagamento deve permanecer bloqueada, o valor contratado deve ser reapresentado sem reaplicar desconto e o botão deve informar que o contrato já foi emitido.
 
-#### Etapa 3: Configurador de Pacote
-- Clicar em "Montar Pacote"
-- Página deve exibir itens adicionais (Translado, Camarote, Hospedagem)
-- Selecionar alguns itens
-- Verificar se o valor total é recalculado em tempo real
+Abra os três PDFs gerados e confirme que cada um contém o cabeçalho da **Excursão das Comitivas**, a identificação de **HENRIQUE SANTOS CUNHA**, o CNPJ **39.763.571/0001-13**, os dados completos do cliente e exatamente um marcador de hospedagem selecionado.
 
-**Resultado esperado:** Valor recalculado corretamente (valor base + adicionais)
+## Critérios de aprovação
 
-#### Etapa 4: Checkout
-- Clicar em "Continuar para Pagamento"
-- Página de checkout deve exibir:
-  - Contrato em texto (resumido)
-  - Checkbox de aceite
-  - Opções de pagamento (PIX, Crédito, Débito)
-  - Valor total
-- Marcar checkbox de aceite
-- Selecionar método de pagamento
-- Clicar em "Finalizar Reserva"
-
-**Resultado esperado:** Redirecionado para página de confirmação
-
-#### Etapa 5: Confirmação de Pagamento
-- Página deve exibir status do pagamento
-- Se PIX: mostrar QR Code (simulado)
-- Botões: "Baixar Contrato PDF", "Ver Minhas Reservas"
-
-**Resultado esperado:** Reserva criada e status atualizado
-
-#### Etapa 6: Minhas Reservas
-- Clicar em "Ver Minhas Reservas"
-- Listar todas as reservas do usuário
-- Cada reserva deve mostrar: ID, data, status, valor
-- Botões de ação: Pagar, Contrato, Continuar
-
-**Resultado esperado:** Reserva aparece na lista
-
-#### Etapa 7: Painel Admin
-- Fazer logout
-- Fazer login com usuário admin (se existir)
-- Clicar em "Painel Admin"
-- Verificar:
-  - Dashboard com métricas
-  - Listagem de reservas
-  - Jornada CRM com Kanban
-  - Geração de link de vendedor
-
-**Resultado esperado:** Painel carrega com dados
-
-## Validações de Segurança
-
-- [ ] Senhas não aparecem em logs ou console
-- [ ] JWT é armazenado apenas em localStorage
-- [ ] Rotas admin exigem autenticação e role correto
-- [ ] Nenhuma credencial real commitada no repositório
-
-## Validações de Qualidade de Código
-
-- [ ] Nenhum placeholder, TODO, FIXME, XXX, HACK
-- [ ] Nenhum dado fictício hardcoded (apenas fallbacks para teste)
-- [ ] Nenhuma dependência tRPC ou Redis
-- [ ] Todas as rotas registradas em server/index.ts
-- [ ] Frontend consome dados reais da API
-
-## Resultado Final
-
-Se todos os passos passarem, o fluxo E2E está validado e a aplicação está pronta para produção.
-
+A execução é aprovada quando todos os endpoints retornam sucesso, os três PDFs iniciam com a assinatura de arquivo `%PDF`, cada contrato marca apenas a modalidade correspondente e a base de dados registra `forma_pagamento`, `quantidade_parcelas`, `valor_parcela` e `desconto_pagamento` de acordo com o cenário. Nenhuma etapa deve depender de fallback de dados, QR Code fictício ou cobrança externa enquanto o gateway estiver em modo de teste.

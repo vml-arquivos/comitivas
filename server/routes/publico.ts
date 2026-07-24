@@ -25,10 +25,13 @@ router.get("/stats", async (req: Request, res: Response) => {
       .from(avaliacoes)
       .where(eq(avaliacoes.aprovado, true));
 
+    const notaNumerica = Number(media);
     res.json({
       clientesConfirmados: Number(clientesConfirmados) || 0,
       excursoesRealizadas: Number(excursoesRealizadas) || 0,
-      notaMedia: media ? Number(Number(media).toFixed(1)) : null,
+      notaMedia: Number.isFinite(notaNumerica) && notaNumerica > 0
+        ? Number(notaNumerica.toFixed(1))
+        : null,
     });
   } catch (error: any) {
     console.error("[PUBLICO] Erro ao calcular estatísticas:", error);

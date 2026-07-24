@@ -59,6 +59,10 @@ export default function Checkout() {
       try {
         const response = await api.get(`/pacotes/reservas/${reservaId}`);
         setReserva(response.data);
+        if (['pix', 'boleto', 'credito'].includes(response.data.forma_pagamento)) {
+          setMetodoPagamento(response.data.forma_pagamento as MetodoPagamento);
+          setQuantidadeParcelas(Number(response.data.quantidade_parcelas) || 1);
+        }
       } catch (err: any) {
         setError(err.response?.data?.erro || 'Erro ao carregar reserva. Tente novamente.');
       } finally {
@@ -76,10 +80,17 @@ export default function Checkout() {
   }, [metodoPagamento]);
 
   const resumoPagamento = useMemo(() => {
-    const valorAntesDaCondicao = Number(reserva?.valor_total ?? 0);
-    const descontoPix = metodoPagamento === 'pix' ? valorAntesDaCondicao * 0.05 : 0;
-    const valorTotal = valorAntesDaCondicao - descontoPix;
-    const quantidade = metodoPagamento === 'pix' ? 1 : quantidadeParcelas;
+    const valorRegistrado = Number(reserva?.valor_total ?? 0);
+    const descontoRegistrado = Number(reserva?.desconto_pagamento ?? 0);
+    const condicaoJaRegistrada = Boolean(reserva?.forma_pagamento);
+    const valorAntesDaCondicao = condicaoJaRegistrada ? valorRegistrado + descontoRegistrado : valorRegistrado;
+    const descontoPix = condicaoJaRegistrada
+      ? descontoRegistrado
+      : metodoPagamento === 'pix' ? valorAntesDaCondicao * 0.05 : 0;
+    const valorTotal = condicaoJaRegistrada ? valorRegistrado : valorAntesDaCondicao - descontoPix;
+    const quantidade = condicaoJaRegistrada
+      ? Number(reserva?.quantidade_parcelas) || 1
+      : metodoPagamento === 'pix' ? 1 : quantidadeParcelas;
 
     const valorParcela = Math.round((valorTotal / quantidade) * 100) / 100;
     const valorUltimaParcela = Math.round((valorTotal - valorParcela * (quantidade - 1)) * 100) / 100;
@@ -137,6 +148,7 @@ export default function Checkout() {
   const modalidade = reserva?.modalidade_hospedagem ? MODALIDADES[reserva.modalidade_hospedagem] : null;
   const IconeModalidade = modalidade?.Icone;
   const contratante = reserva?.contratante;
+  const contratoEmitido = ['contrato_gerado', 'aguardando_pagamento', 'cliente_confirmado'].includes(reserva?.status);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-10">
@@ -212,7 +224,8 @@ export default function Checkout() {
             <button
               type="button"
               onClick={() => setMetodoPagamento('pix')}
-              className={`p-4 border rounded-xl flex flex-col items-center justify-center gap-2 transition-all text-center ${
+              disabled={contratoEmitido}
+              className={`p-4 border rounded-xl flex flex-col items-center justify-center gap-2 transition-all text-center disabled:cursor-not-allowed disabled:opacity-60 ${
                 metodoPagamento === 'pix' ? 'border-primary ring-2 ring-primary/20 bg-red-50/50' : 'hover:border-gray-300'
               }`}
             >
@@ -224,7 +237,8 @@ export default function Checkout() {
             <button
               type="button"
               onClick={() => setMetodoPagamento('boleto')}
-              className={`p-4 border rounded-xl flex flex-col items-center justify-center gap-2 transition-all text-center ${
+              disabled={contratoEmitido}
+              className={`p-4 border rounded-xl flex flex-col items-center justify-center gap-2 transition-all text-center disabled:cursor-not-allowed disabled:opacity-60 ${
                 metodoPagamento === 'boleto' ? 'border-primary ring-2 ring-primary/20 bg-red-50/50' : 'hover:border-gray-300'
               }`}
             >
@@ -236,7 +250,8 @@ export default function Checkout() {
             <button
               type="button"
               onClick={() => setMetodoPagamento('credito')}
-              className={`p-4 border rounded-xl flex flex-col items-center justify-center gap-2 transition-all text-center ${
+              disabled={contratoEmitido}
+              className={`p-4 border rounded-xl flex flex-col items-center justify-center gap-2 transition-all text-center disabled:cursor-not-allowed disabled:opacity-60 ${
                 metodoPagamento === 'credito' ? 'border-primary ring-2 ring-primary/20 bg-red-50/50' : 'hover:border-gray-300'
               }`}
             >
@@ -253,7 +268,8 @@ export default function Checkout() {
                 <p className="text-sm text-gray-600">A condição selecionada será registrada no contrato.</p>
               </div>
               <select
-                value={quantidadeParcelas}
+                value={resumoPagamento.quantidade}
+                disabled={contratoEmitido}
                 onChange={(event) => setQuantidadeParcelas(Number(event.target.value))}
                 className="rounded-lg border border-gray-300 bg-white px-4 py-2 font-medium text-secondary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
               >
@@ -270,8 +286,14 @@ export default function Checkout() {
             </div>
           )}
 
+          {contratoEmitido && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              Esta reserva já possui contrato emitido. A condição de pagamento abaixo está bloqueada para preservar o documento aceito.
+            </div>
+          )}
+
           <div className="rounded-xl border border-red-100 bg-red-50/30 p-5 space-y-2">
-            <div className="flex justify-between gap-4 text-sm text-gray-600"><span>Valor da reserva</span><span>{formatarMoeda(resumoPagamento.valorAntesDaCondicao)}</span></div>
+            <div className="flex justify-between gap-4 text-sm text-gray-600"><span>{reserva?.forma_pagamento === 'pix' ? 'Valor antes do desconto PIX' : 'Valor da reserva'}</span><span>{formatarMoeda(resumoPagamento.valorAntesDaCondicao)}</span></div>
             {resumoPagamento.descontoPix > 0 && <div className="flex justify-between gap-4 text-sm text-green-700"><span>Desconto PIX (5%)</span><span>-{formatarMoeda(resumoPagamento.descontoPix)}</span></div>}
             {resumoPagamento.quantidade > 1 && <div className="flex justify-between gap-4 text-sm text-gray-600"><span>{resumoPagamento.quantidade} parcelas</span><span className="text-right">{resumoPagamento.descricaoParcelamento}</span></div>}
             <div className="flex justify-between gap-4 border-t border-red-100 pt-3 text-lg font-bold text-secondary"><span>Total contratado</span><span>{formatarMoeda(resumoPagamento.valorTotal)}</span></div>
@@ -312,10 +334,10 @@ export default function Checkout() {
           size="lg"
           onClick={handleFinalizar}
           isLoading={isProcessing}
-          disabled={!contratoAceito || !reserva || !modalidade}
+          disabled={!contratoAceito || !reserva || !modalidade || contratoEmitido}
           className="px-8 w-full sm:w-auto"
         >
-          Gerar contrato e continuar
+          {contratoEmitido ? 'Contrato já emitido' : 'Gerar contrato e continuar'}
         </Button>
       </div>
     </div>
