@@ -1,4 +1,5 @@
 import axios from "axios";
+import { randomUUID } from "node:crypto";
 import { db } from "../db/index.js";
 import { pagamentos, reservas } from "../db/schema.js";
 import { eq } from "drizzle-orm";
@@ -6,7 +7,7 @@ import { eq } from "drizzle-orm";
 export interface CriarPagamentoRequest {
   reserva_id: string;
   valor: number;
-  metodo: "pix" | "credito" | "debito";
+  metodo: "pix" | "boleto" | "credito" | "debito";
   descricao?: string;
 }
 
@@ -26,10 +27,42 @@ export class PaymentGatewayAdapter {
   private static readonly ASAAS_TOKEN = process.env.ASAAS_API_KEY;
 
   static async criarPagamento(request: CriarPagamentoRequest): Promise<PagamentoGatewayResponse> {
+    if (this.GATEWAY === "mock") {
+      return this.criarPagamentoTeste(request);
+    }
     if (this.GATEWAY === "asaas") {
       return this.criarPagamentoAsaas(request);
     }
     return this.criarPagamentoMercadoPago(request);
+  }
+
+  /**
+   * Modo de teste explícito: registra a intenção de pagamento no banco sem
+   * acionar qualquer provedor externo e sem gerar QR Code ou link fictício.
+   */
+  private static async criarPagamentoTeste(
+    request: CriarPagamentoRequest,
+  ): Promise<PagamentoGatewayResponse> {
+    const gatewayId = `teste-${randomUUID()}`;
+
+    await db.insert(pagamentos).values({
+      reserva_id: request.reserva_id,
+      valor: request.valor.toFixed(2),
+      metodo: request.metodo,
+      status: "pendente",
+      gateway_id: gatewayId,
+      gateway_resposta: JSON.stringify({
+        ambiente: "teste",
+        mensagem: "Nenhuma cobrança foi enviada a um gateway de pagamento.",
+      }),
+    });
+
+    return {
+      id: gatewayId,
+      status: "pendente",
+      valor: request.valor,
+      metodo: request.metodo,
+    };
   }
 
   private static async criarPagamentoMercadoPago(
@@ -205,6 +238,8 @@ export class PaymentGatewayAdapter {
     switch (metodo) {
       case "pix":
         return "pix";
+      case "boleto":
+        return "bolbradesco";
       case "credito":
         return "credit_card";
       case "debito":
@@ -218,6 +253,8 @@ export class PaymentGatewayAdapter {
     switch (metodo) {
       case "pix":
         return "PIX";
+      case "boleto":
+        return "BOLETO";
       case "credito":
         return "CREDIT_CARD";
       case "debito":

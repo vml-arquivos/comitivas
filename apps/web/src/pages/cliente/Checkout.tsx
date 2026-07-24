@@ -1,17 +1,55 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { api, useAuth } from '../../contexts/AuthContext';
+import { api } from '../../contexts/AuthContext';
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@ui/index';
-import { CheckSquare, CreditCard, QrCode, FileText, AlertCircle } from 'lucide-react';
+import { AlertCircle, CreditCard, FileText, Landmark, QrCode, Snowflake, Tent, Wind } from 'lucide-react';
+
+type MetodoPagamento = 'pix' | 'boleto' | 'credito';
+
+const MODALIDADES: Record<string, { titulo: string; descricao: string; Icone: typeof Tent }> = {
+  camping: {
+    titulo: 'Camping',
+    descricao: 'Estrutura de camping da excursão',
+    Icone: Tent,
+  },
+  quarto_ventilador: {
+    titulo: 'Quarto com ventilador',
+    descricao: 'Hospedagem em quarto compartilhado com ventilador',
+    Icone: Wind,
+  },
+  quarto_ar_condicionado: {
+    titulo: 'Quarto com ar-condicionado',
+    descricao: 'Hospedagem em quarto compartilhado climatizado',
+    Icone: Snowflake,
+  },
+};
+
+function formatarMoeda(valor: number) {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(Number.isFinite(valor) ? valor : 0);
+}
+
+function formatarData(valor?: string | null) {
+  if (!valor) return 'Não informado';
+  const data = new Date(valor);
+  if (Number.isNaN(data.getTime())) return 'Não informado';
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(data);
+}
 
 export default function Checkout() {
   const { reservaId } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
-  
+
   const [reserva, setReserva] = useState<any>(null);
   const [contratoAceito, setContratoAceito] = useState(false);
-  const [metodoPagamento, setMetodoPagamento] = useState<'pix' | 'credito' | 'debito'>('pix');
+  const [metodoPagamento, setMetodoPagamento] = useState<MetodoPagamento>('pix');
+  const [quantidadeParcelas, setQuantidadeParcelas] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
@@ -31,6 +69,37 @@ export default function Checkout() {
     fetchReserva();
   }, [reservaId]);
 
+  useEffect(() => {
+    if (metodoPagamento === 'pix') {
+      setQuantidadeParcelas(1);
+    }
+  }, [metodoPagamento]);
+
+  const resumoPagamento = useMemo(() => {
+    const valorAntesDaCondicao = Number(reserva?.valor_total ?? 0);
+    const descontoPix = metodoPagamento === 'pix' ? valorAntesDaCondicao * 0.05 : 0;
+    const valorTotal = valorAntesDaCondicao - descontoPix;
+    const quantidade = metodoPagamento === 'pix' ? 1 : quantidadeParcelas;
+
+    const valorParcela = Math.round((valorTotal / quantidade) * 100) / 100;
+    const valorUltimaParcela = Math.round((valorTotal - valorParcela * (quantidade - 1)) * 100) / 100;
+    const descricaoParcelamento = quantidade <= 1
+      ? `1x de ${formatarMoeda(valorTotal)}`
+      : Math.abs(valorUltimaParcela - valorParcela) < 0.001
+        ? `${quantidade}x de ${formatarMoeda(valorParcela)}`
+        : `${quantidade - 1}x de ${formatarMoeda(valorParcela)} + 1x de ${formatarMoeda(valorUltimaParcela)}`;
+
+    return {
+      valorAntesDaCondicao,
+      descontoPix,
+      valorTotal,
+      quantidade,
+      valorParcela,
+      valorUltimaParcela,
+      descricaoParcelamento,
+    };
+  }, [reserva?.valor_total, metodoPagamento, quantidadeParcelas]);
+
   const handleFinalizar = async () => {
     if (!contratoAceito) {
       setError('Você precisa aceitar os termos do contrato para continuar.');
@@ -41,18 +110,20 @@ export default function Checkout() {
     setError('');
 
     try {
-      // 1. Aceitar contrato
-      await api.post(`/contratos/aceitar/${reservaId}`);
-      
-      // 2. Gerar pagamento
+      // A condição de pagamento é persistida antes da emissão do PDF, para que
+      // o contrato seja o registro fiel da escolha feita pelo contratante.
+      await api.post(`/contratos/aceitar/${reservaId}`, {
+        metodo_pagamento: metodoPagamento,
+        quantidade_parcelas: resumoPagamento.quantidade,
+      });
+
       const response = await api.post('/pagamentos/criar', {
         reserva_id: reservaId,
-        metodo: metodoPagamento
+        metodo: metodoPagamento,
       });
-      
-      // Redirecionar para confirmação/QR Code
-      navigate(`/confirmacao/${reservaId}`, { 
-        state: { pagamentoData: response.data } 
+
+      navigate(`/confirmacao/${reservaId}`, {
+        state: { pagamentoData: response.data },
       });
     } catch (err: any) {
       setError(err.response?.data?.erro || 'Erro ao processar checkout. Tente novamente.');
@@ -61,116 +132,192 @@ export default function Checkout() {
     }
   };
 
-  if (isLoading) return <div className="py-12 text-center">Carregando detalhes...</div>;
+  if (isLoading) return <div className="py-12 text-center">Carregando detalhes da reserva...</div>;
+
+  const modalidade = reserva?.modalidade_hospedagem ? MODALIDADES[reserva.modalidade_hospedagem] : null;
+  const IconeModalidade = modalidade?.Icone;
+  const contratante = reserva?.contratante;
 
   return (
-    <div className="max-w-3xl mx-auto space-y-8">
+    <div className="max-w-4xl mx-auto space-y-6 pb-10">
       <div className="text-center space-y-2">
+        <p className="text-xs font-bold tracking-[0.2em] uppercase text-primary">Excursão das Comitivas</p>
         <h1 className="text-3xl font-bold text-secondary">Finalizar Reserva</h1>
-        <p className="text-gray-600">Falta pouco para garantir sua vaga!</p>
+        <p className="text-gray-600">Revise seus dados, escolha a condição e assine seu contrato digital.</p>
       </div>
 
       {error && (
         <div className="bg-red-50 border-l-4 border-red-500 p-4 flex items-start gap-3">
-          <AlertCircle className="text-red-500 mt-0.5" size={20} />
+          <AlertCircle className="text-red-500 mt-0.5 flex-shrink-0" size={20} />
           <p className="text-red-700">{error}</p>
         </div>
       )}
+
+      <Card className="overflow-hidden border-primary/15">
+        <CardHeader className="bg-gradient-to-r from-red-950 to-primary text-white border-0">
+          <CardTitle className="flex items-center gap-2">
+            <FileText size={20} />
+            Resumo da reserva
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-6">
+          {modalidade ? (
+            <div className="flex items-center gap-4 rounded-xl border border-red-100 bg-red-50/40 p-4">
+              {IconeModalidade && <IconeModalidade size={34} className="text-primary flex-shrink-0" />}
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-primary">Modalidade de hospedagem selecionada</p>
+                <p className="font-bold text-secondary text-lg">{modalidade.titulo}</p>
+                <p className="text-sm text-gray-600">{reserva?.pacote_nome || modalidade.descricao}</p>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              A modalidade de hospedagem não foi localizada nesta reserva. Revise a configuração do pacote antes de prosseguir.
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="bg-gray-50 border-b">
           <CardTitle className="flex items-center gap-2">
             <FileText size={20} className="text-primary" />
-            Contrato e Termos
+            Dados que constarão no contrato
           </CardTitle>
         </CardHeader>
-        <CardContent className="p-6 space-y-6">
-          <div className="bg-gray-100 p-4 rounded-md h-48 overflow-y-auto text-sm text-gray-700 border border-gray-200">
-            <h4 className="font-bold mb-2">TERMOS DE PRESTAÇÃO DE SERVIÇOS - COMITIVA</h4>
-            <p className="mb-2">Ao aceitar este contrato, o contratante concorda com as regras de cancelamento, horários de embarque e regras de convivência da excursão.</p>
-            <p className="mb-2">1. O valor total da reserva é de R$ {reserva?.valor_total}.</p>
-            <p className="mb-2">2. O não comparecimento no horário de embarque configura no-show, sem direito a reembolso.</p>
-            <p>3. Este documento será assinado digitalmente com registro de IP e Data/Hora, possuindo validade legal.</p>
-            {/* O contrato real será gerado em PDF pelo backend */}
-          </div>
-
-          <label className="flex items-start gap-3 cursor-pointer p-4 border rounded-md hover:bg-gray-50 transition-colors">
-            <input 
-              type="checkbox" 
-              className="mt-1 h-5 w-5 rounded border-gray-300 text-primary focus:ring-primary"
-              checked={contratoAceito}
-              onChange={(e) => setContratoAceito(e.target.checked)}
-            />
-            <div>
-              <span className="font-medium text-gray-900 block">Li e aceito os termos do contrato</span>
-              <span className="text-sm text-gray-500 block">
-                Ao marcar esta caixa, concordo com a assinatura digital do contrato (IP será registrado).
-              </span>
-            </div>
-          </label>
+        <CardContent className="p-6">
+          {contratante ? (
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4 text-sm">
+              <div><dt className="text-gray-500">Nome completo</dt><dd className="font-semibold text-gray-900">{contratante.nome || 'Não informado'}</dd></div>
+              <div><dt className="text-gray-500">CPF / RG</dt><dd className="font-semibold text-gray-900">{contratante.cpf || 'Não informado'} {contratante.rg ? `• ${contratante.rg}` : ''}</dd></div>
+              <div><dt className="text-gray-500">Data de nascimento</dt><dd className="font-semibold text-gray-900">{formatarData(contratante.data_nascimento)}</dd></div>
+              <div><dt className="text-gray-500">Nacionalidade / estado civil</dt><dd className="font-semibold text-gray-900">{contratante.nacionalidade || 'Brasileira'} • {contratante.estado_civil || 'Não informado'}</dd></div>
+              <div><dt className="text-gray-500">Profissão</dt><dd className="font-semibold text-gray-900">{contratante.profissao || 'Não informado'}</dd></div>
+              <div><dt className="text-gray-500">Telefone</dt><dd className="font-semibold text-gray-900">{contratante.telefone || 'Não informado'}</dd></div>
+              <div className="sm:col-span-2"><dt className="text-gray-500">Endereço</dt><dd className="font-semibold text-gray-900">{contratante.endereco || 'Não informado'}</dd></div>
+              <div className="sm:col-span-2"><dt className="text-gray-500">E-mail</dt><dd className="font-semibold text-gray-900">{contratante.email || 'Não informado'}</dd></div>
+            </dl>
+          ) : (
+            <p className="text-sm text-gray-600">Não foi possível carregar os dados contratuais da reserva.</p>
+          )}
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader className="bg-gray-50 border-b">
-          <CardTitle>Forma de Pagamento</CardTitle>
+          <CardTitle>Forma de pagamento</CardTitle>
         </CardHeader>
-        <CardContent className="p-6">
+        <CardContent className="p-6 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <button
               type="button"
               onClick={() => setMetodoPagamento('pix')}
-              className={`p-4 border rounded-xl flex flex-col items-center justify-center gap-3 transition-all ${
+              className={`p-4 border rounded-xl flex flex-col items-center justify-center gap-2 transition-all text-center ${
                 metodoPagamento === 'pix' ? 'border-primary ring-2 ring-primary/20 bg-red-50/50' : 'hover:border-gray-300'
               }`}
             >
-              <QrCode size={32} className={metodoPagamento === 'pix' ? 'text-primary' : 'text-gray-400'} />
-              <span className="font-medium">PIX</span>
-              <span className="text-xs text-green-600 font-medium">Aprovação imediata</span>
+              <QrCode size={30} className={metodoPagamento === 'pix' ? 'text-primary' : 'text-gray-400'} />
+              <span className="font-semibold">PIX</span>
+              <span className="text-xs text-green-700 font-medium">5% de desconto à vista</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setMetodoPagamento('boleto')}
+              className={`p-4 border rounded-xl flex flex-col items-center justify-center gap-2 transition-all text-center ${
+                metodoPagamento === 'boleto' ? 'border-primary ring-2 ring-primary/20 bg-red-50/50' : 'hover:border-gray-300'
+              }`}
+            >
+              <Landmark size={30} className={metodoPagamento === 'boleto' ? 'text-primary' : 'text-gray-400'} />
+              <span className="font-semibold">Boleto bancário</span>
+              <span className="text-xs text-gray-500">Parcelamento sem juros</span>
             </button>
 
             <button
               type="button"
               onClick={() => setMetodoPagamento('credito')}
-              className={`p-4 border rounded-xl flex flex-col items-center justify-center gap-3 transition-all ${
+              className={`p-4 border rounded-xl flex flex-col items-center justify-center gap-2 transition-all text-center ${
                 metodoPagamento === 'credito' ? 'border-primary ring-2 ring-primary/20 bg-red-50/50' : 'hover:border-gray-300'
               }`}
             >
-              <CreditCard size={32} className={metodoPagamento === 'credito' ? 'text-primary' : 'text-gray-400'} />
-              <span className="font-medium">Cartão de Crédito</span>
-              <span className="text-xs text-gray-500">Até 12x</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setMetodoPagamento('debito')}
-              className={`p-4 border rounded-xl flex flex-col items-center justify-center gap-3 transition-all ${
-                metodoPagamento === 'debito' ? 'border-primary ring-2 ring-primary/20 bg-red-50/50' : 'hover:border-gray-300'
-              }`}
-            >
-              <CreditCard size={32} className={metodoPagamento === 'debito' ? 'text-primary' : 'text-gray-400'} />
-              <span className="font-medium">Cartão de Débito</span>
-              <span className="text-xs text-gray-500">À vista</span>
+              <CreditCard size={30} className={metodoPagamento === 'credito' ? 'text-primary' : 'text-gray-400'} />
+              <span className="font-semibold">Cartão de crédito</span>
+              <span className="text-xs text-gray-500">Em até 10x</span>
             </button>
           </div>
 
-          <div className="mt-8 flex justify-between items-center pt-6 border-t">
-            <div>
-              <p className="text-sm text-gray-500">Total a pagar</p>
-              <p className="text-3xl font-bold text-secondary">R$ {reserva?.valor_total}</p>
+          {metodoPagamento !== 'pix' && (
+            <div className="rounded-xl bg-gray-50 border border-gray-200 p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
+              <div>
+                <p className="font-semibold text-secondary">Quantidade de parcelas</p>
+                <p className="text-sm text-gray-600">A condição selecionada será registrada no contrato.</p>
+              </div>
+              <select
+                value={quantidadeParcelas}
+                onChange={(event) => setQuantidadeParcelas(Number(event.target.value))}
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 font-medium text-secondary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+              >
+                {Array.from({ length: 10 }, (_, index) => index + 1).map((parcela) => (
+                  <option key={parcela} value={parcela}>{(() => {
+                    const valorParcela = Math.round((resumoPagamento.valorTotal / parcela) * 100) / 100;
+                    const ultimaParcela = Math.round((resumoPagamento.valorTotal - valorParcela * (parcela - 1)) * 100) / 100;
+                    return parcela === 1 || Math.abs(valorParcela - ultimaParcela) < 0.001
+                      ? `${parcela}x de ${formatarMoeda(valorParcela)}`
+                      : `${parcela - 1}x de ${formatarMoeda(valorParcela)} + 1x de ${formatarMoeda(ultimaParcela)}`;
+                  })()}</option>
+                ))}
+              </select>
             </div>
-            <Button 
-              size="lg" 
-              onClick={handleFinalizar}
-              isLoading={isProcessing}
-              disabled={!contratoAceito}
-              className="px-8"
-            >
-              Finalizar Reserva
-            </Button>
+          )}
+
+          <div className="rounded-xl border border-red-100 bg-red-50/30 p-5 space-y-2">
+            <div className="flex justify-between gap-4 text-sm text-gray-600"><span>Valor da reserva</span><span>{formatarMoeda(resumoPagamento.valorAntesDaCondicao)}</span></div>
+            {resumoPagamento.descontoPix > 0 && <div className="flex justify-between gap-4 text-sm text-green-700"><span>Desconto PIX (5%)</span><span>-{formatarMoeda(resumoPagamento.descontoPix)}</span></div>}
+            {resumoPagamento.quantidade > 1 && <div className="flex justify-between gap-4 text-sm text-gray-600"><span>{resumoPagamento.quantidade} parcelas</span><span className="text-right">{resumoPagamento.descricaoParcelamento}</span></div>}
+            <div className="flex justify-between gap-4 border-t border-red-100 pt-3 text-lg font-bold text-secondary"><span>Total contratado</span><span>{formatarMoeda(resumoPagamento.valorTotal)}</span></div>
           </div>
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader className="bg-gray-50 border-b">
+          <CardTitle className="flex items-center gap-2"><FileText size={20} className="text-primary" />Contrato e aceite digital</CardTitle>
+        </CardHeader>
+        <CardContent className="p-6 space-y-5">
+          <div className="bg-gray-50 p-4 rounded-lg max-h-44 overflow-y-auto text-sm text-gray-700 border border-gray-200 leading-relaxed">
+            <h2 className="font-bold text-secondary mb-2">Termos essenciais da contratação</h2>
+            <p className="mb-2">O contrato registra a modalidade de hospedagem, os serviços selecionados, o valor total, a condição de pagamento e os dados cadastrais informados pelo contratante.</p>
+            <p className="mb-2">O passageiro deve apresentar documento de identificação no embarque e observar as regras de convivência e os horários definidos pela organização.</p>
+            <p>O aceite eletrônico registra data, hora e endereço IP, integrando o contrato que ficará disponível para download após a emissão.</p>
+          </div>
+
+          <label className="flex items-start gap-3 cursor-pointer p-4 border rounded-lg hover:bg-gray-50 transition-colors">
+            <input
+              type="checkbox"
+              className="mt-1 h-5 w-5 rounded border-gray-300 text-primary focus:ring-primary"
+              checked={contratoAceito}
+              onChange={(event) => setContratoAceito(event.target.checked)}
+            />
+            <span className="text-sm text-gray-700"><strong className="block text-gray-900">Li e aceito os termos do contrato</strong>Ao confirmar, reconheço a assinatura digital e a condição de pagamento selecionada acima.</span>
+          </label>
+        </CardContent>
+      </Card>
+
+      <div className="flex flex-col sm:flex-row justify-between gap-4 items-center pt-2">
+        <div className="text-center sm:text-left">
+          <p className="text-sm text-gray-500">Total a pagar</p>
+          <p className="text-3xl font-bold text-secondary">{formatarMoeda(resumoPagamento.valorTotal)}</p>
+        </div>
+        <Button
+          size="lg"
+          onClick={handleFinalizar}
+          isLoading={isProcessing}
+          disabled={!contratoAceito || !reserva || !modalidade}
+          className="px-8 w-full sm:w-auto"
+        >
+          Gerar contrato e continuar
+        </Button>
+      </div>
     </div>
   );
 }

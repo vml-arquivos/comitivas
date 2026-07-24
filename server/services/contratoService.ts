@@ -2,21 +2,226 @@ import { generateBrandedPdfBuffer } from "../../packages/contract-engine/branded
 import { CONTRATADA_DADOS } from "../../packages/contract-engine/letterhead.js";
 import { db } from "../db/index.js";
 import { reservas, usuarios, lotes, eventos, pacotes } from "../db/schema.js";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import Decimal from "decimal.js";
 import fs from "fs/promises";
 import path from "path";
+
+export type FormaPagamentoContrato = "pix" | "boleto" | "credito";
 
 export interface DadosContrato {
   reserva_id: string;
   usuario_id: string;
   lote_id: string;
   aceite_ip: string;
+  aceite_timestamp?: Date;
+}
+
+export interface CondicaoPagamentoCalculada {
+  forma_pagamento: FormaPagamentoContrato;
+  quantidade_parcelas: number;
+  valor_total: string;
+  valor_parcela: string;
+  desconto_pagamento: string;
+}
+
+type ItemContrato = {
+  nome: string;
+  quantidade: number;
+  valor: Decimal;
+};
+
+const MODALIDADES_HOSPEDAGEM: Record<string, string> = {
+  camping: "Camping",
+  quarto_ventilador: "Quarto com ventilador",
+  quarto_ar_condicionado: "Quarto com ar-condicionado",
+};
+
+const FORMAS_PAGAMENTO: Record<FormaPagamentoContrato, string> = {
+  pix: "PIX à vista",
+  boleto: "Boleto bancário parcelado",
+  credito: "Cartão de crédito",
+};
+
+function escaparHtml(valor: unknown): string {
+  return String(valor ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function formatarMoeda(valor: Decimal.Value | null | undefined): string {
+  try {
+    return new Intl.NumberFormat("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    }).format(new Decimal(valor ?? 0).toNumber());
+  } catch {
+    return "R$ 0,00";
+  }
+}
+
+function formatarData(valor: Date | string | null | undefined): string {
+  if (!valor) return "Não informado";
+
+  const data = new Date(valor);
+  if (Number.isNaN(data.getTime())) return "Não informado";
+
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "America/Sao_Paulo",
+  }).format(data);
+}
+
+function formatarHorario(valor: Date): string {
+  return new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone: "America/Sao_Paulo",
+  }).format(valor);
+}
+
+function converterDecimal(valor: unknown): Decimal {
+  try {
+    return new Decimal(String(valor ?? 0));
+  } catch {
+    return new Decimal(0);
+  }
+}
+
+function normalizarItens(valor: unknown): ItemContrato[] {
+  let itensBrutos: unknown = valor;
+
+  if (typeof itensBrutos === "string") {
+    try {
+      itensBrutos = JSON.parse(itensBrutos);
+    } catch {
+      return [];
+    }
+  }
+
+  if (!Array.isArray(itensBrutos)) return [];
+
+  return itensBrutos
+    .map((item: any) => {
+      const quantidadeOriginal = Number(item?.quantidade ?? 1);
+      const quantidade = Number.isInteger(quantidadeOriginal) && quantidadeOriginal > 0
+        ? quantidadeOriginal
+        : 1;
+
+      return {
+        nome: String(item?.nome ?? "Item adicional"),
+        quantidade,
+        valor: converterDecimal(item?.valor),
+      };
+    })
+    .filter((item) => item.valor.greaterThanOrEqualTo(0));
+}
+
+function modalidadeMarcada(modalidadeSelecionada: string | null | undefined, modalidade: string): string {
+  return modalidadeSelecionada === modalidade ? "☒" : "☐";
+}
+
+function descreverParcelamento(
+  valorTotal: Decimal,
+  quantidadeParcelas: number,
+  valorParcela: Decimal,
+): string {
+  if (quantidadeParcelas <= 1) {
+    return `1 parcela de ${formatarMoeda(valorTotal)}`;
+  }
+
+  const valorUltimaParcela = valorTotal
+    .minus(valorParcela.times(quantidadeParcelas - 1))
+    .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+
+  if (valorUltimaParcela.equals(valorParcela)) {
+    return `${quantidadeParcelas} parcelas de ${formatarMoeda(valorParcela)}`;
+  }
+
+  return `${quantidadeParcelas - 1} parcelas de ${formatarMoeda(valorParcela)} e 1 parcela final de ${formatarMoeda(valorUltimaParcela)}`;
+}
+
+function descreverPagamento(
+  forma: string | null | undefined,
+  parcelas: number | null | undefined,
+  valorParcela: Decimal,
+  descontoPagamento: Decimal,
+  valorTotal: Decimal,
+): string {
+  if (forma === "pix") {
+    return `PIX à vista, com desconto de 5% no valor de ${formatarMoeda(descontoPagamento)}.`;
+  }
+
+  if (forma === "boleto") {
+    const quantidade = parcelas || 1;
+    return `Boleto bancário em ${descreverParcelamento(valorTotal, quantidade, valorParcela)}, sem juros, condicionado à quitação integral antes da viagem.`;
+  }
+
+  if (forma === "credito") {
+    const quantidade = parcelas || 1;
+    return `Cartão de crédito em ${descreverParcelamento(valorTotal, quantidade, valorParcela)}. Eventuais taxas da operadora serão informadas pelo meio de pagamento antes da conclusão.`;
+  }
+
+  return "Condição de pagamento ainda não registrada para esta reserva histórica.";
 }
 
 export class ContratoService {
+  /**
+   * Normaliza e calcula a condição que será gravada na reserva antes do aceite.
+   * O contrato só pode ser emitido com uma condição explícita; isso evita que o
+   * PDF registre uma modalidade de pagamento diferente da escolhida no checkout.
+   */
+  static calcularCondicaoPagamento(
+    valorAtual: Decimal.Value,
+    formaBruta: unknown,
+    parcelasBrutas: unknown,
+  ): CondicaoPagamentoCalculada {
+    const forma = String(formaBruta ?? "").trim().toLowerCase() as FormaPagamentoContrato;
+    if (!(forma in FORMAS_PAGAMENTO)) {
+      throw new Error("Forma de pagamento inválida");
+    }
+
+    const quantidadeParcelas = Number(parcelasBrutas ?? 1);
+    if (!Number.isInteger(quantidadeParcelas) || quantidadeParcelas < 1) {
+      throw new Error("A quantidade de parcelas deve ser um número inteiro positivo");
+    }
+
+    if (forma === "pix" && quantidadeParcelas !== 1) {
+      throw new Error("O pagamento via PIX deve ser feito à vista");
+    }
+
+    if ((forma === "credito" || forma === "boleto") && quantidadeParcelas > 10) {
+      throw new Error("O parcelamento está limitado a 10 parcelas");
+    }
+
+    const valorAntesDoPagamento = new Decimal(valorAtual);
+    if (valorAntesDoPagamento.lessThanOrEqualTo(0)) {
+      throw new Error("O valor da reserva deve ser maior que zero");
+    }
+
+    const descontoPagamento = forma === "pix"
+      ? valorAntesDoPagamento.times(0.05).toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+      : new Decimal(0);
+    const valorTotal = valorAntesDoPagamento.minus(descontoPagamento).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    const valorParcela = valorTotal.div(quantidadeParcelas).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+
+    return {
+      forma_pagamento: forma,
+      quantidade_parcelas: quantidadeParcelas,
+      valor_total: valorTotal.toFixed(2),
+      valor_parcela: valorParcela.toFixed(2),
+      desconto_pagamento: descontoPagamento.toFixed(2),
+    };
+  }
+
   static async gerarContratoHTML(dadosContrato: DadosContrato): Promise<string> {
     try {
-      // Buscar dados da reserva
       const reservaResult = await db
         .select()
         .from(reservas)
@@ -29,28 +234,28 @@ export class ContratoService {
 
       const reserva = reservaResult[0];
 
-      // Buscar dados do usuário
+      // A reserva é a fonte de verdade para o titular e o lote. Os campos
+      // recebidos são mantidos apenas por compatibilidade com as rotas antigas.
       const usuarioResult = await db
         .select()
         .from(usuarios)
-        .where(eq(usuarios.id, dadosContrato.usuario_id))
+        .where(eq(usuarios.id, reserva.usuario_id))
         .limit(1);
 
       if (usuarioResult.length === 0) {
-        throw new Error("Usuário não encontrado");
+        throw new Error("Usuário da reserva não encontrado");
       }
 
       const usuario = usuarioResult[0];
 
-      // Buscar dados do lote e evento
       const loteResult = await db
         .select()
         .from(lotes)
-        .where(eq(lotes.id, dadosContrato.lote_id))
+        .where(eq(lotes.id, reserva.lote_id))
         .limit(1);
 
       if (loteResult.length === 0) {
-        throw new Error("Lote não encontrado");
+        throw new Error("Lote da reserva não encontrado");
       }
 
       const lote = loteResult[0];
@@ -67,190 +272,220 @@ export class ContratoService {
 
       const evento = eventoResult[0];
 
-      // Parsear itens selecionados
-      const itens = typeof reserva.itens_selecionados === "string"
-        ? JSON.parse(reserva.itens_selecionados)
-        : reserva.itens_selecionados;
+      // Busca exclusivamente o pacote registrado na reserva. Não há fallback
+      // para o primeiro pacote do lote, pois isso poderia marcar hospedagem errada.
+      const pacoteResult = reserva.pacote_id
+        ? await db
+          .select()
+          .from(pacotes)
+          .where(and(eq(pacotes.id, reserva.pacote_id), eq(pacotes.lote_id, lote.id)))
+          .limit(1)
+        : [];
+      const pacote = pacoteResult[0];
+      const modalidade = pacote?.modalidade_hospedagem || null;
 
-      const dataAceite = new Date();
-      const dataFormatada = dataAceite.toLocaleDateString("pt-BR", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-      });
+      const itensAdicionais = normalizarItens(reserva.itens_selecionados);
+      const valorPacoteBase = converterDecimal(pacote?.valor_total ?? lote.valor_base);
+      const itensContrato: ItemContrato[] = [
+        {
+          nome: pacote
+            ? `${pacote.nome} — ${MODALIDADES_HOSPEDAGEM[modalidade || ""] || "Hospedagem não informada"}`
+            : `Pacote base — ${lote.nome}`,
+          quantidade: 1,
+          valor: valorPacoteBase,
+        },
+        ...itensAdicionais,
+      ];
 
-      // Modalidade de hospedagem do pacote contratado, usada para marcar
-      // a cláusula correta (camping / quarto com ventilador / quarto com ar)
-      const pacoteResult = await db
-        .select()
-        .from(pacotes)
-        .where(eq(pacotes.lote_id, lote.id))
-        .limit(1);
-      const modalidade = pacoteResult[0]?.modalidade_hospedagem || "quarto_ventilador";
-      const marcarCamping = modalidade === "camping" ? "(x)" : "()";
-      const marcarVentilador = modalidade === "quarto_ventilador" ? "(x)" : "()";
-      const marcarArCondicionado = modalidade === "quarto_ar_condicionado" ? "(x)" : "()";
+      const totalItens = itensContrato.reduce(
+        (total, item) => total.plus(item.valor.times(item.quantidade)),
+        new Decimal(0),
+      );
+      const descontoCupom = converterDecimal(reserva.desconto_aplicado);
+      const descontoPagamento = converterDecimal(reserva.desconto_pagamento);
+      const valorTotalReserva = converterDecimal(reserva.valor_total);
+      const quantidadeParcelas = reserva.quantidade_parcelas || 1;
+      const valorParcela = reserva.valor_parcela
+        ? converterDecimal(reserva.valor_parcela)
+        : valorTotalReserva.div(quantidadeParcelas).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
-      const dataIdaFormatada = new Date(evento.data_inicio).toLocaleDateString("pt-BR");
-      const dataVoltaFormatada = new Date(evento.data_fim).toLocaleDateString("pt-BR");
+      const dataAceite = dadosContrato.aceite_timestamp || reserva.aceite_timestamp || new Date();
+      const dataAceiteFormatada = formatarData(dataAceite);
+      const dataIdaFormatada = formatarData(evento.data_inicio);
+      const dataVoltaFormatada = formatarData(evento.data_fim);
 
-      // Gerar HTML do contrato — cláusulas do Contrato de Pacote de Viagem
-      // Excursão das Comitivas (mesma base legal usada para os 3 modelos de
-      // pacote: camping, quarto com ventilador e quarto com ar condicionado)
+      const linhasItens = itensContrato.map((item) => {
+        const totalItem = item.valor.times(item.quantidade);
+        return `<tr>
+          <td>${escaparHtml(item.nome)}</td>
+          <td class="numero">${item.quantidade}</td>
+          <td class="numero">${formatarMoeda(item.valor)}</td>
+          <td class="numero">${formatarMoeda(totalItem)}</td>
+        </tr>`;
+      }).join("");
+
+      const linhasDescontos = [
+        descontoCupom.greaterThan(0)
+          ? `<tr><td colspan="3" class="rotulo-resumo">Desconto de cupom</td><td class="numero">-${formatarMoeda(descontoCupom)}</td></tr>`
+          : "",
+        descontoPagamento.greaterThan(0)
+          ? `<tr><td colspan="3" class="rotulo-resumo">Desconto para pagamento via PIX</td><td class="numero">-${formatarMoeda(descontoPagamento)}</td></tr>`
+          : "",
+      ].join("");
+
+      const localAssinatura = "Brasília/DF";
+      const descricaoCondicaoPagamento = descreverPagamento(
+        reserva.forma_pagamento,
+        reserva.quantidade_parcelas,
+        valorParcela,
+        descontoPagamento,
+        valorTotalReserva,
+      );
+
       const html = `
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Contrato de Pacote de Viagem - ${evento.nome}</title>
+  <title>Contrato de Pacote de Viagem — ${escaparHtml(evento.nome)}</title>
   <style>
-    body { font-family: Arial, sans-serif; line-height: 1.6; color: #222; margin: 0; padding: 0; font-size: 12px; }
-    .container { max-width: 800px; margin: 0 auto; padding: 20px; }
-    h1 { text-align: center; font-size: 16px; color: #1D3557; }
-    .clausula-titulo { font-weight: bold; color: #1D3557; margin-top: 16px; }
-    .campo-assinatura { margin-top: 50px; display: flex; justify-content: space-between; }
-    .assinatura { width: 45%; text-align: center; border-top: 1px solid #333; padding-top: 8px; }
-    table { width: 100%; border-collapse: collapse; margin: 10px 0; }
-    table th, table td { border: 1px solid #999; padding: 6px; font-size: 11px; }
-    .footer { text-align: center; font-size: 9px; color: #999; margin-top: 30px; border-top: 1px solid #ddd; padding-top: 10px; }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; line-height: 1.55; color: #1f2937; margin: 0; font-size: 10.2pt; }
+    .container { max-width: 800px; margin: 0 auto; padding: 0; }
+    h1 { text-align: center; font-size: 14pt; color: #7f1d1d; letter-spacing: .2px; margin: 0 0 18px; }
+    h2 { font-size: 10.5pt; color: #991b1b; margin: 18px 0 6px; font-weight: 700; text-transform: uppercase; }
+    p { margin: 0 0 9px; text-align: justify; }
+    .dados-partes { width: 100%; border-collapse: collapse; margin: 12px 0 16px; }
+    .dados-partes th, .dados-partes td { border: 1px solid #d1d5db; padding: 6px 8px; font-size: 9.3pt; vertical-align: top; }
+    .dados-partes th { width: 31%; background: #fff7ed; color: #7c2d12; text-align: left; }
+    .tabela-itens { width: 100%; border-collapse: collapse; margin: 10px 0 16px; }
+    .tabela-itens th, .tabela-itens td { border: 1px solid #cbd5e1; padding: 6px; font-size: 9pt; vertical-align: top; }
+    .tabela-itens th { background: #7f1d1d; color: #fff; text-align: left; }
+    .numero { text-align: right; white-space: nowrap; }
+    .rotulo-resumo { text-align: right; font-weight: 600; background: #fffaf5; }
+    .total-geral td { font-size: 10pt; font-weight: 700; background: #fef2f2; color: #7f1d1d; }
+    .modalidades { margin: 8px 0 12px; padding: 10px 12px; border: 1px solid #fecaca; border-radius: 6px; background: #fffafa; display: flex; flex-wrap: wrap; gap: 8px 18px; }
+    .modalidade { display: inline-flex; gap: 5px; align-items: center; font-weight: 600; }
+    .marcador { font-size: 12pt; line-height: 1; color: #991b1b; }
+    .condicao-pagamento { padding: 10px 12px; border-left: 4px solid #b91c1c; background: #fff7ed; margin: 10px 0 14px; }
+    .assinaturas { margin-top: 48px; display: flex; gap: 36px; justify-content: space-between; page-break-inside: avoid; }
+    .assinatura { width: 46%; border-top: 1px solid #475569; padding-top: 8px; text-align: center; font-size: 9pt; }
+    .rodape-documento { text-align: center; font-size: 7.7pt; color: #64748b; margin-top: 28px; border-top: 1px solid #e2e8f0; padding-top: 8px; }
+    .nao-quebrar { page-break-inside: avoid; }
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>CONTRATO DE PACOTE DE VIAGEM - EXCURSÃO DAS COMITIVAS</h1>
-    <p>As partes qualificadas neste instrumento celebram, pelo presente, contrato para a prestação de
-    serviços de pacote turístico de viagem terrestre nacional, no valor total de
-    <strong>R$ ${Number(reserva.valor_total).toFixed(2)}</strong>.</p>
+    <h1>CONTRATO DE PACOTE DE VIAGEM — EXCURSÃO DAS COMITIVAS</h1>
 
-    <p><strong>Contratada:</strong> ${CONTRATADA_DADOS.razao_social}, empresa inscrita no CNPJ
-    ${CONTRATADA_DADOS.cnpj}, com sede na ${CONTRATADA_DADOS.endereco_sede}, e-mail:
-    ${CONTRATADA_DADOS.email}</p>
+    <p>Por este instrumento particular, as partes abaixo qualificadas celebram o presente contrato de prestação de serviços de pacote turístico terrestre nacional, nos termos e condições seguintes.</p>
 
-    <p><strong>Contratante:</strong> ${usuario.nome}, ${usuario.nacionalidade || "Brasileira"},
-    ${usuario.estado_civil || "________"}, ${usuario.profissao || "________"},
-    ${usuario.data_nascimento ? "nascido(a) em " + new Date(usuario.data_nascimento).toLocaleDateString("pt-BR") : ""},
-    portador(a) do RG nº ${usuario.rg || "________"} e CPF ${usuario.cpf || "________"},
-    residente em ${usuario.endereco || "________"}, telefone: ${usuario.telefone || "________"},
-    e-mail: ${usuario.email}, têm entre si, justo e contratados, o que mutuamente outorgam,
-    aceitam e assinam, convencionados pelas cláusulas, termos e condições a seguir devidamente enumeradas.</p>
-
-    <p class="clausula-titulo">CLÁUSULA PRIMEIRA – DO OBJETO DO CONTRATO</p>
-    <p>1.1 Contratação de excursão com destino a ${evento.local || evento.nome} de
-    ${dataIdaFormatada} a ${dataVoltaFormatada}.<br>
-    1.2 É de responsabilidade do contratante a leitura do contrato.</p>
-
-    <p class="clausula-titulo">CLÁUSULA SEGUNDA – DADOS DA VIAGEM</p>
-    <p>2.1 IDA: destino ${lote.nome} — data prevista ${dataIdaFormatada}.<br>
-    2.2 VOLTA: retorno com data prevista ${dataVoltaFormatada}.<br>
-    Observações: poderá haver ajustes nos horários se houver necessidade. A distribuição dos assentos
-    será realizada pelos responsáveis da excursão na hora do embarque.</p>
-
-    <p class="clausula-titulo">CLÁUSULA TERCEIRA – DA HOSPEDAGEM</p>
-    <p>3.1 A hospedagem será em chácara ou camping previamente contratados.<br>
-    3.2 Se houver necessidade de mudança de local, a Contratada poderá substituir por outro de padrão
-    equivalente ou a sua escolha.<br>
-    3.3 Modalidade de hospedagem contratada:
-    ${marcarCamping} CAMPING &nbsp;&nbsp; ${marcarVentilador} QUARTO COM VENTILADOR &nbsp;&nbsp;
-    ${marcarArCondicionado} QUARTO COM AR CONDICIONADO.</p>
-
-    <p class="clausula-titulo">CLÁUSULA QUARTA - SERVIÇOS INCLUSOS NO PACOTE</p>
-    <table>
-      <thead><tr><th>Item</th><th>Qtd</th><th>Valor Unit.</th><th>Total</th></tr></thead>
+    <h2>Qualificação das partes</h2>
+    <table class="dados-partes">
       <tbody>
-        ${itens.map((item: any) => `<tr><td>${item.nome}</td><td>${item.quantidade}</td>
-          <td>R$ ${Number(item.valor).toFixed(2)}</td>
-          <td>R$ ${(item.valor * item.quantidade).toFixed(2)}</td></tr>`).join("")}
-        <tr><td colspan="3" style="text-align:right;"><strong>VALOR TOTAL</strong></td>
-          <td><strong>R$ ${Number(reserva.valor_total).toFixed(2)}</strong></td></tr>
+        <tr><th>CONTRATADA</th><td><strong>${escaparHtml(CONTRATADA_DADOS.razao_social)}</strong>, inscrito no CNPJ sob nº ${escaparHtml(CONTRATADA_DADOS.cnpj)}, com sede em ${escaparHtml(CONTRATADA_DADOS.endereco_sede)}, e-mail ${escaparHtml(CONTRATADA_DADOS.email)}.</td></tr>
+        <tr><th>CONTRATANTE</th><td><strong>${escaparHtml(usuario.nome)}</strong></td></tr>
+        <tr><th>CPF / RG</th><td>CPF: ${escaparHtml(usuario.cpf || "Não informado")} &nbsp; | &nbsp; RG: ${escaparHtml(usuario.rg || "Não informado")}</td></tr>
+        <tr><th>Nascimento / Nacionalidade</th><td>${escaparHtml(formatarData(usuario.data_nascimento))} &nbsp; | &nbsp; ${escaparHtml(usuario.nacionalidade || "Brasileira")}</td></tr>
+        <tr><th>Estado civil / Profissão</th><td>${escaparHtml(usuario.estado_civil || "Não informado")} &nbsp; | &nbsp; ${escaparHtml(usuario.profissao || "Não informado")}</td></tr>
+        <tr><th>Endereço</th><td>${escaparHtml(usuario.endereco || "Não informado")}</td></tr>
+        <tr><th>Contato</th><td>Telefone: ${escaparHtml(usuario.telefone || "Não informado")} &nbsp; | &nbsp; E-mail: ${escaparHtml(usuario.email)}</td></tr>
       </tbody>
     </table>
 
-    <p class="clausula-titulo">CLÁUSULA QUINTA - FORMAS DE PAGAMENTO</p>
-    <p>5.1 Via PIX com desconto de 5% para pagamento à vista — chave: ${CONTRATADA_DADOS.pix_chave}
-    / Banco: ${CONTRATADA_DADOS.pix_banco}.<br>
-    5.2 Parcelamento no boleto bancário sem juros: o número de parcelas disponíveis é decrescente
-    conforme a proximidade do evento, respeitada a quitação total até a data do evento.<br>
-    5.3 Parcelamento no cartão de crédito em até 10 vezes, com as taxas da operadora do cartão.</p>
+    <h2>Cláusula primeira — Do objeto do contrato</h2>
+    <p>1.1. A CONTRATADA prestará ao CONTRATANTE os serviços referentes à excursão <strong>${escaparHtml(evento.nome)}</strong>, com destino a ${escaparHtml(evento.local)}, no período de ${dataIdaFormatada} a ${dataVoltaFormatada}, conforme a composição e os valores registrados neste instrumento.</p>
+    <p>1.2. É de responsabilidade do CONTRATANTE a leitura integral deste contrato antes de seu aceite eletrônico.</p>
 
-    <p class="clausula-titulo">CLÁUSULA SEXTA – DO ATRASO NO PAGAMENTO DOS BOLETOS</p>
-    <p>6.1 Em caso de atraso, incidirá multa de 2% sobre o valor da parcela, juros de 1% e correção
-    monetária pelo IPCA.</p>
+    <h2>Cláusula segunda — Dados da viagem</h2>
+    <p>2.1. Lote contratado: <strong>${escaparHtml(lote.nome)}</strong>. Ida prevista em ${dataIdaFormatada} e retorno previsto em ${dataVoltaFormatada}.</p>
+    <p>2.2. Poderão ocorrer ajustes de horário por necessidade operacional. A distribuição dos assentos será realizada pela equipe responsável no momento do embarque.</p>
 
-    <p class="clausula-titulo">CLÁUSULA SÉTIMA – DO VALOR E VENCIMENTO DAS PARCELAS</p>
-    <p>Conforme condições de pagamento acordadas no momento da reserva, refletidas no valor total acima.</p>
-
-    <p class="clausula-titulo">CLÁUSULA OITAVA - DO EMBARQUE E DESEMBARQUE</p>
-    <p>8.1 Embarque e desembarque no mesmo local de início da viagem.<br>
-    8.2 O passageiro só poderá embarcar se estiver na relação de autorização da ANTT, com documento
-    de identificação original ou cópia autenticada.<br>
-    8.3 O passageiro só poderá embarcar se estiver com o contrato quitado.</p>
-
-    <p class="clausula-titulo">CLÁUSULA NONA - DA RESPONSABILIDADE</p>
-    <p>O CONTRATANTE poderá desistir deste contrato em até 7 (sete) dias corridos da assinatura, com
-    devolução integral, conforme art. 49 do CDC, se a contratação ocorreu fora do estabelecimento
-    comercial. Após esse prazo, cancelamento por iniciativa do CONTRATANTE pode gerar multa de 30%
-    sobre o valor total do pacote, a título de despesas administrativas e operacionais.</p>
-
-    <p class="clausula-titulo">CLÁUSULA DÉCIMA – DOS DANOS</p>
-    <p>10.1 Danos causados pelo Contratante nas instalações do ônibus ou da chácara serão cobrados
-    conforme regras do fornecedor.</p>
-
-    <p class="clausula-titulo">CLÁUSULA DÉCIMA PRIMEIRA – DAS EXCLUSÕES</p>
-    <p>11.1 O pacote não inclui passeios opcionais e pessoais, lavanderia, telefonemas, refeições não
-    especificadas, ingressos para eventos/shows e serviços não listados neste contrato.</p>
-
-    <p class="clausula-titulo">CLÁUSULA DÉCIMA SEGUNDA – DA INSCRIÇÃO</p>
-    <p>12.1 A inscrição é confirmada mediante pagamento do sinal estipulado. Não são aceitos cheques.</p>
-
-    <p class="clausula-titulo">CLÁUSULA DÉCIMA TERCEIRA – DA INTERRUPÇÃO DA VIAGEM</p>
-    <p>13.1 Em caso de desistência durante a viagem por iniciativa do Contratante, não há devolução de
-    valores já pagos.</p>
-
-    <p class="clausula-titulo">CLÁUSULA DÉCIMA QUARTA – DAS DESPESAS NÃO PREVISTAS</p>
-    <p>14.1 Despesas pessoais ou hospedagens não incluídas no programa são de responsabilidade
-    exclusiva do Contratante.</p>
-
-    <p class="clausula-titulo">CLÁUSULA DÉCIMA QUINTA – DO NÚMERO MÍNIMO DE PASSAGEIROS</p>
-    <p>15.1 A saída do ônibus está condicionada ao mínimo de 35 passageiros; podendo ser feita em vans
-    (mín. 12) ou micro-ônibus (mín. 22) caso o número seja inferior.</p>
-
-    <p class="clausula-titulo">CLÁUSULA DÉCIMA SEXTA – DO DESLIGAMENTO</p>
-    <p>16.1 A Contratada poderá desligar da excursão qualquer passageiro que causar transtornos ou
-    desrespeitar as regras de convivência.</p>
-
-    <p class="clausula-titulo">CLÁUSULA DÉCIMA SÉTIMA – IMPORTANTE</p>
-    <p>17.1 O guia da excursão é a autoridade máxima durante a viagem.<br>
-    17.2 O itinerário poderá sofrer alterações devido a clima, trânsito ou questões técnicas.<br>
-    17.3 É proibido fumar ou usar entorpecentes no interior do veículo, sob pena de retirada do
-    passageiro.</p>
-
-    <p class="clausula-titulo">CLÁUSULA DE AUTORIZAÇÃO DE USO DE IMAGEM</p>
-    <p>O contratante autoriza, de forma gratuita, definitiva e irrevogável, o uso de sua imagem, voz e
-    nome, captados durante a excursão, para fins de divulgação, promoção e registro do evento, em
-    qualquer meio de comunicação. Caso não deseje autorizar, deverá manifestar-se expressamente por
-    escrito até a data de início da excursão.</p>
-
-    <p class="clausula-titulo">DO FORO</p>
-    <p>As partes elegem o foro da ${CONTRATADA_DADOS.foro}, renunciando a qualquer outro, para
-    eventuais controvérsias decorrentes deste contrato. Em sinal de concordância, assinam o presente
-    instrumento em duas vias de igual teor, na presença de duas testemunhas.</p>
-
-    <p>${(evento.local || "Brasília")}, ${dataFormatada}.</p>
-
-    <div class="campo-assinatura">
-      <div class="assinatura">CONTRATANTE<br>${usuario.nome}<br>CPF: ${usuario.cpf || "________"}</div>
-      <div class="assinatura">CONTRATADO<br>${CONTRATADA_DADOS.razao_social}<br>CNPJ: ${CONTRATADA_DADOS.cnpj}</div>
+    <h2>Cláusula terceira — Da hospedagem</h2>
+    <p>3.1. A hospedagem será prestada em chácara ou camping previamente contratados, na modalidade registrada nesta reserva.</p>
+    <p>3.2. Caso haja necessidade operacional, a CONTRATADA poderá substituir o local por outro de padrão equivalente ou superior.</p>
+    <div class="modalidades">
+      <span class="modalidade"><span class="marcador">${modalidadeMarcada(modalidade, "camping")}</span> CAMPING</span>
+      <span class="modalidade"><span class="marcador">${modalidadeMarcada(modalidade, "quarto_ventilador")}</span> QUARTO COM VENTILADOR</span>
+      <span class="modalidade"><span class="marcador">${modalidadeMarcada(modalidade, "quarto_ar_condicionado")}</span> QUARTO COM AR-CONDICIONADO</span>
     </div>
 
-    <div class="footer">
-      <p>Contrato gerado em ${dataFormatada} às ${dataAceite.toLocaleTimeString("pt-BR")} — Aceite digital
-      registrado com IP ${dadosContrato.aceite_ip} — Reserva ID: ${dadosContrato.reserva_id}</p>
+    <h2>Cláusula quarta — Serviços inclusos no pacote</h2>
+    <table class="tabela-itens">
+      <thead><tr><th>Item</th><th class="numero">Qtd.</th><th class="numero">Valor unitário</th><th class="numero">Total</th></tr></thead>
+      <tbody>
+        ${linhasItens}
+        <tr><td colspan="3" class="rotulo-resumo">Subtotal dos serviços</td><td class="numero">${formatarMoeda(totalItens)}</td></tr>
+        ${linhasDescontos}
+        <tr class="total-geral"><td colspan="3" class="rotulo-resumo">VALOR TOTAL CONTRATADO</td><td class="numero">${formatarMoeda(valorTotalReserva)}</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Cláusula quinta — Forma de pagamento</h2>
+    <div class="condicao-pagamento"><strong>Condição escolhida:</strong> ${escaparHtml(FORMAS_PAGAMENTO[reserva.forma_pagamento as FormaPagamentoContrato] || "Não registrada")}<br/>${escaparHtml(descricaoCondicaoPagamento)}</div>
+    <p>5.1. O pagamento via PIX é realizado à vista, com desconto de 5% já discriminado no resumo financeiro quando aplicável.</p>
+    <p>5.2. O pagamento por boleto poderá ser parcelado, observada a quitação integral até a data da viagem.</p>
+    <p>5.3. O pagamento por cartão de crédito poderá ser parcelado em até 10 (dez) vezes, de acordo com a condição selecionada e as regras da operadora.</p>
+
+    <h2>Cláusula sexta — Do atraso no pagamento</h2>
+    <p>6.1. Em caso de atraso, incidirá multa de 2% sobre o valor da parcela, juros de 1% ao mês e correção monetária pelo IPCA, sem prejuízo das demais medidas cabíveis.</p>
+
+    <h2>Cláusula sétima — Do valor e vencimento das parcelas</h2>
+    <p>7.1. O valor total contratado é de <strong>${formatarMoeda(valorTotalReserva)}</strong>. ${escaparHtml(descricaoCondicaoPagamento)}</p>
+
+    <h2>Cláusula oitava — Do embarque e desembarque</h2>
+    <p>8.1. O embarque e o desembarque ocorrerão no local de início da viagem informado pela organização.</p>
+    <p>8.2. O passageiro deverá constar na relação de autorização da ANTT e apresentar documento de identificação original ou cópia autenticada.</p>
+    <p>8.3. O embarque está condicionado à quitação do contrato, salvo condição formalmente aprovada pela CONTRATADA.</p>
+
+    <h2>Cláusula nona — Da desistência e responsabilidade</h2>
+    <p>9.1. O CONTRATANTE poderá desistir deste contrato em até 7 (sete) dias corridos da assinatura, com devolução integral, nos termos do art. 49 do Código de Defesa do Consumidor, quando a contratação ocorrer fora do estabelecimento comercial.</p>
+    <p>9.2. Após esse prazo, o cancelamento por iniciativa do CONTRATANTE poderá gerar multa de 30% sobre o valor total do pacote, a título de despesas administrativas e operacionais.</p>
+
+    <h2>Cláusula décima — Dos danos</h2>
+    <p>10.1. Danos causados pelo CONTRATANTE nas instalações do veículo, da hospedagem ou de fornecedores serão cobrados conforme a avaliação e as regras do fornecedor responsável.</p>
+
+    <h2>Cláusula décima primeira — Das exclusões</h2>
+    <p>11.1. Não estão incluídos passeios opcionais e despesas pessoais, lavanderia, telefonemas, refeições não especificadas, ingressos para eventos ou shows e quaisquer serviços não discriminados neste contrato.</p>
+
+    <h2>Cláusula décima segunda — Da inscrição</h2>
+    <p>12.1. A inscrição é confirmada mediante o pagamento do sinal ou da condição contratada. Não são aceitos cheques.</p>
+
+    <h2>Cláusula décima terceira — Da interrupção da viagem</h2>
+    <p>13.1. Em caso de desistência durante a viagem por iniciativa do CONTRATANTE, não haverá devolução dos valores já pagos.</p>
+
+    <h2>Cláusula décima quarta — Das despesas não previstas</h2>
+    <p>14.1. Despesas pessoais e serviços não incluídos expressamente no pacote são de responsabilidade exclusiva do CONTRATANTE.</p>
+
+    <h2>Cláusula décima quinta — Do número mínimo de passageiros</h2>
+    <p>15.1. A saída do ônibus está condicionada ao mínimo de 35 passageiros, podendo ocorrer em vans, com mínimo de 12 passageiros, ou micro-ônibus, com mínimo de 22 passageiros, quando a quantidade de participantes for inferior.</p>
+
+    <h2>Cláusula décima sexta — Do desligamento</h2>
+    <p>16.1. A CONTRATADA poderá desligar da excursão qualquer passageiro que causar transtornos ou desrespeitar as regras de convivência e segurança.</p>
+
+    <h2>Cláusula décima sétima — Disposições importantes</h2>
+    <p>17.1. O guia da excursão é a autoridade operacional durante a viagem. O itinerário poderá sofrer alterações por condições climáticas, trânsito ou questões técnicas. É proibido fumar ou utilizar entorpecentes no interior do veículo, sob pena de retirada do passageiro.</p>
+
+    <h2>Autorização de uso de imagem</h2>
+    <p>O CONTRATANTE autoriza, de forma gratuita, definitiva e irrevogável, o uso de sua imagem, voz e nome captados durante a excursão para fins de divulgação, promoção e registro do evento, em qualquer meio de comunicação. Caso não concorde, deverá manifestar-se expressamente por escrito até a data de início da viagem.</p>
+
+    <h2>Do foro</h2>
+    <p>As partes elegem o foro da ${escaparHtml(CONTRATADA_DADOS.foro)}, com renúncia a qualquer outro, por mais privilegiado que seja, para dirimir controvérsias decorrentes deste contrato.</p>
+
+    <p>${localAssinatura}, ${dataAceiteFormatada}.</p>
+
+    <div class="assinaturas">
+      <div class="assinatura"><strong>CONTRATANTE</strong><br/>${escaparHtml(usuario.nome)}<br/>CPF: ${escaparHtml(usuario.cpf || "Não informado")}</div>
+      <div class="assinatura"><strong>CONTRATADA</strong><br/>${escaparHtml(CONTRATADA_DADOS.razao_social)}<br/>CNPJ: ${escaparHtml(CONTRATADA_DADOS.cnpj)}</div>
     </div>
+
+    <div class="rodape-documento">Contrato gerado em ${dataAceiteFormatada} às ${formatarHorario(dataAceite)}. Aceite eletrônico registrado com IP ${escaparHtml(dadosContrato.aceite_ip || reserva.aceite_ip || "não informado")} — Reserva ID: ${escaparHtml(reserva.id)}.</div>
   </div>
 </body>
-</html>
-      `;
+</html>`;
 
       return html;
     } catch (error) {
@@ -262,8 +497,7 @@ export class ContratoService {
   static async gerarContratoPDF(dadosContrato: DadosContrato): Promise<Buffer> {
     try {
       const html = await this.gerarContratoHTML(dadosContrato);
-      const pdfBuffer = await generateBrandedPdfBuffer(html, { brand: "comitiva" });
-      return pdfBuffer;
+      return await generateBrandedPdfBuffer(html, { brand: "comitiva" });
     } catch (error) {
       console.error("[ContratoService] Erro ao gerar PDF:", error);
       throw error;
@@ -273,15 +507,11 @@ export class ContratoService {
   static async salvarContratoPDF(dadosContrato: DadosContrato): Promise<string> {
     try {
       const pdfBuffer = await this.gerarContratoPDF(dadosContrato);
-
-      // Criar diretório se não existir
       const uploadDir = process.env.STORAGE_PATH || "./uploads";
       await fs.mkdir(uploadDir, { recursive: true });
 
-      // Salvar arquivo
       const nomeArquivo = `contrato-${dadosContrato.reserva_id}-${Date.now()}.pdf`;
       const caminhoCompleto = path.join(uploadDir, nomeArquivo);
-
       await fs.writeFile(caminhoCompleto, pdfBuffer);
 
       return caminhoCompleto;
@@ -291,19 +521,8 @@ export class ContratoService {
     }
   }
 
-  static async registrarAceiteContrato(
-    reserva_id: string,
-    aceite_ip: string
-  ): Promise<void> {
+  static async registrarAceiteContrato(reserva_id: string, aceite_ip: string): Promise<void> {
     try {
-      const dadosContrato: DadosContrato = {
-        reserva_id,
-        usuario_id: "", // Será preenchido depois
-        lote_id: "",
-        aceite_ip,
-      };
-
-      // Buscar reserva para preencher dados
       const reservaResult = await db
         .select()
         .from(reservas)
@@ -315,21 +534,25 @@ export class ContratoService {
       }
 
       const reserva = reservaResult[0];
-      dadosContrato.usuario_id = reserva.usuario_id;
-      dadosContrato.lote_id = reserva.lote_id;
+      const aceiteTimestamp = new Date();
+      const dadosContrato: DadosContrato = {
+        reserva_id,
+        usuario_id: reserva.usuario_id,
+        lote_id: reserva.lote_id,
+        aceite_ip,
+        aceite_timestamp: aceiteTimestamp,
+      };
 
-      // Gerar e salvar contrato
       const caminhoContrato = await this.salvarContratoPDF(dadosContrato);
 
-      // Atualizar reserva com dados do contrato
       await db
         .update(reservas)
         .set({
           status: "contrato_gerado",
           contrato_pdf_url: caminhoContrato,
-          aceite_timestamp: new Date(),
+          aceite_timestamp: aceiteTimestamp,
           aceite_ip,
-          atualizado_em: new Date(),
+          atualizado_em: aceiteTimestamp,
         })
         .where(eq(reservas.id, reserva_id));
 

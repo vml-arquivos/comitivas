@@ -1,8 +1,8 @@
 import { PDFDocument, StandardFonts as StandardFontsRef, rgb as rgbRef } from "pdf-lib";
-import { DESTRAVA_LOGO_B64, PERMUPAY_LOGO_B64 } from "./logo_constants";
+import { COMITIVA_LOGO_B64, DESTRAVA_LOGO_B64, PERMUPAY_LOGO_B64 } from "./logo_constants";
 import { closeChromium, launchChromium } from "./chromiumLauncher";
 
-export type PdfBrand = "destrava" | "permupay" | "aragao";
+export type PdfBrand = "destrava" | "permupay" | "aragao" | "comitiva";
 
 export type BrandedPdfOptions = {
   brand?: PdfBrand | string | null;
@@ -33,7 +33,7 @@ const FOOTER_TEMPLATE = `<style>
 
 function normalizeBrand(value: unknown): PdfBrand {
   const brand = String(value || "destrava").trim().toLowerCase();
-  if (brand === "permupay" || brand === "aragao") return brand;
+  if (brand === "permupay" || brand === "aragao" || brand === "comitiva") return brand;
   return "destrava";
 }
 
@@ -68,6 +68,13 @@ function brandPresentation(value: unknown): {
       logoDataUri: "",
     };
   }
+  if (brand === "comitiva") {
+    return {
+      name: "Excursão das Comitivas",
+      borderColor: "#B91C1C",
+      logoDataUri: COMITIVA_LOGO_B64,
+    };
+  }
   return {
     name: "Destrava Crédito",
     borderColor: "#1B3A8C",
@@ -75,8 +82,34 @@ function brandPresentation(value: unknown): {
   };
 }
 
+function footerTemplate(value: unknown): string {
+  if (normalizeBrand(value) !== "comitiva") return FOOTER_TEMPLATE;
+
+  return `<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    #fw {
+      width: 100%;
+      padding: 8px 22mm 6px;
+      border-top: 1px solid #fecaca;
+      text-align: center;
+      font-family: Arial, sans-serif;
+      font-size: 7.5pt;
+      color: #7f1d1d;
+      line-height: 1.5;
+    }
+  </style>
+  <div id="fw">
+    <strong>EXCURSÃO DAS COMITIVAS</strong><br/>
+    HENRIQUE SANTOS CUNHA · CNPJ 39.763.571/0001-13<br/>
+    Brasília/DF · excursaodascomitivas@gmail.com
+  </div>`;
+}
+
 function headerTemplate(value: unknown): string {
-  const brand = brandPresentation(value);
+  const normalizedBrand = normalizeBrand(value);
+  const brand = brandPresentation(normalizedBrand);
+  const logoHeight = normalizedBrand === "comitiva" ? "54px" : "40px";
+  const logoMaxWidth = normalizedBrand === "comitiva" ? "112px" : "160px";
   const content = brand.logoDataUri
     ? `<img src="${brand.logoDataUri}" alt="${escapeHtml(brand.name)}"/>`
     : `<span>${escapeHtml(brand.name)}</span>`;
@@ -97,8 +130,8 @@ function headerTemplate(value: unknown): string {
       color: ${brand.borderColor};
     }
     img {
-      height: 40px;
-      max-width: 160px;
+      height: ${logoHeight};
+      max-width: ${logoMaxWidth};
       object-fit: contain;
       display: block;
     }
@@ -232,7 +265,7 @@ export async function generateBrandedPdfBuffer(
       const onePageBuffer = await page.pdf({
         ...pdfOptions,
         headerTemplate: headerTemplate(options.brand),
-        footerTemplate: FOOTER_TEMPLATE,
+        footerTemplate: footerTemplate(options.brand),
       });
       return Buffer.from(onePageBuffer);
     }

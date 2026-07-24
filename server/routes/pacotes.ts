@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import { authMiddleware, requireRole } from "../middleware/authMiddleware.js";
 import { PacoteService, ConfiguracaoPacote } from "../services/pacoteService.js";
 import { db } from "../db/index.js";
-import { lotes, pacotes, itens_addon, reservas } from "../db/schema.js";
+import { lotes, pacotes, itens_addon, reservas, usuarios } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 
@@ -123,7 +123,43 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
       return res.status(403).json({ erro: "Acesso negado" });
     }
 
-    res.json(reserva[0]);
+    const contratante = await db
+      .select({
+        nome: usuarios.nome,
+        cpf: usuarios.cpf,
+        rg: usuarios.rg,
+        data_nascimento: usuarios.data_nascimento,
+        estado_civil: usuarios.estado_civil,
+        profissao: usuarios.profissao,
+        endereco: usuarios.endereco,
+        nacionalidade: usuarios.nacionalidade,
+        telefone: usuarios.telefone,
+        email: usuarios.email,
+      })
+      .from(usuarios)
+      .where(eq(usuarios.id, reserva[0].usuario_id))
+      .limit(1);
+
+    const pacoteSelecionado = reserva[0].pacote_id
+      ? await db
+        .select({
+          id: pacotes.id,
+          nome: pacotes.nome,
+          descricao: pacotes.descricao,
+          modalidade_hospedagem: pacotes.modalidade_hospedagem,
+        })
+        .from(pacotes)
+        .where(eq(pacotes.id, reserva[0].pacote_id))
+        .limit(1)
+      : [];
+
+    res.json({
+      ...reserva[0],
+      pacote_nome: pacoteSelecionado[0]?.nome || null,
+      pacote_descricao: pacoteSelecionado[0]?.descricao || null,
+      modalidade_hospedagem: pacoteSelecionado[0]?.modalidade_hospedagem || null,
+      contratante: contratante[0] || null,
+    });
   } catch (error) {
     console.error("[PACOTES] Erro ao buscar reserva:", error);
     res.status(500).json({ erro: "Erro ao buscar reserva" });

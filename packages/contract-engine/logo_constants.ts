@@ -17,6 +17,7 @@ function loadLogoB64(filename: string): string {
   try {
     const candidates = [
       path.join(process.cwd(), "packages", "contract-engine", "assets", filename),
+      path.join(process.cwd(), "packages", "brand", "assets", filename),
       path.join(process.cwd(), "server", "assets", filename),
       path.join(process.cwd(), "dist", "assets", filename),
       path.join(process.cwd(), "assets", filename),
@@ -37,3 +38,4 @@ function loadLogoB64(filename: string): string {
 
 export const DESTRAVA_LOGO_B64: string = loadLogoB64("logo-destrava.png");
 export const PERMUPAY_LOGO_B64: string = loadLogoB64("logo-permupay.png");
+export const COMITIVA_LOGO_B64: string = loadLogoB64("logo.png");

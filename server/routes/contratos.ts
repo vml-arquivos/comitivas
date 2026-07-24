@@ -40,15 +40,48 @@ router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Re
       return res.status(400).json({ erro: "Reserva não pode aceitar contrato neste status" });
     }
 
+    // O contrato deve registrar a condição selecionada no checkout antes de ser
+    // gerado. Não inferimos a modalidade, pois isso poderia produzir um PDF com
+    // forma de pagamento diferente daquela aceita pelo cliente.
+    const metodoPagamento = req.body?.metodo_pagamento ?? reserva.forma_pagamento;
+    const quantidadeParcelas = req.body?.quantidade_parcelas ?? reserva.quantidade_parcelas;
+    if (!metodoPagamento) {
+      return res.status(400).json({ erro: "Selecione a forma de pagamento antes de aceitar o contrato" });
+    }
+
+    let condicaoPagamento;
+    try {
+      condicaoPagamento = ContratoService.calcularCondicaoPagamento(
+        reserva.valor_total.toString(),
+        metodoPagamento,
+        quantidadeParcelas,
+      );
+    } catch (error: any) {
+      return res.status(400).json({ erro: error.message || "Condição de pagamento inválida" });
+    }
+
+    await db
+      .update(reservas)
+      .set({
+        forma_pagamento: condicaoPagamento.forma_pagamento,
+        quantidade_parcelas: condicaoPagamento.quantidade_parcelas,
+        valor_parcela: condicaoPagamento.valor_parcela,
+        desconto_pagamento: condicaoPagamento.desconto_pagamento,
+        valor_total: condicaoPagamento.valor_total,
+        atualizado_em: new Date(),
+      })
+      .where(eq(reservas.id, reserva_id));
+
     const ip = req.ip || req.socket.remoteAddress || "desconhecido";
 
-    // Registrar aceite e gerar contrato
+    // Registrar aceite e gerar contrato já com os dados persistidos acima.
     await ContratoService.registrarAceiteContrato(reserva_id, ip);
 
     res.json({
       mensagem: "Contrato aceito e gerado com sucesso",
       reserva_id,
       status: "contrato_gerado",
+      condicao_pagamento: condicaoPagamento,
     });
   } catch (error: any) {
     console.error("[CONTRATOS] Erro ao aceitar:", error);

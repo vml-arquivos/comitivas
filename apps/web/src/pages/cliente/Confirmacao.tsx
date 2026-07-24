@@ -65,13 +65,9 @@ export default function Confirmacao() {
         <CardContent className="p-8 space-y-8">
           {status !== 'confirmado' && pagamentoData?.metodo === 'pix' && pagamentoData.qr_code && (
             <div className="space-y-4">
-              <p className="text-gray-600">Escaneie o QR Code abaixo no seu app de banco para pagar:</p>
-              <div className="bg-gray-100 p-4 inline-block rounded-xl mx-auto">
-                {/* Simulando um QR code para o teste visual */}
-                <div className="w-48 h-48 bg-white border-2 border-dashed border-gray-300 flex items-center justify-center text-gray-400 text-sm text-center p-4">
-                  [QR Code PIX Aqui]<br/><br/>
-                  <span className="text-xs break-all">{pagamentoData.qr_code.substring(0, 20)}...</span>
-                </div>
+              <p className="text-gray-600">Use o código PIX Copia e Cola abaixo no aplicativo do seu banco:</p>
+              <div className="bg-gray-100 p-4 rounded-xl text-left">
+                <code className="block break-all text-xs text-gray-700 select-all">{pagamentoData.qr_code}</code>
               </div>
               <p className="text-sm text-gray-500">O status será atualizado automaticamente assim que o pagamento for processado.</p>
             </div>
@@ -83,6 +79,13 @@ export default function Confirmacao() {
               <a href={pagamentoData.url_pagamento} target="_blank" rel="noreferrer">
                 <Button size="lg" className="w-full sm:w-auto">Acessar Gateway de Pagamento</Button>
               </a>
+            </div>
+          )}
+
+          {status !== 'confirmado' && pagamentoData && !pagamentoData.qr_code && !pagamentoData.url_pagamento && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-left text-amber-900">
+              <p className="font-semibold">Pagamento pendente</p>
+              <p className="mt-1 text-sm">A reserva foi registrada e o contrato já está disponível para download. As instruções de cobrança serão apresentadas quando houver um gateway de pagamento configurado.</p>
             </div>
           )}
 

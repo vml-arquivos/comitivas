@@ -15,9 +15,13 @@ router.post("/criar", authMiddleware, async (req: Request, res: Response) => {
     }
 
     const { reserva_id, metodo } = req.body;
+    const metodosValidos = ["pix", "boleto", "credito", "debito"];
 
     if (!reserva_id || !metodo) {
       return res.status(400).json({ erro: "reserva_id e metodo são obrigatórios" });
+    }
+    if (!metodosValidos.includes(metodo)) {
+      return res.status(400).json({ erro: "Método de pagamento inválido" });
     }
 
     // Buscar reserva
@@ -43,6 +47,12 @@ router.post("/criar", authMiddleware, async (req: Request, res: Response) => {
       return res.status(400).json({ erro: "Reserva não está pronta para pagamento" });
     }
 
+    // Para contratos novos, o método precisa ser o mesmo que foi aceito e
+    // registrado no PDF. Reservas antigas sem esse campo continuam compatíveis.
+    if (reserva.forma_pagamento && reserva.forma_pagamento !== metodo) {
+      return res.status(400).json({ erro: "O método de pagamento diverge da condição aceita no contrato" });
+    }
+
     // Criar pagamento no gateway
     const pagamentoGateway = await PaymentGatewayAdapter.criarPagamento({
       reserva_id,
@@ -65,6 +75,8 @@ router.post("/criar", authMiddleware, async (req: Request, res: Response) => {
       status: pagamentoGateway.status,
       valor: pagamentoGateway.valor,
       metodo: pagamentoGateway.metodo,
+      quantidade_parcelas: reserva.quantidade_parcelas || 1,
+      valor_parcela: reserva.valor_parcela || reserva.valor_total,
       qr_code: pagamentoGateway.qr_code,
       url_pagamento: pagamentoGateway.url_pagamento,
     });

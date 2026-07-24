@@ -141,6 +141,12 @@ export const reservas = pgTable("reservas", {
   valor_total: decimal("valor_total", { precision: 12, scale: 2 }).notNull(),
   cupom_id: uuid("cupom_id").references(() => cupons.id),
   desconto_aplicado: decimal("desconto_aplicado", { precision: 12, scale: 2 }).default("0"),
+  // Condição de pagamento aceita antes da geração do contrato.
+  // Mantida na reserva para que o PDF seja um retrato imutável da contratação.
+  forma_pagamento: varchar("forma_pagamento", { length: 30 }),
+  quantidade_parcelas: integer("quantidade_parcelas"),
+  valor_parcela: decimal("valor_parcela", { precision: 12, scale: 2 }),
+  desconto_pagamento: decimal("desconto_pagamento", { precision: 12, scale: 2 }).default("0"),
   contrato_pdf_url: varchar("contrato_pdf_url", { length: 500 }),
   aceite_timestamp: timestamp("aceite_timestamp"),
   aceite_ip: varchar("aceite_ip", { length: 45 }),
