@@ -269,16 +269,22 @@ export default function Home() {
         </section>
       )}
 
-      <section className="bg-[#fffaf5] py-24">
+      <section id="hospedagem" className="scroll-mt-20 bg-[#fffaf5] py-24">
         <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 sm:px-6 lg:grid-cols-2 lg:px-8">
           <div>
-            <p className="text-sm font-bold uppercase tracking-[0.16em] text-primary">Nossa estrada</p>
-            <h2 className="mt-3 text-3xl font-black tracking-tight text-secondary sm:text-4xl">Uma comitiva feita para quem vive a cultura de Barretos</h2>
-            <div className="mt-7 space-y-5 text-lg leading-relaxed text-slate-600">
-              <p>A Excursão das Comitivas nasceu da paixão pela Festa do Peão e pelo estilo de vida country. Desde 2015, a equipe transforma cada viagem em uma experiência compartilhada.</p>
-              <p>Com raízes em quase 18 anos de estrada, a organização une a tradição de comitiva com um processo de reserva claro, em que cada escolha fica registrada para você.</p>
+            <p className="text-sm font-bold uppercase tracking-[0.16em] text-primary">Conforto e organização</p>
+            <h2 className="mt-3 text-3xl font-black tracking-tight text-secondary sm:text-4xl">Nossas modalidades de hospedagem</h2>
+            <div className="mt-7 space-y-8 text-lg leading-relaxed text-slate-600">
+              <div>
+                <h3 className="flex items-center gap-2 font-bold text-secondary"><Tent size={20} className="text-primary" /> Nosso Camping</h3>
+                <p className="mt-2 text-base">Área totalmente gramada com banheiros externos, pontos de energia e segurança. Ideal para quem quer economizar e ficar no meio da festa. O cliente leva o próprio material.</p>
+              </div>
+              <div>
+                <h3 className="flex items-center gap-2 font-bold text-secondary"><Bed size={20} className="text-primary" /> Nossos Quartos</h3>
+                <p className="mt-2 text-base">Quartos suítes para 5 a 6 pessoas, com opções de ventilador ou ar-condicionado. Separados em feminino ou masculino (não há quartos mistos).</p>
+              </div>
             </div>
-            <Link to="/historia" className="mt-8 inline-flex items-center gap-2 text-sm font-bold text-primary hover:text-red-700">Conhecer a nossa história <ArrowRight size={17} /></Link>
+            <Link to="/eventos" className="mt-8 inline-flex items-center gap-2 text-sm font-bold text-primary hover:text-red-700">Consultar disponibilidade <ArrowRight size={17} /></Link>
           </div>
           <div className="relative">
             <div className="absolute -inset-3 rounded-[2rem] bg-primary/10 blur-2xl" />
@@ -292,8 +298,8 @@ export default function Home() {
         <div className="relative mx-auto max-w-4xl px-4 text-center sm:px-6 lg:px-8">
           <Tent className="mx-auto text-[#ff9fa6]" size={34} />
           <h2 className="mt-6 text-4xl font-black tracking-tight text-white sm:text-5xl">Sua próxima história pode começar aqui.</h2>
-          <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-200">Confira as excursões publicadas, escolha o pacote que combina com você e faça sua reserva online.</p>
-          <Link to="/eventos" className="mt-9 inline-flex"><Button size="lg" className="px-9 py-6 text-base shadow-xl shadow-black/25">Explorar excursões <ArrowRight size={18} className="ml-2" /></Button></Link>
+          <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-200">Confira as excursões publicadas, veja os detalhes de cada pacote e as facilidades de pagamento: PIX com 5% de desconto, Boleto em até 2x sem juros ou Cartão em até 12x.</p>
+          <Link to="/eventos" className="mt-9 inline-flex"><Button size="lg" className="px-9 py-6 text-base shadow-xl shadow-black/25">Ver pacotes e valores <ArrowRight size={18} className="ml-2" /></Button></Link>
         </div>
       </section>
 
