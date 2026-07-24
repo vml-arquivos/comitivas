@@ -10,7 +10,13 @@ interface CadastroRequest {
   nome: string;
   email: string;
   cpf?: string;
+  rg?: string;
   telefone?: string;
+  data_nascimento?: string;
+  estado_civil?: string;
+  profissao?: string;
+  endereco?: string;
+  nacionalidade?: string;
   senha: string;
 }
 
@@ -21,7 +27,7 @@ interface LoginRequest {
 
 router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Response) => {
   try {
-    const { nome, email, cpf, telefone, senha } = req.body;
+    const { nome, email, cpf, rg, telefone, data_nascimento, estado_civil, profissao, endereco, nacionalidade, senha } = req.body;
 
     // Validações
     if (!nome || !email || !senha) {
@@ -53,11 +59,17 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
         nome,
         email,
         cpf: cpf || null,
+        rg: rg || null,
         telefone: telefone || null,
+        data_nascimento: data_nascimento ? new Date(data_nascimento) : null,
+        estado_civil: estado_civil || null,
+        profissao: profissao || null,
+        endereco: endereco || null,
+        nacionalidade: nacionalidade || "Brasileira",
         senha_hash: senhaHash,
         tipo: "cliente",
       })
-      .returning({ id: usuarios.id, email: usuarios.email, tipo: usuarios.tipo });
+      .returning({ id: usuarios.id, email: usuarios.email, nome: usuarios.nome, tipo: usuarios.tipo });
 
     if (!novoUsuario[0]) {
       return res.status(500).json({ erro: "Erro ao criar usuário" });
