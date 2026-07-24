@@ -1,5 +1,7 @@
 import { drizzle } from "drizzle-orm/node-postgres";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
+import path from "node:path";
 import bcrypt from "bcryptjs";
 import * as schema from "./schema.js";
 
@@ -25,6 +27,12 @@ const CREATE_TABLES: string[] = [
     telefone VARCHAR(20),
     senha_hash VARCHAR(255) NOT NULL,
     tipo VARCHAR(50) DEFAULT 'cliente',
+    rg VARCHAR(20),
+    data_nascimento TIMESTAMP,
+    estado_civil VARCHAR(30),
+    profissao VARCHAR(100),
+    endereco TEXT,
+    nacionalidade VARCHAR(50) DEFAULT 'Brasileira',
     ativo BOOLEAN DEFAULT true,
     criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
     atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
@@ -68,6 +76,7 @@ const CREATE_TABLES: string[] = [
     descricao TEXT,
     valor_total DECIMAL(12,2) NOT NULL,
     itens_selecionados JSONB NOT NULL,
+    modalidade_hospedagem VARCHAR(30) DEFAULT 'quarto_ventilador',
     ativo BOOLEAN DEFAULT true,
     criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
     atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
@@ -192,6 +201,13 @@ async function ensureSchema() {
   console.log("[DB] Schema OK (12 tabelas verificadas)");
 }
 
+async function runDrizzleMigrations() {
+  const migrationsFolder = path.resolve(process.cwd(), "drizzle");
+  console.log(`[DB] Aplicando migrations Drizzle em ${migrationsFolder}...`);
+  await migrate(db, { migrationsFolder });
+  console.log("[DB] Migrations Drizzle aplicadas com sucesso");
+}
+
 async function ensureAdminTestUser() {
   const adminExists = await pool.query(
     "SELECT id FROM usuarios WHERE email = $1",
@@ -219,6 +235,7 @@ export async function initializeDatabase() {
     console.log("[DB] Conexão estabelecida com sucesso");
 
     await ensureSchema();
+    await runDrizzleMigrations();
     await ensureAdminTestUser();
 
     return true;

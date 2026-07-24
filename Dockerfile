@@ -28,6 +28,9 @@ RUN npm ci --only=production --audit=false --fund=false --prefer-offline --no-au
 # Copiar build do stage anterior
 COPY --from=builder /app/dist ./dist
 
+# Copiar migrations Drizzle para aplicação automática no startup
+COPY --from=builder /app/drizzle ./drizzle
+
 # Copiar assets
 COPY --from=builder /app/packages ./packages
 COPY --from=builder /app/apps/web/src/assets ./apps/web/src/assets
