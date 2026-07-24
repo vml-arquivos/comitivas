@@ -1,14 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { api } from '../../contexts/AuthContext';
-import { Calendar, MapPin, AlertCircle } from 'lucide-react';
-import { Button } from '@ui/index';
+import { Calendar, MapPin, AlertCircle, Image as ImageIcon, X } from 'lucide-react';
 
 export default function Historia() {
   const [eventos, setEventos] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<{ src: string; alt: string; legenda?: string | null } | null>(null);
 
   useEffect(() => {
     const fetchEventosRealizados = async () => {
@@ -25,6 +24,23 @@ export default function Historia() {
     fetchEventosRealizados();
   }, []);
 
+  useEffect(() => {
+    if (!selectedImage) return undefined;
+
+    const fecharComEsc = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSelectedImage(null);
+    };
+
+    const overflowOriginal = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', fecharComEsc);
+
+    return () => {
+      document.body.style.overflow = overflowOriginal;
+      window.removeEventListener('keydown', fecharComEsc);
+    };
+  }, [selectedImage]);
+
   if (isLoading) {
     return (
       <div className="py-24 text-center min-h-[60vh]">
@@ -37,8 +53,13 @@ export default function Historia() {
   return (
     <div className="min-h-screen bg-gray-50 pb-24">
       <Helmet>
-        <title>Nossa História | Comitiva Prime</title>
-        <meta name="description" content="Veja fotos e relembre as edições passadas das nossas excursões para Barretos e outros eventos sertanejos." />
+        <title>Histórico de Excursões | Excursão das Comitivas</title>
+        <meta name="description" content="Veja fotos e relembre as edições passadas da Excursão das Comitivas em Barretos e outros eventos sertanejos." />
+        <meta name="robots" content="index,follow" />
+        <link rel="canonical" href="https://comitivas.permupay.com.br/historia" />
+        <meta property="og:title" content="Histórico de Excursões | Excursão das Comitivas" />
+        <meta property="og:description" content="Fotos e histórias das excursões realizadas pela Excursão das Comitivas." />
+        <meta property="og:image" content="https://comitivas.permupay.com.br/images/gallery/estatua-peao.jpg" />
       </Helmet>
 
       {/* Header */}
@@ -88,20 +109,26 @@ export default function Historia() {
                 <div className="p-8 md:p-12">
                   {evento.fotos && evento.fotos.length > 0 ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                      {evento.fotos.map((foto: any) => (
-                        <div 
-                          key={foto.id} 
-                          className="aspect-square rounded-xl overflow-hidden cursor-pointer group relative"
-                          onClick={() => setSelectedImage(foto.url_foto)}
-                        >
-                          <img 
-                            src={foto.url_foto} 
-                            alt={foto.legenda || `Foto de ${evento.nome}`} 
-                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                          />
-                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-300"></div>
-                        </div>
-                      ))}
+                      {evento.fotos.map((foto: any) => {
+                        const alt = foto.legenda || `Foto de ${evento.nome}`;
+                        return (
+                          <button
+                            key={foto.id}
+                            type="button"
+                            className="aspect-square rounded-xl overflow-hidden cursor-pointer group relative text-left focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+                            onClick={() => setSelectedImage({ src: foto.url_foto, alt, legenda: foto.legenda })}
+                            aria-label={`Ampliar foto: ${alt}`}
+                          >
+                            <img
+                              src={foto.url_foto}
+                              alt={alt}
+                              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                            />
+                            <span className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-300"></span>
+                            <span className="absolute right-3 top-3 rounded-full bg-black/40 p-2 text-white opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100"><ImageIcon size={16} /></span>
+                          </button>
+                        );
+                      })}
                     </div>
                   ) : (
                     <div className="text-center py-8 bg-gray-50 rounded-xl border border-dashed border-gray-200">
@@ -115,24 +142,28 @@ export default function Historia() {
         )}
       </div>
 
-      {/* Lightbox Modal */}
       {selectedImage && (
-        <div 
-          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
-          onClick={() => setSelectedImage(null)}
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Visualização ampliada: ${selectedImage.legenda || selectedImage.alt}`}
+          onMouseDown={() => setSelectedImage(null)}
         >
-          <button 
-            className="absolute top-6 right-6 text-white hover:text-gray-300"
-            onClick={() => setSelectedImage(null)}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-          </button>
-          <img 
-            src={selectedImage} 
-            alt="Foto ampliada" 
-            className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
+          <div className="relative max-h-full max-w-6xl" onMouseDown={(event) => event.stopPropagation()}>
+            <button
+              type="button"
+              className="absolute -right-2 -top-12 inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white"
+              onClick={() => setSelectedImage(null)}
+              aria-label="Fechar imagem ampliada"
+            ><X size={20} /> Fechar</button>
+            <img
+              src={selectedImage.src}
+              alt={selectedImage.alt}
+              className="max-h-[80vh] max-w-full rounded-xl object-contain shadow-2xl"
+            />
+            {selectedImage.legenda && <p className="mt-3 text-center text-sm font-semibold text-white">{selectedImage.legenda}</p>}
+          </div>
         </div>
       )}
     </div>

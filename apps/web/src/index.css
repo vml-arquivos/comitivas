@@ -3,7 +3,18 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    scroll-behavior: smooth;
+    background: #fffdf9;
+  }
+
   body {
     @apply bg-gray-50 text-gray-900 antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: rgba(230, 57, 70, 0.22);
+    color: #1d3557;
   }
 }
