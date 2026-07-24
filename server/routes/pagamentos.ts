@@ -221,6 +221,14 @@ router.post("/webhook/asaas", async (req: Request, res: Response) => {
 
     const pagamento = pagamentoResult[0];
 
+    // Confirma o status diretamente no provedor antes de alterar dados locais.
+    // O corpo do webhook é apenas um gatilho; ele não é fonte de verdade.
+    const aprovado = await PaymentGatewayAdapter.confirmarPagamento(paymentId);
+    if (!aprovado) {
+      console.warn(`[WEBHOOK] Confirmação Asaas recusada ou pendente: ${paymentId}`);
+      return res.json({ ok: true });
+    }
+
     // Atualizar pagamento
     await db
       .update(pagamentos)

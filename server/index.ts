@@ -1,10 +1,13 @@
 import express from "express";
 import path from "path";
 import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import dotenv from "dotenv";
 import { initializeDatabase, closeDatabase } from "./db/index.js";
 import { authMiddleware, requireRole } from "./middleware/authMiddleware.js";
 import { followupScheduler } from "./services/followupScheduler.js";
+import { AuthService } from "./services/authService.js";
 import authRoutes from "./routes/auth.js";
 import publicoRoutes from "./routes/publico.js";
 import eventosRoutes from "./routes/eventos.js";
@@ -18,13 +21,28 @@ import jornadadRoutes from "./routes/jornada.js";
 import adminRoutes from "./routes/admin.js";
 
 dotenv.config();
+AuthService.validarConfiguracaoSegura();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const limiteAutenticacao = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === "production" ? 20 : 1_000,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { erro: "Muitas tentativas. Aguarde alguns minutos antes de tentar novamente." },
+});
 
 // Middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.disable("x-powered-by");
+app.use(helmet({
+  // O frontend inclui JSON-LD e estilos processados pelo Vite; uma política CSP
+  // estrita deve ser configurada no proxy de produção após inventariar esses ativos.
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+}));
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 app.use(cors({
   origin: process.env.WEB_URL || "http://localhost:5173",
   credentials: true,
@@ -36,7 +54,7 @@ const webDistPath = path.join(process.cwd(), "apps", "web", "dist");
 app.use(express.static(webDistPath));
 
 // Rotas públicas
-app.use("/api/auth", authRoutes);
+app.use("/api/auth", limiteAutenticacao, authRoutes);
 app.use("/api/publico", publicoRoutes);
 
 // Health check
