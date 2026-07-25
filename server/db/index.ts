@@ -132,7 +132,13 @@ const CREATE_TABLES: string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS reservas_usuario_id_idx ON reservas (usuario_id)`,
   `CREATE INDEX IF NOT EXISTS reservas_lote_id_idx ON reservas (lote_id)`,
-  `CREATE INDEX IF NOT EXISTS reservas_pacote_id_idx ON reservas (pacote_id)`,
+  // Índice de pacote_id NÃO é criado aqui de propósito: em bancos já existentes a
+  // tabela reservas já existe (o CREATE TABLE IF NOT EXISTS acima é um no-op) e a
+  // coluna pacote_id ainda não existiria neste ponto, fazendo este CREATE INDEX
+  // falhar com "column pacote_id does not exist" e derrubar o boot da aplicação.
+  // A coluna + índice são criados de forma idempotente (e segura para bancos novos
+  // ou existentes) pela migration drizzle/0001_reserva_pacote_escolhido.sql, que
+  // roda logo em seguida via runDrizzleMigrations().
   `CREATE INDEX IF NOT EXISTS reservas_status_idx ON reservas (status)`,
 
   `CREATE TABLE IF NOT EXISTS pagamentos (
