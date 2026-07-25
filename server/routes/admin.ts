@@ -4,6 +4,7 @@ import { RelatorioService } from "../services/relatorioService.js";
 import { EmailService } from "../services/emailService.js";
 import { AuthService } from "../services/authService.js";
 import { ContratoService } from "../services/contratoService.js";
+import { ConfiguracaoService } from "../services/configuracaoService.js";
 import { db } from "../db/index.js";
 import { reservas, eventos, lotes, usuarios, leads_origem } from "../db/schema.js";
 import { eq, and, inArray, or, sql, desc } from "drizzle-orm";
@@ -575,6 +576,59 @@ router.patch("/usuarios/:id/status", async (req: Request, res: Response) => {
 });
 
 // ==========================================================================
+// Configurações de pagamento (regras de negócio, editáveis sem redeploy)
+// ==========================================================================
+
+// Devolve as regras configuráveis (desconto PIX, teto de parcelas do
+// cartão, teto de meses de antecedência do boleto) e o status do gateway
+// ativo — lido de variável de ambiente, nunca do banco. O token do gateway
+// nunca é devolvido, mesmo que definido, apenas se está configurado ou não.
+router.get("/configuracoes/pagamento", async (_req: Request, res: Response) => {
+  try {
+    const configuracoes = await ConfiguracaoService.obterConfiguracoesPagamento();
+    const gateway = (process.env.PAYMENT_GATEWAY || "mercadopago").trim();
+    const gatewayConfigurado = gateway === "mercadopago"
+      ? Boolean(process.env.MERCADOPAGO_ACCESS_TOKEN?.trim())
+      : gateway === "asaas"
+        ? Boolean(process.env.ASAAS_API_KEY?.trim())
+        : gateway === "mock";
+
+    res.json({
+      configuracoes,
+      gateway: {
+        ativo: gateway,
+        configurado: gatewayConfigurado,
+      },
+    });
+  } catch (error: any) {
+    console.error("[ADMIN] Erro ao ler configurações de pagamento:", error);
+    res.status(500).json({ erro: "Erro ao ler configurações de pagamento" });
+  }
+});
+
+router.put("/configuracoes/pagamento", async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+
+    const { pix_desconto_percentual, credito_parcelas_maximo, boleto_meses_maximo_antecedencia } = req.body ?? {};
+    const dados: Record<string, number> = {};
+    if (pix_desconto_percentual !== undefined) dados.pix_desconto_percentual = Number(pix_desconto_percentual);
+    if (credito_parcelas_maximo !== undefined) dados.credito_parcelas_maximo = Number(credito_parcelas_maximo);
+    if (boleto_meses_maximo_antecedencia !== undefined) dados.boleto_meses_maximo_antecedencia = Number(boleto_meses_maximo_antecedencia);
+
+    if (Object.keys(dados).length === 0) {
+      return res.status(400).json({ erro: "Informe ao menos um campo para atualizar" });
+    }
+
+    const configuracoes = await ConfiguracaoService.atualizarConfiguracoesPagamento(dados as any, req.usuario.id);
+    res.json({ configuracoes });
+  } catch (error: any) {
+    console.error("[ADMIN] Erro ao atualizar configurações de pagamento:", error);
+    res.status(400).json({ erro: error.message || "Erro ao atualizar configurações de pagamento" });
+  }
+});
+
+// ==========================================================================
 // Geração de contrato diretamente pelo painel administrativo
 // ==========================================================================
 
@@ -652,13 +706,22 @@ router.post("/contratos/gerar/:reserva_id", async (req: Request, res: Response) 
         .where(eq(lotes.id, reserva.lote_id))
         .limit(1);
       const dataLimitePagamento = loteResult[0]?.data_embarque || loteResult[0]?.data_inicio;
-      const parcelasMaximasBoleto = ContratoService.calcularParcelasMaximasBoleto(dataLimitePagamento);
+      const configPagamento = await ConfiguracaoService.obterConfiguracoesPagamento();
+      const parcelasMaximasBoleto = ContratoService.calcularParcelasMaximasBoleto(
+        dataLimitePagamento,
+        new Date(),
+        configPagamento.boleto_meses_maximo_antecedencia,
+      );
 
       condicaoPagamento = ContratoService.calcularCondicaoPagamento(
         reserva.valor_total.toString(),
         metodoPagamento,
         quantidadeParcelas,
         parcelasMaximasBoleto,
+        {
+          percentualDescontoPix: configPagamento.pix_desconto_percentual,
+          parcelasMaximasCredito: configPagamento.credito_parcelas_maximo,
+        },
       );
     } catch (error: any) {
       return res.status(400).json({ erro: error.message || "Condição de pagamento inválida" });

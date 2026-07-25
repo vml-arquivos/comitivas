@@ -14,6 +14,19 @@ vi.mock("../server/db/index.js", () => ({
       chain.limit = async () => banco.resultados.shift() || [];
       return chain;
     },
+    // ConfiguracaoService faz um select + (se vazio) um insert para garantir
+    // a linha singleton de configurações. Nos testes de contrato, a fila de
+    // resultados é dedicada aos dados da reserva/usuário/lote/evento/pacote,
+    // então o select de configurações sempre vem vazio — este insert mock
+    // apenas evita logs de erro, o fallback para os valores padrão já é
+    // coberto pelo próprio ConfiguracaoService.
+    insert: () => {
+      const chain: any = {};
+      chain.values = () => chain;
+      chain.onConflictDoNothing = () => chain;
+      chain.returning = async () => [];
+      return chain;
+    },
   },
 }));
 

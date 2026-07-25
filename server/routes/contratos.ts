@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 import { ContratoService } from "../services/contratoService.js";
+import { ConfiguracaoService } from "../services/configuracaoService.js";
 import { db } from "../db/index.js";
 import { eventos, lotes, pacotes, reservas, usuarios } from "../db/schema.js";
 import { eq } from "drizzle-orm";
@@ -87,13 +88,22 @@ router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Re
         .where(eq(lotes.id, reserva.lote_id))
         .limit(1);
       const dataLimitePagamento = loteResult[0]?.data_embarque || loteResult[0]?.data_inicio;
-      const parcelasMaximasBoleto = ContratoService.calcularParcelasMaximasBoleto(dataLimitePagamento);
+      const configPagamento = await ConfiguracaoService.obterConfiguracoesPagamento();
+      const parcelasMaximasBoleto = ContratoService.calcularParcelasMaximasBoleto(
+        dataLimitePagamento,
+        new Date(),
+        configPagamento.boleto_meses_maximo_antecedencia,
+      );
 
       condicaoPagamento = ContratoService.calcularCondicaoPagamento(
         reserva.valor_total.toString(),
         metodoPagamento,
         quantidadeParcelas,
         parcelasMaximasBoleto,
+        {
+          percentualDescontoPix: configPagamento.pix_desconto_percentual,
+          parcelasMaximasCredito: configPagamento.credito_parcelas_maximo,
+        },
       );
     } catch (error: any) {
       return res.status(400).json({ erro: error.message || "Condição de pagamento inválida" });

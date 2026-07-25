@@ -32,6 +32,29 @@ describe("ContratoService.calcularCondicaoPagamento", () => {
     });
   });
 
+  it("aplica o percentual de desconto do PIX configurado pelo admin", () => {
+    expect(ContratoService.calcularCondicaoPagamento("1000.00", "pix", 1, 2, { percentualDescontoPix: 10 })).toEqual({
+      forma_pagamento: "pix",
+      quantidade_parcelas: 1,
+      valor_total: "900.00",
+      valor_parcela: "900.00",
+      desconto_pagamento: "100.00",
+    });
+  });
+
+  it("aplica o teto de parcelas do cartão configurado pelo admin", () => {
+    expect(ContratoService.calcularCondicaoPagamento("2000.00", "credito", 15, 2, { parcelasMaximasCredito: 15 })).toEqual({
+      forma_pagamento: "credito",
+      quantidade_parcelas: 15,
+      valor_total: "2000.00",
+      valor_parcela: "133.33",
+      desconto_pagamento: "0.00",
+    });
+
+    expect(() => ContratoService.calcularCondicaoPagamento("2000.00", "credito", 12, 2, { parcelasMaximasCredito: 10 }))
+      .toThrow("O cartão de crédito pode ser parcelado em até 10 vezes");
+  });
+
   it("rejeita uma forma de pagamento não reconhecida", () => {
     expect(() => ContratoService.calcularCondicaoPagamento("1000.00", "debito", 1))
       .toThrow("Forma de pagamento inválida");
@@ -89,6 +112,12 @@ describe("ContratoService.calcularParcelasMaximasBoleto", () => {
     const referencia = new Date("2024-01-01T00:00:00Z");
     // Excursão em agosto/2026: 31 meses de antecedência, acima do teto
     expect(ContratoService.calcularParcelasMaximasBoleto("2026-08-01T00:00:00Z", referencia)).toBe(20);
+  });
+
+  it("aceita um teto de meses configurado pelo admin, diferente do padrão", () => {
+    const referencia = new Date("2024-01-01T00:00:00Z");
+    // Mesmo cenário do teste anterior, mas com teto customizado de 12 meses
+    expect(ContratoService.calcularParcelasMaximasBoleto("2026-08-01T00:00:00Z", referencia, 12)).toBe(12);
   });
 
   it("nunca libera menos de 1 parcela (à vista), mesmo em cima da data do evento", () => {

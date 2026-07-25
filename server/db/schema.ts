@@ -220,6 +220,19 @@ export const leads_origem = pgTable("leads_origem", {
   whatsappIdx: index("leads_origem_whatsapp_idx").on(table.whatsapp),
 }));
 
+// Configurações de pagamento editáveis pelo admin (regras de negócio, não
+// segredos). Tabela singleton: sempre existe apenas a linha id='default'.
+// Tokens de gateway (Mercado Pago/Asaas) continuam em variável de ambiente —
+// são credenciais sensíveis geridas pelo Coolify, não pelo painel.
+export const configuracoesPagamento = pgTable("configuracoes_pagamento", {
+  id: text("id").primaryKey().default("default"),
+  pix_desconto_percentual: decimal("pix_desconto_percentual", { precision: 5, scale: 2 }).notNull().default("5"),
+  credito_parcelas_maximo: integer("credito_parcelas_maximo").notNull().default(10),
+  boleto_meses_maximo_antecedencia: integer("boleto_meses_maximo_antecedencia").notNull().default(20),
+  atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
+  atualizado_por: text("atualizado_por"),
+});
+
 // Relations
 export const usuariosRelations = relations(usuarios, ({ many }) => ({
   reservas: many(reservas),

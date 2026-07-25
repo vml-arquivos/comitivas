@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { authMiddleware, requireRole } from "../middleware/authMiddleware.js";
 import { PacoteService, ConfiguracaoPacote } from "../services/pacoteService.js";
 import { ContratoService } from "../services/contratoService.js";
+import { ConfiguracaoService } from "../services/configuracaoService.js";
 import { db } from "../db/index.js";
 import { eventos, lotes, pacotes, itens_addon, reservas, usuarios, leads_origem } from "../db/schema.js";
 import { eq, and, desc, isNull, or } from "drizzle-orm";
@@ -218,6 +219,7 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
       .where(eq(lotes.id, reserva[0].lote_id))
       .limit(1);
     const dataLimitePagamento = loteResult[0]?.data_embarque || loteResult[0]?.data_inicio;
+    const configPagamento = await ConfiguracaoService.obterConfiguracoesPagamento();
     // Se o contrato já foi gerado, a condição fica travada (ver Checkout.tsx),
     // então o teto correto para exibir é o que valia no momento do aceite —
     // aproximado pela data de criação da reserva. Sem contrato ainda, usamos
@@ -225,6 +227,7 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
     const parcelasBoletoMaximas = ContratoService.calcularParcelasMaximasBoleto(
       dataLimitePagamento,
       reserva[0].forma_pagamento ? reserva[0].criado_em : new Date(),
+      configPagamento.boleto_meses_maximo_antecedencia,
     );
 
     res.json({
@@ -234,6 +237,8 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
       modalidade_hospedagem: pacoteSelecionado[0]?.modalidade_hospedagem || null,
       contratante: contratante[0] || null,
       parcelas_boleto_maximas: parcelasBoletoMaximas,
+      pix_desconto_percentual: configPagamento.pix_desconto_percentual,
+      credito_parcelas_maximo: configPagamento.credito_parcelas_maximo,
     });
   } catch (error) {
     console.error("[PACOTES] Erro ao buscar reserva:", error);
