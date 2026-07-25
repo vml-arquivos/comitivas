@@ -1,10 +1,11 @@
 import cron from 'node-cron';
+import type { ScheduledTask } from 'node-cron';
 import { db } from '../db/index.js';
 import { reservas, emails_enviados, usuarios } from '../db/schema.js';
 import { eq, lt, and } from 'drizzle-orm';
 
 interface FollowupConfig {
-  etapa: string;
+  etapa: NonNullable<typeof reservas.$inferSelect.status>;
   horas_espera: number;
   assunto: string;
   template: string;
@@ -38,7 +39,7 @@ const followupConfigs: FollowupConfig[] = [
 ];
 
 export class FollowupScheduler {
-  private cronJob: cron.ScheduledTask | null = null;
+  private cronJob: ScheduledTask | null = null;
 
   start(intervalMinutos: number = 5) {
     // Executar a cada X minutos (configurável via env)

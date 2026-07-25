@@ -77,6 +77,27 @@ function formatarData(valor: Date | string | null | undefined): string {
   }).format(data);
 }
 
+function formatarDataHora(valor: Date | string | null | undefined): string {
+  if (!valor) return "a confirmar pela organização";
+  const data = new Date(valor);
+  if (Number.isNaN(data.getTime())) return "a confirmar pela organização";
+
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/Sao_Paulo",
+  }).format(data);
+}
+
+function formatarCpf(valor: string | null | undefined): string {
+  const cpf = String(valor || "").replace(/\D/g, "");
+  if (cpf.length !== 11) return valor || "Não informado";
+  return cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+}
+
 function formatarHorario(valor: Date): string {
   return new Intl.DateTimeFormat("pt-BR", {
     hour: "2-digit",
@@ -315,8 +336,19 @@ export class ContratoService {
 
       const dataAceite = dadosContrato.aceite_timestamp || reserva.aceite_timestamp || new Date();
       const dataAceiteFormatada = formatarData(dataAceite);
-      const dataIdaFormatada = formatarData(evento.data_inicio);
-      const dataVoltaFormatada = formatarData(evento.data_fim);
+      const dataIdaFormatada = formatarData(lote.data_inicio);
+      const dataVoltaFormatada = formatarData(lote.data_fim);
+      const dataEmbarqueFormatada = formatarDataHora(lote.data_embarque || lote.data_inicio);
+      const dataRetornoFormatada = formatarDataHora(lote.data_retorno || lote.data_fim);
+      const localEmbarque = lote.local_embarque || "Brasília/DF, com embarque adicional em Goiânia/GO";
+      const localHospedagem = lote.local_hospedagem || "chácara ou camping previamente contratado em Barretos/SP";
+      const descricaoHospedagem = modalidade === "camping"
+        ? "A modalidade Camping oferece área gramada, banheiros externos, pontos de energia e segurança. O CONTRATANTE deverá levar seu próprio material de camping."
+        : modalidade === "quarto_ventilador"
+          ? "A modalidade Quarto com Ventilador utiliza quartos-suítes compartilhados para 5 a 6 pessoas, organizados em quartos femininos ou masculinos, sem quartos mistos."
+          : modalidade === "quarto_ar_condicionado"
+            ? "A modalidade Quarto com Ar-condicionado utiliza quartos-suítes compartilhados para 5 a 6 pessoas, organizados em quartos femininos ou masculinos, sem quartos mistos."
+            : "A estrutura da hospedagem seguirá a modalidade registrada na reserva.";
 
       const linhasItens = itensContrato.map((item) => {
         const totalItem = item.valor.times(item.quantidade);
@@ -392,7 +424,7 @@ export class ContratoService {
       <tbody>
         <tr><th>CONTRATADA</th><td><strong>${escaparHtml(CONTRATADA_DADOS.razao_social)}</strong>, inscrito no CNPJ sob nº ${escaparHtml(CONTRATADA_DADOS.cnpj)}, com sede em ${escaparHtml(CONTRATADA_DADOS.endereco_sede)}, e-mail ${escaparHtml(CONTRATADA_DADOS.email)}.</td></tr>
         <tr><th>CONTRATANTE</th><td><strong>${escaparHtml(usuario.nome)}</strong></td></tr>
-        <tr><th>CPF / RG</th><td>CPF: ${escaparHtml(usuario.cpf || "Não informado")} &nbsp; | &nbsp; RG: ${escaparHtml(usuario.rg || "Não informado")}</td></tr>
+        <tr><th>CPF / RG</th><td>CPF: ${escaparHtml(formatarCpf(usuario.cpf))} &nbsp; | &nbsp; RG: ${escaparHtml(usuario.rg || "Não informado")}</td></tr>
         <tr><th>Nascimento / Nacionalidade</th><td>${escaparHtml(formatarData(usuario.data_nascimento))} &nbsp; | &nbsp; ${escaparHtml(usuario.nacionalidade || "Brasileira")}</td></tr>
         <tr><th>Estado civil / Profissão</th><td>${escaparHtml(usuario.estado_civil || "Não informado")} &nbsp; | &nbsp; ${escaparHtml(usuario.profissao || "Não informado")}</td></tr>
         <tr><th>Endereço</th><td>${escaparHtml(usuario.endereco || "Não informado")}</td></tr>
@@ -405,19 +437,24 @@ export class ContratoService {
     <p>1.2. É de responsabilidade do CONTRATANTE a leitura integral deste contrato antes de seu aceite eletrônico.</p>
 
     <h2>Cláusula segunda — Dados da viagem</h2>
-    <p>2.1. Lote contratado: <strong>${escaparHtml(lote.nome)}</strong>. Ida prevista em ${dataIdaFormatada} e retorno previsto em ${dataVoltaFormatada}.</p>
-    <p>2.2. Poderão ocorrer ajustes de horário por necessidade operacional. A distribuição dos assentos será realizada pela equipe responsável no momento do embarque.</p>
+    <p>2.1. Período contratado: <strong>${escaparHtml(lote.nome)}</strong>, de ${dataIdaFormatada} a ${dataVoltaFormatada}.</p>
+    <p>2.2. Embarque de ida previsto para ${dataEmbarqueFormatada}, com saída de ${escaparHtml(localEmbarque)} e destino a Barretos/SP.</p>
+    <p>2.3. Saída de retorno de Barretos/SP prevista para ${dataRetornoFormatada}, com desembarque no trajeto inverso.</p>
+    <p>2.4. Poderão ocorrer ajustes de horário por necessidade operacional. A distribuição dos assentos será realizada pela equipe responsável no momento do embarque.</p>
 
     <h2>Cláusula terceira — Da hospedagem</h2>
-    <p>3.1. A hospedagem será prestada em chácara ou camping previamente contratados, na modalidade registrada nesta reserva.</p>
+    <p>3.1. A hospedagem será prestada em ${escaparHtml(localHospedagem)}, na modalidade registrada nesta reserva.</p>
     <p>3.2. Caso haja necessidade operacional, a CONTRATADA poderá substituir o local por outro de padrão equivalente ou superior.</p>
     <div class="modalidades">
       <span class="modalidade"><span class="marcador">${modalidadeMarcada(modalidade, "camping")}</span> CAMPING</span>
       <span class="modalidade"><span class="marcador">${modalidadeMarcada(modalidade, "quarto_ventilador")}</span> QUARTO COM VENTILADOR</span>
       <span class="modalidade"><span class="marcador">${modalidadeMarcada(modalidade, "quarto_ar_condicionado")}</span> QUARTO COM AR-CONDICIONADO</span>
     </div>
+    <p>3.3. ${escaparHtml(descricaoHospedagem)}</p>
 
     <h2>Cláusula quarta — Serviços inclusos no pacote</h2>
+    <p>4.1. Estão inclusos: transporte rodoviário de ida e volta Brasília/DF ⇄ Barretos/SP, com embarque adicional em Goiânia/GO; hospedagem na modalidade contratada; café da manhã; almoço; 10 horas de open bar na chácara com água, refrigerante, energético, vodka, gin, cerveja e Paratudo; barman preparando drinks; DJ durante o dia; som automotivo; piscina liberada; e translado chácara ⇄ Parque do Peão nos horários definidos pela organização.</p>
+    <p>4.2. A composição financeira abaixo identifica o pacote contratado e eventuais itens adicionais escolhidos pelo CONTRATANTE.</p>
     <table class="tabela-itens">
       <thead><tr><th>Item</th><th class="numero">Qtd.</th><th class="numero">Valor unitário</th><th class="numero">Total</th></tr></thead>
       <tbody>
@@ -431,7 +468,7 @@ export class ContratoService {
     <h2>Cláusula quinta — Forma de pagamento</h2>
     <div class="condicao-pagamento"><strong>Condição escolhida:</strong> ${escaparHtml(FORMAS_PAGAMENTO[reserva.forma_pagamento as FormaPagamentoContrato] || "Não registrada")}<br/>${escaparHtml(descricaoCondicaoPagamento)}</div>
     <p>5.1. O pagamento via PIX é realizado à vista, com desconto de 5% já discriminado no resumo financeiro quando aplicável.</p>
-    <p>5.2. O pagamento por boleto poderá ser parcelado em até 2 (duas) vezes, sem juros, observada a quitação integral até a data da viagem.</p>
+    <p>5.2. O pagamento por boleto poderá ser parcelado em até 2 (duas) vezes, sem juros. Para a excursão Barretos 2026, a primeira parcela está prevista para julho, conforme disponibilidade e cronograma apresentado no checkout, sempre com quitação integral até a viagem.</p>
     <p>5.3. O pagamento por cartão de crédito poderá ser parcelado em até 12 (doze) vezes, de acordo com a condição selecionada e as taxas vigentes da operadora, informadas antes da conclusão.</p>
 
     <h2>Cláusula sexta — Do atraso no pagamento</h2>
@@ -441,7 +478,7 @@ export class ContratoService {
     <p>7.1. O valor total contratado é de <strong>${formatarMoeda(valorTotalReserva)}</strong>. ${escaparHtml(descricaoCondicaoPagamento)}</p>
 
     <h2>Cláusula oitava — Do embarque e desembarque</h2>
-    <p>8.1. O embarque e o desembarque ocorrerão no local de início da viagem informado pela organização.</p>
+    <p>8.1. O embarque e o desembarque seguirão a rota informada na Cláusula Segunda, incluindo o ponto adicional de Goiânia/GO quando confirmado para o passageiro.</p>
     <p>8.2. O passageiro deverá constar na relação de autorização da ANTT e apresentar documento de identificação original ou cópia autenticada.</p>
     <p>8.3. O embarque está condicionado à quitação do contrato, salvo condição formalmente aprovada pela CONTRATADA.</p>
 
@@ -482,7 +519,7 @@ export class ContratoService {
     <p>${localAssinatura}, ${dataAceiteFormatada}.</p>
 
     <div class="assinaturas">
-      <div class="assinatura"><strong>CONTRATANTE</strong><br/>${escaparHtml(usuario.nome)}<br/>CPF: ${escaparHtml(usuario.cpf || "Não informado")}</div>
+      <div class="assinatura"><strong>CONTRATANTE</strong><br/>${escaparHtml(usuario.nome)}<br/>CPF: ${escaparHtml(formatarCpf(usuario.cpf))}</div>
       <div class="assinatura"><strong>CONTRATADA</strong><br/>${escaparHtml(CONTRATADA_DADOS.razao_social)}<br/>CNPJ: ${escaparHtml(CONTRATADA_DADOS.cnpj)}</div>
     </div>
 

@@ -121,10 +121,10 @@ LOG_LEVEL
   Nível de logging: info
 
 PAYMENT_GATEWAY
-  Gateway de pagamento: mock (sem pagamento real)
+  Gateway de pagamento em produção: mercadopago
 
 MERCADOPAGO_*
-  Deixe vazio (mock desabilitado)
+  Preencha com as credenciais reais da conta Mercado Pago
 
 ================================================================================
 APÓS COLAR NO COOLIFY

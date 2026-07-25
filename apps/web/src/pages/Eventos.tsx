@@ -165,7 +165,7 @@ export default function Eventos() {
                             <p className="mt-1 text-sm text-slate-500">{data(lote.data_inicio)} a {data(lote.data_fim)}</p>
                           </div>
                           <span className={`self-start rounded-full px-3 py-1 text-xs font-bold ${lote.vagas_disponiveis > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-800 text-white'}`}>
-                            {lote.vagas_disponiveis > 0 ? `${lote.vagas_disponiveis} vagas no lote` : 'Lote esgotado'}
+                            {lote.vagas_disponiveis > 0 ? 'Vagas disponíveis' : 'Lote esgotado'}
                           </span>
                         </div>
 

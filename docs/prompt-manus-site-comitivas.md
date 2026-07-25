@@ -133,17 +133,22 @@ banco de imagens genérico fingindo ser foto real do evento.
 - Bug de deploy no `ensureSchema()` (`server/db/index.ts`): índices sendo
   criados antes das colunas existirem em bancos já existentes — corrigido.
 - Bug de CRM: cadastro direto de cliente pelo site (sem vir de link de
-  vendedor) não gerava registro em `leads_origem`, então não aparecia no
-  Kanban nem era contado em lugar nenhum — corrigido em
-  `server/routes/auth.ts`. O dashboard admin também passou a expor
-  `total_leads` — ver `server/routes/admin.ts` e
-  `apps/web/src/pages/admin/Dashboard.tsx`.
+  vendedor) não gerava registro em `leads_origem` — corrigido com transação,
+  reaproveitamento de captação existente e backfill dos clientes históricos.
+  O CRM agora possui busca, observações e próximo contato. O dashboard separa
+  clientes, contatos no CRM, cadastros sem reserva e reservas.
 - Evento "Festa do Peão de Barretos 2026" com os dois lotes de fim de
   semana e os três pacotes por lote já tem script de seed pronto em
-  `scripts/seed-barretos-2026.ts` (`npm run seed:barretos-2026`) — os
+  `scripts/seed-barretos-2026.ts` (`npm run seed:barretos-2026`). O seed já
+  foi executado em produção; a migration `0005` reaproveita os ids reais e
+  completa itinerário/disponibilidade sem duplicar a excursão. Os
   valores usados nele **não devem aparecer no site público** (ver regra
   crítica de preço acima), servem só para o backend calcular
   parcelamento/checkout.
+- Contrato e voucher usam o período do lote, os horários de embarque/retorno,
+  a rota Brasília/Goiânia, o local de hospedagem e a modalidade escolhida.
+- Confirmações repetidas de webhook são idempotentes e consomem apenas uma
+  vaga. Não altere essa transação.
 
 ## FORA DO ESCOPO / NÃO FAZER
 

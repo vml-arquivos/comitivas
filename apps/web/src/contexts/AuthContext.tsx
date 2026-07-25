@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useCallback, useContext, useState, useEffect } from 'react';
 import axios from 'axios';
 
 interface User {
@@ -27,18 +27,64 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const storedToken = localStorage.getItem('token');
-    const storedUser = localStorage.getItem('user');
-
-    if (storedToken && storedUser) {
-      setToken(storedToken);
-      setUser(JSON.parse(storedUser));
-      api.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
-    }
-    
-    setIsLoading(false);
+  const clearSession = useCallback(() => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setToken(null);
+    setUser(null);
+    delete api.defaults.headers.common['Authorization'];
   }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const restoreSession = async () => {
+      const storedToken = localStorage.getItem('token');
+      const storedUser = localStorage.getItem('user');
+      if (!storedToken || !storedUser) {
+        clearSession();
+        if (active) setIsLoading(false);
+        return;
+      }
+
+      try {
+        JSON.parse(storedUser);
+        api.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
+        const response = await api.get('/auth/perfil');
+        const currentUser = response.data.usuario as User;
+        if (!currentUser?.id || !currentUser?.tipo) throw new Error('Sessão inválida');
+
+        if (active) {
+          setToken(storedToken);
+          setUser(currentUser);
+          localStorage.setItem('user', JSON.stringify(currentUser));
+        }
+      } catch {
+        if (active) clearSession();
+      } finally {
+        if (active) setIsLoading(false);
+      }
+    };
+
+    restoreSession();
+    return () => { active = false; };
+  }, [clearSession]);
+
+  useEffect(() => {
+    const interceptor = api.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        const url = String(error.config?.url || '');
+        const publicAuthRequest = url.includes('/auth/login') || url.includes('/auth/cadastro');
+        if (error.response?.status === 401 && !publicAuthRequest && localStorage.getItem('token')) {
+          clearSession();
+        }
+        return Promise.reject(error);
+      },
+    );
+
+    return () => api.interceptors.response.eject(interceptor);
+  }, [clearSession]);
 
   const login = (newToken: string, newUser: User) => {
     localStorage.setItem('token', newToken);
@@ -48,13 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
   };
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    setToken(null);
-    setUser(null);
-    delete api.defaults.headers.common['Authorization'];
-  };
+  const logout = clearSession;
 
   return (
     <AuthContext.Provider value={{ user, token, isLoading, login, logout }}>

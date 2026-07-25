@@ -21,6 +21,10 @@ interface Lote {
   'vagas_disponíveis': number;
   data_inicio: string;
   data_fim: string;
+  data_embarque?: string | null;
+  data_retorno?: string | null;
+  local_embarque?: string | null;
+  local_hospedagem?: string | null;
   valor_base: string;
   ativo: boolean;
 }
@@ -51,6 +55,14 @@ const modalidades: Record<Pacote['modalidade_hospedagem'], { titulo: string; des
 
 const moeda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
+function dataSaoPauloIso(valor: string, fimDoDia = false) {
+  return new Date(`${valor}T${fimDoDia ? '23:59:00' : '00:00:00'}-03:00`).toISOString();
+}
+
+function dataHoraSaoPauloIso(valor: string) {
+  return new Date(`${valor}:00-03:00`).toISOString();
+}
+
 export default function EventosAdmin() {
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -64,7 +76,17 @@ export default function EventosAdmin() {
   const [mostrarFormPacote, setMostrarFormPacote] = useState<string | null>(null);
 
   const [eventoForm, setEventoForm] = useState({ nome: '', descricao: '', dataInicio: '', dataFim: '', local: '' });
-  const [loteForm, setLoteForm] = useState({ nome: '', vagas: '', dataInicio: '', dataFim: '', valorBase: '' });
+  const [loteForm, setLoteForm] = useState({
+    nome: '',
+    vagas: '',
+    dataInicio: '',
+    dataFim: '',
+    dataEmbarque: '',
+    dataRetorno: '',
+    localEmbarque: 'Brasília/DF, com embarque adicional em Goiânia/GO',
+    localHospedagem: 'Chácara Recanto Novo Encantado ou Santa Thereza — Barretos/SP',
+    valorBase: '',
+  });
   const [pacoteForm, setPacoteForm] = useState({
     nome: '',
     descricao: '',
@@ -168,8 +190,8 @@ export default function EventosAdmin() {
         nome: eventoForm.nome,
         descricao: eventoForm.descricao,
         local: eventoForm.local,
-        data_inicio: new Date(eventoForm.dataInicio).toISOString(),
-        data_fim: new Date(eventoForm.dataFim).toISOString(),
+        data_inicio: dataSaoPauloIso(eventoForm.dataInicio),
+        data_fim: dataSaoPauloIso(eventoForm.dataFim, true),
       });
       setEventos((prev) => [response.data.evento, ...prev]);
       setEventoForm({ nome: '', descricao: '', dataInicio: '', dataFim: '', local: '' });
@@ -195,12 +217,26 @@ export default function EventosAdmin() {
         nome: loteForm.nome,
         vagas_totais: Number(loteForm.vagas),
         vagas_disponiveis: Number(loteForm.vagas),
-        data_inicio: new Date(loteForm.dataInicio).toISOString(),
-        data_fim: new Date(loteForm.dataFim).toISOString(),
+        data_inicio: dataSaoPauloIso(loteForm.dataInicio),
+        data_fim: dataSaoPauloIso(loteForm.dataFim, true),
+        data_embarque: loteForm.dataEmbarque ? dataHoraSaoPauloIso(loteForm.dataEmbarque) : undefined,
+        data_retorno: loteForm.dataRetorno ? dataHoraSaoPauloIso(loteForm.dataRetorno) : undefined,
+        local_embarque: loteForm.localEmbarque,
+        local_hospedagem: loteForm.localHospedagem,
         valor_base: Number(loteForm.valorBase),
       });
       await carregarLotes(eventoId);
-      setLoteForm({ nome: '', vagas: '', dataInicio: '', dataFim: '', valorBase: '' });
+      setLoteForm({
+        nome: '',
+        vagas: '',
+        dataInicio: '',
+        dataFim: '',
+        dataEmbarque: '',
+        dataRetorno: '',
+        localEmbarque: 'Brasília/DF, com embarque adicional em Goiânia/GO',
+        localHospedagem: 'Chácara Recanto Novo Encantado ou Santa Thereza — Barretos/SP',
+        valorBase: '',
+      });
       setMostrarFormLote(null);
     } catch (err: any) {
       setErroForm(err.response?.data?.erro || 'Erro ao criar lote.');
@@ -394,6 +430,12 @@ export default function EventosAdmin() {
                         <Input label="Fim" type="date" value={loteForm.dataFim} onChange={(e) => setLoteForm({ ...loteForm, dataFim: e.target.value })} />
                         <Input label="Valor-base" type="number" step="0.01" value={loteForm.valorBase} onChange={(e) => setLoteForm({ ...loteForm, valorBase: e.target.value })} />
                       </div>
+                      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                        <Input label="Embarque da ida" type="datetime-local" value={loteForm.dataEmbarque} onChange={(e) => setLoteForm({ ...loteForm, dataEmbarque: e.target.value })} />
+                        <Input label="Saída de Barretos" type="datetime-local" value={loteForm.dataRetorno} onChange={(e) => setLoteForm({ ...loteForm, dataRetorno: e.target.value })} />
+                        <Input label="Local e rota de embarque" value={loteForm.localEmbarque} onChange={(e) => setLoteForm({ ...loteForm, localEmbarque: e.target.value })} />
+                        <Input label="Local de hospedagem" value={loteForm.localHospedagem} onChange={(e) => setLoteForm({ ...loteForm, localHospedagem: e.target.value })} />
+                      </div>
                       <Button type="submit" disabled={salvando} className="mt-4">{salvando ? 'Salvando...' : 'Criar lote'}</Button>
                     </form>
                   )}
@@ -405,6 +447,8 @@ export default function EventosAdmin() {
                           <div>
                             <div className="flex items-center gap-2"><h4 className="font-bold text-gray-900">{lote.nome}</h4><span className="text-xs text-gray-500">{lote['vagas_disponíveis']}/{lote.vagas_totais} vagas</span></div>
                             <p className="mt-1 text-sm text-gray-500">Valor-base: {moeda.format(Number(lote.valor_base))} · {new Date(lote.data_inicio).toLocaleDateString('pt-BR')} a {new Date(lote.data_fim).toLocaleDateString('pt-BR')}</p>
+                            {(lote.data_embarque || lote.data_retorno) && <p className="mt-1 text-xs text-gray-500">Ida: {lote.data_embarque ? new Date(lote.data_embarque).toLocaleString('pt-BR') : 'a definir'} · Retorno: {lote.data_retorno ? new Date(lote.data_retorno).toLocaleString('pt-BR') : 'a definir'}</p>}
+                            {lote.local_embarque && <p className="mt-1 text-xs text-gray-500">Embarque: {lote.local_embarque}</p>}
                           </div>
                           <div className="flex gap-2">
                             <Button variant="outline" onClick={() => abrirFormPacote(lote.id)}><PackagePlus size={15} className="mr-2" />{mostrarFormPacote === lote.id ? 'Fechar pacotes' : 'Gerir pacotes'}</Button>

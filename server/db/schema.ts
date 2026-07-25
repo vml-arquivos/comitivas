@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, varchar, timestamp, boolean, decimal, jsonb, uuid, pgEnum, index } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, varchar, timestamp, boolean, decimal, jsonb, pgEnum, index } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 
@@ -32,7 +32,7 @@ export const usuarioTipoEnum = pgEnum("usuario_tipo", [
 // Tabelas
 
 export const usuarios = pgTable("usuarios", {
-  id: uuid("id").primaryKey().$defaultFn(() => createId()),
+  id: text("id").primaryKey().$defaultFn(() => createId()),
   nome: varchar("nome", { length: 255 }).notNull(),
   email: varchar("email", { length: 255 }).notNull().unique(),
   cpf: varchar("cpf", { length: 14 }).unique(),
@@ -55,7 +55,7 @@ export const usuarios = pgTable("usuarios", {
 }));
 
 export const eventos = pgTable("eventos", {
-  id: uuid("id").primaryKey().$defaultFn(() => createId()),
+  id: text("id").primaryKey().$defaultFn(() => createId()),
   nome: varchar("nome", { length: 255 }).notNull(),
   descricao: text("descricao"),
   data_inicio: timestamp("data_inicio").notNull(),
@@ -69,14 +69,18 @@ export const eventos = pgTable("eventos", {
 }));
 
 export const lotes = pgTable("lotes", {
-  id: uuid("id").primaryKey().$defaultFn(() => createId()),
-  evento_id: uuid("evento_id").notNull().references(() => eventos.id),
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  evento_id: text("evento_id").notNull().references(() => eventos.id),
   nome: varchar("nome", { length: 255 }).notNull(),
   descricao: text("descricao"),
   vagas_totais: integer("vagas_totais").notNull(),
   vagas_disponíveis: integer("vagas_disponíveis").notNull(),
   data_inicio: timestamp("data_inicio").notNull(),
   data_fim: timestamp("data_fim").notNull(),
+  data_embarque: timestamp("data_embarque"),
+  data_retorno: timestamp("data_retorno"),
+  local_embarque: varchar("local_embarque", { length: 255 }),
+  local_hospedagem: varchar("local_hospedagem", { length: 255 }),
   valor_base: decimal("valor_base", { precision: 12, scale: 2 }).notNull(),
   ativo: boolean("ativo").default(true),
   criado_em: timestamp("criado_em").defaultNow().notNull(),
@@ -86,8 +90,8 @@ export const lotes = pgTable("lotes", {
 }));
 
 export const pacotes = pgTable("pacotes", {
-  id: uuid("id").primaryKey().$defaultFn(() => createId()),
-  lote_id: uuid("lote_id").notNull().references(() => lotes.id),
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  lote_id: text("lote_id").notNull().references(() => lotes.id),
   nome: varchar("nome", { length: 255 }).notNull(),
   descricao: text("descricao"),
   valor_total: decimal("valor_total", { precision: 12, scale: 2 }).notNull(),
@@ -104,8 +108,8 @@ export const pacotes = pgTable("pacotes", {
 }));
 
 export const itens_addon = pgTable("itens_addon", {
-  id: uuid("id").primaryKey().$defaultFn(() => createId()),
-  lote_id: uuid("lote_id").notNull().references(() => lotes.id),
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  lote_id: text("lote_id").notNull().references(() => lotes.id),
   nome: varchar("nome", { length: 255 }).notNull(),
   descricao: text("descricao"),
   valor: decimal("valor", { precision: 12, scale: 2 }).notNull(),
@@ -117,8 +121,8 @@ export const itens_addon = pgTable("itens_addon", {
 }));
 
 export const cupons = pgTable("cupons", {
-  id: uuid("id").primaryKey().$defaultFn(() => createId()),
-  evento_id: uuid("evento_id").notNull().references(() => eventos.id),
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  evento_id: text("evento_id").notNull().references(() => eventos.id),
   codigo: varchar("codigo", { length: 50 }).notNull().unique(),
   desconto_percentual: decimal("desconto_percentual", { precision: 5, scale: 2 }),
   desconto_fixo: decimal("desconto_fixo", { precision: 12, scale: 2 }),
@@ -133,14 +137,14 @@ export const cupons = pgTable("cupons", {
 }));
 
 export const reservas = pgTable("reservas", {
-  id: uuid("id").primaryKey().$defaultFn(() => createId()),
-  usuario_id: uuid("usuario_id").notNull().references(() => usuarios.id),
-  lote_id: uuid("lote_id").notNull().references(() => lotes.id),
-  pacote_id: uuid("pacote_id").references(() => pacotes.id),
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  usuario_id: text("usuario_id").notNull().references(() => usuarios.id),
+  lote_id: text("lote_id").notNull().references(() => lotes.id),
+  pacote_id: text("pacote_id").references(() => pacotes.id),
   status: reservaStatusEnum("status").default("visitante"),
   itens_selecionados: jsonb("itens_selecionados").notNull(),
   valor_total: decimal("valor_total", { precision: 12, scale: 2 }).notNull(),
-  cupom_id: uuid("cupom_id").references(() => cupons.id),
+  cupom_id: text("cupom_id").references(() => cupons.id),
   desconto_aplicado: decimal("desconto_aplicado", { precision: 12, scale: 2 }).default("0"),
   // Condição de pagamento aceita antes da geração do contrato.
   // Mantida na reserva para que o PDF seja um retrato imutável da contratação.
@@ -161,8 +165,8 @@ export const reservas = pgTable("reservas", {
 }));
 
 export const pagamentos = pgTable("pagamentos", {
-  id: uuid("id").primaryKey().$defaultFn(() => createId()),
-  reserva_id: uuid("reserva_id").notNull().references(() => reservas.id),
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  reserva_id: text("reserva_id").notNull().references(() => reservas.id),
   status: pagamentoStatusEnum("status").default("pendente"),
   valor: decimal("valor", { precision: 12, scale: 2 }).notNull(),
   metodo: varchar("metodo", { length: 50 }).notNull(), // pix, credito, debito
@@ -176,8 +180,8 @@ export const pagamentos = pgTable("pagamentos", {
 }));
 
 export const emails_enviados = pgTable("emails_enviados", {
-  id: uuid("id").primaryKey().$defaultFn(() => createId()),
-  reserva_id: uuid("reserva_id").notNull().references(() => reservas.id),
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  reserva_id: text("reserva_id").notNull().references(() => reservas.id),
   tipo: varchar("tipo", { length: 50 }).notNull(), // confirmacao, contrato, reenvio
   destinatario: varchar("destinatario", { length: 255 }).notNull(),
   assunto: varchar("assunto", { length: 255 }).notNull(),
@@ -191,13 +195,13 @@ export const emails_enviados = pgTable("emails_enviados", {
 }));
 
 export const leads_origem = pgTable("leads_origem", {
-  id: uuid("id").primaryKey().$defaultFn(() => createId()),
+  id: text("id").primaryKey().$defaultFn(() => createId()),
   codigo_origem: varchar("codigo_origem", { length: 100 }).notNull(),
-  vendedor_id: uuid("vendedor_id").references(() => usuarios.id),
-  usuario_id: uuid("usuario_id").references(() => usuarios.id),
-  evento_id: uuid("evento_id").references(() => eventos.id),
-  lote_id: uuid("lote_id").references(() => lotes.id),
-  pacote_id: uuid("pacote_id").references(() => pacotes.id),
+  vendedor_id: text("vendedor_id").references(() => usuarios.id),
+  usuario_id: text("usuario_id").references(() => usuarios.id),
+  evento_id: text("evento_id").references(() => eventos.id),
+  lote_id: text("lote_id").references(() => lotes.id),
+  pacote_id: text("pacote_id").references(() => pacotes.id),
   nome: varchar("nome", { length: 255 }),
   whatsapp: varchar("whatsapp", { length: 20 }),
   email: varchar("email", { length: 255 }),
@@ -205,6 +209,8 @@ export const leads_origem = pgTable("leads_origem", {
   status: varchar("status", { length: 40 }).default("novo"),
   consentimento_whatsapp: boolean("consentimento_whatsapp").default(false),
   dados_contexto: jsonb("dados_contexto"),
+  observacoes: text("observacoes"),
+  proximo_contato_em: timestamp("proximo_contato_em"),
   atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
   criado_em: timestamp("criado_em").defaultNow().notNull(),
 }, (table) => ({
@@ -256,7 +262,7 @@ export const leadsRelations = relations(leads_origem, ({ one }) => ({
 // Tabelas para área pública premium
 
 export const fotos_evento = pgTable("fotos_evento", {
-  id: uuid("id").primaryKey().$defaultFn(() => createId()),
+  id: text("id").primaryKey().$defaultFn(() => createId()),
   evento_id: varchar("evento_id", { length: 255 }).notNull().references(() => eventos.id),
   url_foto: varchar("url_foto", { length: 500 }).notNull(),
   legenda: varchar("legenda", { length: 500 }),
@@ -267,9 +273,9 @@ export const fotos_evento = pgTable("fotos_evento", {
 }));
 
 export const avaliacoes = pgTable("avaliacoes", {
-  id: uuid("id").primaryKey().$defaultFn(() => createId()),
+  id: text("id").primaryKey().$defaultFn(() => createId()),
   evento_id: varchar("evento_id", { length: 255 }).notNull().references(() => eventos.id),
-  usuario_id: uuid("usuario_id").notNull().references(() => usuarios.id),
+  usuario_id: text("usuario_id").notNull().references(() => usuarios.id),
   reserva_id: varchar("reserva_id", { length: 255 }).notNull().references(() => reservas.id),
   nota: integer("nota").notNull(), // 1-5
   comentario: text("comentario"),

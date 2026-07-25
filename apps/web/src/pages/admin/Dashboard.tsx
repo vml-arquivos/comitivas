@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@ui/index';
-import { Users, Ticket, Calendar, DollarSign, UserPlus } from 'lucide-react';
+import { UserPlus, Users, Ticket, Calendar, DollarSign, Clock3 } from 'lucide-react';
 
 export default function Dashboard() {
   const [data, setData] = useState<any>(null);
@@ -27,11 +27,16 @@ export default function Dashboard() {
 
   const stats = [
     { title: 'Total de Eventos', value: data?.total_eventos || 0, icon: Calendar, color: 'text-blue-500' },
-    { title: 'Leads / Cadastros', value: data?.total_leads || 0, icon: UserPlus, color: 'text-orange-500' },
+    { title: 'Clientes cadastrados', value: data?.total_clientes || 0, icon: UserPlus, color: 'text-sky-600' },
+    { title: 'Contatos no CRM', value: data?.total_leads_crm || 0, icon: Users, color: 'text-rose-600' },
+    { title: 'Cadastros sem reserva', value: data?.cadastros_sem_reserva || 0, icon: Clock3, color: 'text-amber-600' },
     { title: 'Total de Reservas', value: data?.total_reservas || 0, icon: Ticket, color: 'text-purple-500' },
     { title: 'Reservas Confirmadas', value: data?.reservas_confirmadas || 0, icon: Users, color: 'text-green-500' },
     { title: 'Taxa de Conversão', value: `${data?.taxa_conversao || 0}%`, icon: DollarSign, color: 'text-primary' },
   ];
+  const totalReservas = Number(data?.total_reservas || 0);
+  const percentualConfirmadas = totalReservas > 0 ? (Number(data?.reservas_confirmadas || 0) / totalReservas) * 100 : 0;
+  const percentualPendentes = totalReservas > 0 ? (Number(data?.reservas_pendentes || 0) / totalReservas) * 100 : 0;
 
   return (
     <div className="space-y-6">
@@ -41,7 +46,7 @@ export default function Dashboard() {
         <div className="bg-red-50 text-red-700 p-4 rounded-lg">{error}</div>
       )}
       
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
         {stats.map((stat, index) => {
           const Icon = stat.icon;
           return (
@@ -72,7 +77,7 @@ export default function Dashboard() {
                 <span className="font-bold text-green-600">{data?.reservas_confirmadas || 0}</span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
-                <div className="bg-green-500 h-2 rounded-full" style={{ width: `${(data?.reservas_confirmadas / data?.total_reservas) * 100}%` }}></div>
+                <div className="bg-green-500 h-2 rounded-full" style={{ width: `${percentualConfirmadas}%` }}></div>
               </div>
               
               <div className="flex justify-between items-center pt-2">
@@ -80,7 +85,7 @@ export default function Dashboard() {
                 <span className="font-bold text-yellow-600">{data?.reservas_pendentes || 0}</span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
-                <div className="bg-yellow-500 h-2 rounded-full" style={{ width: `${(data?.reservas_pendentes / data?.total_reservas) * 100}%` }}></div>
+                <div className="bg-yellow-500 h-2 rounded-full" style={{ width: `${percentualPendentes}%` }}></div>
               </div>
             </div>
           </CardContent>

@@ -10,41 +10,49 @@ const router = Router();
 
 // Aplicar middleware de admin em todas as rotas
 router.use(authMiddleware);
-router.use(requireRole("admin"));
 
 // Dashboard - resumo geral
-router.get("/dashboard", async (req: Request, res: Response) => {
+router.get("/dashboard", requireRole("admin", "vendedor"), async (req: Request, res: Response) => {
   try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+
     // Total de eventos
     const totalEventos = await db.select().from(eventos);
 
-    // Total de reservas
-    const totalReservas = await db.select().from(reservas);
+    // Admin vê a operação inteira. Vendedor vê apenas contatos atribuídos a
+    // ele e as reservas desses clientes, evitando exposição entre carteiras.
+    const totalLeads = req.usuario.tipo === "admin"
+      ? await db.select().from(leads_origem)
+      : await db.select().from(leads_origem)
+        .where(eq(leads_origem.vendedor_id, req.usuario.id));
+    const clienteIds = Array.from(new Set(
+      totalLeads.flatMap((lead) => lead.usuario_id ? [lead.usuario_id] : []),
+    ));
 
-    // Reservas confirmadas
-    const reservasConfirmadas = await db
-      .select()
-      .from(reservas)
-      .where(eq(reservas.status, "cliente_confirmado"));
-
-    // Reservas pendentes
-    const reservasPendentes = await db
-      .select()
-      .from(reservas)
-      .where(eq(reservas.status, "aguardando_pagamento"));
-
-    // Total de leads/cadastros (inclui quem só se cadastrou e ainda não
-    // montou uma reserva — sem isso o dashboard fica cego pra topo de funil)
-    const totalLeads = await db.select().from(leads_origem);
+    const totalClientes = req.usuario.tipo === "admin"
+      ? await db.select({ id: usuarios.id }).from(usuarios).where(eq(usuarios.tipo, "cliente"))
+      : clienteIds.map((id) => ({ id }));
+    const totalReservas = req.usuario.tipo === "admin"
+      ? await db.select().from(reservas)
+      : clienteIds.length > 0
+        ? await db.select().from(reservas).where(inArray(reservas.usuario_id, clienteIds))
+        : [];
+    const reservasConfirmadas = totalReservas.filter((reserva) => reserva.status === "cliente_confirmado");
+    const reservasPendentes = totalReservas.filter((reserva) => reserva.status === "aguardando_pagamento");
+    const clientesComReserva = new Set(totalReservas.map((reserva) => reserva.usuario_id));
+    const cadastrosSemReserva = totalClientes.filter((cliente) => !clientesComReserva.has(cliente.id)).length;
     const leadsNovos = totalLeads.filter((l) => l.status === "novo").length;
     const leadsCadastrados = totalLeads.filter((l) => l.status === "cadastrado").length;
 
     res.json({
       resumo: {
         total_eventos: totalEventos.length,
+        total_clientes: totalClientes.length,
+        total_leads_crm: totalLeads.length,
         total_leads: totalLeads.length,
         leads_novos: leadsNovos,
         leads_cadastrados: leadsCadastrados,
+        cadastros_sem_reserva: cadastrosSemReserva,
         total_reservas: totalReservas.length,
         reservas_confirmadas: reservasConfirmadas.length,
         reservas_pendentes: reservasPendentes.length,
@@ -59,10 +67,23 @@ router.get("/dashboard", async (req: Request, res: Response) => {
   }
 });
 
+// As demais rotas administrativas são exclusivas do administrador.
+router.use(requireRole("admin"));
+
 // Listar reservas com filtros
 router.get("/reservas", async (req: Request, res: Response) => {
   try {
     const { evento_id, status, pagina = "1", limite = "20" } = req.query;
+    const statusValidos: Array<NonNullable<typeof reservas.$inferSelect.status>> = [
+      "visitante",
+      "cadastrado",
+      "pacote_montado",
+      "checkout_iniciado",
+      "aguardando_pagamento",
+      "contrato_gerado",
+      "cliente_confirmado",
+      "abandonado",
+    ];
 
     const condicoes = [];
 
@@ -79,10 +100,13 @@ router.get("/reservas", async (req: Request, res: Response) => {
     }
 
     if (status) {
-      condicoes.push(eq(reservas.status, status as string));
+      if (!statusValidos.includes(status as NonNullable<typeof reservas.$inferSelect.status>)) {
+        return res.status(400).json({ erro: "Status de reserva inválido" });
+      }
+      condicoes.push(eq(reservas.status, status as NonNullable<typeof reservas.$inferSelect.status>));
     }
 
-    let query = db.select().from(reservas);
+    let query = db.select().from(reservas).$dynamic();
     if (condicoes.length > 0) {
       query = query.where(and(...condicoes));
     }
@@ -202,7 +226,7 @@ router.get("/exportar/reservas/:evento_id", async (req: Request, res: Response) 
     const loteIds = lotesResult.map((l) => l.id);
 
     // Buscar reservas
-    let query = db.select().from(reservas);
+    let query = db.select().from(reservas).$dynamic();
     if (loteIds.length > 0) {
       query = query.where(inArray(reservas.lote_id, loteIds));
     }

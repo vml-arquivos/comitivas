@@ -39,6 +39,16 @@ export default function Cadastro() {
       setError('Senha deve ter pelo menos 8 caracteres');
       return false;
     }
+    const cpf = formData.cpf.replace(/\D/g, '');
+    if (cpf.length !== 11) {
+      setError('Informe um CPF válido com 11 dígitos');
+      return false;
+    }
+    const telefone = formData.telefone.replace(/\D/g, '');
+    if (telefone && (telefone.length < 10 || telefone.length > 13)) {
+      setError('Informe um telefone válido com DDD');
+      return false;
+    }
     return true;
   };
 
@@ -100,11 +110,11 @@ export default function Cadastro() {
           <form onSubmit={step === 2 ? handleSubmit : (e) => { e.preventDefault(); handleNext(); }} className="space-y-4">
             {step === 1 ? (
               <>
-                <Input label="Nome completo *" name="nome" value={formData.nome} onChange={handleChange} required />
-                <Input label="E-mail *" type="email" name="email" value={formData.email} onChange={handleChange} required />
-                <Input label="CPF *" name="cpf" value={formData.cpf} onChange={handleChange} placeholder="000.000.000-00" required />
-                <Input label="Telefone" name="telefone" value={formData.telefone} onChange={handleChange} placeholder="(00) 00000-0000" />
-                <Input label="Senha *" type="password" name="senha" value={formData.senha} onChange={handleChange} required minLength={8} />
+                <Input label="Nome completo *" name="nome" autoComplete="name" value={formData.nome} onChange={handleChange} required />
+                <Input label="E-mail *" type="email" name="email" autoComplete="email" inputMode="email" value={formData.email} onChange={handleChange} required />
+                <Input label="CPF *" name="cpf" autoComplete="off" inputMode="numeric" maxLength={14} value={formData.cpf} onChange={handleChange} placeholder="000.000.000-00" required />
+                <Input label="Telefone" name="telefone" autoComplete="tel" inputMode="tel" value={formData.telefone} onChange={handleChange} placeholder="(00) 00000-0000" />
+                <Input label="Senha *" type="password" name="senha" autoComplete="new-password" value={formData.senha} onChange={handleChange} required minLength={8} />
               </>
             ) : (
               <>
@@ -122,7 +132,7 @@ export default function Cadastro() {
                   </select>
                 </div>
                 <Input label="Profissão" name="profissao" value={formData.profissao} onChange={handleChange} />
-                <Input label="Endereço Completo" name="endereco" value={formData.endereco} onChange={handleChange} placeholder="Rua, número, bairro, cidade, estado, CEP" />
+                <Input label="Endereço Completo" name="endereco" autoComplete="street-address" value={formData.endereco} onChange={handleChange} placeholder="Rua, número, bairro, cidade, estado, CEP" />
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Nacionalidade</label>
                   <select name="nacionalidade" value={formData.nacionalidade} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary">

@@ -3,7 +3,7 @@ import { authMiddleware, requireRole } from "../middleware/authMiddleware.js";
 import { PacoteService, ConfiguracaoPacote } from "../services/pacoteService.js";
 import { db } from "../db/index.js";
 import { eventos, lotes, pacotes, itens_addon, reservas, usuarios, leads_origem } from "../db/schema.js";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, isNull, or } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 
 const router = Router();
@@ -66,14 +66,36 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
       ip
     );
 
+    let leadAtualizado: Array<{ id: string }> = [];
     if (req.body.lead_id) {
-      await db.update(leads_origem).set({
+      leadAtualizado = await db.update(leads_origem).set({
         usuario_id: req.usuario.id,
         lote_id: config.lote_id,
         pacote_id: config.pacote_id || null,
         status: "checkout_iniciado",
         atualizado_em: new Date(),
-      }).where(eq(leads_origem.id, req.body.lead_id));
+      }).where(and(
+        eq(leads_origem.id, req.body.lead_id),
+        or(isNull(leads_origem.usuario_id), eq(leads_origem.usuario_id, req.usuario.id)),
+      )).returning({ id: leads_origem.id });
+    }
+
+    // Cadastro direto não possui lead_id no navegador. Atualiza o card ligado
+    // à conta para que pacote e etapa também apareçam no CRM.
+    if (leadAtualizado.length === 0) {
+      const leadDaConta = await db.select({ id: leads_origem.id })
+        .from(leads_origem)
+        .where(eq(leads_origem.usuario_id, req.usuario.id))
+        .orderBy(desc(leads_origem.atualizado_em))
+        .limit(1);
+      if (leadDaConta[0]) {
+        await db.update(leads_origem).set({
+          lote_id: config.lote_id,
+          pacote_id: config.pacote_id || null,
+          status: "checkout_iniciado",
+          atualizado_em: new Date(),
+        }).where(eq(leads_origem.id, leadDaConta[0].id));
+      }
     }
 
     res.status(201).json({

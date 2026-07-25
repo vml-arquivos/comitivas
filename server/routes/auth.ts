@@ -1,7 +1,8 @@
 import { Router, Request, Response } from "express";
 import { db } from "../db/index.js";
 import { leads_origem, usuarios } from "../db/schema.js";
-import { eq } from "drizzle-orm";
+import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { createId } from "@paralleldrive/cuid2";
 import { AuthService } from "../services/authService.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 
@@ -27,20 +28,51 @@ interface LoginRequest {
   senha: string;
 }
 
+function somenteDigitos(valor: unknown): string {
+  return String(valor ?? "").replace(/\D/g, "");
+}
+
+function cpfValido(cpf: string): boolean {
+  if (!/^\d{11}$/.test(cpf) || /^(\d)\1{10}$/.test(cpf)) return false;
+
+  const calcularDigito = (tamanho: number) => {
+    let soma = 0;
+    for (let indice = 0; indice < tamanho; indice += 1) {
+      soma += Number(cpf[indice]) * (tamanho + 1 - indice);
+    }
+    const resto = (soma * 10) % 11;
+    return resto === 10 ? 0 : resto;
+  };
+
+  return calcularDigito(9) === Number(cpf[9])
+    && calcularDigito(10) === Number(cpf[10]);
+}
+
+function erroDeUnicidade(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "23505");
+}
+
 router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Response) => {
   try {
     const { nome, email, cpf, rg, telefone, data_nascimento, estado_civil, profissao, endereco, nacionalidade, lead_id, senha } = req.body;
     const emailNormalizado = String(email || "").trim().toLowerCase();
     const nomeNormalizado = String(nome || "").trim();
+    const cpfNormalizado = somenteDigitos(cpf);
+    const telefoneNormalizado = somenteDigitos(telefone);
 
     // Validações
-    if (!nomeNormalizado || !emailNormalizado || !senha) {
-      return res.status(400).json({ erro: "Nome, email e senha são obrigatórios" });
+    if (!nomeNormalizado || !emailNormalizado || !cpfNormalizado || !senha) {
+      return res.status(400).json({ erro: "Nome, email, CPF e senha são obrigatórios" });
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailNormalizado)) {
       return res.status(400).json({ erro: "Informe um e-mail válido" });
     }
-
+    if (!cpfValido(cpfNormalizado)) {
+      return res.status(400).json({ erro: "Informe um CPF válido" });
+    }
+    if (telefoneNormalizado && (telefoneNormalizado.length < 10 || telefoneNormalizado.length > 13)) {
+      return res.status(400).json({ erro: "Informe um telefone com DDD válido" });
+    }
     if (senha.length < 8) {
       return res.status(400).json({ erro: "Senha deve ter no mínimo 8 caracteres" });
     }
@@ -51,75 +83,107 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
 
     // Verificar se usuário já existe
     const usuarioExistente = await db
-      .select()
+      .select({ email: usuarios.email, cpf: usuarios.cpf })
       .from(usuarios)
-      .where(eq(usuarios.email, emailNormalizado))
+      .where(or(
+        eq(usuarios.email, emailNormalizado),
+        sql`regexp_replace(COALESCE(${usuarios.cpf}, ''), '\\D', '', 'g') = ${cpfNormalizado}`,
+      ))
       .limit(1);
 
-    if (usuarioExistente.length > 0) {
-      return res.status(409).json({ erro: "Email já cadastrado" });
+    if (usuarioExistente[0]) {
+      const mesmoEmail = usuarioExistente[0].email.toLowerCase() === emailNormalizado;
+      return res.status(409).json({ erro: mesmoEmail ? "E-mail já cadastrado" : "CPF já cadastrado" });
     }
 
     // Hash da senha
     const senhaHash = await AuthService.hashPassword(senha);
 
-    // Criar usuário
-    const novoUsuario = await db
-      .insert(usuarios)
-      .values({
-        nome: nomeNormalizado,
-        email: emailNormalizado,
-        cpf: cpf || null,
-        rg: rg || null,
-        telefone: telefone || null,
-        data_nascimento: dataNascimento,
-        estado_civil: estado_civil || null,
-        profissao: profissao || null,
-        endereco: endereco || null,
-        nacionalidade: nacionalidade || "Brasileira",
-        senha_hash: senhaHash,
-        tipo: "cliente",
-      })
-      .returning({ id: usuarios.id, email: usuarios.email, nome: usuarios.nome, tipo: usuarios.tipo });
+    // Usuário e lead são gravados na mesma transação. Se qualquer operação
+    // falhar, não fica uma conta sem card correspondente no CRM.
+    const novoUsuario = await db.transaction(async (tx) => {
+      const criado = await tx
+        .insert(usuarios)
+        .values({
+          nome: nomeNormalizado,
+          email: emailNormalizado,
+          cpf: cpfNormalizado,
+          rg: String(rg || "").trim() || null,
+          telefone: telefoneNormalizado || null,
+          data_nascimento: dataNascimento,
+          estado_civil: String(estado_civil || "").trim() || null,
+          profissao: String(profissao || "").trim() || null,
+          endereco: String(endereco || "").trim() || null,
+          nacionalidade: String(nacionalidade || "").trim() || "Brasileira",
+          senha_hash: senhaHash,
+          tipo: "cliente",
+        })
+        .returning({ id: usuarios.id, email: usuarios.email, nome: usuarios.nome, tipo: usuarios.tipo });
 
-    if (!novoUsuario[0]) {
-      return res.status(500).json({ erro: "Erro ao criar usuário" });
-    }
+      if (!criado[0]) throw new Error("Erro ao criar usuário");
 
-    if (lead_id) {
-      // Cliente veio de um link de rastreio (vendedor/campanha): atualiza o
-      // lead já existente em vez de criar um duplicado.
-      await db.update(leads_origem).set({
-        usuario_id: novoUsuario[0].id,
-        nome: nomeNormalizado,
-        email: emailNormalizado,
-        whatsapp: telefone ? String(telefone).replace(/\D/g, "") : undefined,
-        status: "cadastrado",
-        atualizado_em: new Date(),
-      }).where(eq(leads_origem.id, lead_id));
-    } else {
-      // Cadastro direto pelo site, sem passar por um link de rastreio: cria
-      // o lead agora, senão o cliente nunca aparece no CRM/Kanban nem é
-      // contado em nenhum relatório, já que ambos são construídos em cima de
-      // leads_origem (e o dashboard, em cima de reservas — que ainda não
-      // existe nesse momento do funil).
-      await db.insert(leads_origem).values({
-        codigo_origem: `cadastro-${novoUsuario[0].id}`,
-        usuario_id: novoUsuario[0].id,
-        nome: nomeNormalizado,
-        email: emailNormalizado,
-        whatsapp: telefone ? String(telefone).replace(/\D/g, "") : undefined,
-        origem: "cadastro_direto",
-        status: "cadastrado",
-        atualizado_em: new Date(),
-      });
-    }
+      let leadVinculado: Array<{ id: string }> = [];
+      if (lead_id) {
+        leadVinculado = await tx.update(leads_origem).set({
+          usuario_id: criado[0].id,
+          nome: nomeNormalizado,
+          email: emailNormalizado,
+          whatsapp: telefoneNormalizado || undefined,
+          status: "cadastrado",
+          atualizado_em: new Date(),
+        }).where(and(eq(leads_origem.id, lead_id), isNull(leads_origem.usuario_id)))
+          .returning({ id: leads_origem.id });
+      }
+
+      // O navegador pode perder o lead_id. Nesse caso, reaproveita a captação
+      // não vinculada mais recente pelo mesmo e-mail ou WhatsApp.
+      if (leadVinculado.length === 0) {
+        const mesmoContato = telefoneNormalizado
+          ? or(eq(leads_origem.email, emailNormalizado), eq(leads_origem.whatsapp, telefoneNormalizado))
+          : eq(leads_origem.email, emailNormalizado);
+        const leadExistente = await tx.select({ id: leads_origem.id })
+          .from(leads_origem)
+          .where(and(isNull(leads_origem.usuario_id), mesmoContato))
+          .orderBy(desc(leads_origem.criado_em))
+          .limit(1);
+
+        if (leadExistente[0]) {
+          leadVinculado = await tx.update(leads_origem).set({
+            usuario_id: criado[0].id,
+            nome: nomeNormalizado,
+            email: emailNormalizado,
+            whatsapp: telefoneNormalizado || undefined,
+            status: "cadastrado",
+            atualizado_em: new Date(),
+          }).where(and(eq(leads_origem.id, leadExistente[0].id), isNull(leads_origem.usuario_id)))
+            .returning({ id: leads_origem.id });
+        }
+      }
+
+      if (leadVinculado.length === 0) {
+        await tx.insert(leads_origem).values({
+          id: createId(),
+          codigo_origem: `cadastro-direto-${criado[0].id}`.slice(0, 100),
+          usuario_id: criado[0].id,
+          nome: nomeNormalizado,
+          email: emailNormalizado,
+          whatsapp: telefoneNormalizado || null,
+          origem: "cadastro_direto",
+          status: "cadastrado",
+          consentimento_whatsapp: false,
+          dados_contexto: { origem: "formulario_cadastro" },
+          atualizado_em: new Date(),
+        });
+      }
+
+      return criado;
+    });
 
     // Gerar token
     const token = AuthService.generateToken({
       id: novoUsuario[0].id,
       email: novoUsuario[0].email,
-      tipo: novoUsuario[0].tipo,
+      tipo: novoUsuario[0].tipo || "cliente",
     });
 
     res.status(201).json({
@@ -128,6 +192,9 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
     });
   } catch (error) {
     console.error("[AUTH] Erro no cadastro:", error);
+    if (erroDeUnicidade(error)) {
+      return res.status(409).json({ erro: "E-mail ou CPF já cadastrado" });
+    }
     res.status(500).json({ erro: "Erro interno do servidor" });
   }
 });
@@ -168,37 +235,61 @@ router.put("/perfil", authMiddleware, async (req: Request, res: Response) => {
     if (dataNascimento && Number.isNaN(dataNascimento.getTime())) {
       return res.status(400).json({ erro: "Data de nascimento inválida" });
     }
+    const cpfNormalizado = campos.cpf !== undefined ? somenteDigitos(campos.cpf) : undefined;
+    const telefoneNormalizado = campos.telefone !== undefined ? somenteDigitos(campos.telefone) : undefined;
+    if (cpfNormalizado !== undefined && !cpfValido(cpfNormalizado)) {
+      return res.status(400).json({ erro: "Informe um CPF válido" });
+    }
+    if (telefoneNormalizado && (telefoneNormalizado.length < 10 || telefoneNormalizado.length > 13)) {
+      return res.status(400).json({ erro: "Informe um telefone com DDD válido" });
+    }
 
-    const atualizado = await db.update(usuarios).set({
-      nome: campos.nome ? String(campos.nome).trim() : undefined,
-      cpf: campos.cpf !== undefined ? (String(campos.cpf).trim() || null) : undefined,
-      rg: campos.rg !== undefined ? (String(campos.rg).trim() || null) : undefined,
-      telefone: campos.telefone !== undefined ? (String(campos.telefone).trim() || null) : undefined,
-      data_nascimento: campos.data_nascimento !== undefined ? dataNascimento : undefined,
-      estado_civil: campos.estado_civil !== undefined ? (String(campos.estado_civil).trim() || null) : undefined,
-      profissao: campos.profissao !== undefined ? (String(campos.profissao).trim() || null) : undefined,
-      endereco: campos.endereco !== undefined ? (String(campos.endereco).trim() || null) : undefined,
-      nacionalidade: campos.nacionalidade !== undefined ? (String(campos.nacionalidade).trim() || "Brasileira") : undefined,
-      atualizado_em: new Date(),
-    }).where(eq(usuarios.id, req.usuario.id)).returning({
-      id: usuarios.id,
-      nome: usuarios.nome,
-      email: usuarios.email,
-      cpf: usuarios.cpf,
-      rg: usuarios.rg,
-      telefone: usuarios.telefone,
-      data_nascimento: usuarios.data_nascimento,
-      estado_civil: usuarios.estado_civil,
-      profissao: usuarios.profissao,
-      endereco: usuarios.endereco,
-      nacionalidade: usuarios.nacionalidade,
-      tipo: usuarios.tipo,
+    const atualizado = await db.transaction(async (tx) => {
+      const usuarioAtualizado = await tx.update(usuarios).set({
+        nome: campos.nome ? String(campos.nome).trim() : undefined,
+        cpf: cpfNormalizado !== undefined ? cpfNormalizado : undefined,
+        rg: campos.rg !== undefined ? (String(campos.rg).trim() || null) : undefined,
+        telefone: telefoneNormalizado !== undefined ? (telefoneNormalizado || null) : undefined,
+        data_nascimento: campos.data_nascimento !== undefined ? dataNascimento : undefined,
+        estado_civil: campos.estado_civil !== undefined ? (String(campos.estado_civil).trim() || null) : undefined,
+        profissao: campos.profissao !== undefined ? (String(campos.profissao).trim() || null) : undefined,
+        endereco: campos.endereco !== undefined ? (String(campos.endereco).trim() || null) : undefined,
+        nacionalidade: campos.nacionalidade !== undefined ? (String(campos.nacionalidade).trim() || "Brasileira") : undefined,
+        atualizado_em: new Date(),
+      }).where(eq(usuarios.id, req.usuario!.id)).returning({
+        id: usuarios.id,
+        nome: usuarios.nome,
+        email: usuarios.email,
+        cpf: usuarios.cpf,
+        rg: usuarios.rg,
+        telefone: usuarios.telefone,
+        data_nascimento: usuarios.data_nascimento,
+        estado_civil: usuarios.estado_civil,
+        profissao: usuarios.profissao,
+        endereco: usuarios.endereco,
+        nacionalidade: usuarios.nacionalidade,
+        tipo: usuarios.tipo,
+      });
+
+      if (usuarioAtualizado[0]) {
+        await tx.update(leads_origem).set({
+          nome: usuarioAtualizado[0].nome,
+          email: usuarioAtualizado[0].email,
+          whatsapp: usuarioAtualizado[0].telefone,
+          atualizado_em: new Date(),
+        }).where(eq(leads_origem.usuario_id, req.usuario!.id));
+      }
+
+      return usuarioAtualizado;
     });
 
     if (!atualizado[0]) return res.status(404).json({ erro: "Usuário não encontrado" });
     res.json({ mensagem: "Dados atualizados com sucesso", usuario: atualizado[0] });
   } catch (error) {
     console.error("[AUTH] Erro ao atualizar perfil:", error);
+    if (erroDeUnicidade(error)) {
+      return res.status(409).json({ erro: "CPF já cadastrado em outra conta" });
+    }
     res.status(500).json({ erro: "Erro ao atualizar dados cadastrais" });
   }
 });
@@ -240,7 +331,7 @@ router.post("/login", async (req: Request<{}, {}, LoginRequest>, res: Response) 
     const token = AuthService.generateToken({
       id: usuario.id,
       email: usuario.email,
-      tipo: usuario.tipo,
+      tipo: usuario.tipo || "cliente",
     });
 
     res.json({

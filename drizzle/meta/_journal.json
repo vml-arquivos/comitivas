@@ -36,6 +36,13 @@
       "when": 1784950200000,
       "tag": "0004_disponibilidade_modalidades",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1784951100000,
+      "tag": "0005_producao_crm_itinerario_barretos",
+      "breakpoints": true
     }
   ]
 }

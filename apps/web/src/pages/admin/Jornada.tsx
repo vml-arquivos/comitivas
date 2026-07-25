@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, Button, Input } from '@ui/index';
-import { AlertCircle, Copy, Link as LinkIcon, MessageCircle, RefreshCw, UserCheck } from 'lucide-react';
+import { AlertCircle, CalendarClock, Copy, Link as LinkIcon, MessageCircle, RefreshCw, Save, Search, StickyNote, UserCheck, X } from 'lucide-react';
 import { api } from '../../contexts/AuthContext';
 
 type Lead = {
@@ -18,6 +18,8 @@ type Lead = {
     valor_total: string;
     atualizado_em: string;
   } | null;
+  observacoes?: string | null;
+  proximo_contato_em?: string | null;
   criado_em: string;
   atualizado_em: string;
 };
@@ -39,12 +41,25 @@ function tempoRelativo(valor: string) {
   return `há ${dias} dia${dias === 1 ? '' : 's'}`;
 }
 
+function paraDataLocal(valor?: string | null) {
+  if (!valor) return '';
+  const data = new Date(valor);
+  if (Number.isNaN(data.getTime())) return '';
+  const local = new Date(data.getTime() - data.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
 export default function Jornada() {
   const [link, setLink] = useState('');
   const [leads, setLeads] = useState<Lead[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState('');
+  const [busca, setBusca] = useState('');
+  const [leadEmEdicao, setLeadEmEdicao] = useState<string | null>(null);
+  const [observacoes, setObservacoes] = useState('');
+  const [proximoContato, setProximoContato] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   const carregarLeads = async () => {
     setIsLoading(true);
@@ -77,6 +92,42 @@ export default function Jornada() {
   };
 
   const totalEmAberto = useMemo(() => leads.filter((lead) => !['cliente_confirmado', 'abandonado'].includes(lead.status)).length, [leads]);
+  const leadsFiltrados = useMemo(() => {
+    const termo = busca.trim().toLocaleLowerCase('pt-BR');
+    if (!termo) return leads;
+    return leads.filter((lead) => [
+      lead.nome,
+      lead.email,
+      lead.whatsapp,
+      lead.pacote_nome,
+      lead.origem,
+    ].some((valor) => String(valor || '').toLocaleLowerCase('pt-BR').includes(termo)));
+  }, [busca, leads]);
+
+  const abrirAcompanhamento = (lead: Lead) => {
+    setLeadEmEdicao(lead.id);
+    setObservacoes(lead.observacoes || '');
+    setProximoContato(paraDataLocal(lead.proximo_contato_em));
+  };
+
+  const salvarAcompanhamento = async (leadId: string) => {
+    setIsSaving(true);
+    setError('');
+    try {
+      const response = await api.patch(`/jornada/leads/${leadId}`, {
+        observacoes,
+        proximo_contato_em: proximoContato ? new Date(proximoContato).toISOString() : null,
+      });
+      setLeads((atuais) => atuais.map((lead) => lead.id === leadId
+        ? { ...lead, ...response.data.lead }
+        : lead));
+      setLeadEmEdicao(null);
+    } catch (err: any) {
+      setError(err.response?.data?.erro || 'Erro ao salvar o acompanhamento.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -106,10 +157,25 @@ export default function Jornada() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardContent className="p-4">
+          <Input
+            label="Buscar no CRM"
+            value={busca}
+            onChange={(event) => setBusca(event.target.value)}
+            placeholder="Nome, e-mail, WhatsApp, pacote ou origem"
+            autoComplete="off"
+          />
+          <p className="mt-2 flex items-center gap-1 text-xs text-slate-500">
+            <Search size={13} /> {leadsFiltrados.length} de {leads.length} contatos exibidos
+          </p>
+        </CardContent>
+      </Card>
+
       <div className="overflow-x-auto pb-4">
         <div className="grid min-w-[1320px] grid-cols-5 gap-4">
           {colunas.map((coluna) => {
-            const itens = leads.filter((lead) => coluna.statuses.includes(lead.status));
+            const itens = leadsFiltrados.filter((lead) => coluna.statuses.includes(lead.status));
             return (
               <section key={coluna.id} className={`rounded-2xl border p-3 ${coluna.estilo}`}>
                 <h2 className="mb-3 flex items-center justify-between text-sm font-bold text-slate-800">
@@ -132,6 +198,56 @@ export default function Jornada() {
                         {lead.email && <p className="truncate">{lead.email}</p>}
                         <p>{tempoRelativo(lead.atualizado_em)}</p>
                       </div>
+                      {lead.proximo_contato_em && (
+                        <p className={`mt-3 flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-semibold ${
+                          new Date(lead.proximo_contato_em).getTime() < Date.now()
+                            ? 'bg-red-50 text-red-700'
+                            : 'bg-violet-50 text-violet-700'
+                        }`}>
+                          <CalendarClock size={13} />
+                          Retorno: {new Date(lead.proximo_contato_em).toLocaleString('pt-BR')}
+                        </p>
+                      )}
+                      {lead.observacoes && leadEmEdicao !== lead.id && (
+                        <p className="mt-2 line-clamp-3 rounded-md bg-slate-50 px-2 py-1.5 text-xs text-slate-600">{lead.observacoes}</p>
+                      )}
+                      {leadEmEdicao === lead.id ? (
+                        <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                          <label className="block text-xs font-semibold text-slate-600">
+                            Observações
+                            <textarea
+                              value={observacoes}
+                              onChange={(event) => setObservacoes(event.target.value)}
+                              maxLength={4000}
+                              rows={4}
+                              className="mt-1 w-full rounded-md border border-slate-300 p-2 text-xs font-normal focus:outline-none focus:ring-2 focus:ring-primary"
+                              placeholder="Último contato, objeções e próximos passos"
+                            />
+                          </label>
+                          <Input
+                            label="Próximo contato"
+                            type="datetime-local"
+                            value={proximoContato}
+                            onChange={(event) => setProximoContato(event.target.value)}
+                          />
+                          <div className="flex gap-2">
+                            <Button type="button" className="flex-1" onClick={() => salvarAcompanhamento(lead.id)} disabled={isSaving}>
+                              <Save size={14} className="mr-1" />{isSaving ? 'Salvando...' : 'Salvar'}
+                            </Button>
+                            <Button type="button" variant="outline" onClick={() => setLeadEmEdicao(null)} disabled={isSaving}>
+                              <X size={14} />
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => abrirAcompanhamento(lead)}
+                          className="mt-3 flex w-full items-center justify-center gap-1 rounded-md border border-slate-200 px-2 py-2 text-xs font-semibold text-slate-600 hover:border-primary hover:text-primary"
+                        >
+                          <StickyNote size={14} /> Anotar acompanhamento
+                        </button>
+                      )}
                     </article>
                   ))}
                   {!isLoading && itens.length === 0 && <p className="rounded-xl border border-dashed border-slate-300 p-5 text-center text-xs text-slate-500">Nenhum contato nesta etapa.</p>}

@@ -62,6 +62,10 @@ const CREATE_TABLES: string[] = [
     "vagas_disponíveis" INTEGER NOT NULL,
     data_inicio TIMESTAMP NOT NULL,
     data_fim TIMESTAMP NOT NULL,
+    data_embarque TIMESTAMP,
+    data_retorno TIMESTAMP,
+    local_embarque VARCHAR(255),
+    local_hospedagem VARCHAR(255),
     valor_base DECIMAL(12,2) NOT NULL,
     ativo BOOLEAN DEFAULT true,
     criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -140,6 +144,7 @@ const CREATE_TABLES: string[] = [
   // A coluna + índice são criados de forma idempotente (e segura para bancos novos
   // ou existentes) pela migration drizzle/0001_reserva_pacote_escolhido.sql, que
   // roda logo em seguida via runDrizzleMigrations().
+  `ALTER TABLE reservas ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'visitante'`,
   `CREATE INDEX IF NOT EXISTS reservas_status_idx ON reservas (status)`,
 
   `CREATE TABLE IF NOT EXISTS pagamentos (
@@ -154,6 +159,7 @@ const CREATE_TABLES: string[] = [
     atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS pagamentos_reserva_id_idx ON pagamentos (reserva_id)`,
+  `ALTER TABLE pagamentos ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'pendente'`,
   `CREATE INDEX IF NOT EXISTS pagamentos_status_idx ON pagamentos (status)`,
 
   `CREATE TABLE IF NOT EXISTS emails_enviados (
@@ -185,6 +191,8 @@ const CREATE_TABLES: string[] = [
     status VARCHAR(40) DEFAULT 'novo',
     consentimento_whatsapp BOOLEAN DEFAULT false,
     dados_contexto JSONB,
+    observacoes TEXT,
+    proximo_contato_em TIMESTAMP,
     atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
     criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
   )`,

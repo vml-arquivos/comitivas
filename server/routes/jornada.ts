@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import { authMiddleware, requireRole } from "../middleware/authMiddleware.js";
 import { db } from "../db/index.js";
 import { leads_origem, pacotes, reservas, usuarios } from "../db/schema.js";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, isNull } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 
 const router = Router();
@@ -104,6 +104,8 @@ router.get("/leads", authMiddleware, requireRole("admin", "vendedor"), async (re
         pacote_nome: pacote[0]?.nome || null,
         modalidade_hospedagem: pacote[0]?.modalidade_hospedagem || null,
         reserva: ultimaReserva[0] || null,
+        observacoes: lead.observacoes || "",
+        proximo_contato_em: lead.proximo_contato_em,
         criado_em: lead.criado_em,
         atualizado_em: lead.atualizado_em,
       };
@@ -113,6 +115,56 @@ router.get("/leads", authMiddleware, requireRole("admin", "vendedor"), async (re
   } catch (error: any) {
     console.error("[JORNADA] Erro ao listar leads:", error);
     res.status(500).json({ erro: "Erro ao carregar a esteira comercial" });
+  }
+});
+
+// Registrar acompanhamento comercial sem alterar reserva ou pagamento.
+router.patch("/leads/:lead_id", authMiddleware, requireRole("admin", "vendedor"), async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+
+    const { lead_id } = req.params;
+    const observacoes = req.body?.observacoes !== undefined
+      ? String(req.body.observacoes).trim()
+      : undefined;
+    if (observacoes !== undefined && observacoes.length > 4000) {
+      return res.status(400).json({ erro: "As observações devem ter no máximo 4.000 caracteres" });
+    }
+
+    let proximoContato: Date | null | undefined;
+    if (req.body?.proximo_contato_em !== undefined) {
+      if (!req.body.proximo_contato_em) {
+        proximoContato = null;
+      } else {
+        proximoContato = new Date(req.body.proximo_contato_em);
+        if (Number.isNaN(proximoContato.getTime())) {
+          return res.status(400).json({ erro: "Data do próximo contato inválida" });
+        }
+      }
+    }
+
+    const condicao = req.usuario.tipo === "admin"
+      ? eq(leads_origem.id, lead_id)
+      : and(eq(leads_origem.id, lead_id), eq(leads_origem.vendedor_id, req.usuario.id));
+    const atualizado = await db.update(leads_origem).set({
+      observacoes,
+      proximo_contato_em: proximoContato,
+      atualizado_em: new Date(),
+    }).where(condicao).returning({
+      id: leads_origem.id,
+      observacoes: leads_origem.observacoes,
+      proximo_contato_em: leads_origem.proximo_contato_em,
+      atualizado_em: leads_origem.atualizado_em,
+    });
+
+    if (!atualizado[0]) {
+      return res.status(404).json({ erro: "Contato não encontrado na sua carteira" });
+    }
+
+    res.json({ mensagem: "Acompanhamento salvo", lead: atualizado[0] });
+  } catch (error: any) {
+    console.error("[JORNADA] Erro ao atualizar acompanhamento:", error);
+    res.status(500).json({ erro: "Erro ao salvar acompanhamento" });
   }
 });
 
@@ -139,10 +191,15 @@ router.post("/registrar-origem", authMiddleware, async (req: Request, res: Respo
     }
 
     // Atualizar com usuario_id
-    await db
+    const atualizado = await db
       .update(leads_origem)
       .set({ usuario_id: usuarioId, status: "cadastrado", atualizado_em: new Date() })
-      .where(eq(leads_origem.id, leadResult[0].id));
+      .where(and(eq(leads_origem.id, leadResult[0].id), isNull(leads_origem.usuario_id)))
+      .returning({ id: leads_origem.id });
+
+    if (!atualizado[0] && leadResult[0].usuario_id !== usuarioId) {
+      return res.status(409).json({ erro: "Este link já foi vinculado a outro cadastro" });
+    }
 
     res.json({
       mensagem: "Origem registrada com sucesso",
@@ -193,7 +250,7 @@ router.get("/cliente/:usuario_id", authMiddleware, requireRole("admin", "vendedo
         statusJornada = "cadastrado";
       } else {
         const ultimaReserva = reservasResult[reservasResult.length - 1];
-        statusJornada = ultimaReserva.status;
+        statusJornada = ultimaReserva.status || "visitante";
       }
     }
 

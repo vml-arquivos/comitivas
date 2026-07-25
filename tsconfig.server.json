@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": false,
+    "declarationMap": false,
+    "lib": ["ES2022", "DOM"],
+    "noEmit": true
+  },
+  "include": [
+    "server/**/*.ts",
+    "packages/brand/**/*.ts",
+    "packages/contract-engine/**/*.ts",
+    "scripts/seed-barretos-2026.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "apps"
+  ]
+}

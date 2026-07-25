@@ -114,7 +114,8 @@ export default function Checkout() {
   }, [reserva?.valor_total, metodoPagamento, quantidadeParcelas]);
 
   const handleFinalizar = async () => {
-    if (!contratoAceito) {
+    const contratoJaEmitido = ['contrato_gerado', 'aguardando_pagamento', 'cliente_confirmado'].includes(reserva?.status);
+    if (!contratoJaEmitido && !contratoAceito) {
       setError('Você precisa aceitar os termos do contrato para continuar.');
       return;
     }
@@ -123,12 +124,14 @@ export default function Checkout() {
     setError('');
 
     try {
-      // A condição de pagamento é persistida antes da emissão do PDF, para que
-      // o contrato seja o registro fiel da escolha feita pelo contratante.
-      await api.post(`/contratos/aceitar/${reservaId}`, {
-        metodo_pagamento: metodoPagamento,
-        quantidade_parcelas: resumoPagamento.quantidade,
-      });
+      if (!contratoJaEmitido) {
+        // A condição de pagamento é persistida antes da emissão do PDF, para
+        // que o contrato seja o registro fiel da escolha feita.
+        await api.post(`/contratos/aceitar/${reservaId}`, {
+          metodo_pagamento: metodoPagamento,
+          quantidade_parcelas: resumoPagamento.quantidade,
+        });
+      }
 
       const response = await api.post('/pagamentos/criar', {
         reserva_id: reservaId,
@@ -155,6 +158,7 @@ export default function Checkout() {
       .filter((campo) => !contratante[campo])
     : [];
   const contratoEmitido = ['contrato_gerado', 'aguardando_pagamento', 'cliente_confirmado'].includes(reserva?.status);
+  const pagamentoEmAndamento = ['aguardando_pagamento', 'cliente_confirmado'].includes(reserva?.status);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-10">
@@ -330,15 +334,22 @@ export default function Checkout() {
             <p>O aceite eletrônico registra data, hora e endereço IP, integrando o contrato que ficará disponível para download após a emissão.</p>
           </div>
 
-          <label className="flex items-start gap-3 cursor-pointer p-4 border rounded-lg hover:bg-gray-50 transition-colors">
-            <input
-              type="checkbox"
-              className="mt-1 h-5 w-5 rounded border-gray-300 text-primary focus:ring-primary"
-              checked={contratoAceito}
-              onChange={(event) => setContratoAceito(event.target.checked)}
-            />
-            <span className="text-sm text-gray-700"><strong className="block text-gray-900">Li e aceito os termos do contrato</strong>Ao confirmar, reconheço a assinatura digital e a condição de pagamento selecionada acima.</span>
-          </label>
+          {contratoEmitido ? (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+              <strong className="block">Contrato já emitido e preservado</strong>
+              Você pode retomar a etapa de pagamento sem gerar ou assinar outro documento.
+            </div>
+          ) : (
+            <label className="flex items-start gap-3 cursor-pointer p-4 border rounded-lg hover:bg-gray-50 transition-colors">
+              <input
+                type="checkbox"
+                className="mt-1 h-5 w-5 rounded border-gray-300 text-primary focus:ring-primary"
+                checked={contratoAceito}
+                onChange={(event) => setContratoAceito(event.target.checked)}
+              />
+              <span className="text-sm text-gray-700"><strong className="block text-gray-900">Li e aceito os termos do contrato</strong>Ao confirmar, reconheço a assinatura digital e a condição de pagamento selecionada acima.</span>
+            </label>
+          )}
         </CardContent>
       </Card>
 
@@ -347,15 +358,21 @@ export default function Checkout() {
           <p className="text-sm text-gray-500">Total a pagar</p>
           <p className="text-3xl font-bold text-secondary">{formatarMoeda(resumoPagamento.valorTotal)}</p>
         </div>
-        <Button
-          size="lg"
-          onClick={handleFinalizar}
-          isLoading={isProcessing}
-          disabled={!contratoAceito || !reserva || !modalidade || contratoEmitido}
-          className="px-8 w-full sm:w-auto"
-        >
-          {contratoEmitido ? 'Contrato já emitido' : 'Gerar contrato e continuar'}
-        </Button>
+        {pagamentoEmAndamento ? (
+          <Link to={`/confirmacao/${reservaId}`} className="w-full sm:w-auto">
+            <Button size="lg" className="w-full px-8">Acompanhar pagamento</Button>
+          </Link>
+        ) : (
+          <Button
+            size="lg"
+            onClick={handleFinalizar}
+            isLoading={isProcessing}
+            disabled={(!contratoEmitido && !contratoAceito) || !reserva || !modalidade}
+            className="px-8 w-full sm:w-auto"
+          >
+            {contratoEmitido ? 'Retomar pagamento' : 'Gerar contrato e continuar'}
+          </Button>
+        )}
       </div>
     </div>
   );

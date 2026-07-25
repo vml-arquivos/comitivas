@@ -8,6 +8,7 @@ import { initializeDatabase, closeDatabase } from "./db/index.js";
 import { authMiddleware, requireRole } from "./middleware/authMiddleware.js";
 import { followupScheduler } from "./services/followupScheduler.js";
 import { AuthService } from "./services/authService.js";
+import { PaymentGatewayAdapter } from "./services/paymentGatewayAdapter.js";
 import authRoutes from "./routes/auth.js";
 import publicoRoutes from "./routes/publico.js";
 import eventosRoutes from "./routes/eventos.js";
@@ -22,6 +23,7 @@ import adminRoutes from "./routes/admin.js";
 
 dotenv.config();
 AuthService.validarConfiguracaoSegura();
+PaymentGatewayAdapter.validarConfiguracaoSegura();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -86,8 +88,9 @@ app.use("/api/cupons", authMiddleware, requireRole("admin"), cupomsRoutes);
 // Rotas de jornada CRM (autenticado)
 app.use("/api/jornada", jornadadRoutes);
 
-// Rotas administrativas (admin)
-app.use("/api/admin", authMiddleware, requireRole("admin"), adminRoutes);
+// O router administrativo aplica autenticação e escopo por rota: vendedor
+// acessa apenas o dashboard da própria carteira; demais endpoints são admin.
+app.use("/api/admin", adminRoutes);
 
 // Fallback de SPA: qualquer rota GET que não seja /api/* devolve o index.html,
 // deixando o React Router decidir a tela (ex.: /eventos, /login, /minhas-reservas)

@@ -1,7 +1,7 @@
 import axios from "axios";
 import { randomUUID } from "node:crypto";
 import { db } from "../db/index.js";
-import { pagamentos, reservas } from "../db/schema.js";
+import { pagamentos, reservas, usuarios } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 
 export interface CriarPagamentoRequest {
@@ -22,9 +22,37 @@ export interface PagamentoGatewayResponse {
 }
 
 export class PaymentGatewayAdapter {
-  private static readonly GATEWAY = process.env.PAYMENT_GATEWAY || "mercadopago";
-  private static readonly MERCADOPAGO_TOKEN = process.env.MERCADOPAGO_ACCESS_TOKEN;
-  private static readonly ASAAS_TOKEN = process.env.ASAAS_API_KEY;
+  private static get GATEWAY() {
+    return process.env.PAYMENT_GATEWAY || "mercadopago";
+  }
+
+  private static get MERCADOPAGO_TOKEN() {
+    return process.env.MERCADOPAGO_ACCESS_TOKEN;
+  }
+
+  private static get ASAAS_TOKEN() {
+    return process.env.ASAAS_API_KEY;
+  }
+
+  static validarConfiguracaoSegura(): void {
+    if (!["mock", "mercadopago", "asaas"].includes(this.GATEWAY)) {
+      throw new Error(`PAYMENT_GATEWAY inválido: ${this.GATEWAY}`);
+    }
+    if (process.env.NODE_ENV !== "production") return;
+    if (this.GATEWAY === "mock") {
+      throw new Error("PAYMENT_GATEWAY" + "=mock não é permitido em produção");
+    }
+    if (this.GATEWAY === "mercadopago" && !this.MERCADOPAGO_TOKEN?.trim()) {
+      throw new Error("MERCADOPAGO_ACCESS_TOKEN é obrigatório em produção");
+    }
+    if (this.GATEWAY === "asaas" && !this.ASAAS_TOKEN?.trim()) {
+      throw new Error("ASAAS_API_KEY é obrigatório em produção");
+    }
+    const apiUrl = process.env.API_URL?.trim();
+    if (!apiUrl || !apiUrl.startsWith("https://")) {
+      throw new Error("API_URL com HTTPS é obrigatória em produção para receber webhooks");
+    }
+  }
 
   static async criarPagamento(request: CriarPagamentoRequest): Promise<PagamentoGatewayResponse> {
     if (this.GATEWAY === "mock") {
@@ -85,6 +113,23 @@ export class PaymentGatewayAdapter {
       }
 
       const reserva = reservaResult[0];
+      const usuarioResult = await db
+        .select({
+          nome: usuarios.nome,
+          email: usuarios.email,
+          cpf: usuarios.cpf,
+        })
+        .from(usuarios)
+        .where(eq(usuarios.id, reserva.usuario_id))
+        .limit(1);
+      const usuario = usuarioResult[0];
+      if (!usuario) {
+        throw new Error("Cliente da reserva não encontrado");
+      }
+      const partesNome = usuario.nome.trim().split(/\s+/);
+      const primeiroNome = partesNome.shift() || usuario.nome;
+      const sobrenome = partesNome.join(" ");
+      const cpf = String(usuario.cpf || "").replace(/\D/g, "");
 
       // Preparar payload
       const payload = {
@@ -92,7 +137,15 @@ export class PaymentGatewayAdapter {
         description: request.descricao || `Reserva ${request.reserva_id}`,
         payment_method_id: this.mapMetodoParaMercadoPago(request.metodo),
         payer: {
-          email: "cliente@comitiva.com.br",
+          email: usuario.email,
+          first_name: primeiroNome,
+          last_name: sobrenome,
+          ...(cpf.length === 11 ? {
+            identification: {
+              type: "CPF",
+              number: cpf,
+            },
+          } : {}),
         },
         external_reference: request.reserva_id,
         notification_url: `${process.env.API_URL}/api/pagamentos/webhook/mercadopago`,
@@ -106,6 +159,7 @@ export class PaymentGatewayAdapter {
           headers: {
             Authorization: `Bearer ${this.MERCADOPAGO_TOKEN}`,
             "Content-Type": "application/json",
+            "X-Idempotency-Key": `comitiva-${request.reserva_id}-${request.metodo}`,
           },
         }
       );

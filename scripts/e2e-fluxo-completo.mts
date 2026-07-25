@@ -50,6 +50,20 @@ function garantir(condicao: unknown, mensagem: string): asserts condicao {
   if (!condicao) throw new Error(mensagem);
 }
 
+function gerarCpfValido(semente: number): string {
+  const base = String(semente).replace(/\D/g, "").slice(-9).padStart(9, "1");
+  const digito = (parcial: string) => {
+    const soma = parcial.split("").reduce(
+      (total, numero, indice) => total + Number(numero) * (parcial.length + 1 - indice),
+      0,
+    );
+    const resto = (soma * 10) % 11;
+    return resto === 10 ? "0" : String(resto);
+  };
+  const primeiro = digito(base);
+  return `${base}${primeiro}${digito(`${base}${primeiro}`)}`;
+}
+
 async function requisitar<T>(
   caminho: string,
   opcoes: { method?: string; body?: unknown; token?: string; raw?: boolean } = {},
@@ -109,6 +123,10 @@ async function main() {
       vagas_disponiveis: 50,
       data_inicio: "2027-08-20T12:00:00.000Z",
       data_fim: "2027-08-24T16:00:00.000Z",
+      data_embarque: "2027-08-19T23:59:00.000Z",
+      data_retorno: "2027-08-24T23:59:00.000Z",
+      local_embarque: "Brasília/DF, com embarque adicional em Goiânia/GO",
+      local_hospedagem: "Chácara de validação — Barretos/SP",
       valor_base: 1000,
     },
   });
@@ -143,7 +161,7 @@ async function main() {
     );
   }
 
-  const cpfBase = String(timestamp).slice(-11).padStart(11, "0");
+  const cpfBase = gerarCpfValido(timestamp);
   const cadastro = await requisitar<any>("/api/auth/cadastro", {
     method: "POST",
     body: {
@@ -162,6 +180,15 @@ async function main() {
   });
   const tokenCliente = cadastro.token;
   garantir(tokenCliente, "O cadastro do cliente E2E não retornou token");
+
+  const crm = await requisitar<any>("/api/jornada/leads", { token: tokenAdmin });
+  const leadDoCadastro = crm.leads?.find((lead: any) => lead.email === `cliente.e2e.${timestamp}@comitivas.test`);
+  garantir(leadDoCadastro, "O cadastro direto não apareceu no CRM");
+  garantir(leadDoCadastro.status === "cadastrado", "O cadastro direto apareceu no CRM com status incorreto");
+
+  const dashboard = await requisitar<any>("/api/admin/dashboard", { token: tokenAdmin });
+  garantir(Number(dashboard.resumo?.total_clientes) > 0, "O dashboard não contabilizou o cliente cadastrado");
+  garantir(Number(dashboard.resumo?.total_leads_crm) > 0, "O dashboard não contabilizou o contato do CRM");
 
   const resultados: Array<Record<string, unknown>> = [];
   for (const caso of casos) {
@@ -198,6 +225,8 @@ async function main() {
     garantir(html.includes("Cliente Validação E2E"), `Nome do cliente ausente do contrato ${caso.modalidade}`);
     garantir(html.includes("E2E-2026-001"), `RG ausente do contrato ${caso.modalidade}`);
     garantir(html.includes("HENRIQUE SANTOS CUNHA"), `Contratada ausente do contrato ${caso.modalidade}`);
+    garantir(html.includes("19/08/2027"), `Data de embarque ausente do contrato ${caso.modalidade}`);
+    garantir(html.includes("Goiânia/GO"), `Ponto adicional de embarque ausente do contrato ${caso.modalidade}`);
 
     const rotulosModalidade: Record<CasoE2E["modalidade"], string> = {
       camping: "CAMPING",

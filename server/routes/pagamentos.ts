@@ -2,10 +2,60 @@ import { Router, Request, Response } from "express";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 import { PaymentGatewayAdapter } from "../services/paymentGatewayAdapter.js";
 import { db } from "../db/index.js";
-import { pagamentos, reservas } from "../db/schema.js";
-import { eq } from "drizzle-orm";
+import { leads_origem, pagamentos, reservas } from "../db/schema.js";
+import { eq, sql } from "drizzle-orm";
 
 const router = Router();
+
+async function confirmarPagamentoEReservarVaga(pagamento: typeof pagamentos.$inferSelect) {
+  await db.transaction(async (tx) => {
+    // O lock por reserva torna webhooks repetidos idempotentes: apenas a
+    // primeira confirmação consome uma vaga.
+    const resultado = await tx.execute(sql`
+      SELECT id, lote_id, usuario_id, status
+      FROM reservas
+      WHERE id = ${pagamento.reserva_id}
+      FOR UPDATE
+    `);
+    const reserva = resultado.rows[0] as {
+      id: string;
+      lote_id: string;
+      usuario_id: string;
+      status: string | null;
+    } | undefined;
+    if (!reserva) throw new Error("Reserva não encontrada para o pagamento");
+
+    if (reserva.status !== "cliente_confirmado") {
+      const vaga = await tx.execute(sql`
+        UPDATE lotes
+        SET
+          "vagas_disponíveis" = "vagas_disponíveis" - 1,
+          atualizado_em = CURRENT_TIMESTAMP
+        WHERE id = ${reserva.lote_id}
+          AND "vagas_disponíveis" > 0
+        RETURNING id
+      `);
+      if (vaga.rows.length === 0) {
+        throw new Error("LOTE_SEM_VAGAS");
+      }
+    }
+
+    await tx.update(pagamentos).set({
+      status: "aprovado",
+      atualizado_em: new Date(),
+    }).where(eq(pagamentos.id, pagamento.id));
+
+    await tx.update(reservas).set({
+      status: "cliente_confirmado",
+      atualizado_em: new Date(),
+    }).where(eq(reservas.id, pagamento.reserva_id));
+
+    await tx.update(leads_origem).set({
+      status: "cliente_confirmado",
+      atualizado_em: new Date(),
+    }).where(eq(leads_origem.usuario_id, reserva.usuario_id));
+  });
+}
 
 // Criar pagamento
 router.post("/criar", authMiddleware, async (req: Request, res: Response) => {
@@ -169,23 +219,7 @@ router.post("/webhook/mercadopago", async (req: Request, res: Response) => {
     const aprovado = await PaymentGatewayAdapter.confirmarPagamento(paymentId.toString());
 
     if (aprovado) {
-      // Atualizar pagamento
-      await db
-        .update(pagamentos)
-        .set({
-          status: "aprovado",
-          atualizado_em: new Date(),
-        })
-        .where(eq(pagamentos.id, pagamento.id));
-
-      // Atualizar reserva
-      await db
-        .update(reservas)
-        .set({
-          status: "cliente_confirmado",
-          atualizado_em: new Date(),
-        })
-        .where(eq(reservas.id, pagamento.reserva_id));
+      await confirmarPagamentoEReservarVaga(pagamento);
 
       console.log(`[WEBHOOK] Pagamento aprovado: ${paymentId}`);
     }
@@ -229,23 +263,7 @@ router.post("/webhook/asaas", async (req: Request, res: Response) => {
       return res.json({ ok: true });
     }
 
-    // Atualizar pagamento
-    await db
-      .update(pagamentos)
-      .set({
-        status: "aprovado",
-        atualizado_em: new Date(),
-      })
-      .where(eq(pagamentos.id, pagamento.id));
-
-    // Atualizar reserva
-    await db
-      .update(reservas)
-      .set({
-        status: "cliente_confirmado",
-        atualizado_em: new Date(),
-      })
-      .where(eq(reservas.id, pagamento.reserva_id));
+    await confirmarPagamentoEReservarVaga(pagamento);
 
     console.log(`[WEBHOOK] Pagamento confirmado Asaas: ${paymentId}`);
 

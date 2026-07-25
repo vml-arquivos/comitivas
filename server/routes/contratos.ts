@@ -27,6 +27,17 @@ function formatarData(valor: Date): string {
   }).format(valor);
 }
 
+function formatarDataHora(valor: Date): string {
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(valor);
+}
+
 // Aceitar contrato e gerar PDF
 router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Response) => {
   try {
@@ -170,8 +181,11 @@ router.get("/voucher/:reserva_id", authMiddleware, async (req: Request, res: Res
       telefone: usuarios.telefone,
       evento: eventos.nome,
       local: eventos.local,
-      data_inicio: eventos.data_inicio,
-      data_fim: eventos.data_fim,
+      data_inicio: lotes.data_inicio,
+      data_fim: lotes.data_fim,
+      data_embarque: lotes.data_embarque,
+      data_retorno: lotes.data_retorno,
+      local_embarque: lotes.local_embarque,
       lote: lotes.nome,
       pacote: pacotes.nome,
       modalidade: pacotes.modalidade_hospedagem,
@@ -233,6 +247,8 @@ router.get("/voucher/:reserva_id", authMiddleware, async (req: Request, res: Res
         <div><dt>Destino / local</dt><dd>${escaparHtml(voucher.local)}</dd></div>
         <div><dt>Lote</dt><dd>${escaparHtml(voucher.lote)}</dd></div>
         <div><dt>Hospedagem</dt><dd>${escaparHtml(modalidades[voucher.modalidade || ""] || voucher.pacote || "Conforme contrato")}</dd></div>
+        <div><dt>Embarque</dt><dd>${voucher.data_embarque ? formatarDataHora(voucher.data_embarque) : "A confirmar"} · ${escaparHtml(voucher.local_embarque || "Local comunicado pela organização")}</dd></div>
+        <div><dt>Retorno</dt><dd>${voucher.data_retorno ? formatarDataHora(voucher.data_retorno) : "A confirmar"}</dd></div>
       </dl>
       <div class="codigo"><span>Código da reserva</span><strong>${escaparHtml(voucher.reserva_id)}</strong></div>
       <p class="aviso">Apresente este voucher e um documento oficial com foto no embarque. Horários e ponto de encontro são comunicados pela equipe responsável.</p>
