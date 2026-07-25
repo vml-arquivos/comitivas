@@ -81,10 +81,19 @@ router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Re
 
     let condicaoPagamento;
     try {
+      const loteResult = await db
+        .select({ data_embarque: lotes.data_embarque, data_inicio: lotes.data_inicio })
+        .from(lotes)
+        .where(eq(lotes.id, reserva.lote_id))
+        .limit(1);
+      const dataLimitePagamento = loteResult[0]?.data_embarque || loteResult[0]?.data_inicio;
+      const parcelasMaximasBoleto = ContratoService.calcularParcelasMaximasBoleto(dataLimitePagamento);
+
       condicaoPagamento = ContratoService.calcularCondicaoPagamento(
         reserva.valor_total.toString(),
         metodoPagamento,
         quantidadeParcelas,
+        parcelasMaximasBoleto,
       );
     } catch (error: any) {
       return res.status(400).json({ erro: error.message || "Condição de pagamento inválida" });

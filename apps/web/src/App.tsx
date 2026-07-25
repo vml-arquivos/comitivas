@@ -23,6 +23,7 @@ import DadosCadastrais from './pages/cliente/DadosCadastrais';
 // Páginas do admin/vendedor
 import Dashboard from './pages/admin/Dashboard';
 import Reservas from './pages/admin/Reservas';
+import Clientes from './pages/admin/Clientes';
 import Cupons from './pages/admin/Cupons';
 import Jornada from './pages/admin/Jornada';
 import EventosAdmin from './pages/admin/Eventos';
@@ -92,6 +93,11 @@ function AppRoutes() {
       }>
         <Route index element={<Dashboard />} />
         <Route path="reservas" element={<Reservas />} />
+        <Route path="clientes" element={
+          <ProtectedRoute roles={['admin']}>
+            <Clientes />
+          </ProtectedRoute>
+        } />
         <Route path="jornada" element={<Jornada />} />
         <Route path="eventos" element={
           <ProtectedRoute roles={['admin']}>

@@ -73,13 +73,15 @@ export default function Checkout() {
     fetchReserva();
   }, [reservaId]);
 
+  const parcelasBoletoMaximas = Math.max(1, Number(reserva?.parcelas_boleto_maximas) || 1);
+
   useEffect(() => {
     if (metodoPagamento === 'pix') {
       setQuantidadeParcelas(1);
     } else if (metodoPagamento === 'boleto') {
-      setQuantidadeParcelas((atual) => Math.min(Math.max(atual, 1), 2));
+      setQuantidadeParcelas((atual) => Math.min(Math.max(atual, 1), parcelasBoletoMaximas));
     }
-  }, [metodoPagamento]);
+  }, [metodoPagamento, parcelasBoletoMaximas]);
 
   const resumoPagamento = useMemo(() => {
     const valorRegistrado = Number(reserva?.valor_total ?? 0);
@@ -265,7 +267,9 @@ export default function Checkout() {
             >
               <Landmark size={30} className={metodoPagamento === 'boleto' ? 'text-primary' : 'text-gray-400'} />
               <span className="font-semibold">Boleto bancário</span>
-              <span className="text-xs text-gray-500">Até 2x sem juros</span>
+              <span className="text-xs text-gray-500">
+                {parcelasBoletoMaximas <= 1 ? 'À vista, sem juros' : `Até ${parcelasBoletoMaximas}x sem juros`}
+              </span>
             </button>
 
             <button
@@ -278,7 +282,7 @@ export default function Checkout() {
             >
               <CreditCard size={30} className={metodoPagamento === 'credito' ? 'text-primary' : 'text-gray-400'} />
               <span className="font-semibold">Cartão de crédito</span>
-              <span className="text-xs text-gray-500">Em até 12x, taxas do dia</span>
+              <span className="text-xs text-gray-500">Em até 10x, taxas do dia</span>
             </button>
           </div>
 
@@ -287,6 +291,11 @@ export default function Checkout() {
               <div>
                 <p className="font-semibold text-secondary">Quantidade de parcelas</p>
                 <p className="text-sm text-gray-600">A condição selecionada será registrada no contrato.</p>
+                {metodoPagamento === 'boleto' && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    O número de parcelas do boleto diminui conforme a viagem se aproxima.
+                  </p>
+                )}
               </div>
               <select
                 value={resumoPagamento.quantidade}
@@ -294,7 +303,7 @@ export default function Checkout() {
                 onChange={(event) => setQuantidadeParcelas(Number(event.target.value))}
                 className="rounded-lg border border-gray-300 bg-white px-4 py-2 font-medium text-secondary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
               >
-                {Array.from({ length: metodoPagamento === 'boleto' ? 2 : 12 }, (_, index) => index + 1).map((parcela) => (
+                {Array.from({ length: metodoPagamento === 'boleto' ? parcelasBoletoMaximas : 10 }, (_, index) => index + 1).map((parcela) => (
                   <option key={parcela} value={parcela}>{(() => {
                     const valorParcela = Math.round((resumoPagamento.valorTotal / parcela) * 100) / 100;
                     const ultimaParcela = Math.round((resumoPagamento.valorTotal - valorParcela * (parcela - 1)) * 100) / 100;

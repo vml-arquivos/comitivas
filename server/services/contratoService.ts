@@ -43,6 +43,17 @@ const FORMAS_PAGAMENTO: Record<FormaPagamentoContrato, string> = {
   credito: "Cartão de crédito",
 };
 
+// Regra de parcelamento do boleto, conforme a Cláusula Quinta do contrato
+// oficial: "o número de parcelas disponíveis será decrescente, conforme a
+// data da contratação e a proximidade do evento", sempre respeitando a
+// quitação total até a data do evento/embarque.
+//
+// Modelo adotado: uma "janela" de parcela a cada N dias de antecedência em
+// relação à data-limite de pagamento (embarque), com um teto máximo — ainda
+// que a contratação ocorra com muitos meses de antecedência.
+export const BOLETO_DIAS_POR_PARCELA = 30;
+export const BOLETO_PARCELAS_MAXIMO_ABSOLUTO = 6;
+
 function escaparHtml(valor: unknown): string {
   return String(valor ?? "")
     .replace(/&/g, "&amp;")
@@ -194,14 +205,44 @@ function descreverPagamento(
 
 export class ContratoService {
   /**
+   * Calcula quantas parcelas de boleto podem ser oferecidas nesta
+   * contratação, com base na proximidade da data-limite de pagamento
+   * (embarque/início do evento). Quanto mais perto da viagem, menos
+   * parcelas — nunca menos de 1 (à vista) nem mais que o teto absoluto.
+   */
+  static calcularParcelasMaximasBoleto(
+    dataLimitePagamento: Date | string | null | undefined,
+    dataReferencia: Date = new Date(),
+  ): number {
+    if (!dataLimitePagamento) return 1;
+
+    const limite = new Date(dataLimitePagamento);
+    if (Number.isNaN(limite.getTime())) return 1;
+
+    const diasRestantes = Math.floor(
+      (limite.getTime() - dataReferencia.getTime()) / (1000 * 60 * 60 * 24),
+    );
+    if (diasRestantes <= 0) return 1;
+
+    const parcelasPelaAntecedencia = Math.floor(diasRestantes / BOLETO_DIAS_POR_PARCELA);
+    return Math.min(BOLETO_PARCELAS_MAXIMO_ABSOLUTO, Math.max(1, parcelasPelaAntecedencia));
+  }
+
+  /**
    * Normaliza e calcula a condição que será gravada na reserva antes do aceite.
    * O contrato só pode ser emitido com uma condição explícita; isso evita que o
    * PDF registre uma modalidade de pagamento diferente da escolhida no checkout.
+   *
+   * `parcelasMaximasBoleto` deve vir de calcularParcelasMaximasBoleto() usando a
+   * data-limite de pagamento da reserva (embarque/início do evento). Quando
+   * omitido, assume o teto mínimo (2x) por segurança — mas os pontos de
+   * entrada da aplicação sempre devem calcular e informar o valor real.
    */
   static calcularCondicaoPagamento(
     valorAtual: Decimal.Value,
     formaBruta: unknown,
     parcelasBrutas: unknown,
+    parcelasMaximasBoleto: number = 2,
   ): CondicaoPagamentoCalculada {
     const forma = String(formaBruta ?? "").trim().toLowerCase() as FormaPagamentoContrato;
     if (!(forma in FORMAS_PAGAMENTO)) {
@@ -217,12 +258,16 @@ export class ContratoService {
       throw new Error("O pagamento via PIX deve ser feito à vista");
     }
 
-    if (forma === "boleto" && quantidadeParcelas > 2) {
-      throw new Error("O boleto pode ser parcelado em até 2 vezes");
+    if (forma === "boleto" && quantidadeParcelas > parcelasMaximasBoleto) {
+      throw new Error(
+        parcelasMaximasBoleto <= 1
+          ? "Nesta data, o boleto só pode ser emitido à vista (1x), pela proximidade da viagem"
+          : `O boleto pode ser parcelado em até ${parcelasMaximasBoleto} vezes nesta data, considerando a proximidade da viagem`,
+      );
     }
 
-    if (forma === "credito" && quantidadeParcelas > 12) {
-      throw new Error("O cartão de crédito pode ser parcelado em até 12 vezes");
+    if (forma === "credito" && quantidadeParcelas > 10) {
+      throw new Error("O cartão de crédito pode ser parcelado em até 10 vezes");
     }
 
     const valorAntesDoPagamento = new Decimal(valorAtual);
@@ -378,6 +423,15 @@ export class ContratoService {
         valorTotalReserva,
       );
 
+      const dataLimitePagamento = lote.data_embarque || lote.data_inicio;
+      const parcelasMaximasBoletoNestaContratacao = this.calcularParcelasMaximasBoleto(
+        dataLimitePagamento,
+        dataAceite,
+      );
+      const textoParcelasBoleto = parcelasMaximasBoletoNestaContratacao <= 1
+        ? "Nesta contratação, pela proximidade da viagem, o boleto está disponível somente à vista (1x)."
+        : `Nesta contratação, o boleto está disponível em até ${parcelasMaximasBoletoNestaContratacao}x.`;
+
       const html = `
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -468,8 +522,8 @@ export class ContratoService {
     <h2>Cláusula quinta — Forma de pagamento</h2>
     <div class="condicao-pagamento"><strong>Condição escolhida:</strong> ${escaparHtml(FORMAS_PAGAMENTO[reserva.forma_pagamento as FormaPagamentoContrato] || "Não registrada")}<br/>${escaparHtml(descricaoCondicaoPagamento)}</div>
     <p>5.1. O pagamento via PIX é realizado à vista, com desconto de 5% já discriminado no resumo financeiro quando aplicável.</p>
-    <p>5.2. O pagamento por boleto poderá ser parcelado em até 2 (duas) vezes, sem juros. Para a excursão Barretos 2026, a primeira parcela está prevista para julho, conforme disponibilidade e cronograma apresentado no checkout, sempre com quitação integral até a viagem.</p>
-    <p>5.3. O pagamento por cartão de crédito poderá ser parcelado em até 12 (doze) vezes, de acordo com a condição selecionada e as taxas vigentes da operadora, informadas antes da conclusão.</p>
+    <p>5.2. O pagamento por boleto poderá ser parcelado sem juros, sempre condicionado à quitação integral até a data do embarque. O número de parcelas disponíveis é decrescente conforme a proximidade da viagem: quanto mais próxima a data do evento em relação à contratação, menor a quantidade de parcelas ofertada. ${escaparHtml(textoParcelasBoleto)}</p>
+    <p>5.3. O pagamento por cartão de crédito poderá ser parcelado em até 10 (dez) vezes, de acordo com a condição selecionada e as taxas vigentes da operadora, informadas antes da conclusão.</p>
 
     <h2>Cláusula sexta — Do atraso no pagamento</h2>
     <p>6.1. Em caso de atraso, incidirá multa de 2% sobre o valor da parcela, juros de 1% ao mês e correção monetária pelo IPCA, sem prejuízo das demais medidas cabíveis.</p>

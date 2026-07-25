@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { authMiddleware, requireRole } from "../middleware/authMiddleware.js";
 import { PacoteService, ConfiguracaoPacote } from "../services/pacoteService.js";
+import { ContratoService } from "../services/contratoService.js";
 import { db } from "../db/index.js";
 import { eventos, lotes, pacotes, itens_addon, reservas, usuarios, leads_origem } from "../db/schema.js";
 import { eq, and, desc, isNull, or } from "drizzle-orm";
@@ -211,12 +212,28 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
         .limit(1)
       : [];
 
+    const loteResult = await db
+      .select({ data_embarque: lotes.data_embarque, data_inicio: lotes.data_inicio })
+      .from(lotes)
+      .where(eq(lotes.id, reserva[0].lote_id))
+      .limit(1);
+    const dataLimitePagamento = loteResult[0]?.data_embarque || loteResult[0]?.data_inicio;
+    // Se o contrato já foi gerado, a condição fica travada (ver Checkout.tsx),
+    // então o teto correto para exibir é o que valia no momento do aceite —
+    // aproximado pela data de criação da reserva. Sem contrato ainda, usamos
+    // a data atual, que é o que efetivamente será validado no aceite.
+    const parcelasBoletoMaximas = ContratoService.calcularParcelasMaximasBoleto(
+      dataLimitePagamento,
+      reserva[0].forma_pagamento ? reserva[0].criado_em : new Date(),
+    );
+
     res.json({
       ...reserva[0],
       pacote_nome: pacoteSelecionado[0]?.nome || null,
       pacote_descricao: pacoteSelecionado[0]?.descricao || null,
       modalidade_hospedagem: pacoteSelecionado[0]?.modalidade_hospedagem || null,
       contratante: contratante[0] || null,
+      parcelas_boleto_maximas: parcelasBoletoMaximas,
     });
   } catch (error) {
     console.error("[PACOTES] Erro ao buscar reserva:", error);

@@ -449,7 +449,7 @@ export default function Home() {
         <div className="relative mx-auto max-w-4xl px-4 text-center sm:px-6 lg:px-8">
           <Tent className="mx-auto text-[#ff9fa6]" size={34} />
           <h2 className="mt-6 text-4xl font-black tracking-tight text-white sm:text-5xl">Sua próxima história pode começar aqui.</h2>
-          <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-200">Confira as excursões publicadas, veja os detalhes de cada pacote e as facilidades de pagamento: à vista com 5% de desconto, boleto em até 2x sem juros ou cartão em até 12x, com taxas informadas antes da conclusão.</p>
+          <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-200">Confira as excursões publicadas, veja os detalhes de cada pacote e as facilidades de pagamento: à vista com 5% de desconto, boleto parcelado sem juros (quantidade de parcelas conforme a proximidade da viagem) ou cartão em até 10x, com taxas informadas antes da conclusão.</p>
           <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link to="/eventos"><Button size="lg" className="px-9 py-6 text-base shadow-xl shadow-black/25">Ver pacotes disponíveis <ArrowRight size={18} className="ml-2" /></Button></Link>
             <WhatsAppCTA mensagem={MENSAGEM_WHATSAPP_PADRAO} label="Falar no WhatsApp" size="lg" />
