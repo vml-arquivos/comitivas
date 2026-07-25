@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { useLocation, useParams, Link } from 'react-router-dom';
 import { Button, Card, CardContent } from '@ui/index';
-import { CheckCircle, Download, Clock, Mail } from 'lucide-react';
+import { CheckCircle, Download, Clock, FileCheck2, Ticket } from 'lucide-react';
 import { api } from '../../contexts/AuthContext';
 
 export default function Confirmacao() {
@@ -9,44 +10,57 @@ export default function Confirmacao() {
   const location = useLocation();
   const pagamentoData = location.state?.pagamentoData;
   const [status, setStatus] = useState('aguardando_pagamento');
+  const [baixando, setBaixando] = useState('');
+  const [erroDocumento, setErroDocumento] = useState('');
 
   useEffect(() => {
-    // Polling para verificar status do pagamento
-    const interval = setInterval(async () => {
+    const verificarStatus = async () => {
       try {
         const res = await api.get(`/pagamentos/status/${reservaId}`);
         if (res.data.status === 'aprovado') {
           setStatus('confirmado');
-          clearInterval(interval);
         }
       } catch (err) {
-        // Ignorar erros de polling
+        // A tela continua utilizável mesmo se uma consulta pontual falhar.
       }
-    }, 5000);
+    };
+
+    verificarStatus();
+    const interval = setInterval(verificarStatus, 5000);
 
     return () => clearInterval(interval);
   }, [reservaId]);
 
-  const handleDownloadContrato = async () => {
+  const baixarDocumento = async (tipo: 'contrato' | 'voucher') => {
+    setBaixando(tipo);
+    setErroDocumento('');
     try {
-      const response = await api.get(`/contratos/download/${reservaId}`, {
+      const endpoint = tipo === 'contrato' ? 'download' : 'voucher';
+      const response = await api.get(`/contratos/${endpoint}/${reservaId}`, {
         responseType: 'blob'
       });
       
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `contrato-${reservaId}.pdf`);
+      link.setAttribute('download', `${tipo}-${reservaId}.pdf`);
       document.body.appendChild(link);
       link.click();
       link.remove();
-    } catch (err) {
-      alert('Contrato ainda não disponível ou erro no download');
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setErroDocumento(err.response?.data?.erro || `Não foi possível baixar o ${tipo}.`);
+    } finally {
+      setBaixando('');
     }
   };
 
   return (
     <div className="max-w-2xl mx-auto py-12">
+      <Helmet>
+        <title>Status da reserva | Excursão das Comitivas</title>
+        <meta name="robots" content="noindex,nofollow" />
+      </Helmet>
       <Card className="text-center overflow-hidden border-0 shadow-lg">
         <div className={`py-8 ${status === 'confirmado' ? 'bg-green-500' : 'bg-yellow-500'} text-white`}>
           {status === 'confirmado' ? (
@@ -90,20 +104,35 @@ export default function Confirmacao() {
           )}
 
           {status === 'confirmado' && (
-            <div className="bg-blue-50 text-blue-800 p-4 rounded-lg flex items-start gap-3 text-left">
-              <Mail className="flex-shrink-0 mt-1" size={24} />
+            <div className="bg-emerald-50 text-emerald-800 p-4 rounded-lg flex items-start gap-3 text-left">
+              <FileCheck2 className="flex-shrink-0 mt-1" size={24} />
               <div>
                 <h4 className="font-bold">Tudo certo com sua reserva!</h4>
-                <p className="text-sm mt-1">Enviamos um e-mail com a confirmação, seu contrato em PDF assinado digitalmente e o comprovante de pagamento.</p>
+                <p className="text-sm mt-1">O pagamento foi confirmado. Seu contrato e o voucher de embarque estão liberados abaixo e também na área “Minhas reservas”.</p>
               </div>
             </div>
           )}
 
+          {status !== 'confirmado' && !pagamentoData && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-left text-slate-700">
+              <p className="font-semibold">Acompanhando o pagamento</p>
+              <p className="mt-1 text-sm">Esta página verifica o retorno do meio de pagamento automaticamente. Você também pode acompanhar a reserva pela área do cliente.</p>
+            </div>
+          )}
+
+          {erroDocumento && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{erroDocumento}</p>}
+
           <div className="pt-6 border-t flex flex-col sm:flex-row justify-center gap-4">
-            <Button variant="outline" onClick={handleDownloadContrato} className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => baixarDocumento('contrato')} isLoading={baixando === 'contrato'} className="flex items-center gap-2">
               <Download size={18} />
               Baixar Contrato PDF
             </Button>
+            {status === 'confirmado' && (
+              <Button variant="outline" onClick={() => baixarDocumento('voucher')} isLoading={baixando === 'voucher'} className="flex items-center gap-2">
+                <Ticket size={18} />
+                Baixar Voucher
+              </Button>
+            )}
             <Link to="/minhas-reservas">
               <Button>Ver Minhas Reservas</Button>
             </Link>

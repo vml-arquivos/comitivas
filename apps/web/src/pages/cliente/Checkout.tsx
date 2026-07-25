@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import { api } from '../../contexts/AuthContext';
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@ui/index';
 import { AlertCircle, CreditCard, FileText, Landmark, QrCode, Snowflake, Tent, Wind } from 'lucide-react';
@@ -76,6 +76,8 @@ export default function Checkout() {
   useEffect(() => {
     if (metodoPagamento === 'pix') {
       setQuantidadeParcelas(1);
+    } else if (metodoPagamento === 'boleto') {
+      setQuantidadeParcelas((atual) => Math.min(Math.max(atual, 1), 2));
     }
   }, [metodoPagamento]);
 
@@ -148,6 +150,10 @@ export default function Checkout() {
   const modalidade = reserva?.modalidade_hospedagem ? MODALIDADES[reserva.modalidade_hospedagem] : null;
   const IconeModalidade = modalidade?.Icone;
   const contratante = reserva?.contratante;
+  const dadosIncompletos = contratante
+    ? ['cpf', 'rg', 'data_nascimento', 'estado_civil', 'profissao', 'endereco', 'telefone']
+      .filter((campo) => !contratante[campo])
+    : [];
   const contratoEmitido = ['contrato_gerado', 'aguardando_pagamento', 'cliente_confirmado'].includes(reserva?.status);
 
   return (
@@ -212,6 +218,17 @@ export default function Checkout() {
           ) : (
             <p className="text-sm text-gray-600">Não foi possível carregar os dados contratuais da reserva.</p>
           )}
+          {dadosIncompletos.length > 0 && (
+            <div className="mt-5 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-semibold">Seu contrato ficará mais completo com os dados que faltam.</p>
+                <p className="mt-1 text-xs">Você pode preencher agora ou continuar; campos não informados aparecerão como “________”.</p>
+              </div>
+              <Link to={`/meus-dados?redirect=${encodeURIComponent(`/checkout/${reservaId}`)}`} className="shrink-0 rounded-lg bg-amber-900 px-4 py-2 text-center text-xs font-bold text-white transition hover:bg-amber-800">
+                Completar dados
+              </Link>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -244,7 +261,7 @@ export default function Checkout() {
             >
               <Landmark size={30} className={metodoPagamento === 'boleto' ? 'text-primary' : 'text-gray-400'} />
               <span className="font-semibold">Boleto bancário</span>
-              <span className="text-xs text-gray-500">Parcelamento sem juros</span>
+              <span className="text-xs text-gray-500">Até 2x sem juros</span>
             </button>
 
             <button
@@ -257,7 +274,7 @@ export default function Checkout() {
             >
               <CreditCard size={30} className={metodoPagamento === 'credito' ? 'text-primary' : 'text-gray-400'} />
               <span className="font-semibold">Cartão de crédito</span>
-              <span className="text-xs text-gray-500">Em até 10x</span>
+              <span className="text-xs text-gray-500">Em até 12x, taxas do dia</span>
             </button>
           </div>
 
@@ -273,7 +290,7 @@ export default function Checkout() {
                 onChange={(event) => setQuantidadeParcelas(Number(event.target.value))}
                 className="rounded-lg border border-gray-300 bg-white px-4 py-2 font-medium text-secondary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
               >
-                {Array.from({ length: 10 }, (_, index) => index + 1).map((parcela) => (
+                {Array.from({ length: metodoPagamento === 'boleto' ? 2 : 12 }, (_, index) => index + 1).map((parcela) => (
                   <option key={parcela} value={parcela}>{(() => {
                     const valorParcela = Math.round((resumoPagamento.valorTotal / parcela) * 100) / 100;
                     const ultimaParcela = Math.round((resumoPagamento.valorTotal - valorParcela * (parcela - 1)) * 100) / 100;

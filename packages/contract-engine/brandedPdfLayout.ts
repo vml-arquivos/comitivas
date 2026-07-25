@@ -1,5 +1,5 @@
 import { PDFDocument, StandardFonts as StandardFontsRef, rgb as rgbRef } from "pdf-lib";
-import { COMITIVA_LOGO_B64, DESTRAVA_LOGO_B64, PERMUPAY_LOGO_B64 } from "./logo_constants";
+import { COMITIVA_LOGO_PDF_B64, DESTRAVA_LOGO_B64, PERMUPAY_LOGO_B64 } from "./logo_constants";
 import { closeChromium, launchChromium } from "./chromiumLauncher";
 
 export type PdfBrand = "destrava" | "permupay" | "aragao" | "comitiva";
@@ -72,7 +72,7 @@ function brandPresentation(value: unknown): {
     return {
       name: "Excursão das Comitivas",
       borderColor: "#B91C1C",
-      logoDataUri: COMITIVA_LOGO_B64,
+      logoDataUri: COMITIVA_LOGO_PDF_B64,
     };
   }
   return {
@@ -101,7 +101,7 @@ function footerTemplate(value: unknown): string {
   <div id="fw">
     <strong>EXCURSÃO DAS COMITIVAS</strong><br/>
     HENRIQUE SANTOS CUNHA · CNPJ 39.763.571/0001-13<br/>
-    Brasília/DF · excursaodascomitivas@gmail.com
+    QR 502 Conjunto 20 - Samambaia Sul/DF, CEP 72.210-420 · excursaodascomitivas@gmail.com
   </div>`;
 }
 
@@ -280,7 +280,7 @@ export async function generateBrandedPdfBuffer(
     const lastPageBuffer = await page.pdf({
       ...pdfOptions,
       headerTemplate: EMPTY_HEADER,
-      footerTemplate: FOOTER_TEMPLATE,
+      footerTemplate: footerTemplate(options.brand),
       pageRanges: String(pageCount),
     });
 

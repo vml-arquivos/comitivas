@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth, api } from '../contexts/AuthContext';
 import { Button, Input, Card, CardHeader, CardTitle, CardContent } from '@ui/index';
+import { destinoSeguro } from '../utils/checkoutIntent';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -10,6 +11,8 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const redirect = destinoSeguro(searchParams.get('redirect'), '/');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -19,7 +22,7 @@ export default function Login() {
     try {
       const response = await api.post('/auth/login', { email, senha });
       login(response.data.token, response.data.usuario);
-      navigate('/');
+      navigate(redirect, { replace: true });
     } catch (err: any) {
       setError(err.response?.data?.erro || 'Erro ao fazer login');
     } finally {
@@ -57,7 +60,7 @@ export default function Login() {
           </form>
           
           <div className="mt-6 text-center text-sm text-gray-600">
-            Não tem uma conta? <Link to="/cadastro" className="text-primary hover:underline">Cadastre-se</Link>
+            Não tem uma conta? <Link to={`/cadastro?redirect=${encodeURIComponent(redirect)}`} className="text-primary hover:underline">Cadastre-se</Link>
           </div>
         </CardContent>
       </Card>

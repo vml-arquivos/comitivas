@@ -1,11 +1,9 @@
 import React from 'react';
 import { cn } from './Button';
 
-// Mesma variável de ambiente já usada pelo botão flutuante em MainLayout.tsx,
-// definida em build-time pelo Vite (VITE_*). Se não estiver configurada, o
-// componente não renderiza nada — evita CTA quebrado apontando para lugar
-// nenhum em vez de mostrar um link inválido.
-const WHATSAPP_NUMERO = import.meta.env.VITE_WHATSAPP_NUMERO || '';
+// A variável permite alteração sem editar código; o contato oficial mantém os
+// CTAs funcionais quando a configuração de build ainda não foi preenchida.
+const WHATSAPP_NUMERO = import.meta.env.VITE_WHATSAPP_NUMERO || '5561994459086';
 
 export function getLinkWhatsApp(mensagem: string) {
   return `https://wa.me/${WHATSAPP_NUMERO}?text=${encodeURIComponent(mensagem)}`;
@@ -31,12 +29,9 @@ export interface WhatsAppCTAProps {
 
 /**
  * CTA de WhatsApp reutilizável para as páginas públicas (Home, Historia, etc).
- * Não renderiza nada se VITE_WHATSAPP_NUMERO não estiver configurada no
- * ambiente de build — mesma regra do botão flutuante do MainLayout.
+ * Usa VITE_WHATSAPP_NUMERO quando configurada e o contato oficial como fallback.
  */
 export function WhatsAppCTA({ mensagem, label = 'Falar no WhatsApp', variant = 'solid', size = 'md', className }: WhatsAppCTAProps) {
-  if (!WHATSAPP_NUMERO) return null;
-
   const sizes = {
     sm: 'h-9 px-4 text-xs gap-1.5',
     md: 'h-11 px-5 text-sm gap-2',

@@ -18,6 +18,8 @@ Este roteiro valida o fluxo real de contratação da plataforma, desde a criaç�
 O teste exige Node.js 22 ou superior, PostgreSQL 16 ou superior e uma instância da aplicação disponível. As migrations são executadas automaticamente no bootstrap; ainda assim, a aplicação precisa iniciar com uma `DATABASE_URL` válida.
 
 > O modo `PAYMENT_GATEWAY=mock` é adequado para validação técnica. Ele registra a intenção de pagamento no banco, mas não envia cobranças nem gera códigos ou links fictícios.
+>
+> **⚠️ Este valor é apenas para testes locais. Em produção, use `PAYMENT_GATEWAY=mercadopago` com o Access Token real.**
 
 ## Execução automatizada
 
@@ -30,7 +32,7 @@ npm run build
 Em outro terminal, inicialize o servidor com uma base isolada e o gateway de teste:
 
 ```bash
-DATABASE_URL="postgresql://USUARIO:SENHA@HOST:5432/comitiva_e2e" \
+DATABASE_URL="postgresql://USUARIO:SENHA@HOST:5432/BANCO" \
 PAYMENT_GATEWAY="mock" \
 STORAGE_PATH="/tmp/comitiva-e2e-uploads" \
 PORT="3001" \

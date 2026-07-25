@@ -1,7 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Helmet } from 'react-helmet-async';
+import { Link } from 'react-router-dom';
 import { api } from '../../contexts/AuthContext';
-import { Star, AlertCircle, Quote } from 'lucide-react';
+import { Star, AlertCircle, Quote, ArrowRight } from 'lucide-react';
+import { Button, WhatsAppCTA } from '@ui/index';
+
+const MENSAGEM_WHATSAPP = 'Olá! Vi as avaliações da Excursão das Comitivas e quero informações sobre os pacotes para Barretos.';
 
 export default function AvaliacoesPublicas() {
   const [avaliacoes, setAvaliacoes] = useState<any[]>([]);
@@ -46,8 +50,20 @@ export default function AvaliacoesPublicas() {
   return (
     <div className="min-h-screen bg-white pb-24">
       <Helmet>
-        <title>Avaliações de Clientes | Comitiva Prime</title>
-        <meta name="description" content="Leia os depoimentos reais de quem já viajou com a Comitiva Prime para a Festa do Peão de Barretos e outros eventos." />
+        <title>Avaliações de Clientes | Excursão das Comitivas</title>
+        <meta name="description" content="Leia depoimentos aprovados de quem já viajou com a Excursão das Comitivas para a Festa do Peão de Barretos." />
+        <meta name="robots" content="index,follow" />
+        <link rel="canonical" href="https://comitivas.permupay.com.br/avaliacoes" />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="Excursão das Comitivas" />
+        <meta property="og:title" content="Avaliações de Clientes | Excursão das Comitivas" />
+        <meta property="og:description" content="Depoimentos aprovados de participantes da Excursão das Comitivas." />
+        <meta property="og:url" content="https://comitivas.permupay.com.br/avaliacoes" />
+        <meta property="og:image" content="https://comitivas.permupay.com.br/images/logo-compartilhamento.webp" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="Avaliações | Excursão das Comitivas" />
+        <meta name="twitter:description" content="Veja o que dizem os participantes das nossas excursões." />
+        <meta name="twitter:image" content="https://comitivas.permupay.com.br/images/logo-compartilhamento.webp" />
       </Helmet>
 
       {/* Header */}
@@ -83,10 +99,10 @@ export default function AvaliacoesPublicas() {
                 </p>
                 <div className="flex items-center gap-4 border-t border-gray-200 pt-6 mt-auto">
                   <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center text-primary font-bold text-lg">
-                    {avaliacao.usuario?.nome?.charAt(0) || 'C'}
+                    {avaliacao.usuario?.nome?.charAt(0) || 'P'}
                   </div>
                   <div>
-                    <div className="font-bold text-secondary">{avaliacao.usuario?.nome || 'Cliente Prime'}</div>
+                    <div className="font-bold text-secondary">{avaliacao.usuario?.nome || 'Participante da excursão'}</div>
                     <div className="text-sm text-gray-500">{new Date(avaliacao.criado_em).toLocaleDateString('pt-BR')}</div>
                   </div>
                 </div>
@@ -95,6 +111,17 @@ export default function AvaliacoesPublicas() {
           </div>
         )}
       </div>
+
+      <section className="mx-auto mt-20 max-w-4xl px-4 text-center">
+        <div className="rounded-3xl border border-primary/20 bg-primary/5 p-8 sm:p-10">
+          <h2 className="text-2xl font-black text-secondary">Viva essa experiência na próxima edição</h2>
+          <p className="mx-auto mt-3 max-w-2xl text-slate-600">Conheça as modalidades de hospedagem e tire suas dúvidas diretamente com a equipe.</p>
+          <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <Link to="/eventos"><Button size="lg">Ver excursões <ArrowRight size={18} className="ml-2" /></Button></Link>
+            <WhatsAppCTA mensagem={MENSAGEM_WHATSAPP} label="Falar no WhatsApp" size="lg" />
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

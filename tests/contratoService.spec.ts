@@ -12,22 +12,22 @@ describe("ContratoService.calcularCondicaoPagamento", () => {
     });
   });
 
-  it("preserva o total e calcula a parcela para boleto", () => {
-    expect(ContratoService.calcularCondicaoPagamento("1400.00", "boleto", 3)).toEqual({
+  it("preserva o total e calcula até duas parcelas para boleto", () => {
+    expect(ContratoService.calcularCondicaoPagamento("1400.00", "boleto", 2)).toEqual({
       forma_pagamento: "boleto",
-      quantidade_parcelas: 3,
+      quantidade_parcelas: 2,
       valor_total: "1400.00",
-      valor_parcela: "466.67",
+      valor_parcela: "700.00",
       desconto_pagamento: "0.00",
     });
   });
 
-  it("permite parcelamento em até dez vezes no cartão", () => {
-    expect(ContratoService.calcularCondicaoPagamento("1800.00", "credito", 10)).toEqual({
+  it("permite parcelamento em até doze vezes no cartão", () => {
+    expect(ContratoService.calcularCondicaoPagamento("1800.00", "credito", 12)).toEqual({
       forma_pagamento: "credito",
-      quantidade_parcelas: 10,
+      quantidade_parcelas: 12,
       valor_total: "1800.00",
-      valor_parcela: "180.00",
+      valor_parcela: "150.00",
       desconto_pagamento: "0.00",
     });
   });
@@ -40,8 +40,10 @@ describe("ContratoService.calcularCondicaoPagamento", () => {
   it("rejeita PIX parcelado e parcelamento acima do limite", () => {
     expect(() => ContratoService.calcularCondicaoPagamento("1000.00", "pix", 2))
       .toThrow("O pagamento via PIX deve ser feito à vista");
-    expect(() => ContratoService.calcularCondicaoPagamento("1000.00", "credito", 11))
-      .toThrow("O parcelamento está limitado a 10 parcelas");
+    expect(() => ContratoService.calcularCondicaoPagamento("1000.00", "boleto", 3))
+      .toThrow("O boleto pode ser parcelado em até 2 vezes");
+    expect(() => ContratoService.calcularCondicaoPagamento("1000.00", "credito", 13))
+      .toThrow("O cartão de crédito pode ser parcelado em até 12 vezes");
   });
 
   it("rejeita valores de reserva não positivos", () => {

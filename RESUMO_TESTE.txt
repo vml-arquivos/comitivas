@@ -18,7 +18,7 @@ VARIÁVEIS NECESSÁRIAS (8 MÍNIMAS)
 ==================================
 
 1. DATABASE_URL
-   Valor: postgresql://user:pass@seu-postgres.com:5432/comitiva_teste
+   Valor: postgresql://USUARIO:SENHA@HOST:5432/BANCO
    Onde: Supabase (gratuito) ou Railway
 
 2. JWT_SECRET

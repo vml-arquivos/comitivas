@@ -11,8 +11,8 @@
 ### 1.1 Banco de Dados PostgreSQL
 
 ```env
-# Formato: postgresql://usuario:senha@host:porta/banco
-DATABASE_URL=postgresql://comitiva_user:SENHA_SEGURA@seu-postgres.com:5432/comitiva
+# Formato: postgresql://USUARIO:SENHA@HOST:5432/BANCO
+DATABASE_URL=postgresql://USUARIO:SENHA@HOST:5432/BANCO
 ```
 
 **Onde obter:**
@@ -25,7 +25,7 @@ DATABASE_URL=postgresql://comitiva_user:SENHA_SEGURA@seu-postgres.com:5432/comit
 
 ```env
 # Gerar com: openssl rand -base64 32
-JWT_SECRET=CHAVE_ALEATORIA_DE_32_CARACTERES_BASE64
+JWT_SECRET=GERE_UMA_CHAVE_FORTE
 ```
 
 **Comando para gerar:**
@@ -47,8 +47,8 @@ MOBILE_URL=comitiva://            # Scheme do app mobile
 
 ```env
 PAYMENT_GATEWAY=mercadopago
-MERCADOPAGO_ACCESS_TOKEN=APP_USR-XXXXXXXXXXXXXXXXXXXXX
-MERCADOPAGO_PUBLIC_KEY=APP_USR-XXXXXXXXXXXXXXXXXXXXX
+MERCADOPAGO_ACCESS_TOKEN=PREENCHA_COM_O_TOKEN_REAL
+MERCADOPAGO_PUBLIC_KEY=PREENCHA_COM_O_TOKEN_REAL
 ```
 
 **Onde obter:**
@@ -65,7 +65,7 @@ MERCADOPAGO_PUBLIC_KEY=APP_USR-XXXXXXXXXXXXXXXXXXXXX
 SMTP_HOST=smtp.seuservidor.com
 SMTP_PORT=587
 SMTP_USER=seu_usuario@seuservidor.com
-SMTP_PASS=sua_senha_de_app
+SMTP_PASS=PREENCHA_COM_A_SENHA_REAL
 SMTP_FROM=noreply@seu-dominio.com
 ```
 
@@ -111,10 +111,10 @@ LOG_LEVEL=info  # Pode ser: debug, info, warn, error
 
 ```env
 # ===== BANCO DE DADOS =====
-DATABASE_URL=postgresql://comitiva_user:SENHA@seu-postgres.com:5432/comitiva
+DATABASE_URL=postgresql://USUARIO:SENHA@HOST:5432/BANCO
 
 # ===== SEGURANÇA =====
-JWT_SECRET=CHAVE_ALEATORIA_GERADA_COM_OPENSSL
+JWT_SECRET=GERE_UMA_CHAVE_FORTE
 NODE_ENV=production
 
 # ===== SERVIDOR =====
@@ -125,14 +125,14 @@ MOBILE_URL=comitiva://
 
 # ===== MERCADO PAGO (PRODUÇÃO) =====
 PAYMENT_GATEWAY=mercadopago
-MERCADOPAGO_ACCESS_TOKEN=APP_USR-XXXXXXXXXXXXXXXXXXXXX
-MERCADOPAGO_PUBLIC_KEY=APP_USR-XXXXXXXXXXXXXXXXXXXXX
+MERCADOPAGO_ACCESS_TOKEN=PREENCHA_COM_O_TOKEN_REAL
+MERCADOPAGO_PUBLIC_KEY=PREENCHA_COM_O_TOKEN_REAL
 
 # ===== SMTP =====
 SMTP_HOST=smtp.seuservidor.com
 SMTP_PORT=587
 SMTP_USER=seu_usuario@seuservidor.com
-SMTP_PASS=sua_senha_de_app
+SMTP_PASS=PREENCHA_COM_A_SENHA_REAL
 SMTP_FROM=noreply@seu-dominio.com
 
 # ===== ARMAZENAMENTO =====
@@ -257,7 +257,7 @@ Procure por mensagens como:
 1. Acesse https://supabase.com
 2. Crie uma conta e um novo projeto
 3. Vá para "Database" > "Connection string"
-4. Copie a string de conexão (formato: `postgresql://...`)
+4. Copie a string de conexão (formato: `postgresql://USUARIO:SENHA@HOST:5432/BANCO`)
 5. Substitua `[YOUR-PASSWORD]` pela senha do banco
 
 ### 6.2 Deploy no Railway

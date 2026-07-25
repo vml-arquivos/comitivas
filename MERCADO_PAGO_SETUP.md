@@ -22,15 +22,15 @@ Quando estiver pronto para produção:
 ### Arquivo `.env` (Desenvolvimento)
 ```env
 PAYMENT_GATEWAY=mercadopago
-MERCADOPAGO_ACCESS_TOKEN=TEST-1234567890abcdefghijklmnopqrst
+MERCADOPAGO_ACCESS_TOKEN=PREENCHA_COM_O_TOKEN_REAL
 MERCADOPAGO_PUBLIC_KEY=TEST-1234567890abcdefghijklmnopqrst
 ```
 
 ### Arquivo `.env` (Produção)
 ```env
 PAYMENT_GATEWAY=mercadopago
-MERCADOPAGO_ACCESS_TOKEN=APP_USR-1234567890abcdefghijklmnopqrst
-MERCADOPAGO_PUBLIC_KEY=APP_USR-1234567890abcdefghijklmnopqrst
+MERCADOPAGO_ACCESS_TOKEN=PREENCHA_COM_O_TOKEN_REAL
+MERCADOPAGO_PUBLIC_KEY=PREENCHA_COM_O_TOKEN_REAL
 ```
 
 ## 3. Fluxo de Pagamento

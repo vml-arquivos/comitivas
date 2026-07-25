@@ -196,8 +196,12 @@ export class ContratoService {
       throw new Error("O pagamento via PIX deve ser feito à vista");
     }
 
-    if ((forma === "credito" || forma === "boleto") && quantidadeParcelas > 10) {
-      throw new Error("O parcelamento está limitado a 10 parcelas");
+    if (forma === "boleto" && quantidadeParcelas > 2) {
+      throw new Error("O boleto pode ser parcelado em até 2 vezes");
+    }
+
+    if (forma === "credito" && quantidadeParcelas > 12) {
+      throw new Error("O cartão de crédito pode ser parcelado em até 12 vezes");
     }
 
     const valorAntesDoPagamento = new Decimal(valorAtual);
@@ -427,8 +431,8 @@ export class ContratoService {
     <h2>Cláusula quinta — Forma de pagamento</h2>
     <div class="condicao-pagamento"><strong>Condição escolhida:</strong> ${escaparHtml(FORMAS_PAGAMENTO[reserva.forma_pagamento as FormaPagamentoContrato] || "Não registrada")}<br/>${escaparHtml(descricaoCondicaoPagamento)}</div>
     <p>5.1. O pagamento via PIX é realizado à vista, com desconto de 5% já discriminado no resumo financeiro quando aplicável.</p>
-    <p>5.2. O pagamento por boleto poderá ser parcelado, observada a quitação integral até a data da viagem.</p>
-    <p>5.3. O pagamento por cartão de crédito poderá ser parcelado em até 10 (dez) vezes, de acordo com a condição selecionada e as regras da operadora.</p>
+    <p>5.2. O pagamento por boleto poderá ser parcelado em até 2 (duas) vezes, sem juros, observada a quitação integral até a data da viagem.</p>
+    <p>5.3. O pagamento por cartão de crédito poderá ser parcelado em até 12 (doze) vezes, de acordo com a condição selecionada e as taxas vigentes da operadora, informadas antes da conclusão.</p>
 
     <h2>Cláusula sexta — Do atraso no pagamento</h2>
     <p>6.1. Em caso de atraso, incidirá multa de 2% sobre o valor da parcela, juros de 1% ao mês e correção monetária pelo IPCA, sem prejuízo das demais medidas cabíveis.</p>

@@ -1,8 +1,9 @@
 import { Router, Request, Response } from "express";
 import { authMiddleware, requireRole } from "../middleware/authMiddleware.js";
 import { db } from "../db/index.js";
-import { eventos, lotes } from "../db/schema.js";
+import { eventos, fotos_evento, lotes } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
+import { createId } from "@paralleldrive/cuid2";
 
 const router = Router();
 
@@ -35,6 +36,68 @@ router.get("/:evento_id", async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error("[EVENTOS] Erro ao obter:", error);
     res.status(500).json({ erro: "Erro ao obter evento" });
+  }
+});
+
+// Fotos vinculadas ao evento, exibidas na História e na Galeria pública.
+router.get("/:evento_id/fotos", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const fotos = await db.select()
+      .from(fotos_evento)
+      .where(eq(fotos_evento.evento_id, req.params.evento_id))
+      .orderBy(fotos_evento.ordem);
+    res.json({ fotos });
+  } catch (error) {
+    console.error("[EVENTOS] Erro ao listar fotos:", error);
+    res.status(500).json({ erro: "Erro ao listar fotos do evento" });
+  }
+});
+
+router.post("/:evento_id/fotos", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const urlFoto = String(req.body.url_foto || "").trim();
+    const legenda = String(req.body.legenda || "").trim();
+    const urlPermitida = /^https?:\/\//i.test(urlFoto) || urlFoto.startsWith("/images/");
+    if (!urlFoto || !urlPermitida) {
+      return res.status(400).json({ erro: "Informe uma URL HTTPS ou um caminho iniciado por /images/" });
+    }
+
+    const evento = await db.select({ id: eventos.id })
+      .from(eventos)
+      .where(eq(eventos.id, req.params.evento_id))
+      .limit(1);
+    if (!evento[0]) return res.status(404).json({ erro: "Evento não encontrado" });
+
+    const existentes = await db.select({ ordem: fotos_evento.ordem })
+      .from(fotos_evento)
+      .where(eq(fotos_evento.evento_id, req.params.evento_id));
+    const proximaOrdem = existentes.reduce((maior, foto) => Math.max(maior, foto.ordem || 0), -1) + 1;
+
+    const criada = await db.insert(fotos_evento).values({
+      id: createId(),
+      evento_id: req.params.evento_id,
+      url_foto: urlFoto,
+      legenda: legenda || null,
+      ordem: Number.isInteger(req.body.ordem) ? req.body.ordem : proximaOrdem,
+    }).returning();
+
+    res.status(201).json({ mensagem: "Foto vinculada com sucesso", foto: criada[0] });
+  } catch (error) {
+    console.error("[EVENTOS] Erro ao vincular foto:", error);
+    res.status(500).json({ erro: "Erro ao vincular foto ao evento" });
+  }
+});
+
+router.delete("/:evento_id/fotos/:foto_id", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const removida = await db.delete(fotos_evento)
+      .where(and(eq(fotos_evento.id, req.params.foto_id), eq(fotos_evento.evento_id, req.params.evento_id)))
+      .returning({ id: fotos_evento.id });
+    if (!removida[0]) return res.status(404).json({ erro: "Foto não encontrada" });
+    res.json({ mensagem: "Foto removida do evento" });
+  } catch (error) {
+    console.error("[EVENTOS] Erro ao remover foto:", error);
+    res.status(500).json({ erro: "Erro ao remover foto do evento" });
   }
 });
 

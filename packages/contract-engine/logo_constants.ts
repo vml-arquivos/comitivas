@@ -39,3 +39,4 @@ function loadLogoB64(filename: string): string {
 export const DESTRAVA_LOGO_B64: string = loadLogoB64("logo-destrava.png");
 export const PERMUPAY_LOGO_B64: string = loadLogoB64("logo-permupay.png");
 export const COMITIVA_LOGO_B64: string = loadLogoB64("logo.png");
+export const COMITIVA_LOGO_PDF_B64: string = loadLogoB64("logo-pdf.png");

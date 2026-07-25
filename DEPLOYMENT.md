@@ -14,12 +14,12 @@ Crie um arquivo `.env` baseado em `.env.example` com as seguintes variáveis:
 
 ### Banco de Dados
 ```
-DATABASE_URL=postgresql://user:password@localhost:5432/comitiva
+DATABASE_URL=postgresql://USUARIO:SENHA@HOST:5432/BANCO
 ```
 
 ### Autenticação
 ```
-JWT_SECRET=sua_chave_secreta_muito_segura_aqui
+JWT_SECRET=GERE_UMA_CHAVE_FORTE
 ```
 
 ### Servidor
@@ -35,14 +35,14 @@ WEB_URL=https://seu-dominio.com
 **Mercado Pago:**
 ```
 PAYMENT_GATEWAY=mercadopago
-MERCADOPAGO_ACCESS_TOKEN=seu_token_aqui
+MERCADOPAGO_ACCESS_TOKEN=PREENCHA_COM_O_TOKEN_REAL
 MERCADOPAGO_PUBLIC_KEY=sua_chave_publica_aqui
 ```
 
 **Asaas:**
 ```
 PAYMENT_GATEWAY=asaas
-ASAAS_API_KEY=sua_chave_api_aqui
+ASAAS_API_KEY=PREENCHA_COM_A_CHAVE_REAL
 ```
 
 ### SMTP
@@ -50,7 +50,7 @@ ASAAS_API_KEY=sua_chave_api_aqui
 SMTP_HOST=smtp.seu-provedor.com
 SMTP_PORT=587
 SMTP_USER=seu_email@dominio.com
-SMTP_PASS=sua_senha_app
+SMTP_PASS=PREENCHA_COM_A_SENHA_REAL
 SMTP_FROM=noreply@comitiva.com.br
 ```
 

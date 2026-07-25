@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /checkout/
+Disallow: /confirmacao/
+Disallow: /minhas-reservas
+Disallow: /meus-dados
+
+Sitemap: https://comitivas.permupay.com.br/sitemap.xml

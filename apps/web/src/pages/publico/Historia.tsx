@@ -63,18 +63,46 @@ export default function Historia() {
         <link rel="canonical" href="https://comitivas.permupay.com.br/historia" />
         <meta property="og:title" content="Histórico de Excursões | Excursão das Comitivas" />
         <meta property="og:description" content="Fotos e histórias das excursões realizadas pela Excursão das Comitivas." />
-        <meta property="og:image" content="https://comitivas.permupay.com.br/images/gallery/estatua-peao.jpg" />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="Excursão das Comitivas" />
+        <meta property="og:url" content="https://comitivas.permupay.com.br/historia" />
+        <meta property="og:image" content="https://comitivas.permupay.com.br/images/logo-compartilhamento.webp" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="Nossa História | Excursão das Comitivas" />
+        <meta name="twitter:description" content="Quase 18 anos de estrada e uma equipe oficializada em 2015." />
+        <meta name="twitter:image" content="https://comitivas.permupay.com.br/images/logo-compartilhamento.webp" />
       </Helmet>
 
       {/* Header */}
       <div className="bg-secondary py-20 text-center px-4">
-        <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">Excursões Realizadas</h1>
+        <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">Nossa História</h1>
         <p className="text-xl text-gray-300 max-w-2xl mx-auto">
-          Raízes de quase 18 anos de estrada. Veja por onde a Excursão das Comitivas já passou desde 2015.
+          Raízes de quase 18 anos de estrada. A equipe atual transformou essa experiência em uma operação oficial em 2015.
         </p>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 mt-16">
+        <section className="mb-20 grid overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm lg:grid-cols-[0.9fr_1.1fr]">
+          <img src="/images/gallery/estatua-peao.jpg" alt="Estátua do Peão, símbolo de Barretos" className="h-full min-h-[340px] w-full object-cover" />
+          <div className="flex flex-col justify-center p-8 sm:p-12">
+            <p className="text-sm font-bold uppercase tracking-[0.16em] text-primary">Estrada, cuidado e pertencimento</p>
+            <h2 className="mt-3 text-3xl font-black text-secondary sm:text-4xl">Uma comitiva construída edição após edição</h2>
+            <div className="mt-6 space-y-4 text-base leading-relaxed text-slate-600">
+              <p>A história começou muito antes da formalização da equipe atual. São quase 18 anos acompanhando viajantes até Barretos, aprendendo na prática o que faz uma excursão ser segura, organizada e inesquecível.</p>
+              <p>Em 2015, a equipe atual foi oficializada. Desde então, cada edição é preparada com o mesmo objetivo: receber bem, cumprir o combinado e permitir que cada participante aproveite a festa do começo ao fim.</p>
+              <p>Os álbuns abaixo são alimentados com as fotos cadastradas pela administração. Para uma experiência mais visual, visite também nossa galeria.</p>
+            </div>
+            <Link to="/galeria" className="mt-7 inline-flex items-center gap-2 self-start font-bold text-primary hover:underline">
+              Explorar a galeria <ArrowRight size={17} />
+            </Link>
+          </div>
+        </section>
+
+        <div className="mb-10 text-center">
+          <p className="text-sm font-bold uppercase tracking-[0.16em] text-primary">Álbuns por edição</p>
+          <h2 className="mt-2 text-3xl font-black text-secondary">Excursões realizadas</h2>
+        </div>
+
         {error ? (
           <div className="bg-red-50 border border-red-200 rounded-lg p-6 max-w-lg mx-auto text-center">
             <AlertCircle className="text-red-500 mx-auto mb-2" size={32} />

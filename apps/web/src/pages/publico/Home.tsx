@@ -3,14 +3,17 @@ import { Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { api } from '../../contexts/AuthContext';
 import { Button, WhatsAppCTA } from '@ui/index';
+import LeadCapture from '../../components/LeadCapture';
 import {
   ArrowRight,
   Bed,
+  Beer,
   Bus,
   Calendar,
   Check,
   ChevronRight,
   Coffee,
+  GlassWater,
   Image as ImageIcon,
   MapPin,
   Music2,
@@ -22,6 +25,7 @@ import {
   Volume2,
   Waves,
   Wine,
+  Zap,
   X,
 } from 'lucide-react';
 
@@ -29,6 +33,11 @@ const ITENS_INCLUSOS = [
   { texto: 'Café da manhã', Icone: Coffee },
   { texto: 'Almoço', Icone: UtensilsCrossed },
   { texto: '10h de open bar na chácara', Icone: Wine },
+  { texto: 'Água e refrigerante', Icone: GlassWater },
+  { texto: 'Energético', Icone: Zap },
+  { texto: 'Vodka e gin', Icone: Wine },
+  { texto: 'Cerveja', Icone: Beer },
+  { texto: 'Paratudo', Icone: GlassWater },
   { texto: 'Barman fazendo drinks', Icone: Wine },
   { texto: 'DJ durante o dia', Icone: Music2 },
   { texto: 'Som automotivo', Icone: Volume2 },
@@ -81,6 +90,25 @@ const PACOTES_HOSPEDAGEM = [
 ];
 
 const MENSAGEM_WHATSAPP_PADRAO = 'Olá! Quero saber mais sobre os pacotes da Excursão das Comitivas para Barretos.';
+
+const SCHEMA_ORGANIZATION = {
+  '@context': 'https://schema.org',
+  '@type': 'Organization',
+  name: 'Excursão das Comitivas',
+  url: 'https://comitivas.permupay.com.br/',
+  logo: 'https://comitivas.permupay.com.br/images/logo-compartilhamento.webp',
+  image: 'https://comitivas.permupay.com.br/images/hero-parque-peao.jpg',
+  description: 'Excursões para Barretos com transporte, hospedagem, alimentação, open bar e atendimento especializado.',
+  foundingDate: '2015',
+  email: 'excursaodascomitivas@gmail.com',
+  sameAs: ['https://instagram.com/excurssaodascomitivas'],
+  contactPoint: {
+    '@type': 'ContactPoint',
+    contactType: 'sales',
+    telephone: '+55-61-99445-9086',
+    availableLanguage: 'Portuguese',
+  },
+};
 
 const GALERIA_BARRETOS = [
   {
@@ -141,7 +169,9 @@ export default function Home() {
       }
 
       if (avaliacoesResultado.status === 'fulfilled') {
-        setAvaliacoes((avaliacoesResultado.value.data.avaliacoes || []).slice(0, 3));
+        setAvaliacoes((avaliacoesResultado.value.data.avaliacoes || [])
+          .filter((avaliacao: any) => Boolean(avaliacao.comentario?.trim()))
+          .slice(0, 3));
       }
 
       if (statsResultado.status === 'fulfilled') {
@@ -182,7 +212,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[#fffdf9] text-slate-900">
       <Helmet>
-        <title>Excursão das Comitivas | Pacotes para Barretos</title>
+        <title>Excursão das Comitivas | Barretos 2026</title>
         <meta name="description" content="Conheça os pacotes da Excursão das Comitivas para Barretos: escolha sua hospedagem, faça sua reserva online e viaje com tranquilidade." />
         <meta name="robots" content="index,follow" />
         <link rel="canonical" href="https://comitivas.permupay.com.br/" />
@@ -192,12 +222,13 @@ export default function Home() {
         <meta property="og:title" content="Excursão das Comitivas | Pacotes para Barretos" />
         <meta property="og:description" content="Pacotes para Barretos com hospedagem escolhida por você e reserva digital." />
         <meta property="og:url" content="https://comitivas.permupay.com.br/" />
-        <meta property="og:image" content="https://comitivas.permupay.com.br/images/hero-parque-peao.jpg" />
-        <meta property="og:image:alt" content="Parque do Peão em Barretos" />
+        <meta property="og:image" content="https://comitivas.permupay.com.br/images/logo-compartilhamento.webp" />
+        <meta property="og:image:alt" content="Logo da Excursão das Comitivas" />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content="Excursão das Comitivas | Barretos" />
         <meta name="twitter:description" content="Pacotes para Barretos com reserva online e modalidades de hospedagem." />
-        <meta name="twitter:image" content="https://comitivas.permupay.com.br/images/hero-parque-peao.jpg" />
+        <meta name="twitter:image" content="https://comitivas.permupay.com.br/images/logo-compartilhamento.webp" />
+        <script type="application/ld+json">{JSON.stringify(SCHEMA_ORGANIZATION)}</script>
       </Helmet>
 
       <section className="relative isolate min-h-[760px] overflow-hidden bg-secondary">
@@ -233,11 +264,11 @@ export default function Home() {
               )}
 
               <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:items-center">
-                <Link to="/eventos">
+                <a href="#hospedagem">
                   <Button size="lg" className="group w-full px-8 py-6 text-base shadow-xl shadow-black/25 sm:w-auto">
-                    Ver pacotes disponíveis <ArrowRight size={18} className="ml-2 transition-transform group-hover:translate-x-1" />
+                    Conhecer as modalidades <ArrowRight size={18} className="ml-2 transition-transform group-hover:translate-x-1" />
                   </Button>
-                </Link>
+                </a>
                 <a href="#galeria" className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-white/35 px-7 py-3.5 text-sm font-semibold text-white transition hover:border-white hover:bg-white/10 sm:w-auto">
                   <ImageIcon size={18} /> Conhecer Barretos
                 </a>
@@ -309,7 +340,7 @@ export default function Home() {
           <div className="mx-auto max-w-3xl text-center">
             <p className="text-sm font-bold uppercase tracking-[0.16em] text-primary">Do seu jeito</p>
             <h2 className="mt-3 text-3xl font-black tracking-tight text-secondary sm:text-4xl">Uma experiência organizada desde a primeira escolha</h2>
-            <p className="mt-5 text-lg leading-relaxed text-slate-600">Cada pacote publicado pela equipe informa preço, modalidade de hospedagem e itens selecionáveis. Você visualiza tudo antes de contratar.</p>
+            <p className="mt-5 text-lg leading-relaxed text-slate-600">Cada pacote apresenta modalidade de hospedagem, benefícios, disponibilidade e condições comerciais. Você visualiza tudo antes de contratar.</p>
           </div>
 
           <div className="mt-14 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
@@ -363,7 +394,7 @@ export default function Home() {
               {avaliacoes.map((avaliacao) => (
                 <article key={avaliacao.id} className="rounded-2xl border border-slate-200 bg-[#fffdf9] p-7 shadow-sm">
                   <div className="flex gap-1 text-primary">{Array.from({ length: Math.max(0, Math.min(5, Number(avaliacao.nota) || 0)) }, (_, indice) => <Star key={indice} size={17} className="fill-current" />)}</div>
-                  <blockquote className="mt-5 text-base leading-relaxed text-slate-700">“{avaliacao.comentario || 'Avaliação registrada por cliente participante.'}”</blockquote>
+                  <blockquote className="mt-5 text-base leading-relaxed text-slate-700">“{avaliacao.comentario}”</blockquote>
                   <p className="mt-6 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Avaliação aprovada</p>
                 </article>
               ))}
@@ -407,12 +438,18 @@ export default function Home() {
         </div>
       </section>
 
+      <section id="atendimento" className="scroll-mt-20 bg-white py-24">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+          <LeadCapture />
+        </div>
+      </section>
+
       <section className="relative overflow-hidden bg-[#540c16] py-24">
         <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
         <div className="relative mx-auto max-w-4xl px-4 text-center sm:px-6 lg:px-8">
           <Tent className="mx-auto text-[#ff9fa6]" size={34} />
           <h2 className="mt-6 text-4xl font-black tracking-tight text-white sm:text-5xl">Sua próxima história pode começar aqui.</h2>
-          <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-200">Confira as excursões publicadas, veja os detalhes de cada pacote e as facilidades de pagamento: PIX com 5% de desconto, Boleto em até 2x sem juros ou Cartão em até 12x.</p>
+          <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-200">Confira as excursões publicadas, veja os detalhes de cada pacote e as facilidades de pagamento: à vista com 5% de desconto, boleto em até 2x sem juros ou cartão em até 12x, com taxas informadas antes da conclusão.</p>
           <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link to="/eventos"><Button size="lg" className="px-9 py-6 text-base shadow-xl shadow-black/25">Ver pacotes disponíveis <ArrowRight size={18} className="ml-2" /></Button></Link>
             <WhatsAppCTA mensagem={MENSAGEM_WHATSAPP_PADRAO} label="Falar no WhatsApp" size="lg" />

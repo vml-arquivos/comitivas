@@ -28,21 +28,7 @@ Database: postgres
 
 **Connection String:**
 ```
-postgresql://postgres:8eLcYsrs7mbFExkW2WJUfONPaz1CSNfTh2M89U6QSO9te8zoqZO4rOVzEBGCGnGl@vnviiqwmxeq52p65ytvviqlj:5432/postgres
-```
-
-### Redis
-```
-Host: artf87ais0vxumeet4nao0gr
-Port: 6379
-User: default
-Password: SEWhFeP4N70sSJl6edfv4j1AwonD9uitFflyD3QoVxMMX5upphQvHZPwGOzKhn6r
-Database: 0
-```
-
-**Connection String:**
-```
-redis://default:SEWhFeP4N70sSJl6edfv4j1AwonD9uitFflyD3QoVxMMX5upphQvHZPwGOzKhn6r@artf87ais0vxumeet4nao0gr:6379/0
+postgresql://USUARIO:SENHA@HOST:5432/BANCO
 ```
 
 ---
@@ -79,7 +65,6 @@ cp .env.local .env
 | Variável | Valor | Origem |
 |----------|-------|--------|
 | `DATABASE_URL` | Acima (PostgreSQL) | Fornecido |
-| `REDIS_URL` | Acima (Redis) | Fornecido |
 | `JWT_SECRET` | Acima (gerado) | Gerado |
 | `API_URL` | `https://apicomitivas.permupay.com.br` | Domínio |
 | `WEB_URL` | `https://comitivas.permupay.com.br` | Domínio |
@@ -174,6 +159,8 @@ https://comitivas.permupay.com.br/admin
 
 Como estamos usando `PAYMENT_GATEWAY=mock`, o webhook não é acionado automaticamente. Para testar manualmente:
 
+> **⚠️ Este valor é apenas para testes locais. Em produção, use `PAYMENT_GATEWAY=mercadopago` com o Access Token real.**
+
 ```bash
 curl -X POST https://apicomitivas.permupay.com.br/api/pagamentos/webhook/mercadopago \
   -H "Content-Type: application/json" \
@@ -240,16 +227,13 @@ curl -X POST https://apicomitivas.permupay.com.br/api/pagamentos/webhook/mercado
 # 1. Revogue credenciais PostgreSQL
 # (Contate o provedor ou use painel de controle)
 
-# 2. Revogue credenciais Redis
-# (Contate o provedor ou use painel de controle)
-
-# 3. Gere novo JWT_SECRET
+# 2. Gere novo JWT_SECRET
 openssl rand -base64 32
 
-# 4. NÃO FAÇA COMMIT do .env.local
+# 3. NÃO FAÇA COMMIT do .env.local
 # (Já está em .gitignore)
 
-# 5. Delete .env.local localmente
+# 4. Delete .env.local localmente
 rm .env.local
 ```
 
@@ -261,11 +245,10 @@ Quando estiver pronto para produção:
 
 1. **Domínio:** Registre `comitivas.com.br` (sem permupay)
 2. **Banco de dados:** Use um banco de produção (maior, com backups)
-3. **Redis:** Use um Redis de produção
-4. **JWT_SECRET:** Gere um novo
-5. **SMTP:** Use um serviço de produção (SendGrid, AWS SES)
-6. **Pagamento:** Mude `PAYMENT_GATEWAY=mercadopago` com credenciais reais
-7. **SSL/TLS:** Configure certificados (Let's Encrypt)
+3. **JWT_SECRET:** Gere um novo
+4. **SMTP:** Use um serviço de produção (SendGrid, AWS SES)
+5. **Pagamento:** Mude `PAYMENT_GATEWAY=mercadopago` com credenciais reais
+6. **SSL/TLS:** Configure certificados (Let's Encrypt)
 
 ---
 

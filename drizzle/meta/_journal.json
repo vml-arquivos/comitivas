@@ -22,6 +22,20 @@
       "when": 1784937720000,
       "tag": "0002_condicoes_pagamento_reserva",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1784949600000,
+      "tag": "0003_leads_crm_conversao",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1784950200000,
+      "tag": "0004_disponibilidade_modalidades",
+      "breakpoints": true
     }
   ]
 }

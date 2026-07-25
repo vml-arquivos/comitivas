@@ -18,7 +18,6 @@ Seu VPS tem a seguinte configuração:
 | **3000** | Node.js (múltiplos) | Em uso |
 | **3001** | Node.js | Em uso |
 | **5432** | PostgreSQL | Em uso |
-| **6379** | Redis | Em uso |
 
 **Conclusão:** Não há conflito! O Traefik gerencia automaticamente o roteamento por domínio.
 
@@ -139,9 +138,8 @@ Traefik automaticamente:
 
 Copie e cole:
 ```
-DATABASE_URL=postgresql://postgres:8eLcYsrs7mbFExkW2WJUfONPaz1CSNfTh2M89U6QSO9te8zoqZO4rOVzEBGCGnGl@vnviiqwmxeq52p65ytvviqlj:5432/postgres
-REDIS_URL=redis://default:SEWhFeP4N70sSJl6edfv4j1AwonD9uitFflyD3QoVxMMX5upphQvHZPwGOzKhn6r@artf87ais0vxumeet4nao0gr:6379/0
-JWT_SECRET=DoUvDEjvPc8BMrVK+X6aioM+9/4rTIL5ro9H/8qENok=
+DATABASE_URL=postgresql://USUARIO:SENHA@HOST:5432/BANCO
+JWT_SECRET=GERE_UMA_CHAVE_FORTE
 NODE_ENV=production
 PORT=3000
 API_URL=https://apicomitivas.permupay.com.br
@@ -150,15 +148,15 @@ MOBILE_URL=comitiva://
 SMTP_HOST=smtp.mailtrap.io
 SMTP_PORT=587
 SMTP_USER=seu_usuario_mailtrap@mailtrap.io
-SMTP_PASS=sua_senha_mailtrap_aqui
+SMTP_PASS=PREENCHA_COM_A_SENHA_REAL
 SMTP_FROM=noreply@comitivas.permupay.com.br
 STORAGE_TYPE=local
 STORAGE_PATH=/app/uploads
 FOLLOWUP_CHECK_INTERVAL_MINUTOS=5
 LOG_LEVEL=info
-PAYMENT_GATEWAY=mock
+PAYMENT_GATEWAY=mercadopago
 MERCADOPAGO_ACCESS_TOKEN=
-MERCADOPAGO_PUBLIC_KEY=
+MERCADOPAGO_PUBLIC_KEY=PREENCHA_COM_A_CHAVE_PUBLICA_REAL
 ```
 
 ### Passo 7: Fazer Deploy
@@ -261,12 +259,10 @@ docker ps | grep comitiva
         │  (interno)          │
         └──────────┬──────────┘
                    │
-        ┌──────────┴──────────┐
-        │                     │
-   ┌────▼────┐          ┌────▼────┐
-   │PostgreSQL│          │ Redis   │
-   │ (5432)   │          │ (6379)  │
-   └──────────┘          └─────────┘
+             ┌─────▼─────┐
+             │PostgreSQL │
+             │  (5432)   │
+             └───────────┘
 ```
 
 **Sem conflitos de porta!**

@@ -94,18 +94,18 @@ A plataforma foi construída em 13 etapas principais:
 ## 📧 Variáveis de Ambiente
 
 ```bash
-DATABASE_URL=postgresql://user:password@localhost:5432/comitiva
-JWT_SECRET=sua_chave_secreta_muito_segura
+DATABASE_URL=postgresql://USUARIO:SENHA@HOST:5432/BANCO
+JWT_SECRET=GERE_UMA_CHAVE_FORTE
 NODE_ENV=production
 PORT=3000
 API_URL=https://seu-dominio.com
 PAYMENT_GATEWAY=mercadopago
-MERCADOPAGO_ACCESS_TOKEN=seu_token
+MERCADOPAGO_ACCESS_TOKEN=PREENCHA_COM_O_TOKEN_REAL
 MERCADOPAGO_PUBLIC_KEY=sua_chave_publica
 SMTP_HOST=smtp.seu-provedor.com
 SMTP_PORT=587
 SMTP_USER=seu_email@dominio.com
-SMTP_PASS=sua_senha_app
+SMTP_PASS=PREENCHA_COM_A_SENHA_REAL
 SMTP_FROM=noreply@comitiva.com.br
 ```
 

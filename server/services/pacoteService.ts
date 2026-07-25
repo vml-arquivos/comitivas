@@ -95,6 +95,9 @@ export class PacoteService {
         }
 
         pacoteSelecionado = pacoteResult[0];
+        if (pacoteSelecionado.disponibilidade === "esgotado") {
+          throw new Error("Esta modalidade está esgotada");
+        }
         valorBase = new Decimal(pacoteSelecionado.valor_total.toString());
       }
 

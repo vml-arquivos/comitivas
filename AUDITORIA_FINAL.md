@@ -9,6 +9,8 @@
 A revisão confirmou o funcionamento do fluxo de reserva com dados persistidos, contrato digital e emissão de PDF para as três modalidades de hospedagem. A auditoria também eliminou vulnerabilidades altas conhecidas das dependências de produção, tornou o segredo JWT obrigatório em produção, adicionou cabeçalhos de segurança e proteção contra tentativas excessivas de autenticação, e passou a conferir o status da Asaas diretamente no provedor antes de confirmar uma reserva localmente.
 
 > A validação foi executada em uma base PostgreSQL isolada e com `PAYMENT_GATEWAY=mock`. Esse modo registra a intenção de pagamento, mas não cria cobrança externa, QR Code artificial ou link de pagamento fictício.
+>
+> **⚠️ Este valor é apenas para testes locais. Em produção, use `PAYMENT_GATEWAY=mercadopago` com o Access Token real.**
 
 | Área | Resultado | Evidência |
 | --- | --- | --- |
@@ -66,11 +68,11 @@ WEB_URL=https://comitivas.permupay.com.br
 API_URL=https://comitivas.permupay.com.br
 STORAGE_PATH=/app/uploads
 PAYMENT_GATEWAY=mercadopago
-MERCADOPAGO_ACCESS_TOKEN=CONFIGURE_NO_AMBIENTE_DE_PRODUCAO
+MERCADOPAGO_ACCESS_TOKEN=PREENCHA_COM_O_TOKEN_REAL
 SMTP_HOST=CONFIGURE_NO_AMBIENTE_DE_PRODUCAO
 SMTP_PORT=587
 SMTP_USER=CONFIGURE_NO_AMBIENTE_DE_PRODUCAO
-SMTP_PASS=CONFIGURE_NO_AMBIENTE_DE_PRODUCAO
+SMTP_PASS=PREENCHA_COM_A_SENHA_REAL
 SMTP_FROM=CONFIGURE_NO_AMBIENTE_DE_PRODUCAO
 ```
 

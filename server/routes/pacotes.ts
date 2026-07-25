@@ -2,8 +2,8 @@ import { Router, Request, Response } from "express";
 import { authMiddleware, requireRole } from "../middleware/authMiddleware.js";
 import { PacoteService, ConfiguracaoPacote } from "../services/pacoteService.js";
 import { db } from "../db/index.js";
-import { lotes, pacotes, itens_addon, reservas, usuarios } from "../db/schema.js";
-import { eq, and } from "drizzle-orm";
+import { eventos, lotes, pacotes, itens_addon, reservas, usuarios, leads_origem } from "../db/schema.js";
+import { eq, and, desc } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 
 const router = Router();
@@ -66,6 +66,16 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
       ip
     );
 
+    if (req.body.lead_id) {
+      await db.update(leads_origem).set({
+        usuario_id: req.usuario.id,
+        lote_id: config.lote_id,
+        pacote_id: config.pacote_id || null,
+        status: "checkout_iniciado",
+        atualizado_em: new Date(),
+      }).where(eq(leads_origem.id, req.body.lead_id));
+    }
+
     res.status(201).json({
       reserva_id: resultado.reserva.id,
       status: resultado.reserva.status,
@@ -85,13 +95,39 @@ router.get("/minhas-reservas", authMiddleware, async (req: Request, res: Respons
     }
 
     const minhasReservas = await db
-      .select()
+      .select({
+        id: reservas.id,
+        lote_id: reservas.lote_id,
+        pacote_id: reservas.pacote_id,
+        status: reservas.status,
+        valor_total: reservas.valor_total,
+        forma_pagamento: reservas.forma_pagamento,
+        quantidade_parcelas: reservas.quantidade_parcelas,
+        contrato_pdf_url: reservas.contrato_pdf_url,
+        criado_em: reservas.criado_em,
+        atualizado_em: reservas.atualizado_em,
+        pacote_nome: pacotes.nome,
+        modalidade_hospedagem: pacotes.modalidade_hospedagem,
+        lote_nome: lotes.nome,
+        evento_nome: eventos.nome,
+        evento_local: eventos.local,
+        evento_data_inicio: eventos.data_inicio,
+        evento_data_fim: eventos.data_fim,
+      })
       .from(reservas)
-      .where(eq(reservas.usuario_id, req.usuario.id));
+      .innerJoin(lotes, eq(reservas.lote_id, lotes.id))
+      .innerJoin(eventos, eq(lotes.evento_id, eventos.id))
+      .leftJoin(pacotes, eq(reservas.pacote_id, pacotes.id))
+      .where(eq(reservas.usuario_id, req.usuario.id))
+      .orderBy(desc(reservas.criado_em));
 
     res.json({
       total: minhasReservas.length,
-      reservas: minhasReservas,
+      reservas: minhasReservas.map(({ contrato_pdf_url, ...reserva }) => ({
+        ...reserva,
+        contrato_disponivel: Boolean(contrato_pdf_url),
+        voucher_disponivel: reserva.status === "cliente_confirmado",
+      })),
     });
   } catch (error) {
     console.error("[PACOTES] Erro ao listar reservas:", error);
@@ -184,14 +220,18 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
 // Criar pacote/modalidade (admin)
 router.post("/", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
   try {
-    const { lote_id, nome, descricao, valor_total, itens_selecionados, modalidade_hospedagem, ativo } = req.body;
+    const { lote_id, nome, descricao, valor_total, itens_selecionados, modalidade_hospedagem, disponibilidade, ativo } = req.body;
     const modalidadesValidas = ["camping", "quarto_ventilador", "quarto_ar_condicionado"];
+    const disponibilidadesValidas = ["disponivel", "ultimas_vagas", "esgotado"];
 
     if (!lote_id || !nome || valor_total === undefined || !modalidade_hospedagem) {
       return res.status(400).json({ erro: "lote_id, nome, valor_total e modalidade_hospedagem são obrigatórios" });
     }
     if (!modalidadesValidas.includes(modalidade_hospedagem)) {
       return res.status(400).json({ erro: "Modalidade de hospedagem inválida" });
+    }
+    if (disponibilidade && !disponibilidadesValidas.includes(disponibilidade)) {
+      return res.status(400).json({ erro: "Disponibilidade inválida" });
     }
 
     const lote = await db.select({ id: lotes.id }).from(lotes).where(eq(lotes.id, lote_id)).limit(1);
@@ -207,6 +247,7 @@ router.post("/", authMiddleware, requireRole("admin"), async (req: Request, res:
       valor_total: String(valor_total),
       itens_selecionados: itens_selecionados || [],
       modalidade_hospedagem,
+      disponibilidade: disponibilidade || "disponivel",
       ativo: ativo !== false,
       criado_em: new Date(),
       atualizado_em: new Date(),
@@ -222,11 +263,15 @@ router.post("/", authMiddleware, requireRole("admin"), async (req: Request, res:
 // Atualizar pacote/modalidade (admin)
 router.put("/:pacote_id", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
   try {
-    const { nome, descricao, valor_total, itens_selecionados, modalidade_hospedagem, ativo } = req.body;
+    const { nome, descricao, valor_total, itens_selecionados, modalidade_hospedagem, disponibilidade, ativo } = req.body;
     const modalidadesValidas = ["camping", "quarto_ventilador", "quarto_ar_condicionado"];
+    const disponibilidadesValidas = ["disponivel", "ultimas_vagas", "esgotado"];
 
     if (modalidade_hospedagem && !modalidadesValidas.includes(modalidade_hospedagem)) {
       return res.status(400).json({ erro: "Modalidade de hospedagem inválida" });
+    }
+    if (disponibilidade && !disponibilidadesValidas.includes(disponibilidade)) {
+      return res.status(400).json({ erro: "Disponibilidade inválida" });
     }
 
     const atualizado = await db.update(pacotes).set({
@@ -235,6 +280,7 @@ router.put("/:pacote_id", authMiddleware, requireRole("admin"), async (req: Requ
       valor_total: valor_total !== undefined ? String(valor_total) : undefined,
       itens_selecionados: itens_selecionados !== undefined ? itens_selecionados : undefined,
       modalidade_hospedagem: modalidade_hospedagem || undefined,
+      disponibilidade: disponibilidade || undefined,
       ativo: ativo !== undefined ? Boolean(ativo) : undefined,
       atualizado_em: new Date(),
     }).where(eq(pacotes.id, req.params.pacote_id)).returning();

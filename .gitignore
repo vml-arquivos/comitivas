@@ -11,6 +11,9 @@ dist/
 *.swo
 build/
 coverage/
+artifacts/
+output/
+tmp/
 .next/
 out/
 destrava-main/

@@ -11,7 +11,6 @@
 - [ ] Acesso ao Coolify
 - [ ] Repositório GitHub conectado: `vml-arquivos/comitivas`
 - [ ] PostgreSQL temporário (fornecido)
-- [ ] Redis temporário (fornecido)
 - [ ] Conta Mailtrap (gratuita)
 
 ---
@@ -23,9 +22,8 @@
 Copie e cole TUDO no Coolify:
 
 ```
-DATABASE_URL=postgresql://postgres:8eLcYsrs7mbFExkW2WJUfONPaz1CSNfTh2M89U6QSO9te8zoqZO4rOVzEBGCGnGl@vnviiqwmxeq52p65ytvviqlj:5432/postgres
-REDIS_URL=redis://default:SEWhFeP4N70sSJl6edfv4j1AwonD9uitFflyD3QoVxMMX5upphQvHZPwGOzKhn6r@artf87ais0vxumeet4nao0gr:6379/0
-JWT_SECRET=DoUvDEjvPc8BMrVK+X6aioM+9/4rTIL5ro9H/8qENok=
+DATABASE_URL=postgresql://USUARIO:SENHA@HOST:5432/BANCO
+JWT_SECRET=GERE_UMA_CHAVE_FORTE
 NODE_ENV=production
 PORT=3000
 API_URL=https://apicomitivas.permupay.com.br
@@ -34,15 +32,15 @@ MOBILE_URL=comitiva://
 SMTP_HOST=smtp.mailtrap.io
 SMTP_PORT=587
 SMTP_USER=seu_usuario_mailtrap@mailtrap.io
-SMTP_PASS=sua_senha_mailtrap_aqui
+SMTP_PASS=PREENCHA_COM_A_SENHA_REAL
 SMTP_FROM=noreply@comitivas.permupay.com.br
 STORAGE_TYPE=local
 STORAGE_PATH=/app/uploads
 FOLLOWUP_CHECK_INTERVAL_MINUTOS=5
 LOG_LEVEL=info
-PAYMENT_GATEWAY=mock
+PAYMENT_GATEWAY=mercadopago
 MERCADOPAGO_ACCESS_TOKEN=
-MERCADOPAGO_PUBLIC_KEY=
+MERCADOPAGO_PUBLIC_KEY=PREENCHA_COM_A_CHAVE_PUBLICA_REAL
 ```
 
 ---
@@ -215,18 +213,15 @@ curl https://apicomitivas.permupay.com.br/api/health
 1. **Revogue credenciais PostgreSQL**
    - Contate o provedor ou use painel de controle
 
-2. **Revogue credenciais Redis**
-   - Contate o provedor ou use painel de controle
-
-3. **Gere novo JWT_SECRET**
+2. **Gere novo JWT_SECRET**
    ```bash
    openssl rand -base64 32
    ```
 
-4. **Delete o serviço no Coolify**
+3. **Delete o serviço no Coolify**
    - Vá para Settings > Delete Service
 
-5. **Não use mais estas credenciais**
+4. **Não use mais estas credenciais**
 
 ---
 
@@ -236,11 +231,10 @@ Quando estiver pronto para produção:
 
 1. **Domínio:** Registre `comitivas.com.br` (sem permupay)
 2. **Banco de dados:** Use um banco de produção
-3. **Redis:** Use um Redis de produção
-4. **JWT_SECRET:** Gere um novo
-5. **SMTP:** Use um serviço de produção
-6. **Pagamento:** Mude `PAYMENT_GATEWAY=mercadopago` com credenciais reais
-7. **SSL/TLS:** Já configurado automaticamente pelo Coolify
+3. **JWT_SECRET:** Gere um novo
+4. **SMTP:** Use um serviço de produção
+5. **Pagamento:** Mude `PAYMENT_GATEWAY=mercadopago` com credenciais reais
+6. **SSL/TLS:** Já configurado automaticamente pelo Coolify
 
 ---
 

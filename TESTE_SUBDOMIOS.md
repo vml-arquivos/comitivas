@@ -52,10 +52,10 @@ Edite as variáveis críticas:
 
 ```env
 # Banco de dados (use Supabase ou Railway)
-DATABASE_URL=postgresql://user:pass@seu-postgres.com:5432/comitiva_teste
+DATABASE_URL=postgresql://USUARIO:SENHA@HOST:5432/BANCO
 
 # JWT (gere novo)
-JWT_SECRET=$(openssl rand -base64 32)
+JWT_SECRET=GERE_UMA_CHAVE_FORTE
 
 # URLs dos subdomínios
 API_URL=https://api-test.comitivaprime-test.com.br
@@ -64,11 +64,13 @@ WEB_URL=https://comitivaprime-test.com.br
 # SMTP (use Mailtrap)
 SMTP_HOST=smtp.mailtrap.io
 SMTP_USER=seu_usuario@mailtrap.io
-SMTP_PASS=sua_senha
+SMTP_PASS=PREENCHA_COM_A_SENHA_REAL
 
 # Pagamento (DESABILITADO para teste)
 PAYMENT_GATEWAY=mock
 ```
+
+> **⚠️ Este valor é apenas para testes locais. Em produção, use `PAYMENT_GATEWAY=mercadopago` com o Access Token real.**
 
 ---
 
@@ -78,7 +80,7 @@ Você precisa preencher **apenas estas 8 variáveis**:
 
 | Variável | Valor de Teste | Onde Obter |
 |----------|---|---|
-| `DATABASE_URL` | `postgresql://...` | Supabase ou Railway |
+| `DATABASE_URL` | `postgresql://USUARIO:SENHA@HOST:5432/BANCO` | Supabase ou Railway |
 | `JWT_SECRET` | `openssl rand -base64 32` | Gere com comando |
 | `API_URL` | `https://api-test.comitivaprime-test.com.br` | Seu subdomínio |
 | `WEB_URL` | `https://comitivaprime-test.com.br` | Seu subdomínio |
@@ -155,6 +157,8 @@ npm start
 ## 6. Teste Específico: Webhook (Sem Pagamento Real)
 
 O webhook está configurado para `/api/pagamentos/webhook/mercadopago`, mas como estamos usando `PAYMENT_GATEWAY=mock`, ele não será acionado automaticamente.
+
+> **⚠️ Este valor é apenas para testes locais. Em produção, use `PAYMENT_GATEWAY=mercadopago` com o Access Token real.**
 
 **Para testar manualmente:**
 

@@ -77,6 +77,7 @@ const CREATE_TABLES: string[] = [
     valor_total DECIMAL(12,2) NOT NULL,
     itens_selecionados JSONB NOT NULL,
     modalidade_hospedagem VARCHAR(30) DEFAULT 'quarto_ventilador',
+    disponibilidade VARCHAR(30) DEFAULT 'disponivel',
     ativo BOOLEAN DEFAULT true,
     criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
     atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
@@ -174,10 +175,23 @@ const CREATE_TABLES: string[] = [
     codigo_origem VARCHAR(100) NOT NULL,
     vendedor_id TEXT REFERENCES usuarios(id),
     usuario_id TEXT REFERENCES usuarios(id),
+    evento_id TEXT REFERENCES eventos(id),
+    lote_id TEXT REFERENCES lotes(id),
+    pacote_id TEXT REFERENCES pacotes(id),
+    nome VARCHAR(255),
+    whatsapp VARCHAR(20),
+    email VARCHAR(255),
+    origem VARCHAR(80) DEFAULT 'site',
+    status VARCHAR(40) DEFAULT 'novo',
+    consentimento_whatsapp BOOLEAN DEFAULT false,
+    dados_contexto JSONB,
+    atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
     criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS leads_origem_codigo_idx ON leads_origem (codigo_origem)`,
   `CREATE INDEX IF NOT EXISTS leads_origem_vendedor_id_idx ON leads_origem (vendedor_id)`,
+  `CREATE INDEX IF NOT EXISTS leads_origem_status_idx ON leads_origem (status)`,
+  `CREATE INDEX IF NOT EXISTS leads_origem_whatsapp_idx ON leads_origem (whatsapp)`,
 
   `CREATE TABLE IF NOT EXISTS fotos_evento (
     id TEXT PRIMARY KEY,
@@ -221,6 +235,11 @@ async function runDrizzleMigrations() {
 }
 
 async function ensureAdminTestUser() {
+  if (process.env.ENABLE_TEST_ADMIN !== "true") {
+    console.log("[DB] Usuário administrativo de teste desabilitado");
+    return;
+  }
+
   const adminExists = await pool.query(
     "SELECT id FROM usuarios WHERE email = $1",
     ["admin@comitivas.test"]
@@ -234,7 +253,7 @@ async function ensureAdminTestUser() {
        VALUES ($1, $2, $3, $4, $5, $6)`,
       ["admin-test-001", "Admin Teste", "admin@comitivas.test", senhaHash, "admin", true]
     );
-    console.log("[DB] Usuário admin de teste criado");
+    console.log("[DB] Usuário administrativo de teste criado");
   } else {
     console.log("[DB] Usuário admin de teste já existe");
   }

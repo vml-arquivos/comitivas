@@ -1,8 +1,8 @@
 import { Router, Request, Response } from "express";
 import { authMiddleware, requireRole } from "../middleware/authMiddleware.js";
 import { db } from "../db/index.js";
-import { leads_origem, reservas, usuarios } from "../db/schema.js";
-import { eq, and } from "drizzle-orm";
+import { leads_origem, pacotes, reservas, usuarios } from "../db/schema.js";
+import { eq, and, desc } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 
 const router = Router();
@@ -16,10 +16,6 @@ router.post("/gerar-link", authMiddleware, requireRole("vendedor", "admin"), asy
 
     const { evento_id } = req.body;
 
-    if (!evento_id) {
-      return res.status(400).json({ erro: "evento_id é obrigatório" });
-    }
-
     // Gerar código único
     const codigo_origem = `${req.usuario.id}-${createId()}`;
 
@@ -29,6 +25,10 @@ router.post("/gerar-link", authMiddleware, requireRole("vendedor", "admin"), asy
       .values({
         codigo_origem,
         vendedor_id: req.usuario.id,
+        evento_id: evento_id || null,
+        origem: "link_vendedor",
+        status: "novo",
+        atualizado_em: new Date(),
       })
       .returning();
 
@@ -46,13 +46,85 @@ router.post("/gerar-link", authMiddleware, requireRole("vendedor", "admin"), asy
   }
 });
 
-// Registrar origem do lead
-router.post("/registrar-origem", async (req: Request, res: Response) => {
+// Listar leads reais para o Kanban do CRM.
+router.get("/leads", authMiddleware, requireRole("admin", "vendedor"), async (req: Request, res: Response) => {
   try {
-    const { codigo_origem, usuario_id } = req.body;
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
 
-    if (!codigo_origem || !usuario_id) {
-      return res.status(400).json({ erro: "codigo_origem e usuario_id são obrigatórios" });
+    const registros = req.usuario.tipo === "admin"
+      ? await db.select().from(leads_origem).orderBy(desc(leads_origem.atualizado_em))
+      : await db.select().from(leads_origem)
+        .where(eq(leads_origem.vendedor_id, req.usuario.id))
+        .orderBy(desc(leads_origem.atualizado_em));
+
+    const leads = await Promise.all(registros.map(async (lead) => {
+      const usuario = lead.usuario_id
+        ? await db.select({
+          nome: usuarios.nome,
+          email: usuarios.email,
+          telefone: usuarios.telefone,
+        }).from(usuarios).where(eq(usuarios.id, lead.usuario_id)).limit(1)
+        : [];
+
+      const ultimaReserva = lead.usuario_id
+        ? await db.select({
+          id: reservas.id,
+          status: reservas.status,
+          valor_total: reservas.valor_total,
+          atualizado_em: reservas.atualizado_em,
+        }).from(reservas)
+          .where(eq(reservas.usuario_id, lead.usuario_id))
+          .orderBy(desc(reservas.atualizado_em))
+          .limit(1)
+        : [];
+
+      const pacote = lead.pacote_id
+        ? await db.select({
+          nome: pacotes.nome,
+          modalidade_hospedagem: pacotes.modalidade_hospedagem,
+        }).from(pacotes).where(eq(pacotes.id, lead.pacote_id)).limit(1)
+        : [];
+
+      const statusReserva = ultimaReserva[0]?.status;
+      const status = statusReserva === "cliente_confirmado"
+        ? "cliente_confirmado"
+        : statusReserva === "aguardando_pagamento"
+          ? "aguardando_pagamento"
+          : statusReserva === "checkout_iniciado" || statusReserva === "pacote_montado"
+            ? "checkout_iniciado"
+            : lead.status || (lead.usuario_id ? "cadastrado" : "novo");
+
+      return {
+        id: lead.id,
+        nome: lead.nome || usuario[0]?.nome || "Contato sem nome",
+        whatsapp: lead.whatsapp || usuario[0]?.telefone || null,
+        email: lead.email || usuario[0]?.email || null,
+        origem: lead.origem || "site",
+        status,
+        pacote_nome: pacote[0]?.nome || null,
+        modalidade_hospedagem: pacote[0]?.modalidade_hospedagem || null,
+        reserva: ultimaReserva[0] || null,
+        criado_em: lead.criado_em,
+        atualizado_em: lead.atualizado_em,
+      };
+    }));
+
+    res.json({ total: leads.length, leads });
+  } catch (error: any) {
+    console.error("[JORNADA] Erro ao listar leads:", error);
+    res.status(500).json({ erro: "Erro ao carregar a esteira comercial" });
+  }
+});
+
+// Vincular uma origem ao próprio usuário autenticado. O id do cliente nunca
+// é aceito do corpo para impedir que terceiros alterem atribuições comerciais.
+router.post("/registrar-origem", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { codigo_origem } = req.body;
+    const usuarioId = req.usuario?.id;
+
+    if (!codigo_origem || !usuarioId) {
+      return res.status(400).json({ erro: "codigo_origem é obrigatório" });
     }
 
     // Buscar lead_origem
@@ -69,7 +141,7 @@ router.post("/registrar-origem", async (req: Request, res: Response) => {
     // Atualizar com usuario_id
     await db
       .update(leads_origem)
-      .set({ usuario_id })
+      .set({ usuario_id: usuarioId, status: "cadastrado", atualizado_em: new Date() })
       .where(eq(leads_origem.id, leadResult[0].id));
 
     res.json({

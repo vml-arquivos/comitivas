@@ -95,6 +95,7 @@ export const pacotes = pgTable("pacotes", {
   // Modalidade de hospedagem do pacote, usada para marcar a cláusula correta
   // no contrato gerado: "camping" | "quarto_ventilador" | "quarto_ar_condicionado"
   modalidade_hospedagem: varchar("modalidade_hospedagem", { length: 30 }).default("quarto_ventilador"),
+  disponibilidade: varchar("disponibilidade", { length: 30 }).default("disponivel"),
   ativo: boolean("ativo").default(true),
   criado_em: timestamp("criado_em").defaultNow().notNull(),
   atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
@@ -194,10 +195,23 @@ export const leads_origem = pgTable("leads_origem", {
   codigo_origem: varchar("codigo_origem", { length: 100 }).notNull(),
   vendedor_id: uuid("vendedor_id").references(() => usuarios.id),
   usuario_id: uuid("usuario_id").references(() => usuarios.id),
+  evento_id: uuid("evento_id").references(() => eventos.id),
+  lote_id: uuid("lote_id").references(() => lotes.id),
+  pacote_id: uuid("pacote_id").references(() => pacotes.id),
+  nome: varchar("nome", { length: 255 }),
+  whatsapp: varchar("whatsapp", { length: 20 }),
+  email: varchar("email", { length: 255 }),
+  origem: varchar("origem", { length: 80 }).default("site"),
+  status: varchar("status", { length: 40 }).default("novo"),
+  consentimento_whatsapp: boolean("consentimento_whatsapp").default(false),
+  dados_contexto: jsonb("dados_contexto"),
+  atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
   criado_em: timestamp("criado_em").defaultNow().notNull(),
 }, (table) => ({
   codigoIdx: index("leads_origem_codigo_idx").on(table.codigo_origem),
   vendedorIdx: index("leads_origem_vendedor_id_idx").on(table.vendedor_id),
+  statusIdx: index("leads_origem_status_idx").on(table.status),
+  whatsappIdx: index("leads_origem_whatsapp_idx").on(table.whatsapp),
 }));
 
 // Relations

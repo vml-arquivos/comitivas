@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { api } from '../../contexts/AuthContext';
+import { Helmet } from 'react-helmet-async';
+import { api, useAuth } from '../../contexts/AuthContext';
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@ui/index';
 import { Check, Info, TentTree, Wind, Snowflake, Sparkles } from 'lucide-react';
+import {
+  lerIntencaoCheckout,
+  lerLeadId,
+  limparIntencaoCheckout,
+  salvarIntencaoCheckout,
+} from '../../utils/checkoutIntent';
 
 interface PacotePublicado {
   id: string;
@@ -10,6 +17,7 @@ interface PacotePublicado {
   descricao: string;
   valor_total: string;
   modalidade_hospedagem: 'camping' | 'quarto_ventilador' | 'quarto_ar_condicionado';
+  disponibilidade: 'disponivel' | 'ultimas_vagas' | 'esgotado';
 }
 
 const modalidadeMeta: Record<PacotePublicado['modalidade_hospedagem'], { label: string; icon: typeof TentTree; destaque: string }> = {
@@ -18,9 +26,14 @@ const modalidadeMeta: Record<PacotePublicado['modalidade_hospedagem'], { label: 
   quarto_ar_condicionado: { label: 'Quarto com ar-condicionado', icon: Snowflake, destaque: 'A experiência com máximo conforto' },
 };
 
+function formatarMoeda(valor: string | number) {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor) || 0);
+}
+
 export default function ConfiguradorPacote() {
   const { loteId } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [itensDisponiveis, setItensDisponiveis] = useState<any[]>([]);
   const [pacotes, setPacotes] = useState<PacotePublicado[]>([]);
   const [pacoteId, setPacoteId] = useState<string>('');
@@ -46,7 +59,13 @@ export default function ConfiguradorPacote() {
         const listaPacotes = pacotesResponse.data.pacotes || [];
         setItensDisponiveis(itensResponse.data.itens || []);
         setPacotes(listaPacotes);
-        if (listaPacotes.length === 1) setPacoteId(listaPacotes[0].id);
+        const intencaoSalva = lerIntencaoCheckout();
+        if (intencaoSalva?.loteId === loteId && listaPacotes.some((pacote: PacotePublicado) => pacote.id === intencaoSalva.pacoteId)) {
+          setPacoteId(intencaoSalva.pacoteId);
+          setItensSelecionados(intencaoSalva.itensSelecionados || {});
+        } else if (listaPacotes.length === 1 && listaPacotes[0].disponibilidade !== 'esgotado') {
+          setPacoteId(listaPacotes[0].id);
+        }
       } catch (err: any) {
         setError(err.response?.data?.erro || 'Não foi possível carregar as opções do pacote. Tente novamente.');
         setItensDisponiveis([]);
@@ -87,18 +106,62 @@ export default function ConfiguradorPacote() {
     setItensSelecionados((prev) => ({ ...prev, [id]: prev[id] ? 0 : 1 }));
   };
 
+  const selecionarPacote = (id: string) => {
+    setPacoteId(id);
+    const leadId = lerLeadId();
+    if (leadId && loteId) {
+      api.patch(`/publico/leads/${leadId}/intencao`, {
+        lote_id: loteId,
+        pacote_id: id,
+        status: 'interessado',
+      }).catch(() => undefined);
+    }
+  };
+
   const handleReservar = async () => {
     if (pacotes.length > 0 && !pacoteId) {
       setError('Escolha sua modalidade de hospedagem para continuar.');
       return;
     }
-    setIsReserving(true);
+    if (pacoteSelecionado?.disponibilidade === 'esgotado') {
+      setError('Esta modalidade está esgotada. Escolha outra opção para continuar.');
+      return;
+    }
     setError('');
+    const leadId = lerLeadId();
+    const intent = {
+      loteId: loteId!,
+      pacoteId,
+      itensSelecionados,
+      criadoEm: new Date().toISOString(),
+    };
+    salvarIntencaoCheckout(intent);
+
+    if (!user) {
+      if (leadId) {
+        api.patch(`/publico/leads/${leadId}/intencao`, {
+          lote_id: loteId,
+          pacote_id: pacoteId,
+          status: 'checkout_iniciado',
+        }).catch(() => undefined);
+      }
+      const retorno = `/pacote/${loteId}?retomar=1`;
+      navigate(`/cadastro?redirect=${encodeURIComponent(retorno)}`);
+      return;
+    }
+
+    setIsReserving(true);
     try {
       const itensPayload = Object.entries(itensSelecionados)
         .filter(([, quantidade]) => quantidade > 0)
         .map(([id, quantidade]) => ({ id, quantidade }));
-      const response = await api.post('/pacotes/reservar', { lote_id: loteId, pacote_id: pacoteId || undefined, itens: itensPayload });
+      const response = await api.post('/pacotes/reservar', {
+        lote_id: loteId,
+        pacote_id: pacoteId || undefined,
+        itens: itensPayload,
+        lead_id: leadId || undefined,
+      });
+      limparIntencaoCheckout();
       navigate(`/checkout/${response.data.reserva_id}`);
     } catch (err: any) {
       setError(err.response?.data?.erro || 'Erro ao criar reserva. Tente novamente.');
@@ -111,6 +174,11 @@ export default function ConfiguradorPacote() {
 
   return (
     <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+      <Helmet>
+        <title>Monte seu pacote | Excursão das Comitivas</title>
+        <meta name="description" content="Escolha a modalidade de hospedagem e confira as condições da sua reserva para Barretos." />
+        <meta name="robots" content="noindex,follow" />
+      </Helmet>
       <div className="space-y-6 lg:col-span-2">
         <section className="rounded-2xl bg-gradient-to-r from-slate-950 to-primary p-7 text-white shadow-xl">
           <div className="flex items-center gap-3 text-amber-300"><Sparkles size={18} /><span className="text-xs font-bold uppercase tracking-[0.18em]">Sua experiência, suas escolhas</span></div>
@@ -128,13 +196,15 @@ export default function ConfiguradorPacote() {
                 const meta = modalidadeMeta[pacote.modalidade_hospedagem];
                 const Icon = meta?.icon || TentTree;
                 const selecionado = pacote.id === pacoteId;
-                return <button key={pacote.id} onClick={() => setPacoteId(pacote.id)} className={`relative rounded-2xl border p-5 text-left transition-all ${selecionado ? 'border-primary bg-primary/5 shadow-lg ring-2 ring-primary/20' : 'border-gray-200 bg-white hover:border-primary/40 hover:shadow-md'}`}>
-                  {selecionado && <span className="absolute right-3 top-3 rounded-full bg-primary p-1 text-white"><Check size={14} /></span>}
+                const esgotado = pacote.disponibilidade === 'esgotado';
+                return <button key={pacote.id} type="button" aria-pressed={selecionado} disabled={esgotado} onClick={() => selecionarPacote(pacote.id)} className={`relative rounded-2xl border p-5 text-left transition-all disabled:cursor-not-allowed disabled:opacity-60 ${selecionado ? 'border-primary bg-primary/5 shadow-lg ring-2 ring-primary/20' : 'border-gray-200 bg-white hover:border-primary/40 hover:shadow-md'}`}>
+                  {selecionado && <span className="absolute left-3 top-3 rounded-full bg-primary p-1 text-white"><Check size={14} /></span>}
+                  {pacote.disponibilidade !== 'disponivel' && <span className={`absolute right-3 top-3 rounded-full px-2 py-1 text-[10px] font-black uppercase ${esgotado ? 'bg-slate-800 text-white' : 'bg-amber-100 text-amber-800'}`}>{esgotado ? 'Esgotado' : 'Últimas vagas'}</span>}
                   <div className="mb-4 inline-flex rounded-xl bg-slate-100 p-3 text-primary"><Icon size={24} /></div>
                   <p className="text-xs font-bold uppercase tracking-wide text-primary">{meta?.label}</p>
                   <h3 className="mt-1 font-bold text-slate-900">{pacote.nome}</h3>
                   <p className="mt-2 min-h-10 text-sm text-gray-500">{pacote.descricao || meta?.destaque}</p>
-                  <p className="mt-4 text-xl font-bold text-slate-900">R$ {Number(pacote.valor_total).toFixed(2)}</p>
+                  <p className="mt-4 text-xl font-bold text-slate-900">{formatarMoeda(pacote.valor_total)}</p>
                 </button>;
               })}
             </div>
@@ -149,7 +219,7 @@ export default function ConfiguradorPacote() {
               return <Card key={item.id} className={`cursor-pointer transition-all ${selecionado ? 'border-primary ring-1 ring-primary' : 'hover:border-gray-300'}`} onClick={() => toggleItem(item.id)}>
                 <CardContent className="flex items-center justify-between p-4">
                   <div className="flex items-center gap-4"><div className={`flex h-6 w-6 items-center justify-center rounded-full border ${selecionado ? 'border-primary bg-primary text-white' : 'border-gray-300'}`}>{selecionado && <Check size={14} />}</div><div><h3 className="font-semibold text-gray-900">{item.nome}</h3><p className="text-sm text-gray-500">{item.descricao}</p></div></div>
-                  <div className="font-semibold text-slate-900">+ R$ {Number(item.valor).toFixed(2)}</div>
+                  <div className="font-semibold text-slate-900">+ {formatarMoeda(item.valor)}</div>
                 </CardContent>
               </Card>
             })}
@@ -161,11 +231,11 @@ export default function ConfiguradorPacote() {
       <aside className="lg:col-span-1">
         <Card className="sticky top-24 overflow-hidden shadow-xl"><CardHeader className="border-b bg-slate-950 text-white"><CardTitle>Resumo da reserva</CardTitle></CardHeader><CardContent className="space-y-4 p-6">
           <div className="flex justify-between text-sm"><span className="text-gray-600">Hospedagem</span><span className="max-w-40 text-right font-medium">{pacoteSelecionado?.nome || (pacotes.length ? 'Escolha uma opção' : 'Pacote base')}</span></div>
-          <div className="flex justify-between text-sm"><span className="text-gray-600">Valor-base</span><span className="font-medium">R$ {Number(calculo?.valor_base || 0).toFixed(2)}</span></div>
-          {Object.entries(itensSelecionados).some(([, qtd]) => qtd > 0) && <div className="space-y-2 border-t pt-4"><p className="text-xs font-bold uppercase text-gray-500">Adicionais</p>{Object.entries(itensSelecionados).filter(([, qtd]) => qtd > 0).map(([id, qtd]) => { const item = itensDisponiveis.find((i) => i.id === id); return item ? <div key={id} className="flex justify-between text-sm"><span className="text-gray-600">{item.nome}</span><span>R$ {(Number(item.valor) * qtd).toFixed(2)}</span></div> : null; })}</div>}
-          <div className="border-t pt-4"><div className="flex items-center justify-between"><span className="text-lg font-bold">Total</span><span className="text-2xl font-bold text-primary">{isCalculating ? '...' : `R$ ${Number(calculo?.valor_total || 0).toFixed(2)}`}</span></div></div>
-          <Button className="mt-3 w-full" size="lg" onClick={handleReservar} isLoading={isReserving} disabled={isCalculating || (pacotes.length > 0 && !pacoteId)}>Continuar para checkout</Button>
-          <div className="flex gap-2 rounded-md bg-blue-50 p-3 text-xs text-blue-700"><Info size={16} className="shrink-0" /><p>Os valores são calculados no servidor. Seu contrato refletirá a modalidade e os itens realmente selecionados.</p></div>
+          <div className="flex justify-between text-sm"><span className="text-gray-600">Valor-base</span><span className="font-medium">{formatarMoeda(calculo?.valor_base || 0)}</span></div>
+          {Object.entries(itensSelecionados).some(([, qtd]) => qtd > 0) && <div className="space-y-2 border-t pt-4"><p className="text-xs font-bold uppercase text-gray-500">Adicionais</p>{Object.entries(itensSelecionados).filter(([, qtd]) => qtd > 0).map(([id, qtd]) => { const item = itensDisponiveis.find((i) => i.id === id); return item ? <div key={id} className="flex justify-between text-sm"><span className="text-gray-600">{item.nome}</span><span>{formatarMoeda(Number(item.valor) * qtd)}</span></div> : null; })}</div>}
+          <div className="border-t pt-4"><div className="flex items-center justify-between"><span className="text-lg font-bold">Total</span><span className="text-2xl font-bold text-primary">{isCalculating ? '...' : formatarMoeda(calculo?.valor_total || 0)}</span></div></div>
+          <Button className="mt-3 w-full" size="lg" onClick={handleReservar} isLoading={isReserving} disabled={isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado'}>{user ? 'Continuar para checkout' : 'Continuar com esta escolha'}</Button>
+          <div className="flex gap-2 rounded-md bg-blue-50 p-3 text-xs text-blue-700"><Info size={16} className="shrink-0" /><p>{user ? 'Os valores são calculados no servidor. Seu contrato refletirá exatamente as escolhas confirmadas.' : 'Você só precisará criar sua conta na próxima etapa. Sua escolha ficará salva para continuar sem recomeçar.'}</p></div>
         </CardContent></Card>
       </aside>
     </div>

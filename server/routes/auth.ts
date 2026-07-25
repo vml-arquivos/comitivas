@@ -1,8 +1,9 @@
 import { Router, Request, Response } from "express";
 import { db } from "../db/index.js";
-import { usuarios } from "../db/schema.js";
+import { leads_origem, usuarios } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { AuthService } from "../services/authService.js";
+import { authMiddleware } from "../middleware/authMiddleware.js";
 
 const router = Router();
 
@@ -17,6 +18,7 @@ interface CadastroRequest {
   profissao?: string;
   endereco?: string;
   nacionalidade?: string;
+  lead_id?: string;
   senha: string;
 }
 
@@ -27,22 +29,31 @@ interface LoginRequest {
 
 router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Response) => {
   try {
-    const { nome, email, cpf, rg, telefone, data_nascimento, estado_civil, profissao, endereco, nacionalidade, senha } = req.body;
+    const { nome, email, cpf, rg, telefone, data_nascimento, estado_civil, profissao, endereco, nacionalidade, lead_id, senha } = req.body;
+    const emailNormalizado = String(email || "").trim().toLowerCase();
+    const nomeNormalizado = String(nome || "").trim();
 
     // Validações
-    if (!nome || !email || !senha) {
+    if (!nomeNormalizado || !emailNormalizado || !senha) {
       return res.status(400).json({ erro: "Nome, email e senha são obrigatórios" });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailNormalizado)) {
+      return res.status(400).json({ erro: "Informe um e-mail válido" });
     }
 
     if (senha.length < 8) {
       return res.status(400).json({ erro: "Senha deve ter no mínimo 8 caracteres" });
+    }
+    const dataNascimento = data_nascimento ? new Date(data_nascimento) : null;
+    if (dataNascimento && Number.isNaN(dataNascimento.getTime())) {
+      return res.status(400).json({ erro: "Data de nascimento inválida" });
     }
 
     // Verificar se usuário já existe
     const usuarioExistente = await db
       .select()
       .from(usuarios)
-      .where(eq(usuarios.email, email))
+      .where(eq(usuarios.email, emailNormalizado))
       .limit(1);
 
     if (usuarioExistente.length > 0) {
@@ -56,12 +67,12 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
     const novoUsuario = await db
       .insert(usuarios)
       .values({
-        nome,
-        email,
+        nome: nomeNormalizado,
+        email: emailNormalizado,
         cpf: cpf || null,
         rg: rg || null,
         telefone: telefone || null,
-        data_nascimento: data_nascimento ? new Date(data_nascimento) : null,
+        data_nascimento: dataNascimento,
         estado_civil: estado_civil || null,
         profissao: profissao || null,
         endereco: endereco || null,
@@ -73,6 +84,17 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
 
     if (!novoUsuario[0]) {
       return res.status(500).json({ erro: "Erro ao criar usuário" });
+    }
+
+    if (lead_id) {
+      await db.update(leads_origem).set({
+        usuario_id: novoUsuario[0].id,
+        nome: nomeNormalizado,
+        email: emailNormalizado,
+        whatsapp: telefone ? String(telefone).replace(/\D/g, "") : undefined,
+        status: "cadastrado",
+        atualizado_em: new Date(),
+      }).where(eq(leads_origem.id, lead_id));
     }
 
     // Gerar token
@@ -92,11 +114,83 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
   }
 });
 
+router.get("/perfil", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+
+    const resultado = await db.select({
+      id: usuarios.id,
+      nome: usuarios.nome,
+      email: usuarios.email,
+      cpf: usuarios.cpf,
+      rg: usuarios.rg,
+      telefone: usuarios.telefone,
+      data_nascimento: usuarios.data_nascimento,
+      estado_civil: usuarios.estado_civil,
+      profissao: usuarios.profissao,
+      endereco: usuarios.endereco,
+      nacionalidade: usuarios.nacionalidade,
+      tipo: usuarios.tipo,
+    }).from(usuarios).where(eq(usuarios.id, req.usuario.id)).limit(1);
+
+    if (!resultado[0]) return res.status(404).json({ erro: "Usuário não encontrado" });
+    res.json({ usuario: resultado[0] });
+  } catch (error) {
+    console.error("[AUTH] Erro ao consultar perfil:", error);
+    res.status(500).json({ erro: "Erro ao consultar dados cadastrais" });
+  }
+});
+
+router.put("/perfil", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+
+    const campos = req.body || {};
+    const dataNascimento = campos.data_nascimento ? new Date(campos.data_nascimento) : null;
+    if (dataNascimento && Number.isNaN(dataNascimento.getTime())) {
+      return res.status(400).json({ erro: "Data de nascimento inválida" });
+    }
+
+    const atualizado = await db.update(usuarios).set({
+      nome: campos.nome ? String(campos.nome).trim() : undefined,
+      cpf: campos.cpf !== undefined ? (String(campos.cpf).trim() || null) : undefined,
+      rg: campos.rg !== undefined ? (String(campos.rg).trim() || null) : undefined,
+      telefone: campos.telefone !== undefined ? (String(campos.telefone).trim() || null) : undefined,
+      data_nascimento: campos.data_nascimento !== undefined ? dataNascimento : undefined,
+      estado_civil: campos.estado_civil !== undefined ? (String(campos.estado_civil).trim() || null) : undefined,
+      profissao: campos.profissao !== undefined ? (String(campos.profissao).trim() || null) : undefined,
+      endereco: campos.endereco !== undefined ? (String(campos.endereco).trim() || null) : undefined,
+      nacionalidade: campos.nacionalidade !== undefined ? (String(campos.nacionalidade).trim() || "Brasileira") : undefined,
+      atualizado_em: new Date(),
+    }).where(eq(usuarios.id, req.usuario.id)).returning({
+      id: usuarios.id,
+      nome: usuarios.nome,
+      email: usuarios.email,
+      cpf: usuarios.cpf,
+      rg: usuarios.rg,
+      telefone: usuarios.telefone,
+      data_nascimento: usuarios.data_nascimento,
+      estado_civil: usuarios.estado_civil,
+      profissao: usuarios.profissao,
+      endereco: usuarios.endereco,
+      nacionalidade: usuarios.nacionalidade,
+      tipo: usuarios.tipo,
+    });
+
+    if (!atualizado[0]) return res.status(404).json({ erro: "Usuário não encontrado" });
+    res.json({ mensagem: "Dados atualizados com sucesso", usuario: atualizado[0] });
+  } catch (error) {
+    console.error("[AUTH] Erro ao atualizar perfil:", error);
+    res.status(500).json({ erro: "Erro ao atualizar dados cadastrais" });
+  }
+});
+
 router.post("/login", async (req: Request<{}, {}, LoginRequest>, res: Response) => {
   try {
     const { email, senha } = req.body;
+    const emailNormalizado = String(email || "").trim().toLowerCase();
 
-    if (!email || !senha) {
+    if (!emailNormalizado || !senha) {
       return res.status(400).json({ erro: "Email e senha são obrigatórios" });
     }
 
@@ -104,7 +198,7 @@ router.post("/login", async (req: Request<{}, {}, LoginRequest>, res: Response) 
     const usuarioResult = await db
       .select()
       .from(usuarios)
-      .where(eq(usuarios.email, email))
+      .where(eq(usuarios.email, emailNormalizado))
       .limit(1);
 
     if (usuarioResult.length === 0) {

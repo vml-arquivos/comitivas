@@ -14,12 +14,27 @@ try {
     WHERE table_schema = 'public'
       AND (
         (table_name = 'usuarios' AND column_name IN ('rg', 'data_nascimento', 'estado_civil', 'profissao', 'endereco', 'nacionalidade'))
-        OR (table_name = 'pacotes' AND column_name = 'modalidade_hospedagem')
+        OR (table_name = 'pacotes' AND column_name IN ('modalidade_hospedagem', 'disponibilidade'))
       )
     ORDER BY table_name, column_name
   `);
 
-  console.log(JSON.stringify({ connection: "ok", columns: rows }, null, 2));
+  const esperadas = new Set([
+    "usuarios.rg",
+    "usuarios.data_nascimento",
+    "usuarios.estado_civil",
+    "usuarios.profissao",
+    "usuarios.endereco",
+    "usuarios.nacionalidade",
+    "pacotes.modalidade_hospedagem",
+    "pacotes.disponibilidade",
+  ]);
+  for (const coluna of rows) esperadas.delete(`${coluna.table_name}.${coluna.column_name}`);
+  if (esperadas.size > 0) {
+    throw new Error(`Migration incompleta. Colunas ausentes: ${[...esperadas].join(", ")}`);
+  }
+
+  console.log(JSON.stringify({ connection: "ok", validation: "ok", columns: rows }, null, 2));
 } finally {
   await pool.end();
 }

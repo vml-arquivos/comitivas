@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { MainLayout } from './layouts/MainLayout';
@@ -11,12 +11,14 @@ import Eventos from './pages/Eventos';
 import Home from './pages/publico/Home';
 import Historia from './pages/publico/Historia';
 import AvaliacoesPublicas from './pages/publico/AvaliacoesPublicas';
+import Galeria from './pages/publico/Galeria';
 
 // Páginas do cliente
 import ConfiguradorPacote from './pages/cliente/ConfiguradorPacote';
 import Checkout from './pages/cliente/Checkout';
 import Confirmacao from './pages/cliente/Confirmacao';
 import MinhasReservas from './pages/cliente/MinhasReservas';
+import DadosCadastrais from './pages/cliente/DadosCadastrais';
 
 // Páginas do admin/vendedor
 import Dashboard from './pages/admin/Dashboard';
@@ -29,10 +31,14 @@ import Relatorios from './pages/admin/Relatorios';
 // Proteção de rotas
 const ProtectedRoute = ({ children, roles }: { children: React.ReactNode, roles?: string[] }) => {
   const { user, isLoading } = useAuth();
+  const location = useLocation();
 
   if (isLoading) return <div className="flex h-screen items-center justify-center">Carregando...</div>;
   
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) {
+    const destino = `${location.pathname}${location.search}`;
+    return <Navigate to={`/login?redirect=${encodeURIComponent(destino)}`} replace />;
+  }
   
   if (roles && !roles.includes(user.tipo)) {
     return <Navigate to="/" replace />;
@@ -48,17 +54,14 @@ function AppRoutes() {
       <Route element={<MainLayout />}>
         <Route path="/" element={<Home />} />
         <Route path="/historia" element={<Historia />} />
+        <Route path="/galeria" element={<Galeria />} />
         <Route path="/avaliacoes" element={<AvaliacoesPublicas />} />
         <Route path="/eventos" element={<Eventos />} />
         <Route path="/login" element={<Login />} />
         <Route path="/cadastro" element={<Cadastro />} />
         
-        {/* Rotas de Cliente */}
-        <Route path="/pacote/:loteId" element={
-          <ProtectedRoute>
-            <ConfiguradorPacote />
-          </ProtectedRoute>
-        } />
+        {/* O configurador é público; a autenticação só é pedida ao reservar. */}
+        <Route path="/pacote/:loteId" element={<ConfiguradorPacote />} />
         <Route path="/checkout/:reservaId" element={
           <ProtectedRoute>
             <Checkout />
@@ -72,6 +75,11 @@ function AppRoutes() {
         <Route path="/minhas-reservas" element={
           <ProtectedRoute>
             <MinhasReservas />
+          </ProtectedRoute>
+        } />
+        <Route path="/meus-dados" element={
+          <ProtectedRoute>
+            <DadosCadastrais />
           </ProtectedRoute>
         } />
       </Route>
