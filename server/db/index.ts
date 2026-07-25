@@ -190,8 +190,14 @@ const CREATE_TABLES: string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS leads_origem_codigo_idx ON leads_origem (codigo_origem)`,
   `CREATE INDEX IF NOT EXISTS leads_origem_vendedor_id_idx ON leads_origem (vendedor_id)`,
-  `CREATE INDEX IF NOT EXISTS leads_origem_status_idx ON leads_origem (status)`,
-  `CREATE INDEX IF NOT EXISTS leads_origem_whatsapp_idx ON leads_origem (whatsapp)`,
+  // Índices de status e whatsapp NÃO são criados aqui de propósito: em bancos já
+  // existentes a tabela leads_origem já existia antes dessas colunas serem
+  // adicionadas (o CREATE TABLE IF NOT EXISTS acima é um no-op nesse caso), então
+  // criar índice nelas aqui falharia com "column status/whatsapp does not exist"
+  // e derrubaria o boot da aplicação (mesmo problema documentado acima para
+  // reservas.pacote_id). As colunas + índices são criados de forma idempotente
+  // pela migration drizzle/0003_leads_crm_conversao.sql, que roda logo em seguida
+  // via runDrizzleMigrations().
 
   `CREATE TABLE IF NOT EXISTS fotos_evento (
     id TEXT PRIMARY KEY,
