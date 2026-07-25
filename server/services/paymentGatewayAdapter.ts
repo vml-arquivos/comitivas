@@ -40,7 +40,24 @@ export class PaymentGatewayAdapter {
     }
     if (process.env.NODE_ENV !== "production") return;
     if (this.GATEWAY === "mock") {
-      throw new Error("PAYMENT_GATEWAY" + "=mock não é permitido em produção");
+      // Opt-in explícito: permite subir em produção sem gateway real configurado
+      // ainda (ex.: site no ar antes das credenciais do Mercado Pago/Asaas chegarem).
+      // Nenhuma cobrança é enviada a provedor nenhum enquanto isso estiver ativo —
+      // ver criarPagamentoTeste(). Remova ALLOW_MOCK_PAYMENT_IN_PROD assim que
+      // configurar PAYMENT_GATEWAY=mercadopago (ou asaas) com credenciais reais.
+      if (process.env.ALLOW_MOCK_PAYMENT_IN_PROD === "true") {
+        console.warn(
+          "[PaymentGateway] ATENÇÃO: rodando em produção com PAYMENT_GATEWAY=mock " +
+          "(ALLOW_MOCK_PAYMENT_IN_PROD=true). Nenhum pagamento real será processado " +
+          "até configurar um gateway de verdade."
+        );
+        return;
+      }
+      throw new Error(
+        "PAYMENT_GATEWAY=mock não é permitido em produção. " +
+        "Configure PAYMENT_GATEWAY=mercadopago/asaas com credenciais reais, " +
+        "ou defina ALLOW_MOCK_PAYMENT_IN_PROD=true temporariamente para subir sem gateway."
+      );
     }
     if (this.GATEWAY === "mercadopago" && !this.MERCADOPAGO_TOKEN?.trim()) {
       throw new Error("MERCADOPAGO_ACCESS_TOKEN é obrigatório em produção");

@@ -6,6 +6,7 @@ const ambienteOriginal = {
   PAYMENT_GATEWAY: process.env.PAYMENT_GATEWAY,
   MERCADOPAGO_ACCESS_TOKEN: process.env.MERCADOPAGO_ACCESS_TOKEN,
   API_URL: process.env.API_URL,
+  ALLOW_MOCK_PAYMENT_IN_PROD: process.env.ALLOW_MOCK_PAYMENT_IN_PROD,
 };
 
 afterEach(() => {
@@ -37,6 +38,17 @@ describe("PaymentGatewayAdapter.validarConfiguracaoSegura", () => {
     process.env.API_URL = "http://api.exemplo.com";
     expect(() => PaymentGatewayAdapter.validarConfiguracaoSegura())
       .toThrow("API_URL com HTTPS é obrigatória em produção");
+  });
+
+  it("permite mock em produção somente com ALLOW_MOCK_PAYMENT_IN_PROD=true", () => {
+    process.env.NODE_ENV = "production";
+    process.env.PAYMENT_GATEWAY = "mock";
+    delete process.env.ALLOW_MOCK_PAYMENT_IN_PROD;
+
+    expect(() => PaymentGatewayAdapter.validarConfiguracaoSegura()).toThrow();
+
+    process.env.ALLOW_MOCK_PAYMENT_IN_PROD = "true";
+    expect(() => PaymentGatewayAdapter.validarConfiguracaoSegura()).not.toThrow();
   });
 
   it("aceita Mercado Pago configurado para produção", () => {
