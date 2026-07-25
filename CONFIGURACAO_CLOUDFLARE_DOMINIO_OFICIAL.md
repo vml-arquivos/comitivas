@@ -1,7 +1,7 @@
 # Configuração dos Domínios Oficiais no Cloudflare Free
 
 **Data:** 24 de julho de 2026  
-**Domínios:** excursaodascomitiivas.com.br (site) e api.excursaodascomitiivas.com.br (API)  
+**Domínios:** excursaodascomitivas.com.br (site) e api.excursaodascomitivas.com.br (API)  
 **Status:** Pronto para configuração
 
 ---
@@ -9,7 +9,7 @@
 ## O que você já fez (correto!)
 
 ✅ Você já redirecionou os nameservers do seu registrador para o Cloudflare.  
-✅ O Cloudflare já está gerenciando o domínio `excursaodascomitiivas.com.br`.
+✅ O Cloudflare já está gerenciando o domínio `excursaodascomitivas.com.br`.
 
 ---
 
@@ -21,8 +21,8 @@ No painel do Cloudflare, você verá algo assim (como no seu print):
 
 | Nome | Tipo | Conteúdo | Status |
 |------|------|----------|--------|
-| `api.excursaodascomitiivas.com.br` | A | `167.71.23.46` | Com proxy |
-| `excursaodascomitiivas.com.br` | A | `167.71.23.46` | Com proxy |
+| `api.excursaodascomitivas.com.br` | A | `167.71.23.46` | Com proxy |
+| `excursaodascomitivas.com.br` | A | `167.71.23.46` | Com proxy |
 
 **O que significa:**
 - **Tipo A:** Aponta o domínio para um endereço IP (seu servidor no Coolify).
@@ -34,10 +34,10 @@ No painel do Cloudflare, você verá algo assim (como no seu print):
 
 Se o IP do seu servidor no Coolify mudou, você precisa atualizar:
 
-1. Clique em **Editar** no registro `api.excursaodascomitiivas.com.br`.
+1. Clique em **Editar** no registro `api.excursaodascomitivas.com.br`.
 2. Mude o **Conteúdo** para o IP correto do seu servidor Coolify.
 3. Clique em **Salvar**.
-4. Repita para o registro `excursaodascomitiivas.com.br`.
+4. Repita para o registro `excursaodascomitivas.com.br`.
 
 **Como encontrar o IP correto do Coolify:**
 - Acesse seu painel Coolify.
@@ -59,13 +59,13 @@ O Cloudflare Free já fornece SSL/TLS automático. Você não precisa fazer nada
 
 ### Passo 4: Configurar redirecionamento de `www` (opcional, mas recomendado)
 
-Se quiser que `www.excursaodascomitiivas.com.br` também funcione:
+Se quiser que `www.excursaodascomitivas.com.br` também funcione:
 
 1. Clique em **Adicionar registro**.
 2. Preencha assim:
    - **Nome:** `www`
    - **Tipo:** `CNAME`
-   - **Conteúdo:** `excursaodascomitiivas.com.br`
+   - **Conteúdo:** `excursaodascomitivas.com.br`
    - **TTL:** `Auto`
 3. Clique em **Salvar**.
 
@@ -73,7 +73,7 @@ Se quiser que `www.excursaodascomitiivas.com.br` também funcione:
 
 ### Passo 5: Configurar email (se necessário)
 
-Se você quer receber e-mails em `contato@excursaodascomitiivas.com.br`, adicione um registro MX:
+Se você quer receber e-mails em `contato@excursaodascomitivas.com.br`, adicione um registro MX:
 
 1. Clique em **Adicionar registro**.
 2. Preencha assim:
@@ -95,8 +95,8 @@ No seu painel Coolify, atualize as variáveis para os domínios oficiais:
 
 ```env
 NODE_ENV=production
-WEB_URL=https://excursaodascomitiivas.com.br
-API_URL=https://api.excursaodascomitiivas.com.br
+WEB_URL=https://excursaodascomitivas.com.br
+API_URL=https://api.excursaodascomitivas.com.br
 ```
 
 **Como fazer:**
@@ -153,13 +153,13 @@ npm run migrate
 
 ## Checklist final
 
-- [ ] Domínio `excursaodascomitiivas.com.br` apontando para o IP correto no Cloudflare.
-- [ ] Domínio `api.excursaodascomitiivas.com.br` apontando para o IP correto no Cloudflare.
+- [ ] Domínio `excursaodascomitivas.com.br` apontando para o IP correto no Cloudflare.
+- [ ] Domínio `api.excursaodascomitivas.com.br` apontando para o IP correto no Cloudflare.
 - [ ] SSL/TLS ativado no Cloudflare (deve estar automático).
 - [ ] Variáveis `WEB_URL` e `API_URL` atualizadas no Coolify.
 - [ ] Redeploy executado no Coolify.
 - [ ] Logs verificados para confirmar que as migrations rodaram.
-- [ ] Teste: Acesse `https://excursaodascomitiivas.com.br` e confirme que a landing page carrega.
+- [ ] Teste: Acesse `https://excursaodascomitivas.com.br` e confirme que a landing page carrega.
 
 ---
 
@@ -169,12 +169,12 @@ Abra seu navegador e teste:
 
 **Site público:**
 ```
-https://excursaodascomitiivas.com.br
+https://excursaodascomitivas.com.br
 ```
 
 **API (health check):**
 ```
-https://api.excursaodascomitiivas.com.br/api/health
+https://api.excursaodascomitivas.com.br/api/health
 ```
 
 Deve retornar algo assim:
@@ -192,7 +192,7 @@ R: Geralmente 5 a 30 minutos. Se não funcionar em 1 hora, verifique se o IP est
 **P: Por que o site está lento?**  
 R: Pode ser o cache do Cloudflare. Vá em **Caching** > **Purge Cache** > **Purge Everything**.
 
-**P: Posso usar `www.excursaodascomitiivas.com.br`?**  
+**P: Posso usar `www.excursaodascomitivas.com.br`?**  
 R: Sim, adicione um registro CNAME (veja Passo 4 acima).
 
 **P: E se eu quiser mudar o IP do servidor depois?**  

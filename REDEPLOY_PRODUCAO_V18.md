@@ -27,6 +27,31 @@ preserva os valores operacionais definidos no painel.
    contrato ficam nesse diretório e não podem desaparecer num novo container.
 4. Não adicione variáveis nem serviços de Redis: o projeto não usa Redis.
 
+### Correção do incidente de 25/07/2026
+
+O build do commit `c10ad54747fc39529790bf3f42b3b739705d99ef`
+terminou com sucesso, mas o contêiner recebeu `PAYMENT_GATEWAY=mock` no
+ambiente de execução e foi encerrado pela proteção de produção. Antes de
+acionar outro redeploy:
+
+1. Exclua qualquer entrada duplicada de `PAYMENT_GATEWAY` no Coolify.
+2. Cadastre `PAYMENT_GATEWAY=mercadopago` como variável de execução.
+3. Preencha `MERCADOPAGO_ACCESS_TOKEN` com o Access Token real de produção.
+4. Configure:
+   - `WEB_URL=https://excursaodascomitivas.com.br`
+   - `API_URL=https://api.excursaodascomitivas.com.br`
+5. Corrija os domínios da aplicação para:
+   - `https://excursaodascomitivas.com.br`
+   - `https://api.excursaodascomitivas.com.br`
+6. Somente `VITE_WHATSAPP_NUMERO` precisa estar disponível durante o build.
+   Segredos como `JWT_SECRET`, `SMTP_PASS` e `MERCADOPAGO_ACCESS_TOKEN` devem
+   ficar disponíveis apenas durante a execução.
+7. Como o `JWT_SECRET` apareceu no log do deploy, gere outro segredo e
+   substitua o valor antes do próximo deploy.
+
+Não desative a validação do gateway: ela impediu que uma produção configurada
+como teste simulasse pagamentos.
+
 ## Redeploy
 
 1. Suba estes arquivos para a branch usada pelo Coolify.
