@@ -87,6 +87,8 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
     }
 
     if (lead_id) {
+      // Cliente veio de um link de rastreio (vendedor/campanha): atualiza o
+      // lead já existente em vez de criar um duplicado.
       await db.update(leads_origem).set({
         usuario_id: novoUsuario[0].id,
         nome: nomeNormalizado,
@@ -95,6 +97,22 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
         status: "cadastrado",
         atualizado_em: new Date(),
       }).where(eq(leads_origem.id, lead_id));
+    } else {
+      // Cadastro direto pelo site, sem passar por um link de rastreio: cria
+      // o lead agora, senão o cliente nunca aparece no CRM/Kanban nem é
+      // contado em nenhum relatório, já que ambos são construídos em cima de
+      // leads_origem (e o dashboard, em cima de reservas — que ainda não
+      // existe nesse momento do funil).
+      await db.insert(leads_origem).values({
+        codigo_origem: `cadastro-${novoUsuario[0].id}`,
+        usuario_id: novoUsuario[0].id,
+        nome: nomeNormalizado,
+        email: emailNormalizado,
+        whatsapp: telefone ? String(telefone).replace(/\D/g, "") : undefined,
+        origem: "cadastro_direto",
+        status: "cadastrado",
+        atualizado_em: new Date(),
+      });
     }
 
     // Gerar token

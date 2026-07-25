@@ -3,7 +3,7 @@ import { authMiddleware, requireRole } from "../middleware/authMiddleware.js";
 import { RelatorioService } from "../services/relatorioService.js";
 import { EmailService } from "../services/emailService.js";
 import { db } from "../db/index.js";
-import { reservas, eventos, lotes, usuarios } from "../db/schema.js";
+import { reservas, eventos, lotes, usuarios, leads_origem } from "../db/schema.js";
 import { eq, and, inArray } from "drizzle-orm";
 
 const router = Router();
@@ -33,9 +33,18 @@ router.get("/dashboard", async (req: Request, res: Response) => {
       .from(reservas)
       .where(eq(reservas.status, "aguardando_pagamento"));
 
+    // Total de leads/cadastros (inclui quem só se cadastrou e ainda não
+    // montou uma reserva — sem isso o dashboard fica cego pra topo de funil)
+    const totalLeads = await db.select().from(leads_origem);
+    const leadsNovos = totalLeads.filter((l) => l.status === "novo").length;
+    const leadsCadastrados = totalLeads.filter((l) => l.status === "cadastrado").length;
+
     res.json({
       resumo: {
         total_eventos: totalEventos.length,
+        total_leads: totalLeads.length,
+        leads_novos: leadsNovos,
+        leads_cadastrados: leadsCadastrados,
         total_reservas: totalReservas.length,
         reservas_confirmadas: reservasConfirmadas.length,
         reservas_pendentes: reservasPendentes.length,

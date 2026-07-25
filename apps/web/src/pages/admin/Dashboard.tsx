@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@ui/index';
-import { Users, Ticket, Calendar, DollarSign } from 'lucide-react';
+import { Users, Ticket, Calendar, DollarSign, UserPlus } from 'lucide-react';
 
 export default function Dashboard() {
   const [data, setData] = useState<any>(null);
@@ -27,6 +27,7 @@ export default function Dashboard() {
 
   const stats = [
     { title: 'Total de Eventos', value: data?.total_eventos || 0, icon: Calendar, color: 'text-blue-500' },
+    { title: 'Leads / Cadastros', value: data?.total_leads || 0, icon: UserPlus, color: 'text-orange-500' },
     { title: 'Total de Reservas', value: data?.total_reservas || 0, icon: Ticket, color: 'text-purple-500' },
     { title: 'Reservas Confirmadas', value: data?.reservas_confirmadas || 0, icon: Users, color: 'text-green-500' },
     { title: 'Taxa de Conversão', value: `${data?.taxa_conversao || 0}%`, icon: DollarSign, color: 'text-primary' },

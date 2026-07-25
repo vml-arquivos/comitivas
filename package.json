@@ -18,6 +18,7 @@
     "build:web": "cd apps/web && npm run build",
     "start": "node dist/index.js",
     "db:migrate": "tsx scripts/aplicar-migrations.ts",
+    "seed:barretos-2026": "tsx scripts/seed-barretos-2026.ts",
     "db:verify-contract-fields": "node scripts/verificar-migration.mjs",
     "test": "vitest",
     "test:e2e": "tsx scripts/e2e-fluxo-completo.mts"
