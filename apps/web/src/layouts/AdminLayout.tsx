@@ -8,6 +8,7 @@ import {
   Users, 
   UserCog,
   FileText,
+  Settings,
   LogOut,
   ArrowLeft,
   PartyPopper,
@@ -34,6 +35,7 @@ export function AdminLayout() {
     { name: 'Clientes & Usuários', path: '/admin/clientes', icon: UserCog, roles: ['admin'] },
     { name: 'Jornada (CRM)', path: '/admin/jornada', icon: Users, roles: ['admin', 'vendedor'] },
     { name: 'Cupons', path: '/admin/cupons', icon: Ticket, roles: ['admin'] },
+    { name: 'Configurações', path: '/admin/configuracoes', icon: Settings, roles: ['admin'] },
     { name: 'Relatórios', path: '/admin/relatorios', icon: BarChart3, roles: ['admin'] },
   ];
 

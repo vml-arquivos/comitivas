@@ -74,14 +74,18 @@ export default function Checkout() {
   }, [reservaId]);
 
   const parcelasBoletoMaximas = Math.max(1, Number(reserva?.parcelas_boleto_maximas) || 1);
+  const percentualDescontoPix = Number(reserva?.pix_desconto_percentual) || 5;
+  const parcelasCreditoMaximas = Math.max(1, Number(reserva?.credito_parcelas_maximo) || 10);
 
   useEffect(() => {
     if (metodoPagamento === 'pix') {
       setQuantidadeParcelas(1);
     } else if (metodoPagamento === 'boleto') {
       setQuantidadeParcelas((atual) => Math.min(Math.max(atual, 1), parcelasBoletoMaximas));
+    } else if (metodoPagamento === 'credito') {
+      setQuantidadeParcelas((atual) => Math.min(Math.max(atual, 1), parcelasCreditoMaximas));
     }
-  }, [metodoPagamento, parcelasBoletoMaximas]);
+  }, [metodoPagamento, parcelasBoletoMaximas, parcelasCreditoMaximas]);
 
   const resumoPagamento = useMemo(() => {
     const valorRegistrado = Number(reserva?.valor_total ?? 0);
@@ -90,7 +94,7 @@ export default function Checkout() {
     const valorAntesDaCondicao = condicaoJaRegistrada ? valorRegistrado + descontoRegistrado : valorRegistrado;
     const descontoPix = condicaoJaRegistrada
       ? descontoRegistrado
-      : metodoPagamento === 'pix' ? valorAntesDaCondicao * 0.05 : 0;
+      : metodoPagamento === 'pix' ? valorAntesDaCondicao * (percentualDescontoPix / 100) : 0;
     const valorTotal = condicaoJaRegistrada ? valorRegistrado : valorAntesDaCondicao - descontoPix;
     const quantidade = condicaoJaRegistrada
       ? Number(reserva?.quantidade_parcelas) || 1
@@ -113,7 +117,7 @@ export default function Checkout() {
       valorUltimaParcela,
       descricaoParcelamento,
     };
-  }, [reserva?.valor_total, metodoPagamento, quantidadeParcelas]);
+  }, [reserva?.valor_total, metodoPagamento, quantidadeParcelas, percentualDescontoPix]);
 
   const handleFinalizar = async () => {
     const contratoJaEmitido = ['contrato_gerado', 'aguardando_pagamento', 'cliente_confirmado'].includes(reserva?.status);
@@ -254,7 +258,7 @@ export default function Checkout() {
             >
               <QrCode size={30} className={metodoPagamento === 'pix' ? 'text-primary' : 'text-gray-400'} />
               <span className="font-semibold">PIX</span>
-              <span className="text-xs text-green-700 font-medium">5% de desconto à vista</span>
+              <span className="text-xs text-green-700 font-medium">{percentualDescontoPix}% de desconto à vista</span>
             </button>
 
             <button
@@ -282,7 +286,7 @@ export default function Checkout() {
             >
               <CreditCard size={30} className={metodoPagamento === 'credito' ? 'text-primary' : 'text-gray-400'} />
               <span className="font-semibold">Cartão de crédito</span>
-              <span className="text-xs text-gray-500">Em até 10x, taxas do dia</span>
+              <span className="text-xs text-gray-500">Em até {parcelasCreditoMaximas}x, taxas do dia</span>
             </button>
           </div>
 
@@ -303,7 +307,7 @@ export default function Checkout() {
                 onChange={(event) => setQuantidadeParcelas(Number(event.target.value))}
                 className="rounded-lg border border-gray-300 bg-white px-4 py-2 font-medium text-secondary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
               >
-                {Array.from({ length: metodoPagamento === 'boleto' ? parcelasBoletoMaximas : 10 }, (_, index) => index + 1).map((parcela) => (
+                {Array.from({ length: metodoPagamento === 'boleto' ? parcelasBoletoMaximas : parcelasCreditoMaximas }, (_, index) => index + 1).map((parcela) => (
                   <option key={parcela} value={parcela}>{(() => {
                     const valorParcela = Math.round((resumoPagamento.valorTotal / parcela) * 100) / 100;
                     const ultimaParcela = Math.round((resumoPagamento.valorTotal - valorParcela * (parcela - 1)) * 100) / 100;

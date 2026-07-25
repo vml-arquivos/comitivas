@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import Decimal from "decimal.js";
 import fs from "fs/promises";
 import path from "path";
+import { ConfiguracaoService } from "./configuracaoService.js";
 
 export type FormaPagamentoContrato = "pix" | "boleto" | "credito";
 
@@ -208,12 +209,14 @@ export class ContratoService {
   /**
    * Calcula quantas parcelas de boleto podem ser oferecidas nesta
    * contratação: 1 parcela por mês de antecedência entre o mês da
-   * contratação e o mês da excursão (data-limite de pagamento), com teto de
-   * BOLETO_MESES_MAXIMO_ANTECEDENCIA parcelas. Nunca menos de 1 (à vista).
+   * contratação e o mês da excursão (data-limite de pagamento), com teto
+   * configurável (padrão: BOLETO_MESES_MAXIMO_ANTECEDENCIA). Nunca menos de 1
+   * (à vista).
    */
   static calcularParcelasMaximasBoleto(
     dataLimitePagamento: Date | string | null | undefined,
     dataReferencia: Date = new Date(),
+    mesesMaximoAntecedencia: number = BOLETO_MESES_MAXIMO_ANTECEDENCIA,
   ): number {
     if (!dataLimitePagamento) return 1;
 
@@ -226,7 +229,7 @@ export class ContratoService {
 
     if (mesesAntecedencia <= 0) return 1;
 
-    return Math.min(BOLETO_MESES_MAXIMO_ANTECEDENCIA, mesesAntecedencia);
+    return Math.min(mesesMaximoAntecedencia, mesesAntecedencia);
   }
 
   /**
@@ -238,13 +241,21 @@ export class ContratoService {
    * data-limite de pagamento da reserva (embarque/início do evento). Quando
    * omitido, assume o teto mínimo (2x) por segurança — mas os pontos de
    * entrada da aplicação sempre devem calcular e informar o valor real.
+   *
+   * `opcoes` permite sobrepor o desconto do PIX e o teto de parcelas do
+   * cartão configurados pelo admin (ConfiguracaoService); os padrões abaixo
+   * só valem se o chamador não informar nada.
    */
   static calcularCondicaoPagamento(
     valorAtual: Decimal.Value,
     formaBruta: unknown,
     parcelasBrutas: unknown,
     parcelasMaximasBoleto: number = 2,
+    opcoes: { percentualDescontoPix?: number; parcelasMaximasCredito?: number } = {},
   ): CondicaoPagamentoCalculada {
+    const percentualDescontoPix = opcoes.percentualDescontoPix ?? 5;
+    const parcelasMaximasCredito = opcoes.parcelasMaximasCredito ?? 10;
+
     const forma = String(formaBruta ?? "").trim().toLowerCase() as FormaPagamentoContrato;
     if (!(forma in FORMAS_PAGAMENTO)) {
       throw new Error("Forma de pagamento inválida");
@@ -267,8 +278,8 @@ export class ContratoService {
       );
     }
 
-    if (forma === "credito" && quantidadeParcelas > 10) {
-      throw new Error("O cartão de crédito pode ser parcelado em até 10 vezes");
+    if (forma === "credito" && quantidadeParcelas > parcelasMaximasCredito) {
+      throw new Error(`O cartão de crédito pode ser parcelado em até ${parcelasMaximasCredito} vezes`);
     }
 
     const valorAntesDoPagamento = new Decimal(valorAtual);
@@ -277,7 +288,7 @@ export class ContratoService {
     }
 
     const descontoPagamento = forma === "pix"
-      ? valorAntesDoPagamento.times(0.05).toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+      ? valorAntesDoPagamento.times(percentualDescontoPix / 100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
       : new Decimal(0);
     const valorTotal = valorAntesDoPagamento.minus(descontoPagamento).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
     const valorParcela = valorTotal.div(quantidadeParcelas).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
@@ -425,9 +436,11 @@ export class ContratoService {
       );
 
       const dataLimitePagamento = lote.data_embarque || lote.data_inicio;
+      const configPagamento = await ConfiguracaoService.obterConfiguracoesPagamento();
       const parcelasMaximasBoletoNestaContratacao = this.calcularParcelasMaximasBoleto(
         dataLimitePagamento,
         dataAceite,
+        configPagamento.boleto_meses_maximo_antecedencia,
       );
       const textoParcelasBoleto = parcelasMaximasBoletoNestaContratacao <= 1
         ? "Nesta contratação, pela proximidade da viagem, o boleto está disponível somente à vista (1x)."
@@ -522,9 +535,9 @@ export class ContratoService {
 
     <h2>Cláusula quinta — Forma de pagamento</h2>
     <div class="condicao-pagamento"><strong>Condição escolhida:</strong> ${escaparHtml(FORMAS_PAGAMENTO[reserva.forma_pagamento as FormaPagamentoContrato] || "Não registrada")}<br/>${escaparHtml(descricaoCondicaoPagamento)}</div>
-    <p>5.1. O pagamento via PIX é realizado à vista, com desconto de 5% já discriminado no resumo financeiro quando aplicável.</p>
+    <p>5.1. O pagamento via PIX é realizado à vista, com desconto de ${escaparHtml(configPagamento.pix_desconto_percentual)}% já discriminado no resumo financeiro quando aplicável.</p>
     <p>5.2. O pagamento por boleto poderá ser parcelado sem juros, sempre condicionado à quitação integral até a data do embarque. O número de parcelas disponíveis é decrescente conforme a proximidade da viagem: quanto mais próxima a data do evento em relação à contratação, menor a quantidade de parcelas ofertada. ${escaparHtml(textoParcelasBoleto)}</p>
-    <p>5.3. O pagamento por cartão de crédito poderá ser parcelado em até 10 (dez) vezes, de acordo com a condição selecionada e as taxas vigentes da operadora, informadas antes da conclusão.</p>
+    <p>5.3. O pagamento por cartão de crédito poderá ser parcelado em até ${escaparHtml(configPagamento.credito_parcelas_maximo)} vezes, de acordo com a condição selecionada e as taxas vigentes da operadora, informadas antes da conclusão.</p>
 
     <h2>Cláusula sexta — Do atraso no pagamento</h2>
     <p>6.1. Em caso de atraso, incidirá multa de 2% sobre o valor da parcela, juros de 1% ao mês e correção monetária pelo IPCA, sem prejuízo das demais medidas cabíveis.</p>

@@ -43,6 +43,13 @@
       "when": 1784951100000,
       "tag": "0005_producao_crm_itinerario_barretos",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1785000000000,
+      "tag": "0006_configuracoes_pagamento",
+      "breakpoints": true
     }
   ]
 }

@@ -25,6 +25,7 @@ import Dashboard from './pages/admin/Dashboard';
 import Reservas from './pages/admin/Reservas';
 import Clientes from './pages/admin/Clientes';
 import Contratos from './pages/admin/Contratos';
+import Configuracoes from './pages/admin/Configuracoes';
 import Cupons from './pages/admin/Cupons';
 import Jornada from './pages/admin/Jornada';
 import EventosAdmin from './pages/admin/Eventos';
@@ -102,6 +103,11 @@ function AppRoutes() {
         <Route path="clientes" element={
           <ProtectedRoute roles={['admin']}>
             <Clientes />
+          </ProtectedRoute>
+        } />
+        <Route path="configuracoes" element={
+          <ProtectedRoute roles={['admin']}>
+            <Configuracoes />
           </ProtectedRoute>
         } />
         <Route path="jornada" element={<Jornada />} />
