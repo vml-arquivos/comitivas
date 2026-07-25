@@ -154,7 +154,7 @@ export default function Reservas() {
                   label="Quantidade de parcelas"
                   type="number"
                   min={1}
-                  max={formaPagamentoContrato === 'boleto' ? 6 : formaPagamentoContrato === 'credito' ? 10 : 1}
+                  max={formaPagamentoContrato === 'boleto' ? 20 : formaPagamentoContrato === 'credito' ? 10 : 1}
                   disabled={formaPagamentoContrato === 'pix'}
                   value={formaPagamentoContrato === 'pix' ? '1' : parcelasContrato}
                   onChange={(e) => setParcelasContrato(e.target.value)}

@@ -48,11 +48,12 @@ const FORMAS_PAGAMENTO: Record<FormaPagamentoContrato, string> = {
 // data da contratação e a proximidade do evento", sempre respeitando a
 // quitação total até a data do evento/embarque.
 //
-// Modelo adotado: uma "janela" de parcela a cada N dias de antecedência em
-// relação à data-limite de pagamento (embarque), com um teto máximo — ainda
-// que a contratação ocorra com muitos meses de antecedência.
-export const BOLETO_DIAS_POR_PARCELA = 30;
-export const BOLETO_PARCELAS_MAXIMO_ABSOLUTO = 6;
+// Modelo adotado: 1 parcela por mês de antecedência entre o mês da
+// contratação e o mês da excursão (ex.: contratou em janeiro para excursão
+// em agosto = 7 meses de antecedência = até 7 parcelas), com teto de 20
+// parcelas — é possível começar a pagar em boleto com até 20 meses de
+// antecedência em relação ao mês da viagem.
+export const BOLETO_MESES_MAXIMO_ANTECEDENCIA = 20;
 
 function escaparHtml(valor: unknown): string {
   return String(valor ?? "")
@@ -206,9 +207,9 @@ function descreverPagamento(
 export class ContratoService {
   /**
    * Calcula quantas parcelas de boleto podem ser oferecidas nesta
-   * contratação, com base na proximidade da data-limite de pagamento
-   * (embarque/início do evento). Quanto mais perto da viagem, menos
-   * parcelas — nunca menos de 1 (à vista) nem mais que o teto absoluto.
+   * contratação: 1 parcela por mês de antecedência entre o mês da
+   * contratação e o mês da excursão (data-limite de pagamento), com teto de
+   * BOLETO_MESES_MAXIMO_ANTECEDENCIA parcelas. Nunca menos de 1 (à vista).
    */
   static calcularParcelasMaximasBoleto(
     dataLimitePagamento: Date | string | null | undefined,
@@ -219,13 +220,13 @@ export class ContratoService {
     const limite = new Date(dataLimitePagamento);
     if (Number.isNaN(limite.getTime())) return 1;
 
-    const diasRestantes = Math.floor(
-      (limite.getTime() - dataReferencia.getTime()) / (1000 * 60 * 60 * 24),
-    );
-    if (diasRestantes <= 0) return 1;
+    const mesesAntecedencia =
+      (limite.getUTCFullYear() - dataReferencia.getUTCFullYear()) * 12 +
+      (limite.getUTCMonth() - dataReferencia.getUTCMonth());
 
-    const parcelasPelaAntecedencia = Math.floor(diasRestantes / BOLETO_DIAS_POR_PARCELA);
-    return Math.min(BOLETO_PARCELAS_MAXIMO_ABSOLUTO, Math.max(1, parcelasPelaAntecedencia));
+    if (mesesAntecedencia <= 0) return 1;
+
+    return Math.min(BOLETO_MESES_MAXIMO_ANTECEDENCIA, mesesAntecedencia);
   }
 
   /**

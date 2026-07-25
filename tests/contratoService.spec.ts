@@ -72,17 +72,23 @@ describe("ContratoService.calcularCondicaoPagamento", () => {
 });
 
 describe("ContratoService.calcularParcelasMaximasBoleto", () => {
-  it("libera mais parcelas quanto maior a antecedência, respeitando o teto absoluto", () => {
+  it("libera 1 parcela por mês de antecedência até o mês da excursão", () => {
     const referencia = new Date("2026-01-01T00:00:00Z");
 
-    // ~212 dias de antecedência: acima do teto de 6 parcelas (janela de 30 dias)
-    expect(ContratoService.calcularParcelasMaximasBoleto("2026-08-01T00:00:00Z", referencia)).toBe(6);
+    // Excursão em agosto/2026, contratado em janeiro/2026: 7 meses de antecedência
+    expect(ContratoService.calcularParcelasMaximasBoleto("2026-08-01T00:00:00Z", referencia)).toBe(7);
 
-    // 90 dias de antecedência: 3 janelas de 30 dias
+    // Excursão em abril/2026: 3 meses de antecedência
     expect(ContratoService.calcularParcelasMaximasBoleto("2026-04-01T00:00:00Z", referencia)).toBe(3);
 
-    // 40 dias de antecedência: 1 janela completa de 30 dias
+    // Excursão em fevereiro/2026: 1 mês de antecedência
     expect(ContratoService.calcularParcelasMaximasBoleto("2026-02-10T00:00:00Z", referencia)).toBe(1);
+  });
+
+  it("respeita o teto de 20 parcelas mesmo com muita antecedência", () => {
+    const referencia = new Date("2024-01-01T00:00:00Z");
+    // Excursão em agosto/2026: 31 meses de antecedência, acima do teto
+    expect(ContratoService.calcularParcelasMaximasBoleto("2026-08-01T00:00:00Z", referencia)).toBe(20);
   });
 
   it("nunca libera menos de 1 parcela (à vista), mesmo em cima da data do evento", () => {
