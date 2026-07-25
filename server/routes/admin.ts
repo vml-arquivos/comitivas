@@ -73,6 +73,7 @@ router.get("/dashboard", requireRole("admin", "vendedor"), async (req: Request, 
         : [];
     const reservasConfirmadas = totalReservas.filter((reserva) => reserva.status === "cliente_confirmado");
     const reservasPendentes = totalReservas.filter((reserva) => reserva.status === "aguardando_pagamento");
+    const contratosGerados = totalReservas.filter((reserva) => Boolean(reserva.contrato_pdf_url));
     const clientesComReserva = new Set(totalReservas.map((reserva) => reserva.usuario_id));
     const cadastrosSemReserva = totalClientes.filter((cliente) => !clientesComReserva.has(cliente.id)).length;
     const leadsNovos = totalLeads.filter((l) => l.status === "novo").length;
@@ -90,6 +91,7 @@ router.get("/dashboard", requireRole("admin", "vendedor"), async (req: Request, 
         total_reservas: totalReservas.length,
         reservas_confirmadas: reservasConfirmadas.length,
         reservas_pendentes: reservasPendentes.length,
+        contratos_gerados: contratosGerados.length,
         taxa_conversao: totalReservas.length > 0
           ? ((reservasConfirmadas.length / totalReservas.length) * 100).toFixed(2)
           : 0,
@@ -575,6 +577,54 @@ router.patch("/usuarios/:id/status", async (req: Request, res: Response) => {
 // ==========================================================================
 // Geração de contrato diretamente pelo painel administrativo
 // ==========================================================================
+
+// Lista reservas com e sem contrato gerado, já com nome do cliente e do
+// evento/lote, para alimentar a página "Contratos" do painel.
+router.get("/contratos", async (req: Request, res: Response) => {
+  try {
+    const { status } = req.query; // "gerados" | "pendentes" | (vazio = todos)
+
+    const linhas = await db
+      .select({
+        reserva_id: reservas.id,
+        status_reserva: reservas.status,
+        valor_total: reservas.valor_total,
+        forma_pagamento: reservas.forma_pagamento,
+        quantidade_parcelas: reservas.quantidade_parcelas,
+        contrato_pdf_url: reservas.contrato_pdf_url,
+        aceite_timestamp: reservas.aceite_timestamp,
+        aceite_ip: reservas.aceite_ip,
+        criado_em: reservas.criado_em,
+        cliente_nome: usuarios.nome,
+        cliente_email: usuarios.email,
+        cliente_cpf: usuarios.cpf,
+        evento_nome: eventos.nome,
+        lote_nome: lotes.nome,
+      })
+      .from(reservas)
+      .innerJoin(usuarios, eq(reservas.usuario_id, usuarios.id))
+      .innerJoin(lotes, eq(reservas.lote_id, lotes.id))
+      .innerJoin(eventos, eq(lotes.evento_id, eventos.id))
+      .orderBy(desc(reservas.criado_em));
+
+    const filtradas = status === "gerados"
+      ? linhas.filter((linha) => Boolean(linha.contrato_pdf_url))
+      : status === "pendentes"
+        ? linhas.filter((linha) => !linha.contrato_pdf_url)
+        : linhas;
+
+    res.json({
+      total: filtradas.length,
+      contratos: filtradas.map((linha) => ({
+        ...linha,
+        contrato_gerado: Boolean(linha.contrato_pdf_url),
+      })),
+    });
+  } catch (error: any) {
+    console.error("[ADMIN] Erro ao listar contratos:", error);
+    res.status(500).json({ erro: "Erro ao listar contratos" });
+  }
+});
 
 router.post("/contratos/gerar/:reserva_id", async (req: Request, res: Response) => {
   try {

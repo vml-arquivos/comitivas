@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@ui/index';
-import { UserPlus, Users, Ticket, Calendar, DollarSign, Clock3 } from 'lucide-react';
+import { UserPlus, Users, Ticket, Calendar, DollarSign, Clock3, FileText } from 'lucide-react';
 
 export default function Dashboard() {
   const [data, setData] = useState<any>(null);
@@ -31,6 +31,7 @@ export default function Dashboard() {
     { title: 'Contatos no CRM', value: data?.total_leads_crm || 0, icon: Users, color: 'text-rose-600' },
     { title: 'Cadastros sem reserva', value: data?.cadastros_sem_reserva || 0, icon: Clock3, color: 'text-amber-600' },
     { title: 'Total de Reservas', value: data?.total_reservas || 0, icon: Ticket, color: 'text-purple-500' },
+    { title: 'Contratos Gerados', value: data?.contratos_gerados || 0, icon: FileText, color: 'text-indigo-600' },
     { title: 'Reservas Confirmadas', value: data?.reservas_confirmadas || 0, icon: Users, color: 'text-green-500' },
     { title: 'Taxa de Conversão', value: `${data?.taxa_conversao || 0}%`, icon: DollarSign, color: 'text-primary' },
   ];
