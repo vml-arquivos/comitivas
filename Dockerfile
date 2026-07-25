@@ -13,6 +13,14 @@ RUN npm ci --audit=false --fund=false --prefer-offline --no-audit
 # Copiar código
 COPY . .
 
+# Número do WhatsApp usado pelos CTAs do site (formato DDI+DDD+número, ex.:
+# 5561994459086). É uma variável VITE_*, então precisa existir em tempo de
+# build para o Vite embuti-la no bundle do frontend — configure
+# VITE_WHATSAPP_NUMERO como variável de build no Coolify. Sem valor, os
+# botões de WhatsApp simplesmente não são renderizados (comportamento atual).
+ARG VITE_WHATSAPP_NUMERO
+ENV VITE_WHATSAPP_NUMERO=$VITE_WHATSAPP_NUMERO
+
 # Build
 RUN npm run build
 

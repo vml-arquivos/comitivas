@@ -2,21 +2,85 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { api } from '../../contexts/AuthContext';
-import { Button } from '@ui/index';
+import { Button, WhatsAppCTA } from '@ui/index';
 import {
   ArrowRight,
   Bed,
   Bus,
   Calendar,
+  Check,
   ChevronRight,
+  Coffee,
   Image as ImageIcon,
   MapPin,
+  Music2,
   ShieldCheck,
   Star,
   Tent,
+  UtensilsCrossed,
   Users,
+  Volume2,
+  Waves,
+  Wine,
   X,
 } from 'lucide-react';
+
+const ITENS_INCLUSOS = [
+  { texto: 'Café da manhã', Icone: Coffee },
+  { texto: 'Almoço', Icone: UtensilsCrossed },
+  { texto: '10h de open bar na chácara', Icone: Wine },
+  { texto: 'Barman fazendo drinks', Icone: Wine },
+  { texto: 'DJ durante o dia', Icone: Music2 },
+  { texto: 'Som automotivo', Icone: Volume2 },
+  { texto: 'Piscina liberada', Icone: Waves },
+  { texto: 'Translado chácara ⇄ Parque do Peão', Icone: Bus },
+  { texto: 'Ida e volta Brasília ⇄ Barretos (embarque em Goiânia)', Icone: Bus },
+];
+
+const PACOTES_HOSPEDAGEM = [
+  {
+    id: 'camping',
+    titulo: 'Camping',
+    Icone: Tent,
+    destaque: 'A energia coletiva da comitiva',
+    bullets: [
+      'Área totalmente gramada',
+      'Banheiros externos',
+      'Pontos de energia',
+      'Segurança',
+      'Cliente leva o próprio material',
+    ],
+    mensagemWhatsApp: 'Olá! Quero saber mais sobre o pacote Camping da Excursão das Comitivas.',
+  },
+  {
+    id: 'quarto_ventilador',
+    titulo: 'Quarto com ventilador',
+    Icone: Bed,
+    destaque: 'Conforto essencial para descansar',
+    bullets: [
+      'Quartos suítes para 5 a 6 pessoas',
+      'Ventilador',
+      'Separado por feminino ou masculino',
+      'Não há quartos mistos',
+    ],
+    mensagemWhatsApp: 'Olá! Quero saber mais sobre o pacote com Quarto com Ventilador da Excursão das Comitivas.',
+  },
+  {
+    id: 'quarto_ar_condicionado',
+    titulo: 'Quarto com ar-condicionado',
+    Icone: Bed,
+    destaque: 'A experiência com máximo conforto',
+    bullets: [
+      'Quartos suítes para 5 a 6 pessoas',
+      'Ar-condicionado',
+      'Separado por feminino ou masculino',
+      'Não há quartos mistos',
+    ],
+    mensagemWhatsApp: 'Olá! Quero saber mais sobre o pacote com Quarto com Ar-condicionado da Excursão das Comitivas.',
+  },
+];
+
+const MENSAGEM_WHATSAPP_PADRAO = 'Olá! Quero saber mais sobre os pacotes da Excursão das Comitivas para Barretos.';
 
 const GALERIA_BARRETOS = [
   {
@@ -178,6 +242,13 @@ export default function Home() {
                   <ImageIcon size={18} /> Conhecer Barretos
                 </a>
               </div>
+              <WhatsAppCTA
+                mensagem={MENSAGEM_WHATSAPP_PADRAO}
+                label="Prefere falar direto? Chame no WhatsApp"
+                variant="outline"
+                size="sm"
+                className="mt-4 !border-white/40 !text-white hover:!bg-white/10"
+              />
             </div>
 
             <aside className="rounded-2xl border border-white/20 bg-white/10 p-6 text-white shadow-2xl backdrop-blur-md">
@@ -198,6 +269,38 @@ export default function Home() {
           <div className="py-8 text-center"><div className="text-3xl font-black text-secondary">{exibirNumero(stats.edicoes)}</div><div className="mt-1 text-sm font-medium text-slate-500">Excursões concluídas</div></div>
           <div className="py-8 text-center"><div className="text-3xl font-black text-secondary">{exibirNumero(stats.clientes)}</div><div className="mt-1 text-sm font-medium text-slate-500">Clientes confirmados</div></div>
           <div className="py-8 text-center"><div className="flex items-center justify-center gap-1 text-3xl font-black text-secondary">{stats.nota === null ? '—' : <>{stats.nota.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}<Star size={24} className="fill-primary text-primary" /></>}</div><div className="mt-1 text-sm font-medium text-slate-500">Média de avaliações aprovadas</div></div>
+        </div>
+      </section>
+
+      <section id="inclusos" className="scroll-mt-20 bg-white py-24">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-3xl text-center">
+            <p className="text-sm font-bold uppercase tracking-[0.16em] text-primary">Tudo isso e muito mais</p>
+            <h2 className="mt-3 text-3xl font-black tracking-tight text-secondary sm:text-4xl">O que está incluso no seu pacote</h2>
+            <p className="mt-5 text-lg leading-relaxed text-slate-600">Você só precisa chegar e curtir. A gente cuida do resto — da chegada na chácara até a volta pra casa.</p>
+          </div>
+
+          <div className="mt-14 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-3">
+            {ITENS_INCLUSOS.map(({ texto, Icone }) => (
+              <div key={texto} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-[#fffaf5] p-4">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><Icone size={20} /></div>
+                <span className="text-sm font-semibold text-slate-800">{texto}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-12 flex flex-col items-center gap-4 rounded-2xl border border-primary/20 bg-primary/5 p-8 text-center sm:flex-row sm:justify-between sm:text-left">
+            <div>
+              <h3 className="text-lg font-bold text-secondary">Quer saber os valores e as condições de pagamento?</h3>
+              <p className="mt-1 text-sm text-slate-600">Fale agora com a nossa equipe pelo WhatsApp e garanta sua vaga.</p>
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <WhatsAppCTA mensagem={MENSAGEM_WHATSAPP_PADRAO} label="Falar no WhatsApp" size="md" />
+              <Link to="/eventos">
+                <Button variant="outline" className="h-11">Ver pacotes disponíveis</Button>
+              </Link>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -229,7 +332,7 @@ export default function Home() {
       <section id="galeria" className="scroll-mt-20 bg-secondary py-24">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col justify-between gap-6 md:flex-row md:items-end">
-            <div className="max-w-2xl"><p className="text-sm font-bold uppercase tracking-[0.16em] text-[#ff9fa6]">Visualmente inesquecível</p><h2 className="mt-3 text-3xl font-black tracking-tight text-white sm:text-4xl">Um gostinho do que espera por você em Barretos</h2></div>
+            <div className="max-w-2xl"><p className="text-sm font-bold uppercase tracking-[0.16em] text-[#ff9fa6]">Visualmente inesquecível</p><h2 className="mt-3 text-3xl font-black tracking-tight text-white sm:text-4xl">Um gostinho do que espera por você em Barretos</h2><p className="mt-4 text-sm text-slate-300">Raízes de quase 18 anos de estrada — a equipe atual da Excursão das Comitivas segue firme desde 2015.</p></div>
             <Link to="/historia" className="inline-flex items-center gap-2 text-sm font-bold text-white transition hover:text-[#ffb0b5]">Ver histórico de excursões <ChevronRight size={18} /></Link>
           </div>
 
@@ -270,25 +373,36 @@ export default function Home() {
       )}
 
       <section id="hospedagem" className="scroll-mt-20 bg-[#fffaf5] py-24">
-        <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 sm:px-6 lg:grid-cols-2 lg:px-8">
-          <div>
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-3xl text-center">
             <p className="text-sm font-bold uppercase tracking-[0.16em] text-primary">Conforto e organização</p>
-            <h2 className="mt-3 text-3xl font-black tracking-tight text-secondary sm:text-4xl">Nossas modalidades de hospedagem</h2>
-            <div className="mt-7 space-y-8 text-lg leading-relaxed text-slate-600">
-              <div>
-                <h3 className="flex items-center gap-2 font-bold text-secondary"><Tent size={20} className="text-primary" /> Nosso Camping</h3>
-                <p className="mt-2 text-base">Área totalmente gramada com banheiros externos, pontos de energia e segurança. Ideal para quem quer economizar e ficar no meio da festa. O cliente leva o próprio material.</p>
-              </div>
-              <div>
-                <h3 className="flex items-center gap-2 font-bold text-secondary"><Bed size={20} className="text-primary" /> Nossos Quartos</h3>
-                <p className="mt-2 text-base">Quartos suítes para 5 a 6 pessoas, com opções de ventilador ou ar-condicionado. Separados em feminino ou masculino (não há quartos mistos).</p>
-              </div>
-            </div>
-            <Link to="/eventos" className="mt-8 inline-flex items-center gap-2 text-sm font-bold text-primary hover:text-red-700">Consultar disponibilidade <ArrowRight size={17} /></Link>
+            <h2 className="mt-3 text-3xl font-black tracking-tight text-secondary sm:text-4xl">Nossos pacotes</h2>
+            <p className="mt-5 text-lg leading-relaxed text-slate-600">Três formas de viver a mesma experiência. Escolha a modalidade de hospedagem que combina com você — valores e parcelamento sob consulta.</p>
           </div>
-          <div className="relative">
-            <div className="absolute -inset-3 rounded-[2rem] bg-primary/10 blur-2xl" />
-            <img src="/images/gallery/estatua-peao.jpg" alt="Estátua do Peão em Barretos" className="relative aspect-[4/3] w-full rounded-[1.5rem] object-cover shadow-2xl" />
+
+          <div className="mt-14 grid gap-6 lg:grid-cols-3">
+            {PACOTES_HOSPEDAGEM.map(({ id, titulo, Icone, destaque, bullets, mensagemWhatsApp }) => (
+              <article key={id} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-7 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/5">
+                <div className="mb-4 inline-flex h-12 w-12 items-center justify-center self-start rounded-xl bg-primary/10 text-primary"><Icone size={24} /></div>
+                <p className="text-xs font-bold uppercase tracking-wide text-primary">{destaque}</p>
+                <h3 className="mt-1 text-xl font-bold text-secondary">{titulo}</h3>
+                <ul className="mt-4 flex-1 space-y-2">
+                  {bullets.map((bullet) => (
+                    <li key={bullet} className="flex items-start gap-2 text-sm text-slate-600">
+                      <Check size={16} className="mt-0.5 shrink-0 text-primary" />
+                      <span>{bullet}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-6 text-xs font-semibold uppercase tracking-wide text-slate-400">Valores e parcelamento sob consulta</p>
+                <div className="mt-3 flex flex-col gap-2">
+                  <WhatsAppCTA mensagem={mensagemWhatsApp} label="Falar no WhatsApp" size="sm" className="w-full" />
+                  <Link to="/eventos" className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-full border border-slate-300 text-xs font-bold text-slate-700 transition hover:border-primary hover:text-primary">
+                    Ver disponibilidade <ArrowRight size={14} />
+                  </Link>
+                </div>
+              </article>
+            ))}
           </div>
         </div>
       </section>
@@ -299,7 +413,10 @@ export default function Home() {
           <Tent className="mx-auto text-[#ff9fa6]" size={34} />
           <h2 className="mt-6 text-4xl font-black tracking-tight text-white sm:text-5xl">Sua próxima história pode começar aqui.</h2>
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-200">Confira as excursões publicadas, veja os detalhes de cada pacote e as facilidades de pagamento: PIX com 5% de desconto, Boleto em até 2x sem juros ou Cartão em até 12x.</p>
-          <Link to="/eventos" className="mt-9 inline-flex"><Button size="lg" className="px-9 py-6 text-base shadow-xl shadow-black/25">Ver pacotes e valores <ArrowRight size={18} className="ml-2" /></Button></Link>
+          <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <Link to="/eventos"><Button size="lg" className="px-9 py-6 text-base shadow-xl shadow-black/25">Ver pacotes disponíveis <ArrowRight size={18} className="ml-2" /></Button></Link>
+            <WhatsAppCTA mensagem={MENSAGEM_WHATSAPP_PADRAO} label="Falar no WhatsApp" size="lg" />
+          </div>
         </div>
       </section>
 

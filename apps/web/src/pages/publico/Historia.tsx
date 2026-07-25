@@ -1,7 +1,11 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { api } from '../../contexts/AuthContext';
-import { Calendar, MapPin, AlertCircle, Image as ImageIcon, X } from 'lucide-react';
+import { Button, WhatsAppCTA } from '@ui/index';
+import { ArrowRight, Calendar, MapPin, AlertCircle, Image as ImageIcon, X } from 'lucide-react';
+
+const MENSAGEM_WHATSAPP_HISTORIA = 'Olá! Vi o histórico de excursões da Excursão das Comitivas e quero saber mais sobre a próxima viagem para Barretos.';
 
 export default function Historia() {
   const [eventos, setEventos] = useState<any[]>([]);
@@ -140,6 +144,17 @@ export default function Historia() {
             ))}
           </div>
         )}
+      </div>
+
+      <div className="max-w-4xl mx-auto px-4 mt-20 text-center">
+        <div className="rounded-2xl border border-primary/20 bg-primary/5 p-8 sm:p-10">
+          <h2 className="text-2xl font-bold text-secondary">Gostou do que viu? A próxima edição está aberta.</h2>
+          <p className="mt-2 text-slate-600">Fale com a nossa equipe pelo WhatsApp ou veja os pacotes disponíveis para garantir sua vaga.</p>
+          <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <WhatsAppCTA mensagem={MENSAGEM_WHATSAPP_HISTORIA} label="Falar no WhatsApp" size="lg" />
+            <Link to="/eventos"><Button size="lg" variant="outline">Ver pacotes disponíveis <ArrowRight size={18} className="ml-2" /></Button></Link>
+          </div>
+        </div>
       </div>
 
       {selectedImage && (
