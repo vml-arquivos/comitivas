@@ -36,3 +36,8 @@ Conclusão operacional: não é seguro trocar apenas `PAYMENT_GATEWAY` para `cor
 
 
 Após a solicitação de configuração, a inspeção dos nomes das variáveis do Coolify ainda retornou somente `DATABASE_URL`, `JWT_SECRET`, `NODE_ENV`, `WEB_URL`, `API_URL` e `PAYMENT_GATEWAY` entre as variáveis relevantes; nenhuma variável `CORA_*` foi cadastrada. O valor do gateway não foi lido na interface para evitar qualquer acesso desnecessário a campos protegidos, mas o deployment anterior registrou explicitamente `PAYMENT_GATEWAY=mock`.
+
+
+## Estado preservado após a preparação
+
+A verificação final no Coolify confirmou a aplicação como `Running` e `(healthy)` no container anterior, ainda associada ao commit `7fbd82f3407ac79cd88eb466bde99af6d6516e8e`. O commit `fe6e2bb` permanece publicado no GitHub, acompanhado da documentação de prontidão, mas não foi redeployado novamente porque as variáveis e os certificados Cora ainda não existem. Nenhuma configuração de produção foi alterada nesta etapa.
