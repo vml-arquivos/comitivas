@@ -7,7 +7,7 @@
 
 > **SISTEMA CORRIGIDO E SEGURO — NOVO DEPLOY BLOQUEADO SOMENTE POR CREDENCIAIS EXTERNAS CORA.**
 
-A continuidade foi concluída preservando a produção saudável, sem apagar dados válidos, sem alterar as migrations históricas `0000`–`0006`, sem inserir segredos no Git e sem executar cobrança real. O banco foi respaldado antes da mudança, a migration `0007` foi aplicada pelo migrator nativo do Drizzle e o estado pós-migration foi verificado no PostgreSQL real. O novo container não foi promovido porque a conta Banco Cora ainda não forneceu as credenciais e os arquivos mTLS necessários.
+A continuidade foi concluída preservando a produção saudável, sem apagar dados válidos, sem alterar as migrations históricas `0000`–`0006`, sem inserir segredos no Git e sem executar cobrança real. O banco foi respaldado antes da mudança, a migration `0007` foi aplicada pelo migrator nativo do Drizzle e o estado pós-migration foi verificado no PostgreSQL real. O novo container não foi promovido porque a conta Banco Cora ainda não forneceu as credenciais e os arquivos mTLS necessários [1] [2].
 
 ## Decisão operacional
 
@@ -40,7 +40,7 @@ A verificação pós-migration retornou `connection=ok` e `validation=ok`. Foram
 
 ## Código, segurança e Git
 
-A implementação permanece **Cora-only em produção**. O adaptador rejeita `PAYMENT_GATEWAY=mock`, `mercadopago`, `asaas` e demais gateways legados em produção; o mock continua restrito a testes locais técnicos e não representa cobrança financeira. A integração Cora usa Client ID, certificado e chave privada mTLS no backend, token bearer temporário, idempotência, consulta da invoice após webhook e sem envio de segredo ao frontend. Não foi inventada integração de cartão nem adicionada a variável `CORA_CLIENT_SECRET`.
+A implementação permanece **Cora-only em produção**. O adaptador rejeita `PAYMENT_GATEWAY=mock`, `mercadopago`, `asaas` e demais gateways legados em produção; o mock continua restrito a testes locais técnicos e não representa cobrança financeira. A integração Cora usa Client ID, certificado e chave privada mTLS no backend, token bearer temporário, idempotência, consulta da invoice após webhook e sem envio de segredo ao frontend [3] [4] [5]. Não foi inventada integração de cartão nem adicionada a variável `CORA_CLIENT_SECRET`.
 
 As correções publicadas incluem a atualização do journal da migration 0007, o verificador abrangente de banco, CORS para o domínio oficial, branding exclusivo da Excursão das Comitivas nos PDFs, neutralização de guias ativos que sugeriam gateways legados, atualização do roteiro E2E e correções de canonical, Open Graph, Twitter, robots e sitemap. Uma regressão unitária específica garante que marcas históricas ou desconhecidas sempre resultem em branding Comitivas.
 
@@ -54,13 +54,13 @@ As correções publicadas incluem a atualização do journal da migration 0007, 
 | Artefatos proibidos | Nenhum `.env`, certificado, chave privada, dump ou `dist` gerado ficou no commit |
 | Dependências | React Router atualizado para `7.18.2`; nanoid para `3.3.18`; PostCSS para `8.5.26`; audit final com zero vulnerabilidades |
 
-O commit funcional principal foi `6ff6491c3ed100a2ccd8fb3e5af99f34e1bfe2ba`. O ajuste documental final foi publicado em `443b52a52d41eb4fbf77e373be5e3e8f5dafbf45`, confirmado tanto localmente quanto em `origin/main`. O workspace ficou limpo.
+O commit funcional principal foi `6ff6491c3ed100a2ccd8fb3e5af99f34e1bfe2ba` [2]. O ajuste documental final foi publicado em `443b52a52d41eb4fbf77e373be5e3e8f5dafbf45` [1], confirmado tanto localmente quanto em `origin/main`. O workspace ficou limpo.
 
 ## Coolify e domínio
 
-A aplicação Coolify é `comitivas`, no ambiente `production`, com application ID `sas04ljxfacvwa3zlmig28zw`. O deployment anterior `zecfrro2u58lzotv2i3zkw7o` foi diagnosticado corretamente: o build foi concluído, mas o processo novo abortou porque ainda havia `PAYMENT_GATEWAY=mock`; o healthcheck falhou como consequência e o rollback automático preservou a versão antiga saudável.
+A aplicação Coolify é `comitivas`, no ambiente `production`, com application ID `sas04ljxfacvwa3zlmig28zw` [6]. O deployment anterior `zecfrro2u58lzotv2i3zkw7o` foi diagnosticado corretamente: o build foi concluído, mas o processo novo abortou porque ainda havia `PAYMENT_GATEWAY=mock`; o healthcheck falhou como consequência e o rollback automático preservou a versão antiga saudável.
 
-A configuração nominal do Coolify foi corrigida sem redeploy. Foram removidas as entradas de configuração de `PAYMENT_GATEWAY`, `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_PUBLIC_KEY` e `ALLOW_MOCK_PAYMENT_IN_PROD`; as URLs foram alinhadas ao domínio oficial; o campo **Domains** agora contém somente `https://excursaodascomitivas.com.br`; e `OTP_PEPPER` está disponível apenas em runtime. A plataforma mostra 11 alterações pendentes porque ainda não houve aplicação dessas mudanças ao container.
+A configuração nominal do Coolify foi corrigida sem redeploy [7]. Foram removidas as entradas de configuração de `PAYMENT_GATEWAY`, `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_PUBLIC_KEY` e `ALLOW_MOCK_PAYMENT_IN_PROD`; as URLs foram alinhadas ao domínio oficial; o campo **Domains** agora contém somente `https://excursaodascomitivas.com.br`; e `OTP_PEPPER` está disponível apenas em runtime. A plataforma mostra 11 alterações pendentes porque ainda não houve aplicação dessas mudanças ao container.
 
 Essa distinção é essencial: o **container que atende produção continua sendo a versão antiga saudável**, enquanto as correções estão publicadas no Git e preparadas no armazenamento de configuração. Não se deve interpretar a existência do OTP_PEPPER ou a remoção do mock no Coolify como se já estivessem ativos no processo antigo; isso só ocorrerá em um deploy Cora-ready.
 
@@ -88,7 +88,7 @@ A bateria direcionada e a suíte integral passaram com **25 testes em 5 arquivos
 
 A auditoria HTTP passiva do baseline antigo encontrou `200` no domínio oficial para `/`, `/api/health`, `/regras`, `/galeria`, `/robots.txt` e `/sitemap.xml`. O health público retornou `{"status":"ok"}`. O host `www.excursaodascomitivas.com.br` retornou `530`, e `api.excursaodascomitivas.com.br` retornou `503`; por isso nenhum dos dois foi adicionado ao campo Domains. O typo `api.excursaodascomitiivas.com.br` não resolve.
 
-O baseline ao vivo ainda entregava robots e sitemap com o host legado `comitivas.permupay.com.br`, porque o novo frontend não foi redeployado. Essa falha foi corrigida no código publicado: o JSON-LD, canonical, Open Graph, Twitter, robots e sitemap agora apontam para `https://excursaodascomitivas.com.br`. A confirmação definitiva desses metadados no site ao vivo depende do futuro deploy Cora-ready.
+O baseline ao vivo ainda entregava robots e sitemap com o host legado `comitivas.permupay.com.br`, porque o novo frontend não foi redeployado. Essa falha foi corrigida no código publicado [1] [2]: o JSON-LD, canonical, Open Graph, Twitter, robots e sitemap agora apontam para `https://excursaodascomitivas.com.br`. A confirmação definitiva desses metadados no site ao vivo depende do futuro deploy Cora-ready.
 
 ## Critérios para liberar o próximo deploy
 
