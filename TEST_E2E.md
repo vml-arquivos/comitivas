@@ -19,7 +19,7 @@ O teste exige Node.js 22 ou superior, PostgreSQL 16 ou superior e uma instância
 
 > O modo `PAYMENT_GATEWAY=mock` é adequado para validação técnica. Ele registra a intenção de pagamento no banco, mas não envia cobranças nem gera códigos ou links fictícios.
 >
-> **⚠️ Este valor é apenas para testes locais. Em produção, use `PAYMENT_GATEWAY=mercadopago` com o Access Token real.**
+> **Este valor é exclusivamente para testes locais isolados. Em produção, o único gateway permitido é `PAYMENT_GATEWAY=cora`, com credenciais e certificados mTLS oficiais configurados no Coolify; nunca execute este roteiro local contra a produção.**
 
 ## Execução automatizada
 

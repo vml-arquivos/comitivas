@@ -83,17 +83,17 @@ export default function Eventos() {
         <title>Pacotes para Barretos 2026 | Excursão das Comitivas</title>
         <meta name="description" content="Conheça as excursões e modalidades Camping, Quarto com Ventilador e Quarto com Ar-condicionado. Consulte disponibilidade e condições." />
         <meta name="robots" content="index,follow" />
-        <link rel="canonical" href="https://comitivas.permupay.com.br/eventos" />
+        <link rel="canonical" href="https://excursaodascomitivas.com.br/eventos" />
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="Excursão das Comitivas" />
         <meta property="og:title" content="Pacotes para Barretos 2026 | Excursão das Comitivas" />
         <meta property="og:description" content="Escolha sua modalidade, confira o que está incluso e fale com a equipe da Excursão das Comitivas." />
-        <meta property="og:url" content="https://comitivas.permupay.com.br/eventos" />
-        <meta property="og:image" content="https://comitivas.permupay.com.br/images/logo-compartilhamento.webp" />
+        <meta property="og:url" content="https://excursaodascomitivas.com.br/eventos" />
+        <meta property="og:image" content="https://excursaodascomitivas.com.br/images/logo-compartilhamento.webp" />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content="Pacotes para Barretos 2026 | Excursão das Comitivas" />
         <meta name="twitter:description" content="Camping e quartos organizados para viver Barretos com tranquilidade." />
-        <meta name="twitter:image" content="https://comitivas.permupay.com.br/images/logo-compartilhamento.webp" />
+        <meta name="twitter:image" content="https://excursaodascomitivas.com.br/images/logo-compartilhamento.webp" />
       </Helmet>
 
       <section className="relative -mx-4 -mt-8 overflow-hidden bg-slate-950 px-4 py-24 text-white sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">

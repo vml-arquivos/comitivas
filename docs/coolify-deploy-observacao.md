@@ -107,4 +107,100 @@ Os blocos 00, 01 e 02 da migration 0007 foram transportados ao arquivo temporár
 
 Os blocos 00–03 da migration 0007 foram montados no terminal do container saudável. O arquivo remoto ainda será completado com o bloco final e comparado por comprimento/hash antes de qualquer execução SQL.
 
-A primeira validação do arquivo remoto detectou que o artefato parcial preexistente não havia sido removido antes da montagem; a decodificação produziu apenas 1.872 bytes e SHA-256 divergente. Nenhum DDL foi executado. O arquivo temporário e o SQL decodificado serão removidos, e a migration será remontada do zero antes de nova validação.
+A primeira validação do arquivo remoto detectou que o artefato parcial preexistente não havia sido removido antes da montagem; a decodificação produziu apenas 1.872 bytes e SHA-256 divergente. Nenhum DDL foi executado. O arquivo temporário e o SQL decodificado foram removidos.
+
+O commit `c7a6785` foi publicado em `main` com o journal 0007 e as correções auditadas. O terminal do container saudável foi limpo antes de um novo download HTTPS do SQL oficial fixado nesse commit; o banco continua sem a 0007 e a aplicação antiga permanece saudável.
+
+O terminal foi reconectado com sucesso ao container antigo/saudável às 18:03:46; a tentativa anterior de download não tinha sido executada porque a sessão estava desconectada. Nenhum comando de banco foi executado.
+
+Na segunda tentativa, a interface não exibiu saída do comando HTTPS e desconectou o terminal imediatamente após o Enter. Como não há evidência de conclusão, a operação será repetida após reconexão com um comando de diagnóstico não destrutivo; não houve execução de DDL.
+
+O terminal foi reconectado novamente às 18:04:32 no mesmo container antigo/saudável. O banco permanece sem a 0007; será executado primeiro um comando curto de diagnóstico para validar a sessão.
+
+O diagnóstico `echo terminal_session_ok` foi executado com sucesso na sessão reconectada. Isso confirma que a desconexão anterior era da sessão interativa, não do container ou do banco; o download oficial pode ser tentado novamente sem DDL.
+
+A tentativa controlada de download via HTTPS não prosseguiu porque o container saudável não possui `curl`. O comando removeu o temporário antes da tentativa; nenhum SQL foi baixado, nenhum DDL foi executado e o banco segue intacto.
+
+A inspeção de ferramentas confirmou `/usr/bin/wget` disponível no container. O download oficial será feito com `wget`, seguido de comprimento e SHA-256; nenhum segredo ou string de conexão será impresso.
+
+O download HTTPS fixado no commit `c7a6785` foi concluído com sucesso usando `wget`: o arquivo remoto tem 9.032 bytes e SHA-256 `595beac28dd72f95cbd7f63c8952fc9b49732eb427f96e499cbea9518a97120a`, exatamente igual ao artefato local. O SQL está apenas em `/tmp` e ainda não foi executado.
+
+O journal oficial baixado do commit `c7a6785` também foi validado: 1.291 bytes e SHA-256 `4dd8a131c468d0d515a6b2e7e728de4bf04c512c6233a672bf7e8730cffbe019`, coincidente com o arquivo local. Os artefatos SQL e journal estão completos no container, e nenhuma migration foi aplicada ainda.
+
+A inspeção da pasta ativa `/app/drizzle` confirmou sete arquivos SQL (0000–0006), journal anterior com SHA-256 divergente do novo e ausência de `0007_evolucao_comitivas.sql`. Os arquivos oficiais validados permanecem separados em `/tmp`, prontos para serem estagiados temporariamente antes da execução do migrator.
+
+O staging foi concluído no container saudável: `0007_evolucao_comitivas.sql` ativo tem SHA-256 `595beac28dd72f95cbd7f63c8952fc9b49732eb427f96e499cbea9518a97120a`, o journal ativo tem SHA-256 `4dd8a131c468d0d515a6b2e7e728de4bf04c512c6233a672bf7e8730cffbe019`, e o pacote `drizzle-orm`/`pg` necessário está presente. O journal anterior foi preservado em `/tmp`; nenhum SQL foi executado ainda.
+
+O primeiro transporte do script temporário do migrator foi truncado pela entrada interativa e gerou `/tmp/run-drizzle-migrator.mjs` com 375 bytes, menor que o payload esperado. O script não foi executado; será removido e retransmitido em blocos curtos antes de qualquer conexão com o banco.
+
+A retransmissão em blocos também foi interrompida após o primeiro segmento de 80 caracteres; o arquivo remoto `/tmp/run-drizzle-migrator.b64` permanece parcial. Ele será removido antes de uma remontagem correta em segmentos curtos, sem executar o script.
+
+A verificação confirmou que a imagem antiga não contém `tsx` nem `scripts/aplicar-migrations.ts`. O migrator nativo será executado por um script ESM temporário mínimo, retransmitido em segmentos curtos e validado por tamanho antes da execução; nenhum código será incorporado à imagem ou ao Git.
+
+Os segmentos 1 e 2 do payload base64 foram montados no arquivo remoto `/tmp/run-drizzle-migrator.b64`; o payload permanece incompleto, não foi decodificado nem executado. Os segmentos restantes serão anexados um a um e o tamanho final será validado antes de qualquer conexão com o banco.
+
+O segmento 3 também foi anexado com sucesso. O payload continua incompleto e não foi decodificado ou executado.
+
+O segmento 4 foi anexado com sucesso. Os segmentos 1–4 estão no payload remoto; ele ainda não foi decodificado ou executado.
+
+O segmento 5 também foi anexado. Os segmentos 1–5 estão no payload remoto, ainda sem decodificação ou execução; os três segmentos finais serão anexados e o tamanho será conferido.
+
+O segmento 6 foi anexado com sucesso. Os segmentos 1–6 estão no payload remoto; ele continua sem decodificação ou execução.
+
+O segmento 7 foi anexado com sucesso. Falta apenas o segmento final; o payload ainda não foi decodificado ou executado.
+
+O segmento 8 foi anexado com sucesso. Os oito segmentos estão no payload remoto; ainda falta decodificar e validar o script completo antes de executá-lo.
+
+A sessão caiu imediatamente após o comando de decodificação/verificação sintática, sem exibir resultado. Como não há evidência de conclusão, não se presume que o script tenha sido decodificado ou executado; o terminal será reconectado para verificar apenas a existência/tamanho dos temporários.
+
+O terminal foi reconectado às 18:15:04 no mesmo container saudável, sem saída residual. Nenhuma execução do migrator é presumida; a próxima ação será apenas uma inspeção curta do payload remoto.
+
+A inspeção encontrou 616 bytes no payload base64 remoto, porém SHA-256 divergente do payload local, indicando erro de transcrição em um segmento. O payload será removido e reconstruído com os oito segmentos copiados exatamente do arquivo local; não será decodificado nem executado enquanto o hash não coincidir.
+
+O payload divergente foi removido e a reconstrução linha a linha começou com a primeira linha do script (80 bytes). Nenhum código foi executado e o banco não foi acessado nessa etapa.
+
+As linhas 2–4 foram adicionadas com sucesso; o script temporário reconstruído tem 216 bytes. Ele permanece inerte até a montagem integral e a validação independente.
+
+As linhas 5–6 foram adicionadas com sucesso, elevando o script temporário a 316 bytes. O arquivo continua inerte e ainda não abriu conexão com o banco.
+
+As linhas 7–9 foram adicionadas com sucesso; o script tem 426 bytes e contém a chamada do migrator, mas ainda não foi executado.
+
+As linhas finais foram adicionadas com sucesso. O script remoto completo tem 460 bytes e SHA-256 `518b2ca596849e2941f151e5d0395e74262422402e7ba1bbbccd48f5517d2c98`, coincidente com o payload local. Ele permanece não executado.
+
+A checagem `node --check` passou (`migrator_script_syntax_ok`). O script está íntegro e sintaticamente válido; a aplicação da 0007 será iniciada agora pelo migrator nativo, com `DATABASE_URL` mantida somente no ambiente do processo.
+
+O comando `test -n "$DATABASE_URL"; node /tmp/run-drizzle-migrator.mjs` foi iniciado no container saudável, sem exibir a conexão. A sessão permanece em execução; nenhum resultado de migration será presumido até o processo terminar.
+
+O migrator nativo concluiu com a mensagem `drizzle_migration_complete`. A migration 0007 foi aplicada pelo mecanismo Drizzle com o journal atualizado e registro transacional; a conexão não foi exibida.
+
+O verificador publicado foi baixado por HTTPS e conferido antes da execução: 6.290 bytes, SHA-256 `1d88cefe4825df4ad398e33624de5e5e0fc5596322ee6c3a4e39f5e71f97da68`, coincidente com o arquivo do commit `c7a6785`. Ele está pronto para validar o estado pós-migration.
+
+A validação pós-migration passou integralmente: `connection=ok`, `validation=ok`, migration `0007`, `migrationHistory=8`, 10 tabelas, 132 colunas, 9 índices, seed `2026.1` presente e hash das regras íntegro. O bookkeeping Drizzle ficou consistente.
+
+Após a validação do banco, o ambiente `production` foi reaberto no Coolify sem redeploy. A listagem da aplicação ainda mostra `https://excursaodascomitivas.com.br,https://api.excursaodascomitiivas.com.br`; o subdomínio com typo permanece pendente de correção no campo Domains.
+
+O campo Domains foi corrigido e salvo no Coolify para `https://excursaodascomitivas.com.br` apenas. O Coolify confirmou `Application settings updated!` e regenerou os rótulos de roteamento, removendo o router do subdomínio typo. O número de alterações pendentes subiu para 11; nenhuma delas foi aplicada ao container em execução.
+
+A tela de variáveis foi auditada nominalmente sem ler valores: há 17 variáveis nomeadas e duas linhas vazias de edição. O valor de nenhuma variável secreta foi retornado ou reproduzido. A flag de cada linha será confirmada pela associação visual/DOM correta antes de adicionar o OTP_PEPPER runtime-only.
+
+Um clique usando índice dinâmico abriu a seção Tags em vez do botão de adicionar variável; não houve alteração de variável, segredo, domínio ou deploy. A tela correta será aberta pelo URL direto de Environment Variables.
+
+A página correta foi aberta, uma nova variável foi adicionada e o modal New Environment Variable está aberto. Os campos foram identificados por IDs e comprimentos apenas; nenhum valor secreto foi retornado. O OTP_PEPPER será gerado com `crypto.getRandomValues`, gravado sem impressão e configurado com build-time desativado e runtime ativado.
+
+A associação correta das linhas existentes confirmou o padrão de segurança esperado: as variáveis nomeadas estão com build-time desativado e runtime ativado. O modal novo permanece aberto; os controles específicos dele serão ajustados sem retornar qualquer valor secreto.
+
+O modal recebeu `OTP_PEPPER` e um valor CSPRNG de 64 caracteres hexadecimais, com build-time=false e runtime=true; o valor não foi impresso. A primeira tentativa de Save não fechou o modal, portanto a gravação ainda não será presumida e será confirmada pelo DOM.
+
+A segunda tentativa acionou exatamente um botão Save do modal e foi aceita pelo Coolify. O valor continua não exposto; a presença nominal e as flags serão verificadas após a atualização da lista.
+
+A confirmação DOM posterior mostrou `modalPresent=false` e `otpSavedNominally=true`; o OTP_PEPPER está persistido nominalmente. Nenhum valor foi lido ou retornado. A associação final das flags da linha persistida será registrada em seguida.
+
+A verificação final confirmou `OTP_PEPPER` presente, `buildtime=false`, `runtime=true`. O conjunto tem 18 variáveis nomeadas e `allNamedRuntimeOnly=true`; nenhum segredo foi lido, exposto ou escrito no repositório. O Coolify continua com 11 alterações pendentes e sem redeploy.
+
+O QA local direcionado passou com 25 testes em 5 arquivos: autenticação (2), branding seguro do PDF (2), contrato HTML (2), configuração do gateway Cora-only (4) e serviço de contratos (15). A suíte integral também passou com os mesmos 25 testes. O teste Cora em desenvolvimento registrou apenas o aviso esperado de ausência de mTLS; não houve chamada externa, cobrança, SMTP ou WhatsApp real.
+
+Após o QA, `npm run typecheck:server` passou e `npm run build` passou para servidor, seed e frontend. Os arquivos dist versionados modificados pelo build foram restaurados ao HEAD; o diff não contém dist, dumps, `.env`, certificados ou chaves.
+
+A auditoria HTTP passiva do baseline antigo encontrou `200` no domínio oficial para `/`, `/api/health`, `/regras`, `/galeria`, `/robots.txt` e `/sitemap.xml`; o health retornou `{"status":"ok"}`. `www.excursaodascomitivas.com.br` retornou 530 e `api.excursaodascomitivas.com.br` retornou 503, portanto nenhum deles foi adicionado ao campo Domains. O host typo não resolve. O robots e o sitemap antigos ainda apontavam para `comitivas.permupay.com.br`; essa falha de SEO foi corrigida no frontend, junto dos canonical/Open Graph/Twitter de Eventos, História e Avaliações. A correção aguarda o futuro redeploy Cora-ready.
+
+O audit de dependências encontrou inicialmente uma vulnerabilidade alta em React Router 7.18.1 e uma cadeia de desenvolvimento com nanoid/PostCSS. Foram aplicadas somente atualizações não-forçadas: `react-router-dom`/`react-router` para 7.18.2, `nanoid` para 3.3.18 e `postcss` para 8.5.26. A instalação limpa, typecheck, build, suíte integral de 25 testes e `npm audit` final passaram; o audit reportou zero vulnerabilidades.

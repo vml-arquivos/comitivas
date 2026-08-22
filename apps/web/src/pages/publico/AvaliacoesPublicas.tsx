@@ -53,17 +53,17 @@ export default function AvaliacoesPublicas() {
         <title>Avaliações de Clientes | Excursão das Comitivas</title>
         <meta name="description" content="Leia depoimentos aprovados de quem já viajou com a Excursão das Comitivas para a Festa do Peão de Barretos." />
         <meta name="robots" content="index,follow" />
-        <link rel="canonical" href="https://comitivas.permupay.com.br/avaliacoes" />
+        <link rel="canonical" href="https://excursaodascomitivas.com.br/avaliacoes" />
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="Excursão das Comitivas" />
         <meta property="og:title" content="Avaliações de Clientes | Excursão das Comitivas" />
         <meta property="og:description" content="Depoimentos aprovados de participantes da Excursão das Comitivas." />
-        <meta property="og:url" content="https://comitivas.permupay.com.br/avaliacoes" />
-        <meta property="og:image" content="https://comitivas.permupay.com.br/images/logo-compartilhamento.webp" />
+        <meta property="og:url" content="https://excursaodascomitivas.com.br/avaliacoes" />
+        <meta property="og:image" content="https://excursaodascomitivas.com.br/images/logo-compartilhamento.webp" />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content="Avaliações | Excursão das Comitivas" />
         <meta name="twitter:description" content="Veja o que dizem os participantes das nossas excursões." />
-        <meta name="twitter:image" content="https://comitivas.permupay.com.br/images/logo-compartilhamento.webp" />
+        <meta name="twitter:image" content="https://excursaodascomitivas.com.br/images/logo-compartilhamento.webp" />
       </Helmet>
 
       {/* Header */}

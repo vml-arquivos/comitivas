@@ -6,4 +6,4 @@ Disallow: /confirmacao/
 Disallow: /minhas-reservas
 Disallow: /meus-dados
 
-Sitemap: https://comitivas.permupay.com.br/sitemap.xml
+Sitemap: https://excursaodascomitivas.com.br/sitemap.xml

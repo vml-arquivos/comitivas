@@ -31,4 +31,8 @@ Depois do primeiro container saudável, validar `GET /api/health`, a home públi
 
 ## Estado registrado em 22/08/2026
 
-O commit publicado é `fe6e2bb20e91d205cd9aab5207cc13ea32ce88e0`. O Coolify importou esse commit corretamente, concluiu o build Docker e iniciou o rolling update, mas o container abortou porque o ambiente ainda mantinha `PAYMENT_GATEWAY=mock`; o rollback automático preservou o container anterior. A ausência de variáveis `CORA_*` foi confirmada sem leitura de valores secretos. Nenhuma variável foi alterada nesta etapa de preparação.
+O incidente anterior foi corrigido no commit publicado `c7a6785`. O container antigo continua saudável e não houve redeploy após as correções, preservando a produção durante a preparação. O Coolify foi ajustado nominalmente para remover os gateways legados, manter URLs oficiais e usar somente `https://excursaodascomitivas.com.br` no campo Domains. As variáveis nomeadas estão runtime-only; `OTP_PEPPER` foi criado com valor CSPRNG forte, sem exposição, com build-time=false e runtime=true.
+
+A migration `0007_evolucao_comitivas.sql` foi baixada do commit publicado, conferida por SHA-256, aplicada pelo migrator nativo Drizzle e verificada no PostgreSQL real: histórico com 8 migrations, 10 tabelas, 132 colunas, 9 índices e regras `2026.1` com hash íntegro.
+
+O novo deploy permanece bloqueado somente porque a conta Cora ainda não forneceu/configurou as credenciais externas de Stage: `CORA_CLIENT_ID`, certificado mTLS, private key mTLS e os endpoints oficiais correspondentes. Não existem certificados, chaves ou variáveis `CORA_*` no Coolify; nenhum segredo fictício foi criado e `CORA_CLIENT_SECRET` não deve ser adicionado arbitrariamente. O SMTP e o WhatsApp permanecem sem teste real por ausência de autorização/destino de teste. A produção deve continuar no container antigo até a configuração oficial e o teste não destrutivo de autenticação mTLS.

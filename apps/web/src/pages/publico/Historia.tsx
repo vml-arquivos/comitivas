@@ -60,17 +60,17 @@ export default function Historia() {
         <title>Histórico de Excursões | Excursão das Comitivas</title>
         <meta name="description" content="Veja fotos e relembre as edições passadas da Excursão das Comitivas em Barretos e outros eventos sertanejos." />
         <meta name="robots" content="index,follow" />
-        <link rel="canonical" href="https://comitivas.permupay.com.br/historia" />
+        <link rel="canonical" href="https://excursaodascomitivas.com.br/historia" />
         <meta property="og:title" content="Histórico de Excursões | Excursão das Comitivas" />
         <meta property="og:description" content="Fotos e histórias das excursões realizadas pela Excursão das Comitivas." />
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="Excursão das Comitivas" />
-        <meta property="og:url" content="https://comitivas.permupay.com.br/historia" />
-        <meta property="og:image" content="https://comitivas.permupay.com.br/images/logo-compartilhamento.webp" />
+        <meta property="og:url" content="https://excursaodascomitivas.com.br/historia" />
+        <meta property="og:image" content="https://excursaodascomitivas.com.br/images/logo-compartilhamento.webp" />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content="Nossa História | Excursão das Comitivas" />
         <meta name="twitter:description" content="Quase 18 anos de estrada e uma equipe oficializada em 2015." />
-        <meta name="twitter:image" content="https://comitivas.permupay.com.br/images/logo-compartilhamento.webp" />
+        <meta name="twitter:image" content="https://excursaodascomitivas.com.br/images/logo-compartilhamento.webp" />
       </Helmet>
 
       {/* Header */}

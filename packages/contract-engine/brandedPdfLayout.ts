@@ -31,7 +31,7 @@ const FOOTER_TEMPLATE = `<style>
   Avenida Afonso Pena, qd-25 Alt. 05, S/N sala-02 setor Goiânia 2 CEP: 74665555 Goiânia-GO
 </div>`;
 
-function normalizeBrand(_value: unknown): PdfBrand {
+export function normalizeBrand(_value: unknown): PdfBrand {
   // Este motor pertence exclusivamente à Excursão das Comitivas.
   // Marcas históricas ou valores desconhecidos nunca devem alterar o branding do PDF.
   return "comitiva";
@@ -46,7 +46,7 @@ function escapeHtml(value: unknown): string {
     .replace(/'/g, "&#039;");
 }
 
-function brandPresentation(value: unknown): {
+export function brandPresentation(value: unknown): {
   name: string;
   borderColor: string;
   logoDataUri: string;
@@ -59,7 +59,7 @@ function brandPresentation(value: unknown): {
   };
 }
 
-function footerTemplate(value: unknown): string {
+export function footerTemplate(value: unknown): string {
   if (normalizeBrand(value) !== "comitiva") return FOOTER_TEMPLATE;
 
   return `<style>
@@ -82,7 +82,7 @@ function footerTemplate(value: unknown): string {
   </div>`;
 }
 
-function headerTemplate(value: unknown): string {
+export function headerTemplate(value: unknown): string {
   const normalizedBrand = normalizeBrand(value);
   const brand = brandPresentation(normalizedBrand);
   const logoHeight = normalizedBrand === "comitiva" ? "54px" : "40px";
