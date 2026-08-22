@@ -31,7 +31,7 @@ Depois do primeiro container saudável, validar `GET /api/health`, a home públi
 
 ## Estado registrado em 22/08/2026
 
-O incidente anterior foi corrigido no commit publicado `c7a6785`. O container antigo continua saudável e não houve redeploy após as correções, preservando a produção durante a preparação. O Coolify foi ajustado nominalmente para remover os gateways legados, manter URLs oficiais e usar somente `https://excursaodascomitivas.com.br` no campo Domains. As variáveis nomeadas estão runtime-only; `OTP_PEPPER` foi criado com valor CSPRNG forte, sem exposição, com build-time=false e runtime=true.
+O incidente anterior foi corrigido no commit `c7a6785`; o conjunto final de correções, SEO, dependências e QA foi publicado em `6ff6491`. O container antigo continua saudável e não houve redeploy após as correções, preservando a produção durante a preparação. O Coolify foi ajustado nominalmente para remover os gateways legados, manter URLs oficiais e usar somente `https://excursaodascomitivas.com.br` no campo Domains. As variáveis nomeadas estão runtime-only; `OTP_PEPPER` foi criado com valor CSPRNG forte, sem exposição, com build-time=false e runtime=true.
 
 A migration `0007_evolucao_comitivas.sql` foi baixada do commit publicado, conferida por SHA-256, aplicada pelo migrator nativo Drizzle e verificada no PostgreSQL real: histórico com 8 migrations, 10 tabelas, 132 colunas, 9 índices e regras `2026.1` com hash íntegro.
 
