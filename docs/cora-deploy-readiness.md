@@ -9,7 +9,6 @@ O código do projeto já está preparado para operar com o Banco Cora como gatew
 | `PAYMENT_GATEWAY` | Sim | `cora` |
 | `CORA_ENV` | Sim | `stage` para homologação ou `production` para produção, conforme a conta |
 | `CORA_CLIENT_ID` | Sim | Client ID emitido pela Cora |
-| `CORA_CLIENT_SECRET` | Conforme o cadastro | Secret emitido pela Cora, se o fluxo da conta exigir |
 | `CORA_CERT_PATH` | Sim | Caminho interno do certificado mTLS montado como secret no container |
 | `CORA_PRIVATE_KEY_PATH` | Sim | Caminho interno da chave privada mTLS montada como secret no container |
 | `CORA_TOKEN_URL` | Sim | Endpoint oficial correspondente ao ambiente Cora |
@@ -22,7 +21,7 @@ O código do projeto já está preparado para operar com o Banco Cora como gatew
 
 ## Certificados mTLS
 
-O certificado e a chave privada não devem ser commitados no GitHub nem colados em mensagens. No Coolify, montar os arquivos como secrets/volumes seguros e usar no runtime caminhos como `/run/secrets/cora-production-certificate.pem` e `/run/secrets/cora-production-private-key.key`. Os paths configurados precisam existir dentro do container; caso contrário, o runtime bloqueará a emissão de cobranças.
+O certificado e a chave privada não devem ser commitados no GitHub nem colados em mensagens. No Coolify, montar os arquivos como secrets/volumes seguros e usar no runtime caminhos como `/run/secrets/cora-production-certificate.pem` e `/run/secrets/cora-production-private-key.key`. A Integração Direta mTLS não deve receber `CORA_CLIENT_SECRET` arbitrariamente. Os paths configurados precisam existir dentro do container; caso contrário, o runtime bloqueará a emissão de cobranças.
 
 ## Sequência segura quando a conta estiver pronta
 

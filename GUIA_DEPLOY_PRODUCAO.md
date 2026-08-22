@@ -1,8 +1,10 @@
 # Guia de Deploy em Produção - Comitiva
 
+> **AVISO: DOCUMENTO HISTÓRICO.** Este guia foi escrito antes da adoção do Banco Cora Direct e contém instruções de Mercado Pago e provedores alternativos. Não o use para produção. O procedimento vigente está em [docs/cora-deploy-readiness.md](./docs/cora-deploy-readiness.md), com mTLS, domínio oficial e segredos somente em runtime.
+
 **Data:** 23 de julho de 2026  
 **Versão:** 1.0  
-**Status:** Pronto para produção com PostgreSQL e migrations automáticas
+**Status:** Histórico — não usar para produção
 
 ---
 
@@ -399,4 +401,4 @@ Quando a aplicação crescer:
 
 **Preparado por:** Manus AI  
 **Repositório:** https://github.com/vml-arquivos/comitivas  
-**Suporte:** Consulte DEPLOYMENT.md para mais detalhes
+**Suporte:** Consulte [docs/cora-deploy-readiness.md](./docs/cora-deploy-readiness.md) para o procedimento vigente

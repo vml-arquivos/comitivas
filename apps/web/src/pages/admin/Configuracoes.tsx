@@ -5,7 +5,6 @@ import { CheckCircle2, AlertTriangle } from 'lucide-react';
 
 const GATEWAY_LABEL: Record<string, string> = {
   cora: 'Banco Cora',
-  mock: 'Modo de teste local',
 };
 
 export default function Configuracoes() {
@@ -85,7 +84,7 @@ export default function Configuracoes() {
             )}
             <div>
               <p className="font-medium text-gray-900">
-                {gateway?.nome || (gateway ? (GATEWAY_LABEL[gateway.ativo] || gateway.ativo) : '—')}
+                {gateway?.nome || GATEWAY_LABEL[gateway?.ativo || 'cora'] || 'Banco Cora'}
               </p>
               <p className="text-sm text-gray-500">
                 {gateway?.configurado

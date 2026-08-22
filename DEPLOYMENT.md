@@ -1,5 +1,7 @@
 # Guia de Deployment - Comitiva
 
+> **Aviso operacional — 22/08/2026:** este documento contém instruções históricas de gateways que não pertencem mais a esta aplicação. Para produção, use exclusivamente [docs/cora-deploy-readiness.md](./docs/cora-deploy-readiness.md): Banco Cora Direct com mTLS, variáveis somente em runtime e sem credenciais inventadas.
+
 ## Pré-requisitos
 
 - Docker e Docker Compose instalados

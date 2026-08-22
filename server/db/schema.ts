@@ -223,7 +223,7 @@ export const leads_origem = pgTable("leads_origem", {
 
 // Configurações de pagamento editáveis pelo admin (regras de negócio, não
 // segredos). Tabela singleton: sempre existe apenas a linha id='default'.
-// Tokens de gateway (Mercado Pago/Asaas) continuam em variável de ambiente —
+// Credenciais do gateway Cora permanecem exclusivamente em variáveis de ambiente —
 // são credenciais sensíveis geridas pelo Coolify, não pelo painel.
 export const configuracoesPagamento = pgTable("configuracoes_pagamento", {
   id: text("id").primaryKey().default("default"),

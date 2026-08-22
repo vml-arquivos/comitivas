@@ -1,8 +1,10 @@
 # Deploy Coolify - Comitiva Prime
 
+> **AVISO: DOCUMENTO HISTÓRICO.** As instruções abaixo foram superadas pela migração para **Excursão das Comitivas 2026** e pelo gateway único Banco Cora Direct. Não use este arquivo para produção: siga [docs/cora-deploy-readiness.md](./docs/cora-deploy-readiness.md) e mantenha todos os segredos somente em runtime. Os domínios antigos e as referências a Mercado Pago são preservados apenas para auditoria histórica.
+
 **Data:** 23 de julho de 2026  
 **Domínios:** comitivas.permupay.com.br | apicomitivas.permupay.com.br  
-**Status:** Pronto para deploy
+**Status:** Histórico — não usar para deploy
 
 ---
 
@@ -246,5 +248,5 @@ Quando estiver pronto para produção:
 
 ---
 
-**Status:** Pronto para deploy  
+**Status:** Histórico — não usar para deploy
 **Data:** 23 de julho de 2026

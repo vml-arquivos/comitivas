@@ -1,9 +1,10 @@
 ================================================================================
-BLOCO ÚNICO DE VARIÁVEIS - COOLIFY
+ARQUIVO HISTÓRICO — NÃO COPIAR PARA O COOLIFY
 ================================================================================
-Copie e cole TUDO abaixo no Coolify (Settings > Environment Variables)
-Data: 23 de julho de 2026
-Status: Temporário - Revogue após testes
+Este bloco contém domínios e gateway legados e não é compatível com a produção atual.
+Use exclusivamente docs/cora-deploy-readiness.md: Banco Cora Direct com mTLS, domínio oficial e segredos somente em runtime.
+Data do arquivo original: 23 de julho de 2026
+Status: Arquivado para auditoria; não executar
 
 ================================================================================
 COPIE E COLE NO COOLIFY

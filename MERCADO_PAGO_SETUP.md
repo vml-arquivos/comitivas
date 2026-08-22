@@ -1,5 +1,7 @@
 # Configuração do Mercado Pago - Guia Completo
 
+> **ARQUIVO HISTÓRICO — NÃO USAR.** O gateway Mercado Pago foi removido deste sistema. A produção usa exclusivamente Banco Cora Direct com mTLS; consulte [docs/cora-deploy-readiness.md](./docs/cora-deploy-readiness.md). Este arquivo permanece apenas para rastreabilidade da evolução do projeto.
+
 ## 1. Obter Credenciais
 
 ### Passo 1: Criar Conta no Mercado Pago

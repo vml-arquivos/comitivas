@@ -24,7 +24,7 @@ services:
       JWT_SECRET: dev_secret_key_change_in_production
       NODE_ENV: development
       PORT: 3000
-      PAYMENT_GATEWAY: mercadopago
+      PAYMENT_GATEWAY: cora
       FOLLOWUP_CHECK_INTERVAL_MINUTOS: 5
     ports:
       - "3000:3000"

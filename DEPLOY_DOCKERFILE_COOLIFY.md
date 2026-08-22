@@ -1,9 +1,11 @@
 # Deploy por Dockerfile no Coolify - Guia Rápido
 
+> **AVISO: DOCUMENTO HISTÓRICO.** Não use este guia para produção. O sistema atual usa exclusivamente Banco Cora Direct com mTLS e domínio `https://excursaodascomitivas.com.br`; siga [docs/cora-deploy-readiness.md](./docs/cora-deploy-readiness.md). Os domínios e gateways antigos abaixo são mantidos apenas como registro.
+
 **Data:** 23 de julho de 2026  
 **Repositório:** vml-arquivos/comitivas (público)  
 **Método:** Dockerfile (na raiz)  
-**Status:** Pronto para deploy
+**Status:** Histórico — não usar para deploy
 
 ---
 
@@ -323,6 +325,6 @@ Quando estiver pronto para produção:
 
 ---
 
-**Status:** Pronto para deploy  
+**Status:** Histórico — não usar para deploy
 **Repositório:** https://github.com/vml-arquivos/comitivas  
 **Arquivo de variáveis:** COOLIFY_VARIAVEIS_FINAIS.txt

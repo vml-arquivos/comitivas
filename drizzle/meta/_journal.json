@@ -50,6 +50,13 @@
       "when": 1785000000000,
       "tag": "0006_configuracoes_pagamento",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1787421000000,
+      "tag": "0007_evolucao_comitivas",
+      "breakpoints": true
     }
   ]
 }

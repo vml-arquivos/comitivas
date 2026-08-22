@@ -45,13 +45,25 @@ app.use(helmet({
 }));
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
+const configuredWebOrigins = (process.env.WEB_URL || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const allowedWebOrigins = new Set([
+  ...(process.env.NODE_ENV === "production" ? ["https://excursaodascomitivas.com.br"] : ["http://localhost:5173"]),
+  ...configuredWebOrigins,
+]);
 app.use(cors({
-  origin: process.env.WEB_URL || "http://localhost:5173",
+  origin: (origin, callback) => {
+    // Requests without an Origin (healthcheck, curl and server-to-server) remain valid.
+    if (!origin || allowedWebOrigins.has(origin)) return callback(null, true);
+    return callback(new Error("Origem web não autorizada"));
+  },
   credentials: true,
 }));
 
 // Servir o frontend (SPA) já buildado pelo Vite — o mesmo container
-// atende tanto a API (/api/*) quanto o site em comitivas.permupay.com.br
+// atende tanto a API (/api/*) quanto o site oficial da Comitivas no mesmo host.
 const webDistPath = path.join(process.cwd(), "apps", "web", "dist");
 app.use(express.static(webDistPath));
 

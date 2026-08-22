@@ -1,8 +1,8 @@
 import { PDFDocument, StandardFonts as StandardFontsRef, rgb as rgbRef } from "pdf-lib";
-import { COMITIVA_LOGO_PDF_B64, DESTRAVA_LOGO_B64, PERMUPAY_LOGO_B64 } from "./logo_constants";
+import { COMITIVA_LOGO_PDF_B64 } from "./logo_constants";
 import { closeChromium, launchChromium } from "./chromiumLauncher";
 
-export type PdfBrand = "destrava" | "permupay" | "aragao" | "comitiva";
+export type PdfBrand = "comitiva";
 
 export type BrandedPdfOptions = {
   brand?: PdfBrand | string | null;
@@ -31,10 +31,10 @@ const FOOTER_TEMPLATE = `<style>
   Avenida Afonso Pena, qd-25 Alt. 05, S/N sala-02 setor Goiânia 2 CEP: 74665555 Goiânia-GO
 </div>`;
 
-function normalizeBrand(value: unknown): PdfBrand {
-  const brand = String(value || "destrava").trim().toLowerCase();
-  if (brand === "permupay" || brand === "aragao" || brand === "comitiva") return brand;
-  return "destrava";
+function normalizeBrand(_value: unknown): PdfBrand {
+  // Este motor pertence exclusivamente à Excursão das Comitivas.
+  // Marcas históricas ou valores desconhecidos nunca devem alterar o branding do PDF.
+  return "comitiva";
 }
 
 function escapeHtml(value: unknown): string {
@@ -52,33 +52,10 @@ function brandPresentation(value: unknown): {
   logoDataUri: string;
 } {
   const brand = normalizeBrand(value);
-  if (brand === "permupay") {
-    return {
-      name: "PermuPay",
-      borderColor: "#0066CC",
-      logoDataUri: PERMUPAY_LOGO_B64,
-    };
-  }
-  if (brand === "aragao") {
-    // O sistema ainda não possui um arquivo oficial de logo da Aragão.
-    // Mantém o nome institucional como fallback sem quebrar orçamentos existentes.
-    return {
-      name: "Aragão Serviços",
-      borderColor: "#8B4513",
-      logoDataUri: "",
-    };
-  }
-  if (brand === "comitiva") {
-    return {
-      name: "Excursão das Comitivas",
-      borderColor: "#B91C1C",
-      logoDataUri: COMITIVA_LOGO_PDF_B64,
-    };
-  }
   return {
-    name: "Destrava Crédito",
-    borderColor: "#1B3A8C",
-    logoDataUri: DESTRAVA_LOGO_B64,
+    name: "Excursão das Comitivas",
+    borderColor: "#B91C1C",
+    logoDataUri: COMITIVA_LOGO_PDF_B64,
   };
 }
 

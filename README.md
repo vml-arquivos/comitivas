@@ -8,7 +8,7 @@
 - **Autenticação segura** com JWT e hash de senha
 - **Configurador de pacotes** com cálculo dinâmico de valores
 - **Aceite digital** de contratos com timestamp e IP
-- **Pagamentos integrados** via Pix, crédito e débito (Mercado Pago ou Asaas)
+- **Pagamentos integrados** via Banco Cora Direct, com mTLS e Pix/boleto/carnê
 - **Confirmação automática** por e-mail com documentos anexos
 - **Histórico de reservas** e rastreamento de status
 - **Aplicativo mobile** via Capacitor (iOS e Android)
@@ -35,7 +35,7 @@
 - **Mobile:** React Native + Capacitor
 - **Banco de Dados:** PostgreSQL + Drizzle ORM
 - **Autenticação:** JWT + bcrypt
-- **Pagamentos:** Mercado Pago (Pix, crédito, débito)
+- **Pagamentos:** Banco Cora Direct (mTLS; Pix, boleto e carnê)
 - **E-mail:** Nodemailer (SMTP)
 - **Contratos:** PDF-lib + Puppeteer
 - **Deployment:** Docker + Coolify
@@ -78,7 +78,7 @@ docker-compose up -d
 
 A plataforma foi construída em 13 etapas principais:
 
-1. Motor de contratos do Destrava
+1. Motor de contratos oficial Excursão das Comitivas
 2. Identidade visual e marca
 3. Schema PostgreSQL completo
 4. Autenticação segura
@@ -98,10 +98,17 @@ DATABASE_URL=postgresql://USUARIO:SENHA@HOST:5432/BANCO
 JWT_SECRET=GERE_UMA_CHAVE_FORTE
 NODE_ENV=production
 PORT=3000
-API_URL=https://seu-dominio.com
-PAYMENT_GATEWAY=mercadopago
-MERCADOPAGO_ACCESS_TOKEN=PREENCHA_COM_O_TOKEN_REAL
-MERCADOPAGO_PUBLIC_KEY=sua_chave_publica
+WEB_URL=https://excursaodascomitivas.com.br
+API_URL=https://excursaodascomitivas.com.br
+PAYMENT_GATEWAY=cora
+CORA_ENV=stage
+CORA_CLIENT_ID=CONFIGURE_NO_COOLIFY
+CORA_CERT_PATH=/run/secrets/cora/client.crt
+CORA_PRIVATE_KEY_PATH=/run/secrets/cora/client.key
+CORA_TOKEN_URL=https://api.stage.cora.com.br/token
+CORA_API_BASE_URL=https://api.stage.cora.com.br
+CORA_WEBHOOK_PUBLIC_URL=https://excursaodascomitivas.com.br/api/pagamentos/webhook/cora
+CORA_HTTP_TIMEOUT_MS=15000
 SMTP_HOST=smtp.seu-provedor.com
 SMTP_PORT=587
 SMTP_USER=seu_email@dominio.com
@@ -111,11 +118,11 @@ SMTP_FROM=noreply@comitiva.com.br
 
 ## 🚢 Deployment
 
-Veja [DEPLOYMENT.md](./DEPLOYMENT.md) para instruções completas.
+Veja [docs/cora-deploy-readiness.md](./docs/cora-deploy-readiness.md) para a prontidão de produção. Os guias antigos de Mercado Pago/Asaas são históricos e não devem ser usados para este sistema.
 
 ## 📚 Documentação
 
-- **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Guia completo de deployment
+- **[docs/cora-deploy-readiness.md](./docs/cora-deploy-readiness.md)** - Checklist de deploy Cora mTLS
 - **Schema do Banco** - Ver `server/db/schema.ts`
 
 ## ✅ Checklist de Conclusão
