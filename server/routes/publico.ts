@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { db } from "../db/index.js";
-import { eventos, lotes, pacotes, fotos_evento, avaliacoes, reservas, leads_origem, usuarios } from "../db/schema.js";
+import { eventos, lotes, pacotes, fotos_evento, avaliacoes, reservas, leads_origem, usuarios, videosEvento } from "../db/schema.js";
 import { eq, and, gt, lt, desc, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 
@@ -303,6 +303,23 @@ router.get("/avaliacoes", async (req: Request, res: Response) => {
     console.error("[PUBLICO] Erro ao listar avaliações:", error);
     res.status(500).json({ erro: "Erro ao listar avaliações" });
   }
+});
+
+// GET /api/publico/videos - thumbnails leves; o iframe só é aberto pelo cliente ao clicar.
+router.get("/videos", async (req: Request, res: Response) => {
+  try {
+    const filtro = req.query.evento_id ? and(eq(videosEvento.evento_id, String(req.query.evento_id)), eq(videosEvento.ativo, true)) : eq(videosEvento.ativo, true);
+    const videos = await db.select().from(videosEvento).where(filtro).orderBy(videosEvento.ordem, desc(videosEvento.criado_em));
+    res.json({ videos: videos.map((video) => ({ ...video, thumbnail_url: `https://i.ytimg.com/vi/${video.youtube_id}/hqdefault.jpg` })) });
+  } catch (error) {
+    console.error("[PUBLICO] Erro ao listar vídeos:", error);
+    res.status(500).json({ erro: "Erro ao listar vídeos" });
+  }
+});
+
+// GET /api/publico/regras-convivencia - versão pública exata da arte oficial.
+router.get("/regras-convivencia", (_req: Request, res: Response) => {
+  res.json({ versao: "2026.1", titulo: "Regras de Convivência — Excursão das Comitivas", conteudo: "Mais que uma viagem, uma experiência inesquecível!\\n\\nPara que todos aproveitem cada momento da nossa excursão com segurança, respeito e alegria, contamos com a colaboração de cada integrante.\\n\\nJUNTOS, FAZEMOS DA NOSSA COMITIVA UMA FAMÍLIA!\\n\\n1. RESPEITO ACIMA DE TUDO\\nRespeite todos os integrantes da comitiva, motoristas, equipe de apoio e a comunidade local. Gentileza gera bons momentos!\\n\\n2. LIMPEZA É RESPONSABILIDADE DE TODOS\\nMantenha o ônibus e os locais que visitarmos sempre limpos. Use as lixeiras e não deixe sujeira ou objetos para trás.\\n\\n3. PONTUALIDADE\\nRespeite os horários combinados. Atrasos podem prejudicar todo o grupo e nosso roteiro.\\n\\n4. CUIDE DOS SEUS PERTENCES\\nA excursão não se responsabiliza por objetos pessoais. Fique atento e cuide dos seus pertences durante toda a viagem.\\n\\n5. BRIGAS E AGRESSÕES\\nBrigas, agressões verbais e agressões físicas não serão toleradas em nenhuma hipótese. O respeito entre todos é indispensável durante toda a excursão.\\n\\n6. USO DE DROGAS É PROIBIDO\\nÉ expressamente proibido o uso, porte ou circulação de drogas ilícitas durante toda a excursão.\\n\\n7. SOM E BARULHO\\nNão é permitido som e barulho antes das 10hrs da manhã. O som só será permitido a partir das 10hrs da manhã, juntamente com a abertura do Open Bar. Após esse horário, mantenha o volume em nível adequado e respeite o descanso dos demais.\\n\\n8. BEBIDA COM RESPONSABILIDADE\\nSe for consumir bebida alcoólica, faça isso com moderação. Nunca dirija após beber. Segurança sempre!\\n\\n9. CUIDE DO PRÓXIMO\\nEsteja atento aos colegas da comitiva. Ajude quem precisar e informe a equipe sobre qualquer situação que demande atenção.\\n\\n10. NÃO É NÃO\\nRespeite os limites e o espaço do outro. Qualquer atitude desrespeitosa não será tolerada.\\n\\n11. SIGA AS ORIENTAÇÕES DA EQUIPE\\nNossa equipe está aqui para cuidar de tudo e de todos. Siga as orientações para que tudo ocorra da melhor forma.\\n\\nRespeito, união e alegria são o que tornam nossa comitiva única!" });
 });
 
 // GET /api/publico/fotos/:evento_id - Fotos de um evento

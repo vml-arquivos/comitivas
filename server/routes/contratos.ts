@@ -3,10 +3,11 @@ import { authMiddleware } from "../middleware/authMiddleware.js";
 import { ContratoService } from "../services/contratoService.js";
 import { ConfiguracaoService } from "../services/configuracaoService.js";
 import { db } from "../db/index.js";
-import { eventos, lotes, pacotes, reservas, usuarios } from "../db/schema.js";
-import { eq } from "drizzle-orm";
+import { eventos, lotes, pacotes, reservas, usuarios, contratoValidacoes } from "../db/schema.js";
+import { desc, eq } from "drizzle-orm";
 import fs from "fs/promises";
 import { generateBrandedPdfBuffer } from "../../packages/contract-engine/brandedPdfLayout.js";
+import { OtpService } from "../services/otpService.js";
 
 const router = Router();
 
@@ -39,7 +40,75 @@ function formatarDataHora(valor: Date): string {
   }).format(valor);
 }
 
-// Aceitar contrato e gerar PDF
+// Preparar a versão contratual que será exibida e validada pelo cliente.
+router.post("/preparar/:reserva_id", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
+    if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
+    if (reserva.usuario_id !== req.usuario.id && req.usuario.tipo !== "admin") return res.status(403).json({ erro: "Acesso negado" });
+    const documento = await ContratoService.prepararContrato(req.params.reserva_id);
+    return res.json({ documento });
+  } catch (error: any) {
+    console.error("[CONTRATOS] Erro ao preparar:", error);
+    return res.status(400).json({ erro: error.message || "Não foi possível preparar o contrato" });
+  }
+});
+
+router.get("/regras-convivencia", (_req: Request, res: Response) => {
+  res.json({ versao: "2026.1", titulo: "Regras de Convivência — Excursão das Comitivas", conteudo: "Mais que uma viagem, uma experiência inesquecível!\n\nPara que todos aproveitem cada momento da nossa excursão com segurança, respeito e alegria, contamos com a colaboração de cada integrante.\n\nJUNTOS, FAZEMOS DA NOSSA COMITIVA UMA FAMÍLIA!\n\n1. RESPEITO ACIMA DE TUDO\nRespeite todos os integrantes da comitiva, motoristas, equipe de apoio e a comunidade local. Gentileza gera bons momentos!\n\n2. LIMPEZA É RESPONSABILIDADE DE TODOS\nMantenha o ônibus e os locais que visitarmos sempre limpos. Use as lixeiras e não deixe sujeira ou objetos para trás.\n\n3. PONTUALIDADE\nRespeite os horários combinados. Atrasos podem prejudicar todo o grupo e nosso roteiro.\n\n4. CUIDE DOS SEUS PERTENCES\nA excursão não se responsabiliza por objetos pessoais. Fique atento e cuide dos seus pertences durante toda a viagem.\n\n5. BRIGAS E AGRESSÕES\nBrigas, agressões verbais e agressões físicas não serão toleradas em nenhuma hipótese. O respeito entre todos é indispensável durante toda a excursão.\n\n6. USO DE DROGAS É PROIBIDO\nÉ expressamente proibido o uso, porte ou circulação de drogas ilícitas durante toda a excursão.\n\n7. SOM E BARULHO\nNão é permitido som e barulho antes das 10hrs da manhã. O som só será permitido a partir das 10hrs da manhã, juntamente com a abertura do Open Bar. Após esse horário, mantenha o volume em nível adequado e respeite o descanso dos demais.\n\n8. BEBIDA COM RESPONSABILIDADE\nSe for consumir bebida alcoólica, faça isso com moderação. Nunca dirija após beber. Segurança sempre!\n\n9. CUIDE DO PRÓXIMO\nEsteja atento aos colegas da comitiva. Ajude quem precisar e informe a equipe sobre qualquer situação que demande atenção.\n\n10. NÃO É NÃO\nRespeite os limites e o espaço do outro. Qualquer atitude desrespeitosa não será tolerada.\n\n11. SIGA AS ORIENTAÇÕES DA EQUIPE\nNossa equipe está aqui para cuidar de tudo e de todos. Siga as orientações para que tudo ocorra da melhor forma.\n\nRespeito, união e alegria são o que tornam nossa comitiva única!" });
+});
+
+router.post("/otp/solicitar/:reserva_id", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const resultado = await OtpService.solicitar({ usuario_id: req.usuario.id, reserva_id: req.params.reserva_id, contrato_id: req.body?.contrato_id, canal: req.body?.canal });
+    if (!resultado.enviado) return res.status(503).json({ erro: resultado.motivo || "Canal de validação não configurado", ...resultado });
+    return res.json(resultado);
+  } catch (error: any) {
+    console.error("[CONTRATOS] Erro ao solicitar OTP:", error);
+    return res.status(400).json({ erro: error.message || "Não foi possível enviar o código" });
+  }
+});
+
+router.post("/otp/confirmar/:reserva_id", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const resultado = await OtpService.confirmar({
+      usuario_id: req.usuario.id,
+      reserva_id: req.params.reserva_id,
+      codigo: req.body?.codigo,
+      aceite_contrato: req.body?.aceite_contrato === true,
+      aceite_regras: req.body?.aceite_regras === true,
+      ip: req.ip || req.socket.remoteAddress,
+      userAgent: req.get("user-agent"),
+      idioma: req.body?.idioma || req.get("accept-language")?.split(",")[0],
+      timezone: req.body?.timezone,
+      geolocalizacao: req.body?.geolocalizacao,
+    });
+    return res.json({ mensagem: "Contrato validado com sucesso", ...resultado });
+  } catch (error: any) {
+    console.error("[CONTRATOS] Erro ao confirmar OTP:", error);
+    return res.status(400).json({ erro: error.message || "Não foi possível validar o contrato" });
+  }
+});
+
+router.get("/validacao/:reserva_id", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
+    if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
+    if (reserva.usuario_id !== req.usuario.id && req.usuario.tipo !== "admin") return res.status(403).json({ erro: "Acesso negado" });
+    const validacao = (await db.select().from(contratoValidacoes).where(eq(contratoValidacoes.reserva_id, req.params.reserva_id)).orderBy(desc(contratoValidacoes.confirmado_em)).limit(1))[0];
+    if (!validacao) return res.status(404).json({ erro: "Validação ainda não registrada" });
+    return res.json({ validacao });
+  } catch (error) {
+    console.error("[CONTRATOS] Erro ao consultar validação:", error);
+    return res.status(500).json({ erro: "Erro ao consultar validação" });
+  }
+});
+
+// Compatibilidade: o endpoint antigo agora apenas prepara uma versão aguardando validação OTP.
 router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Response) => {
   try {
     if (!req.usuario) {
@@ -78,6 +147,9 @@ router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Re
     const quantidadeParcelas = req.body?.quantidade_parcelas ?? reserva.quantidade_parcelas;
     if (!metodoPagamento) {
       return res.status(400).json({ erro: "Selecione a forma de pagamento antes de aceitar o contrato" });
+    }
+    if (!["pix", "boleto"].includes(String(metodoPagamento))) {
+      return res.status(400).json({ erro: "O checkout Cora oferece somente PIX e boleto" });
     }
 
     let condicaoPagamento;
@@ -121,15 +193,12 @@ router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Re
       })
       .where(eq(reservas.id, reserva_id));
 
-    const ip = req.ip || req.socket.remoteAddress || "desconhecido";
-
-    // Registrar aceite e gerar contrato já com os dados persistidos acima.
-    await ContratoService.registrarAceiteContrato(reserva_id, ip);
-
+    const documento = await ContratoService.prepararContrato(reserva_id);
     res.json({
-      mensagem: "Contrato aceito e gerado com sucesso",
+      mensagem: "Contrato preparado e aguardando validação eletrônica",
       reserva_id,
-      status: "contrato_gerado",
+      status: "aguardando_validacao",
+      documento,
       condicao_pagamento: condicaoPagamento,
     });
   } catch (error: any) {

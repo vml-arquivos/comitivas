@@ -1,10 +1,12 @@
 import { Router, Request, Response } from "express";
+import { createHash, randomBytes } from "node:crypto";
 import { db } from "../db/index.js";
-import { leads_origem, usuarios } from "../db/schema.js";
+import { leads_origem, usuarios, passwordResetTokens } from "../db/schema.js";
 import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { AuthService } from "../services/authService.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
+import { EmailProvider } from "../services/notificationProvider.js";
 
 const router = Router();
 
@@ -291,6 +293,50 @@ router.put("/perfil", authMiddleware, async (req: Request, res: Response) => {
       return res.status(409).json({ erro: "CPF já cadastrado em outra conta" });
     }
     res.status(500).json({ erro: "Erro ao atualizar dados cadastrais" });
+  }
+});
+
+router.post("/esqueci-senha", async (req: Request, res: Response) => {
+  const respostaNeutra = { mensagem: "Se o e-mail estiver cadastrado, você receberá instruções para redefinir a senha." };
+  try {
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.json(respostaNeutra);
+    const usuario = (await db.select({ id: usuarios.id, nome: usuarios.nome, email: usuarios.email }).from(usuarios).where(eq(usuarios.email, email)).limit(1))[0];
+    if (!usuario || !usuario.email) return res.json(respostaNeutra);
+    const token = randomBytes(32).toString("hex");
+    const tokenHash = createHash("sha256").update(token).digest("hex");
+    const agora = new Date();
+    await db.update(passwordResetTokens).set({ expira_em: agora }).where(and(eq(passwordResetTokens.usuario_id, usuario.id), isNull(passwordResetTokens.usado_em)));
+    await db.insert(passwordResetTokens).values({ usuario_id: usuario.id, token_hash: tokenHash, expira_em: new Date(agora.getTime() + 30 * 60 * 1000) });
+    const baseUrl = process.env.WEB_URL?.trim() || "http://localhost:5173";
+    const envio = await new EmailProvider().sendPasswordReset(usuario.email, usuario.nome, `${baseUrl}/redefinir-senha?token=${token}`);
+    if (!envio.sent) console.warn("[AUTH] Recuperação de senha não enviada: SMTP não configurado");
+    return res.json(respostaNeutra);
+  } catch (error) {
+    console.error("[AUTH] Erro na solicitação de recuperação:", error);
+    return res.json(respostaNeutra);
+  }
+});
+
+router.post("/redefinir-senha", async (req: Request, res: Response) => {
+  try {
+    const token = String(req.body?.token || "").trim();
+    const senha = String(req.body?.senha || "");
+    if (!/^[a-f0-9]{64}$/.test(token) || senha.length < 8) return res.status(400).json({ erro: "Token inválido ou senha com menos de 8 caracteres" });
+    const tokenHash = createHash("sha256").update(token).digest("hex");
+    const agora = new Date();
+    const resultado = await db.transaction(async (tx) => {
+      const atualizado = await tx.update(passwordResetTokens).set({ usado_em: agora }).where(and(eq(passwordResetTokens.token_hash, tokenHash), isNull(passwordResetTokens.usado_em), sql`${passwordResetTokens.expira_em} > CURRENT_TIMESTAMP`)).returning({ usuario_id: passwordResetTokens.usuario_id });
+      if (!atualizado[0]) return null;
+      const senhaHash = await AuthService.hashPassword(senha);
+      await tx.update(usuarios).set({ senha_hash: senhaHash, atualizado_em: agora }).where(eq(usuarios.id, atualizado[0].usuario_id));
+      return atualizado[0];
+    });
+    if (!resultado) return res.status(400).json({ erro: "Token inválido, expirado ou já utilizado" });
+    return res.json({ mensagem: "Senha redefinida com sucesso" });
+  } catch (error) {
+    console.error("[AUTH] Erro ao redefinir senha:", error);
+    return res.status(400).json({ erro: "Não foi possível redefinir a senha" });
   }
 });
 

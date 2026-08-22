@@ -6,11 +6,13 @@ import { AdminLayout } from './layouts/AdminLayout';
 
 // Páginas públicas
 import Login from './pages/Login';
+import PasswordReset from './pages/PasswordReset';
 import Cadastro from './pages/Cadastro';
 import Eventos from './pages/Eventos';
 import Home from './pages/publico/Home';
 import Historia from './pages/publico/Historia';
 import AvaliacoesPublicas from './pages/publico/AvaliacoesPublicas';
+import Regras from './pages/publico/Regras';
 import Galeria from './pages/publico/Galeria';
 
 // Páginas do cliente
@@ -59,8 +61,10 @@ function AppRoutes() {
         <Route path="/historia" element={<Historia />} />
         <Route path="/galeria" element={<Galeria />} />
         <Route path="/avaliacoes" element={<AvaliacoesPublicas />} />
+        <Route path="/regras" element={<Regras />} />
         <Route path="/eventos" element={<Eventos />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/redefinir-senha" element={<PasswordReset />} />
         <Route path="/cadastro" element={<Cadastro />} />
         
         {/* O configurador é público; a autenticação só é pedida ao reservar. */}

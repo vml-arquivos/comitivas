@@ -30,20 +30,12 @@ import {
 } from 'lucide-react';
 
 const ITENS_INCLUSOS = [
+  { texto: 'Hospedagem na modalidade escolhida', Icone: Bed },
   { texto: 'Café da manhã', Icone: Coffee },
   { texto: 'Almoço', Icone: UtensilsCrossed },
-  { texto: '10h de open bar na chácara', Icone: Wine },
-  { texto: 'Água e refrigerante', Icone: GlassWater },
-  { texto: 'Energético', Icone: Zap },
-  { texto: 'Vodka e gin', Icone: Wine },
-  { texto: 'Cerveja', Icone: Beer },
-  { texto: 'Paratudo', Icone: GlassWater },
-  { texto: 'Barman fazendo drinks', Icone: Wine },
-  { texto: 'DJ durante o dia', Icone: Music2 },
-  { texto: 'Som automotivo', Icone: Volume2 },
-  { texto: 'Piscina liberada', Icone: Waves },
-  { texto: 'Translado chácara ⇄ Parque do Peão', Icone: Bus },
-  { texto: 'Ida e volta Brasília ⇄ Barretos (embarque em Goiânia)', Icone: Bus },
+  { texto: 'Open Bar das 09h às 19h', Icone: Wine },
+  { texto: 'Translado entre a chácara e o Parque do Peão', Icone: Bus },
+  { texto: 'Regras e orientações da equipe', Icone: ShieldCheck },
 ];
 
 const PACOTES_HOSPEDAGEM = [
@@ -53,11 +45,10 @@ const PACOTES_HOSPEDAGEM = [
     Icone: Tent,
     destaque: 'A energia coletiva da comitiva',
     bullets: [
-      'Área totalmente gramada',
-      'Banheiros externos',
-      'Pontos de energia',
-      'Segurança',
-      'Cliente leva o próprio material',
+      'Área de camping',
+      'Banheiros coletivos',
+      'Piscina disponível',
+      'Roupa de cama e itens de higiene por conta do hóspede',
     ],
     mensagemWhatsApp: 'Olá! Quero saber mais sobre o pacote Camping da Excursão das Comitivas.',
   },
@@ -67,10 +58,11 @@ const PACOTES_HOSPEDAGEM = [
     Icone: Bed,
     destaque: 'Conforto essencial para descansar',
     bullets: [
-      'Quartos suítes para 5 a 6 pessoas',
+      'Quartos compartilhados',
+      'Ocupação variável entre 5 e 10 pessoas',
+      'Separados por masculino e feminino',
+      'Banheiro privativo',
       'Ventilador',
-      'Separado por feminino ou masculino',
-      'Não há quartos mistos',
     ],
     mensagemWhatsApp: 'Olá! Quero saber mais sobre o pacote com Quarto com Ventilador da Excursão das Comitivas.',
   },
@@ -80,10 +72,11 @@ const PACOTES_HOSPEDAGEM = [
     Icone: Bed,
     destaque: 'A experiência com máximo conforto',
     bullets: [
-      'Quartos suítes para 5 a 6 pessoas',
-      'Ar-condicionado',
-      'Separado por feminino ou masculino',
-      'Não há quartos mistos',
+      'Quartos compartilhados',
+      'Ocupação variável entre 5 e 10 pessoas',
+      'Separados por masculino e feminino',
+      'Banheiro privativo',
+      'Climatizador',
     ],
     mensagemWhatsApp: 'Olá! Quero saber mais sobre o pacote com Quarto com Ar-condicionado da Excursão das Comitivas.',
   },
@@ -95,9 +88,9 @@ const SCHEMA_ORGANIZATION = {
   '@context': 'https://schema.org',
   '@type': 'Organization',
   name: 'Excursão das Comitivas',
-  url: 'https://comitivas.permupay.com.br/',
-  logo: 'https://comitivas.permupay.com.br/images/logo-compartilhamento.webp',
-  image: 'https://comitivas.permupay.com.br/images/hero-parque-peao.jpg',
+  url: 'https://excursaodascomitivas.com.br/',
+  logo: 'https://excursaodascomitivas.com.br/images/logo-compartilhamento.webp',
+  image: 'https://excursaodascomitivas.com.br/images/hero-parque-peao.jpg',
   description: 'Excursões para Barretos com transporte, hospedagem, alimentação, open bar e atendimento especializado.',
   foundingDate: '2015',
   email: 'excursaodascomitivas@gmail.com',
@@ -215,19 +208,19 @@ export default function Home() {
         <title>Excursão das Comitivas | Barretos 2026</title>
         <meta name="description" content="Conheça os pacotes da Excursão das Comitivas para Barretos: escolha sua hospedagem, faça sua reserva online e viaje com tranquilidade." />
         <meta name="robots" content="index,follow" />
-        <link rel="canonical" href="https://comitivas.permupay.com.br/" />
+        <link rel="canonical" href="https://excursaodascomitivas.com.br/" />
         <meta property="og:type" content="website" />
         <meta property="og:locale" content="pt_BR" />
         <meta property="og:site_name" content="Excursão das Comitivas" />
         <meta property="og:title" content="Excursão das Comitivas | Pacotes para Barretos" />
         <meta property="og:description" content="Pacotes para Barretos com hospedagem escolhida por você e reserva digital." />
-        <meta property="og:url" content="https://comitivas.permupay.com.br/" />
-        <meta property="og:image" content="https://comitivas.permupay.com.br/images/logo-compartilhamento.webp" />
+        <meta property="og:url" content="https://excursaodascomitivas.com.br/" />
+        <meta property="og:image" content="https://excursaodascomitivas.com.br/images/logo-compartilhamento.webp" />
         <meta property="og:image:alt" content="Logo da Excursão das Comitivas" />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content="Excursão das Comitivas | Barretos" />
         <meta name="twitter:description" content="Pacotes para Barretos com reserva online e modalidades de hospedagem." />
-        <meta name="twitter:image" content="https://comitivas.permupay.com.br/images/logo-compartilhamento.webp" />
+        <meta name="twitter:image" content="https://excursaodascomitivas.com.br/images/logo-compartilhamento.webp" />
         <script type="application/ld+json">{JSON.stringify(SCHEMA_ORGANIZATION)}</script>
       </Helmet>
 
@@ -363,7 +356,7 @@ export default function Home() {
       <section id="galeria" className="scroll-mt-20 bg-secondary py-24">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col justify-between gap-6 md:flex-row md:items-end">
-            <div className="max-w-2xl"><p className="text-sm font-bold uppercase tracking-[0.16em] text-[#ff9fa6]">Visualmente inesquecível</p><h2 className="mt-3 text-3xl font-black tracking-tight text-white sm:text-4xl">Um gostinho do que espera por você em Barretos</h2><p className="mt-4 text-sm text-slate-300">Raízes de quase 18 anos de estrada — a equipe atual da Excursão das Comitivas segue firme desde 2015.</p></div>
+            <div className="max-w-2xl"><p className="text-sm font-bold uppercase tracking-[0.16em] text-[#ff9fa6]">Visualmente inesquecível</p><h2 className="mt-3 text-3xl font-black tracking-tight text-white sm:text-4xl">Um gostinho do que espera por você em Barretos</h2><p className="mt-4 text-sm text-slate-300">Uma experiência organizada com a identidade e o cuidado da Excursão das Comitivas desde 2015.</p></div>
             <Link to="/historia" className="inline-flex items-center gap-2 text-sm font-bold text-white transition hover:text-[#ffb0b5]">Ver histórico de excursões <ChevronRight size={18} /></Link>
           </div>
 

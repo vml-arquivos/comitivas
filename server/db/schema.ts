@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, varchar, timestamp, boolean, decimal, jsonb, pgEnum, index } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, varchar, timestamp, boolean, decimal, jsonb, pgEnum, index, date } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 
@@ -172,6 +172,7 @@ export const pagamentos = pgTable("pagamentos", {
   metodo: varchar("metodo", { length: 50 }).notNull(), // pix, credito, debito
   gateway_id: varchar("gateway_id", { length: 255 }),
   gateway_resposta: jsonb("gateway_resposta"),
+  idempotency_key: varchar("idempotency_key", { length: 255 }),
   criado_em: timestamp("criado_em").defaultNow().notNull(),
   atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
 }, (table) => ({
@@ -233,6 +234,157 @@ export const configuracoesPagamento = pgTable("configuracoes_pagamento", {
   atualizado_por: text("atualizado_por"),
 });
 
+export const contratosDocumentos = pgTable("contratos_documentos", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  reserva_id: text("reserva_id").notNull().references(() => reservas.id),
+  versao: integer("versao").notNull(),
+  versao_template: varchar("versao_template", { length: 80 }).notNull(),
+  snapshot: jsonb("snapshot").notNull(),
+  snapshot_sha256: varchar("snapshot_sha256", { length: 64 }).notNull(),
+  pdf_sha256: varchar("pdf_sha256", { length: 64 }),
+  arquivo: varchar("arquivo", { length: 500 }),
+  status: varchar("status", { length: 30 }).default("rascunho").notNull(),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+  validado_em: timestamp("validado_em"),
+  invalidado_em: timestamp("invalidado_em"),
+}, (table) => ({
+  reservaVersaoIdx: index("contratos_documentos_reserva_versao_idx").on(table.reserva_id, table.versao),
+  statusIdx: index("contratos_documentos_status_idx").on(table.status),
+}));
+
+export const regrasConvivenciaVersoes = pgTable("regras_convivencia_versoes", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  versao: varchar("versao", { length: 30 }).notNull().unique(),
+  titulo: varchar("titulo", { length: 255 }).notNull(),
+  conteudo: text("conteudo").notNull(),
+  conteudo_sha256: varchar("conteudo_sha256", { length: 64 }).notNull(),
+  ativo: boolean("ativo").default(true).notNull(),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+});
+
+export const contratoValidacoes = pgTable("contrato_validacoes", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  protocolo: varchar("protocolo", { length: 80 }).notNull().unique(),
+  contrato_id: text("contrato_id").notNull().references(() => contratosDocumentos.id),
+  usuario_id: text("usuario_id").notNull().references(() => usuarios.id),
+  reserva_id: text("reserva_id").notNull().references(() => reservas.id),
+  versao: integer("versao").notNull(),
+  snapshot_sha256: varchar("snapshot_sha256", { length: 64 }).notNull(),
+  pdf_sha256: varchar("pdf_sha256", { length: 64 }).notNull(),
+  aceite_contrato: boolean("aceite_contrato").notNull(),
+  aceite_regras: boolean("aceite_regras").notNull(),
+  regras_versao: varchar("regras_versao", { length: 30 }).notNull(),
+  aviso_privacidade_versao: varchar("aviso_privacidade_versao", { length: 30 }).notNull(),
+  canal: varchar("canal", { length: 20 }).notNull(),
+  destinatario_mascarado: varchar("destinatario_mascarado", { length: 255 }).notNull(),
+  message_id: varchar("message_id", { length: 255 }),
+  enviado_em: timestamp("enviado_em"),
+  confirmado_em: timestamp("confirmado_em").notNull(),
+  servidor_utc: timestamp("servidor_utc").notNull(),
+  ip: varchar("ip", { length: 45 }),
+  user_agent: text("user_agent"),
+  navegador: varchar("navegador", { length: 120 }),
+  sistema_operacional: varchar("sistema_operacional", { length: 120 }),
+  idioma: varchar("idioma", { length: 30 }),
+  timezone: varchar("timezone", { length: 80 }),
+  latitude: decimal("latitude", { precision: 10, scale: 7 }),
+  longitude: decimal("longitude", { precision: 10, scale: 7 }),
+  precisao_metros: decimal("precisao_metros", { precision: 10, scale: 2 }),
+  geolocalizacao_consentida: boolean("geolocalizacao_consentida").default(false).notNull(),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+}, (table) => ({ reservaIdx: index("contrato_validacoes_reserva_idx").on(table.reserva_id) }));
+
+export const otpDesafios = pgTable("otp_desafios", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  usuario_id: text("usuario_id").notNull().references(() => usuarios.id),
+  reserva_id: text("reserva_id").notNull().references(() => reservas.id),
+  contrato_id: text("contrato_id").notNull().references(() => contratosDocumentos.id),
+  canal: varchar("canal", { length: 20 }).notNull(),
+  destinatario_mascarado: varchar("destinatario_mascarado", { length: 255 }).notNull(),
+  segredo_hash: varchar("segredo_hash", { length: 128 }).notNull(),
+  expira_em: timestamp("expira_em").notNull(),
+  tentativas: integer("tentativas").default(0).notNull(),
+  max_tentativas: integer("max_tentativas").default(5).notNull(),
+  cooldown_ate: timestamp("cooldown_ate").notNull(),
+  usado_em: timestamp("usado_em"),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+}, (table) => ({ lookupIdx: index("otp_desafios_lookup_idx").on(table.usuario_id, table.reserva_id, table.contrato_id, table.criado_em) }));
+
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  usuario_id: text("usuario_id").notNull().references(() => usuarios.id),
+  token_hash: varchar("token_hash", { length: 128 }).notNull().unique(),
+  expira_em: timestamp("expira_em").notNull(),
+  usado_em: timestamp("usado_em"),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+}, (table) => ({ userIdx: index("password_reset_tokens_user_idx").on(table.usuario_id, table.criado_em) }));
+
+export const pagamentoIdempotencias = pgTable("pagamento_idempotencias", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  chave: varchar("chave", { length: 255 }).notNull().unique(),
+  operacao: varchar("operacao", { length: 80 }).notNull(),
+  reserva_id: text("reserva_id").notNull().references(() => reservas.id),
+  pagamento_id: text("pagamento_id").references(() => pagamentos.id),
+  resposta: jsonb("resposta"),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+  atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
+});
+
+export const pagamentoParcelas = pgTable("pagamento_parcelas", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  pagamento_id: text("pagamento_id").notNull().references(() => pagamentos.id),
+  reserva_id: text("reserva_id").notNull().references(() => reservas.id),
+  sequencia: integer("sequencia").notNull(),
+  valor: decimal("valor", { precision: 12, scale: 2 }).notNull(),
+  vencimento: date("vencimento").notNull(),
+  cora_id: varchar("cora_id", { length: 255 }),
+  status: varchar("status", { length: 30 }).default("pendente").notNull(),
+  boleto_url: varchar("boleto_url", { length: 500 }),
+  pix_copia_e_cola: text("pix_copia_e_cola"),
+  codigo_barras: varchar("codigo_barras", { length: 255 }),
+  linha_digitavel: varchar("linha_digitavel", { length: 255 }),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+  atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
+}, (table) => ({ reservaSequenciaIdx: index("pagamento_parcelas_reserva_sequencia_idx").on(table.reserva_id, table.sequencia) }));
+
+export const webhookEventos = pgTable("webhook_eventos", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  provedor: varchar("provedor", { length: 30 }).default("cora").notNull(),
+  evento_id: varchar("evento_id", { length: 255 }).notNull().unique(),
+  tipo: varchar("tipo", { length: 120 }).notNull(),
+  recurso_id: varchar("recurso_id", { length: 255 }),
+  payload: jsonb("payload").notNull(),
+  processado_em: timestamp("processado_em"),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+});
+
+export const descontosAdministrativos = pgTable("descontos_administrativos", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  reserva_id: text("reserva_id").notNull().references(() => reservas.id),
+  administrador_id: text("administrador_id").notNull().references(() => usuarios.id),
+  motivo: text("motivo").notNull(),
+  tipo: varchar("tipo", { length: 20 }).notNull(),
+  valor_informado: decimal("valor_informado", { precision: 12, scale: 2 }).notNull(),
+  subtotal_original: decimal("subtotal_original", { precision: 12, scale: 2 }).notNull(),
+  valor_desconto: decimal("valor_desconto", { precision: 12, scale: 2 }).notNull(),
+  total_final: decimal("total_final", { precision: 12, scale: 2 }).notNull(),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+}, (table) => ({ reservaIdx: index("descontos_administrativos_reserva_idx").on(table.reserva_id) }));
+
+export const videosEvento = pgTable("videos_evento", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  evento_id: text("evento_id").notNull().references(() => eventos.id),
+  url: varchar("url", { length: 500 }).notNull(),
+  youtube_id: varchar("youtube_id", { length: 80 }).notNull(),
+  titulo: varchar("titulo", { length: 255 }),
+  descricao: text("descricao"),
+  ordem: integer("ordem").default(0).notNull(),
+  ativo: boolean("ativo").default(true).notNull(),
+  destaque: boolean("destaque").default(false).notNull(),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+  atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
+}, (table) => ({ eventoIdx: index("videos_evento_evento_idx").on(table.evento_id, table.ativo, table.ordem) }));
+
 // Relations
 export const usuariosRelations = relations(usuarios, ({ many }) => ({
   reservas: many(reservas),
@@ -279,7 +431,12 @@ export const fotos_evento = pgTable("fotos_evento", {
   evento_id: varchar("evento_id", { length: 255 }).notNull().references(() => eventos.id),
   url_foto: varchar("url_foto", { length: 500 }).notNull(),
   legenda: varchar("legenda", { length: 500 }),
+  alt_text: varchar("alt_text", { length: 500 }),
+  categoria: varchar("categoria", { length: 80 }).default("evento"),
   ordem: integer("ordem").default(0),
+  destaque: boolean("destaque").default(false).notNull(),
+  capa: boolean("capa").default(false).notNull(),
+  formato: varchar("formato", { length: 30 }),
   criado_em: timestamp("criado_em").defaultNow().notNull(),
 }, (table) => ({
   eventoIdx: index("fotos_evento_idx").on(table.evento_id),

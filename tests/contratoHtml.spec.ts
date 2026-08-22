@@ -100,9 +100,12 @@ describe("ContratoService.gerarContratoHTML", () => {
       aceite_ip: "127.0.0.1",
     });
 
-    expect(html).toContain("20/08/2026 a 23/08/2026");
-    expect(html).toContain("19/08/2026");
-    expect(html).toContain("Brasília/DF, com embarque adicional em Goiânia/GO");
+    expect(html).toContain("Check-in:");
+    expect(html).toContain("Check-out:");
+    expect(html).toContain("23/08/2026");
+    expect(html).toContain("Cláusula segunda");
+    expect(html).not.toContain("Brasília/DF, com embarque adicional em Goiânia/GO");
+    expect(html).toContain("Esta contratação não inclui transporte rodoviário interestadual");
     expect(html).not.toContain("20/08/2026 a 30/08/2026");
     if (process.env.CONTRATO_HTML_OUTPUT) {
       await writeFile(process.env.CONTRATO_HTML_OUTPUT, html, "utf8");
@@ -118,10 +121,12 @@ describe("ContratoService.gerarContratoHTML", () => {
     });
 
     expect(html).toContain("123.456.789-09");
-    expect(html).toContain("10 horas de open bar");
-    expect(html).toContain("Paratudo");
-    expect(html).toContain("translado chácara ⇄ Parque do Peão");
-    expect(html).toContain("O CONTRATANTE deverá levar seu próprio material de camping");
+    expect(html).toContain("Open Bar das 09h às 19h");
+    expect(html).not.toContain("Paratudo");
+    expect(html).toContain("Translado entre a chácara e o Parque do Peão");
+    expect(html).toContain("Regras de convivência aceitas");
+    expect(html).toContain("2026.1-oficial");
+    expect(html).toContain("roupa de cama é de responsabilidade exclusiva do hóspede");
     expect(html).toMatch(/☒<\/span> CAMPING/);
     expect(html).toMatch(/☐<\/span> QUARTO COM VENTILADOR/);
   });

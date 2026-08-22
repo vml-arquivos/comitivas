@@ -4,9 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle, Button, Input } from '@ui/ind
 import { CheckCircle2, AlertTriangle } from 'lucide-react';
 
 const GATEWAY_LABEL: Record<string, string> = {
-  mercadopago: 'Mercado Pago',
-  asaas: 'Asaas',
-  mock: 'Modo de teste (sem gateway real)',
+  cora: 'Banco Cora',
+  mock: 'Modo de teste local',
 };
 
 export default function Configuracoes() {
@@ -18,7 +17,7 @@ export default function Configuracoes() {
   const [pixDesconto, setPixDesconto] = useState('5');
   const [creditoMax, setCreditoMax] = useState('10');
   const [boletoMesesMax, setBoletoMesesMax] = useState('20');
-  const [gateway, setGateway] = useState<{ ativo: string; configurado: boolean } | null>(null);
+  const [gateway, setGateway] = useState<{ ativo: string; configurado: boolean; nome?: string; ambiente?: string; metodos?: string[] } | null>(null);
 
   const carregar = async () => {
     setCarregando(true);
@@ -86,7 +85,7 @@ export default function Configuracoes() {
             )}
             <div>
               <p className="font-medium text-gray-900">
-                {gateway ? (GATEWAY_LABEL[gateway.ativo] || gateway.ativo) : '—'}
+                {gateway?.nome || (gateway ? (GATEWAY_LABEL[gateway.ativo] || gateway.ativo) : '—')}
               </p>
               <p className="text-sm text-gray-500">
                 {gateway?.configurado
@@ -96,10 +95,10 @@ export default function Configuracoes() {
             </div>
           </div>
           <p className="text-xs text-gray-500 border-t pt-3">
-            O gateway ativo e o token de acesso (Mercado Pago/Asaas) são configurados como
-            variável de ambiente no Coolify — não pelo painel. Isso é proposital: são credenciais
-            de pagamento reais, mais seguras como segredo de deploy do que digitadas num formulário
-            web. Fale com quem administra o deploy para trocar essas credenciais.
+            O Banco Cora é o único gateway financeiro de produção. Client ID, certificado mTLS e private key
+            são configurados como segredo de ambiente no deploy — não pelo painel e nunca no frontend.
+            Ambiente atual: <strong>{gateway?.ambiente || 'stage'}</strong>. O checkout oferece Pix e boleto/carnê;
+            cartão não é exibido sem uma API Cora contratada que o suporte explicitamente.
           </p>
         </CardContent>
       </Card>
@@ -126,7 +125,7 @@ export default function Configuracoes() {
                 onChange={(e) => setPixDesconto(e.target.value)}
               />
               <Input
-                label="Máx. parcelas no cartão"
+                label="Máx. parcelas no cartão (catálogo histórico)"
                 type="number"
                 min={1}
                 max={24}

@@ -59,6 +59,7 @@ export function MainLayout() {
               <Link to="/historia" className="transition-colors hover:text-accent">Nossa História</Link>
               <Link to="/galeria" className="transition-colors hover:text-accent">Galeria</Link>
               <Link to="/avaliacoes" className="transition-colors hover:text-accent">Avaliações</Link>
+              <Link to="/regras" className="transition-colors hover:text-accent">Regras</Link>
             </nav>
 
             <nav className="hidden items-center gap-3 md:flex">
@@ -91,6 +92,7 @@ export function MainLayout() {
               <Link to="/historia" onClick={fecharMenu} className="block rounded-lg px-3 py-2 hover:bg-white/10">Nossa História</Link>
               <Link to="/galeria" onClick={fecharMenu} className="block rounded-lg px-3 py-2 hover:bg-white/10">Galeria</Link>
               <Link to="/avaliacoes" onClick={fecharMenu} className="block rounded-lg px-3 py-2 hover:bg-white/10">Avaliações</Link>
+              <Link to="/regras" onClick={fecharMenu} className="block rounded-lg px-3 py-2 hover:bg-white/10">Regras de convivência</Link>
               {user ? (
                 <>
                   <Link to="/minhas-reservas" onClick={fecharMenu} className="block rounded-lg px-3 py-2 hover:bg-white/10">Minhas reservas</Link>

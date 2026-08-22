@@ -20,6 +20,7 @@ type FotoGaleria = {
   src: string;
   alt: string;
   legenda?: string | null;
+  alt_text?: string | null;
   evento: string;
   data?: string | null;
 };
@@ -54,7 +55,8 @@ export default function Galeria() {
       (evento.fotos || []).map((foto: any) => ({
         id: foto.id,
         src: foto.url_foto,
-        alt: foto.legenda || `Registro de ${evento.nome}`,
+        alt: foto.alt_text || foto.legenda || `Registro de ${evento.nome}`,
+        alt_text: foto.alt_text,
         legenda: foto.legenda,
         evento: evento.nome,
         data: evento.data_inicio,
@@ -69,17 +71,17 @@ export default function Galeria() {
         <title>Galeria | Excursão das Comitivas</title>
         <meta name="description" content="Veja fotos da experiência da Excursão das Comitivas em Barretos e conheça o clima que espera por você." />
         <meta name="robots" content="index,follow" />
-        <link rel="canonical" href="https://comitivas.permupay.com.br/galeria" />
+        <link rel="canonical" href="https://excursaodascomitivas.com.br/galeria" />
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="Excursão das Comitivas" />
         <meta property="og:title" content="Galeria | Excursão das Comitivas" />
         <meta property="og:description" content="Fotos da experiência da Excursão das Comitivas em Barretos." />
-        <meta property="og:url" content="https://comitivas.permupay.com.br/galeria" />
-        <meta property="og:image" content="https://comitivas.permupay.com.br/images/logo-compartilhamento.webp" />
+        <meta property="og:url" content="https://excursaodascomitivas.com.br/galeria" />
+        <meta property="og:image" content="https://excursaodascomitivas.com.br/images/logo-compartilhamento.webp" />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content="Galeria | Excursão das Comitivas" />
         <meta name="twitter:description" content="Conheça a experiência da nossa comitiva em Barretos." />
-        <meta name="twitter:image" content="https://comitivas.permupay.com.br/images/logo-compartilhamento.webp" />
+        <meta name="twitter:image" content="https://excursaodascomitivas.com.br/images/logo-compartilhamento.webp" />
       </Helmet>
 
       <section className="relative isolate overflow-hidden bg-secondary px-4 py-24 text-center">

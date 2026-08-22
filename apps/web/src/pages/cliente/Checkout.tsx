@@ -1,392 +1,126 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../contexts/AuthContext';
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@ui/index';
-import { AlertCircle, CreditCard, FileText, Landmark, QrCode, Snowflake, Tent, Wind } from 'lucide-react';
+import { AlertCircle, FileCheck2, FileText, Landmark, Mail, QrCode, ShieldCheck, Smartphone, Tent, Wind, Snowflake } from 'lucide-react';
 
-type MetodoPagamento = 'pix' | 'boleto' | 'credito';
+type MetodoPagamento = 'pix' | 'boleto';
+type CanalOtp = 'email' | 'whatsapp';
 
 const MODALIDADES: Record<string, { titulo: string; descricao: string; Icone: typeof Tent }> = {
-  camping: {
-    titulo: 'Camping',
-    descricao: 'Estrutura de camping da excursão',
-    Icone: Tent,
-  },
-  quarto_ventilador: {
-    titulo: 'Quarto com ventilador',
-    descricao: 'Hospedagem em quarto compartilhado com ventilador',
-    Icone: Wind,
-  },
-  quarto_ar_condicionado: {
-    titulo: 'Quarto com ar-condicionado',
-    descricao: 'Hospedagem em quarto compartilhado climatizado',
-    Icone: Snowflake,
-  },
+  camping: { titulo: 'Camping', descricao: 'Área de camping da excursão', Icone: Tent },
+  quarto_ventilador: { titulo: 'Quarto com ventilador compartilhado', descricao: 'Quarto compartilhado com ventilador', Icone: Wind },
+  quarto_ar_condicionado: { titulo: 'Quarto com climatizador compartilhado', descricao: 'Quarto compartilhado com climatizador', Icone: Snowflake },
 };
 
-function formatarMoeda(valor: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-  }).format(Number.isFinite(valor) ? valor : 0);
-}
-
-function formatarData(valor?: string | null) {
-  if (!valor) return 'Não informado';
-  const data = new Date(valor);
-  if (Number.isNaN(data.getTime())) return 'Não informado';
-  return new Intl.DateTimeFormat('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  }).format(data);
-}
+function formatarMoeda(valor: number) { return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number.isFinite(valor) ? valor : 0); }
+function formatarData(valor?: string | null) { if (!valor) return 'Não informado'; const data = new Date(valor); return Number.isNaN(data.getTime()) ? 'Não informado' : new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(data); }
 
 export default function Checkout() {
   const { reservaId } = useParams();
   const navigate = useNavigate();
-
   const [reserva, setReserva] = useState<any>(null);
-  const [contratoAceito, setContratoAceito] = useState(false);
+  const [contratoHtml, setContratoHtml] = useState('');
+  const [documento, setDocumento] = useState<any>(null);
+  const [aceiteContrato, setAceiteContrato] = useState(false);
+  const [aceiteRegras, setAceiteRegras] = useState(false);
   const [metodoPagamento, setMetodoPagamento] = useState<MetodoPagamento>('pix');
   const [quantidadeParcelas, setQuantidadeParcelas] = useState(1);
+  const [canalOtp, setCanalOtp] = useState<CanalOtp>('email');
+  const [codigo, setCodigo] = useState('');
+  const [otpEnviado, setOtpEnviado] = useState(false);
+  const [consentiuGeo, setConsentiuGeo] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    const fetchReserva = async () => {
-      try {
-        const response = await api.get(`/pacotes/reservas/${reservaId}`);
-        setReserva(response.data);
-        if (['pix', 'boleto', 'credito'].includes(response.data.forma_pagamento)) {
-          setMetodoPagamento(response.data.forma_pagamento as MetodoPagamento);
-          setQuantidadeParcelas(Number(response.data.quantidade_parcelas) || 1);
-        }
-      } catch (err: any) {
-        setError(err.response?.data?.erro || 'Erro ao carregar reserva. Tente novamente.');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchReserva();
+    let ativo = true;
+    api.get(`/pacotes/reservas/${reservaId}`).then(({ data }) => {
+      if (!ativo) return;
+      setReserva(data);
+      if (data.forma_pagamento === 'pix' || data.forma_pagamento === 'boleto') setMetodoPagamento(data.forma_pagamento);
+      setQuantidadeParcelas(Number(data.quantidade_parcelas) || 1);
+    }).catch((err) => setError(err.response?.data?.erro || 'Erro ao carregar reserva.')).finally(() => setIsLoading(false));
+    return () => { ativo = false; };
   }, [reservaId]);
 
   const parcelasBoletoMaximas = Math.max(1, Number(reserva?.parcelas_boleto_maximas) || 1);
   const percentualDescontoPix = Number(reserva?.pix_desconto_percentual) || 5;
-  const parcelasCreditoMaximas = Math.max(1, Number(reserva?.credito_parcelas_maximo) || 10);
+  useEffect(() => { if (metodoPagamento === 'pix') setQuantidadeParcelas(1); else setQuantidadeParcelas((atual) => Math.min(Math.max(atual, 1), parcelasBoletoMaximas)); }, [metodoPagamento, parcelasBoletoMaximas]);
 
-  useEffect(() => {
-    if (metodoPagamento === 'pix') {
-      setQuantidadeParcelas(1);
-    } else if (metodoPagamento === 'boleto') {
-      setQuantidadeParcelas((atual) => Math.min(Math.max(atual, 1), parcelasBoletoMaximas));
-    } else if (metodoPagamento === 'credito') {
-      setQuantidadeParcelas((atual) => Math.min(Math.max(atual, 1), parcelasCreditoMaximas));
-    }
-  }, [metodoPagamento, parcelasBoletoMaximas, parcelasCreditoMaximas]);
+  const resumo = useMemo(() => {
+    const base = Number(reserva?.valor_total || 0) + Number(reserva?.desconto_pagamento || 0);
+    const desconto = metodoPagamento === 'pix' ? base * percentualDescontoPix / 100 : 0;
+    const total = Number(reserva?.forma_pagamento) ? Number(reserva?.valor_total || 0) : base - desconto;
+    const quantidade = metodoPagamento === 'pix' ? 1 : quantidadeParcelas;
+    const parcela = total / quantidade;
+    return { base, desconto, total, quantidade, parcela };
+  }, [reserva?.valor_total, reserva?.desconto_pagamento, reserva?.forma_pagamento, metodoPagamento, quantidadeParcelas, percentualDescontoPix]);
 
-  const resumoPagamento = useMemo(() => {
-    const valorRegistrado = Number(reserva?.valor_total ?? 0);
-    const descontoRegistrado = Number(reserva?.desconto_pagamento ?? 0);
-    const condicaoJaRegistrada = Boolean(reserva?.forma_pagamento);
-    const valorAntesDaCondicao = condicaoJaRegistrada ? valorRegistrado + descontoRegistrado : valorRegistrado;
-    const descontoPix = condicaoJaRegistrada
-      ? descontoRegistrado
-      : metodoPagamento === 'pix' ? valorAntesDaCondicao * (percentualDescontoPix / 100) : 0;
-    const valorTotal = condicaoJaRegistrada ? valorRegistrado : valorAntesDaCondicao - descontoPix;
-    const quantidade = condicaoJaRegistrada
-      ? Number(reserva?.quantidade_parcelas) || 1
-      : metodoPagamento === 'pix' ? 1 : quantidadeParcelas;
-
-    const valorParcela = Math.round((valorTotal / quantidade) * 100) / 100;
-    const valorUltimaParcela = Math.round((valorTotal - valorParcela * (quantidade - 1)) * 100) / 100;
-    const descricaoParcelamento = quantidade <= 1
-      ? `1x de ${formatarMoeda(valorTotal)}`
-      : Math.abs(valorUltimaParcela - valorParcela) < 0.001
-        ? `${quantidade}x de ${formatarMoeda(valorParcela)}`
-        : `${quantidade - 1}x de ${formatarMoeda(valorParcela)} + 1x de ${formatarMoeda(valorUltimaParcela)}`;
-
-    return {
-      valorAntesDaCondicao,
-      descontoPix,
-      valorTotal,
-      quantidade,
-      valorParcela,
-      valorUltimaParcela,
-      descricaoParcelamento,
-    };
-  }, [reserva?.valor_total, metodoPagamento, quantidadeParcelas, percentualDescontoPix]);
-
-  const handleFinalizar = async () => {
-    const contratoJaEmitido = ['contrato_gerado', 'aguardando_pagamento', 'cliente_confirmado'].includes(reserva?.status);
-    if (!contratoJaEmitido && !contratoAceito) {
-      setError('Você precisa aceitar os termos do contrato para continuar.');
-      return;
-    }
-
-    setIsProcessing(true);
-    setError('');
-
+  const prepararContrato = async () => {
+    if (!reservaId) return;
+    setIsProcessing(true); setError('');
     try {
-      if (!contratoJaEmitido) {
-        // A condição de pagamento é persistida antes da emissão do PDF, para
-        // que o contrato seja o registro fiel da escolha feita.
-        await api.post(`/contratos/aceitar/${reservaId}`, {
-          metodo_pagamento: metodoPagamento,
-          quantidade_parcelas: resumoPagamento.quantidade,
-        });
-      }
+      const response = await api.post(`/contratos/aceitar/${reservaId}`, { metodo_pagamento: metodoPagamento, quantidade_parcelas: resumo.quantidade });
+      setDocumento(response.data.documento);
+      const html = await api.get(`/contratos/visualizar/${reservaId}`, { responseType: 'text' });
+      setContratoHtml(String(html.data));
+    } catch (err: any) { setError(err.response?.data?.erro || 'Não foi possível preparar o contrato.'); }
+    finally { setIsProcessing(false); }
+  };
 
-      const response = await api.post('/pagamentos/criar', {
-        reserva_id: reservaId,
-        metodo: metodoPagamento,
-      });
+  const solicitarOtp = async () => {
+    if (!aceiteContrato || !aceiteRegras) { setError('Marque os dois aceites após ler o contrato e as regras.'); return; }
+    setIsProcessing(true); setError('');
+    try {
+      const response = await api.post(`/contratos/otp/solicitar/${reservaId}`, { contrato_id: documento?.id, canal: canalOtp });
+      setOtpEnviado(true);
+      if (response.data?.destinatario) setError(`Código enviado para ${response.data.destinatario}.`);
+    } catch (err: any) { setError(err.response?.data?.erro || 'Não foi possível enviar o código.'); }
+    finally { setIsProcessing(false); }
+  };
 
-      navigate(`/confirmacao/${reservaId}`, {
-        state: { pagamentoData: response.data },
-      });
-    } catch (err: any) {
-      setError(err.response?.data?.erro || 'Erro ao processar checkout. Tente novamente.');
-    } finally {
-      setIsProcessing(false);
-    }
+  const finalizar = async () => {
+    if (!codigo) { setError('Informe o código recebido.'); return; }
+    setIsProcessing(true); setError('');
+    try {
+      const geolocalizacao = consentiuGeo ? await new Promise<any>((resolve) => {
+        if (!navigator.geolocation) { resolve({ consentida: true }); return; }
+        navigator.geolocation.getCurrentPosition(
+          (pos) => resolve({ consentida: true, latitude: pos.coords.latitude, longitude: pos.coords.longitude, precisao_metros: pos.coords.accuracy }),
+          () => resolve({ consentida: true }),
+          { timeout: 5000, maximumAge: 60000 },
+        );
+      }) : { consentida: false };
+      await api.post(`/contratos/otp/confirmar/${reservaId}`, { codigo, aceite_contrato: aceiteContrato, aceite_regras: aceiteRegras, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, geolocalizacao });
+      const response = await api.post('/pagamentos/criar', { reserva_id: reservaId, metodo: metodoPagamento, idempotency_key: `checkout-${reservaId}-${metodoPagamento}-${resumo.quantidade}` });
+      navigate(`/confirmacao/${reservaId}`, { state: { pagamentoData: response.data } });
+    } catch (err: any) { setError(err.response?.data?.erro || 'Não foi possível concluir o checkout.'); }
+    finally { setIsProcessing(false); }
   };
 
   if (isLoading) return <div className="py-12 text-center">Carregando detalhes da reserva...</div>;
-
   const modalidade = reserva?.modalidade_hospedagem ? MODALIDADES[reserva.modalidade_hospedagem] : null;
-  const IconeModalidade = modalidade?.Icone;
   const contratante = reserva?.contratante;
-  const dadosIncompletos = contratante
-    ? ['cpf', 'rg', 'data_nascimento', 'estado_civil', 'profissao', 'endereco', 'telefone']
-      .filter((campo) => !contratante[campo])
-    : [];
-  const contratoEmitido = ['contrato_gerado', 'aguardando_pagamento', 'cliente_confirmado'].includes(reserva?.status);
+  const dadosIncompletos = contratante ? ['cpf', 'rg', 'data_nascimento', 'estado_civil', 'profissao', 'endereco', 'telefone'].filter((campo) => !contratante[campo]) : [];
   const pagamentoEmAndamento = ['aguardando_pagamento', 'cliente_confirmado'].includes(reserva?.status);
 
-  return (
-    <div className="max-w-4xl mx-auto space-y-6 pb-10">
-      <div className="text-center space-y-2">
-        <p className="text-xs font-bold tracking-[0.2em] uppercase text-primary">Excursão das Comitivas</p>
-        <h1 className="text-3xl font-bold text-secondary">Finalizar Reserva</h1>
-        <p className="text-gray-600">Revise seus dados, escolha a condição e assine seu contrato digital.</p>
-      </div>
+  return <div className="mx-auto max-w-5xl space-y-6 pb-12">
+    <div className="text-center"><p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Excursão das Comitivas</p><h1 className="mt-2 text-3xl font-black text-secondary">Finalizar reserva</h1><p className="mt-2 text-gray-600">Confira as escolhas, leia o contrato oficial e valide sua contratação com segurança.</p></div>
+    {error && <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-800"><AlertCircle size={20} className="mt-0.5 shrink-0" /><p>{error}</p></div>}
 
-      {error && (
-        <div className="bg-red-50 border-l-4 border-red-500 p-4 flex items-start gap-3">
-          <AlertCircle className="text-red-500 mt-0.5 flex-shrink-0" size={20} />
-          <p className="text-red-700">{error}</p>
-        </div>
-      )}
+    <Card><CardHeader className="bg-gradient-to-r from-red-950 to-primary text-white"><CardTitle className="flex items-center gap-2"><FileText size={20} />Resumo da reserva</CardTitle></CardHeader><CardContent className="p-6">
+      {modalidade ? <div className="flex items-center gap-4 rounded-xl border border-red-100 bg-red-50/50 p-4"><modalidade.Icone size={34} className="shrink-0 text-primary" /><div><p className="text-xs font-bold uppercase tracking-wide text-primary">Hospedagem escolhida</p><p className="text-lg font-bold text-secondary">{modalidade.titulo}</p><p className="text-sm text-gray-600">{reserva?.pacote_nome || modalidade.descricao}</p></div></div> : <p className="text-sm text-amber-800">A modalidade desta reserva não foi localizada.</p>}
+      <dl className="mt-5 grid gap-4 text-sm sm:grid-cols-3"><div><dt className="text-gray-500">Evento</dt><dd className="font-semibold">{reserva?.evento_nome || 'Excursão das Comitivas'}</dd></div><div><dt className="text-gray-500">Período</dt><dd className="font-semibold">{formatarData(reserva?.data_inicio)} a {formatarData(reserva?.data_fim)}</dd></div><div><dt className="text-gray-500">Reserva</dt><dd className="font-semibold">{reservaId}</dd></div></dl>
+    </CardContent></Card>
 
-      <Card className="overflow-hidden border-primary/15">
-        <CardHeader className="bg-gradient-to-r from-red-950 to-primary text-white border-0">
-          <CardTitle className="flex items-center gap-2">
-            <FileText size={20} />
-            Resumo da reserva
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-6">
-          {modalidade ? (
-            <div className="flex items-center gap-4 rounded-xl border border-red-100 bg-red-50/40 p-4">
-              {IconeModalidade && <IconeModalidade size={34} className="text-primary flex-shrink-0" />}
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-primary">Modalidade de hospedagem selecionada</p>
-                <p className="font-bold text-secondary text-lg">{modalidade.titulo}</p>
-                <p className="text-sm text-gray-600">{reserva?.pacote_nome || modalidade.descricao}</p>
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-              A modalidade de hospedagem não foi localizada nesta reserva. Revise a configuração do pacote antes de prosseguir.
-            </div>
-          )}
-        </CardContent>
-      </Card>
+    <Card><CardHeader className="border-b bg-gray-50"><CardTitle>Dados que constarão no contrato</CardTitle></CardHeader><CardContent className="p-6"><dl className="grid gap-4 text-sm sm:grid-cols-2"><div><dt className="text-gray-500">Nome</dt><dd className="font-semibold">{contratante?.nome || 'Não informado'}</dd></div><div><dt className="text-gray-500">CPF / RG</dt><dd className="font-semibold">{contratante?.cpf || 'Não informado'} {contratante?.rg ? `• ${contratante.rg}` : ''}</dd></div><div><dt className="text-gray-500">Nascimento</dt><dd className="font-semibold">{formatarData(contratante?.data_nascimento)}</dd></div><div><dt className="text-gray-500">Nacionalidade / estado civil</dt><dd className="font-semibold">{contratante?.nacionalidade || 'Brasileira'} • {contratante?.estado_civil || 'Não informado'}</dd></div><div><dt className="text-gray-500">Profissão</dt><dd className="font-semibold">{contratante?.profissao || 'Não informado'}</dd></div><div><dt className="text-gray-500">Telefone / e-mail</dt><dd className="font-semibold">{contratante?.telefone || 'Não informado'} • {contratante?.email || 'Não informado'}</dd></div><div className="sm:col-span-2"><dt className="text-gray-500">Endereço</dt><dd className="font-semibold">{contratante?.endereco || 'Não informado'}</dd></div></dl>{dadosIncompletos.length > 0 && <Link to={`/meus-dados?redirect=${encodeURIComponent(`/checkout/${reservaId}`)}`} className="mt-5 inline-block rounded-lg bg-amber-900 px-4 py-2 text-sm font-bold text-white">Completar dados contratuais</Link>}</CardContent></Card>
 
-      <Card>
-        <CardHeader className="bg-gray-50 border-b">
-          <CardTitle className="flex items-center gap-2">
-            <FileText size={20} className="text-primary" />
-            Dados que constarão no contrato
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-6">
-          {contratante ? (
-            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4 text-sm">
-              <div><dt className="text-gray-500">Nome completo</dt><dd className="font-semibold text-gray-900">{contratante.nome || 'Não informado'}</dd></div>
-              <div><dt className="text-gray-500">CPF / RG</dt><dd className="font-semibold text-gray-900">{contratante.cpf || 'Não informado'} {contratante.rg ? `• ${contratante.rg}` : ''}</dd></div>
-              <div><dt className="text-gray-500">Data de nascimento</dt><dd className="font-semibold text-gray-900">{formatarData(contratante.data_nascimento)}</dd></div>
-              <div><dt className="text-gray-500">Nacionalidade / estado civil</dt><dd className="font-semibold text-gray-900">{contratante.nacionalidade || 'Brasileira'} • {contratante.estado_civil || 'Não informado'}</dd></div>
-              <div><dt className="text-gray-500">Profissão</dt><dd className="font-semibold text-gray-900">{contratante.profissao || 'Não informado'}</dd></div>
-              <div><dt className="text-gray-500">Telefone</dt><dd className="font-semibold text-gray-900">{contratante.telefone || 'Não informado'}</dd></div>
-              <div className="sm:col-span-2"><dt className="text-gray-500">Endereço</dt><dd className="font-semibold text-gray-900">{contratante.endereco || 'Não informado'}</dd></div>
-              <div className="sm:col-span-2"><dt className="text-gray-500">E-mail</dt><dd className="font-semibold text-gray-900">{contratante.email || 'Não informado'}</dd></div>
-            </dl>
-          ) : (
-            <p className="text-sm text-gray-600">Não foi possível carregar os dados contratuais da reserva.</p>
-          )}
-          {dadosIncompletos.length > 0 && (
-            <div className="mt-5 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="font-semibold">Seu contrato ficará mais completo com os dados que faltam.</p>
-                <p className="mt-1 text-xs">Você pode preencher agora ou continuar; campos não informados aparecerão como “________”.</p>
-              </div>
-              <Link to={`/meus-dados?redirect=${encodeURIComponent(`/checkout/${reservaId}`)}`} className="shrink-0 rounded-lg bg-amber-900 px-4 py-2 text-center text-xs font-bold text-white transition hover:bg-amber-800">
-                Completar dados
-              </Link>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+    <Card><CardHeader className="border-b bg-gray-50"><CardTitle>Pagamento pelo Banco Cora</CardTitle></CardHeader><CardContent className="space-y-5 p-6"><div className="grid gap-4 sm:grid-cols-2"><button type="button" disabled={Boolean(reserva?.forma_pagamento)} onClick={() => setMetodoPagamento('pix')} className={`rounded-xl border p-5 text-left transition ${metodoPagamento === 'pix' ? 'border-primary bg-red-50 ring-2 ring-primary/20' : 'border-gray-200'}`}><QrCode className="text-primary" /><strong className="mt-3 block">PIX à vista</strong><span className="mt-1 block text-sm text-green-700">{percentualDescontoPix}% de desconto</span></button><button type="button" disabled={Boolean(reserva?.forma_pagamento)} onClick={() => setMetodoPagamento('boleto')} className={`rounded-xl border p-5 text-left transition ${metodoPagamento === 'boleto' ? 'border-primary bg-red-50 ring-2 ring-primary/20' : 'border-gray-200'}`}><Landmark className="text-primary" /><strong className="mt-3 block">Boleto bancário</strong><span className="mt-1 block text-sm text-gray-600">{parcelasBoletoMaximas <= 1 ? 'À vista' : `Até ${parcelasBoletoMaximas}x sem juros`}</span></button></div>{metodoPagamento === 'boleto' && <label className="flex items-center justify-between gap-4 rounded-xl bg-gray-50 p-4 text-sm"><span><strong className="block text-secondary">Parcelas do carnê Cora</strong><span className="text-gray-600">Quitação integral antes do início da hospedagem.</span></span><select value={quantidadeParcelas} onChange={(event) => setQuantidadeParcelas(Number(event.target.value))} className="rounded-lg border border-gray-300 bg-white px-3 py-2 font-semibold">{Array.from({ length: parcelasBoletoMaximas }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}x de {formatarMoeda(resumo.base / (index + 1))}</option>)}</select></label>}<div className="space-y-2 rounded-xl border border-red-100 bg-red-50/40 p-5 text-sm"><div className="flex justify-between"><span>Valor da composição</span><strong>{formatarMoeda(resumo.base)}</strong></div>{resumo.desconto > 0 && <div className="flex justify-between text-green-700"><span>Desconto PIX</span><strong>-{formatarMoeda(resumo.desconto)}</strong></div>}<div className="flex justify-between border-t border-red-100 pt-3 text-lg font-black text-secondary"><span>Total contratado</span><strong>{formatarMoeda(resumo.total)}</strong></div>{resumo.quantidade > 1 && <p className="text-right text-xs text-gray-600">{resumo.quantidade} parcelas de aproximadamente {formatarMoeda(resumo.parcela)}</p>}</div></CardContent></Card>
 
-      <Card>
-        <CardHeader className="bg-gray-50 border-b">
-          <CardTitle>Forma de pagamento</CardTitle>
-        </CardHeader>
-        <CardContent className="p-6 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <button
-              type="button"
-              onClick={() => setMetodoPagamento('pix')}
-              disabled={contratoEmitido}
-              className={`p-4 border rounded-xl flex flex-col items-center justify-center gap-2 transition-all text-center disabled:cursor-not-allowed disabled:opacity-60 ${
-                metodoPagamento === 'pix' ? 'border-primary ring-2 ring-primary/20 bg-red-50/50' : 'hover:border-gray-300'
-              }`}
-            >
-              <QrCode size={30} className={metodoPagamento === 'pix' ? 'text-primary' : 'text-gray-400'} />
-              <span className="font-semibold">PIX</span>
-              <span className="text-xs text-green-700 font-medium">{percentualDescontoPix}% de desconto à vista</span>
-            </button>
+    {!contratoHtml ? <Card><CardContent className="p-6"><div className="flex items-start gap-4"><FileCheck2 className="mt-1 shrink-0 text-primary" /><div><h2 className="text-xl font-bold text-secondary">Contrato oficial 2026</h2><p className="mt-2 text-sm leading-relaxed text-gray-600">O sistema gera uma versão individual com seus dados, hospedagem, serviços, transporte quando contratado, valores e regras oficiais. Nenhuma cobrança será criada antes da validação eletrônica.</p><Button className="mt-5" onClick={prepararContrato} isLoading={isProcessing} disabled={!modalidade || pagamentoEmAndamento}>Ler contrato completo</Button></div></div></CardContent></Card> : <Card><CardHeader className="border-b bg-gray-50"><CardTitle className="flex items-center gap-2"><FileCheck2 className="text-primary" />Leitura integral e validação</CardTitle></CardHeader><CardContent className="space-y-5 p-6"><iframe title="Contrato oficial da reserva" srcDoc={contratoHtml} className="h-[520px] w-full rounded-xl border border-gray-200 bg-white" /><p className="text-xs text-gray-500">Versão {documento?.versao || 'atual'} · O documento final terá hash SHA-256 e certificado de validação.</p><label className="flex cursor-pointer items-start gap-3 rounded-xl border p-4"><input type="checkbox" checked={aceiteContrato} onChange={(event) => setAceiteContrato(event.target.checked)} className="mt-1 h-5 w-5 text-primary" /><span className="text-sm"><strong className="block text-gray-900">Li e concordo com o Contrato</strong>Confirmo que visualizei o documento integral da minha reserva.</span></label><label className="flex cursor-pointer items-start gap-3 rounded-xl border p-4"><input type="checkbox" checked={aceiteRegras} onChange={(event) => setAceiteRegras(event.target.checked)} className="mt-1 h-5 w-5 text-primary" /><span className="text-sm"><strong className="block text-gray-900">Li e concordo com as Regras de Convivência</strong>Aceito a versão oficial 2026.1 apresentada no contrato.</span></label><label className="flex cursor-pointer items-start gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4"><input type="checkbox" checked={consentiuGeo} onChange={(event) => setConsentiuGeo(event.target.checked)} className="mt-1 h-5 w-5 text-primary" /><span className="text-sm"><strong className="block text-gray-900">Permitir geolocalização (opcional)</strong>Se eu permitir, a localização será registrada como evidência. Se eu negar, a contratação continuará normalmente.</span></label><div className="rounded-xl border border-primary/20 bg-primary/5 p-5"><p className="font-bold text-secondary">Escolha como receber o código</p><div className="mt-3 grid gap-3 sm:grid-cols-2"><button type="button" onClick={() => setCanalOtp('email')} className={`flex items-center gap-3 rounded-lg border bg-white p-3 text-left ${canalOtp === 'email' ? 'border-primary ring-2 ring-primary/20' : ''}`}><Mail size={18} className="text-primary" /><span className="text-sm font-semibold">E-mail cadastrado</span></button><button type="button" onClick={() => setCanalOtp('whatsapp')} className={`flex items-center gap-3 rounded-lg border bg-white p-3 text-left ${canalOtp === 'whatsapp' ? 'border-primary ring-2 ring-primary/20' : ''}`}><Smartphone size={18} className="text-primary" /><span className="text-sm font-semibold">WhatsApp cadastrado</span></button></div>{!otpEnviado ? <Button className="mt-4" onClick={solicitarOtp} isLoading={isProcessing} disabled={!aceiteContrato || !aceiteRegras}><ShieldCheck size={17} className="mr-2" />Enviar código de validação</Button> : <div className="mt-4 flex flex-col gap-3 sm:flex-row"><input inputMode="numeric" maxLength={6} value={codigo} onChange={(event) => setCodigo(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Código de 6 dígitos" className="rounded-lg border border-gray-300 px-4 py-3 font-mono tracking-[0.3em]" /><Button onClick={finalizar} isLoading={isProcessing} disabled={codigo.length !== 6}>Validar e ir para pagamento</Button></div>}</div></CardContent></Card>}
 
-            <button
-              type="button"
-              onClick={() => setMetodoPagamento('boleto')}
-              disabled={contratoEmitido}
-              className={`p-4 border rounded-xl flex flex-col items-center justify-center gap-2 transition-all text-center disabled:cursor-not-allowed disabled:opacity-60 ${
-                metodoPagamento === 'boleto' ? 'border-primary ring-2 ring-primary/20 bg-red-50/50' : 'hover:border-gray-300'
-              }`}
-            >
-              <Landmark size={30} className={metodoPagamento === 'boleto' ? 'text-primary' : 'text-gray-400'} />
-              <span className="font-semibold">Boleto bancário</span>
-              <span className="text-xs text-gray-500">
-                {parcelasBoletoMaximas <= 1 ? 'À vista, sem juros' : `Até ${parcelasBoletoMaximas}x sem juros`}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setMetodoPagamento('credito')}
-              disabled={contratoEmitido}
-              className={`p-4 border rounded-xl flex flex-col items-center justify-center gap-2 transition-all text-center disabled:cursor-not-allowed disabled:opacity-60 ${
-                metodoPagamento === 'credito' ? 'border-primary ring-2 ring-primary/20 bg-red-50/50' : 'hover:border-gray-300'
-              }`}
-            >
-              <CreditCard size={30} className={metodoPagamento === 'credito' ? 'text-primary' : 'text-gray-400'} />
-              <span className="font-semibold">Cartão de crédito</span>
-              <span className="text-xs text-gray-500">Em até {parcelasCreditoMaximas}x, taxas do dia</span>
-            </button>
-          </div>
-
-          {metodoPagamento !== 'pix' && (
-            <div className="rounded-xl bg-gray-50 border border-gray-200 p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
-              <div>
-                <p className="font-semibold text-secondary">Quantidade de parcelas</p>
-                <p className="text-sm text-gray-600">A condição selecionada será registrada no contrato.</p>
-                {metodoPagamento === 'boleto' && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    O número de parcelas do boleto diminui conforme a viagem se aproxima.
-                  </p>
-                )}
-              </div>
-              <select
-                value={resumoPagamento.quantidade}
-                disabled={contratoEmitido}
-                onChange={(event) => setQuantidadeParcelas(Number(event.target.value))}
-                className="rounded-lg border border-gray-300 bg-white px-4 py-2 font-medium text-secondary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-              >
-                {Array.from({ length: metodoPagamento === 'boleto' ? parcelasBoletoMaximas : parcelasCreditoMaximas }, (_, index) => index + 1).map((parcela) => (
-                  <option key={parcela} value={parcela}>{(() => {
-                    const valorParcela = Math.round((resumoPagamento.valorTotal / parcela) * 100) / 100;
-                    const ultimaParcela = Math.round((resumoPagamento.valorTotal - valorParcela * (parcela - 1)) * 100) / 100;
-                    return parcela === 1 || Math.abs(valorParcela - ultimaParcela) < 0.001
-                      ? `${parcela}x de ${formatarMoeda(valorParcela)}`
-                      : `${parcela - 1}x de ${formatarMoeda(valorParcela)} + 1x de ${formatarMoeda(ultimaParcela)}`;
-                  })()}</option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {contratoEmitido && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-              Esta reserva já possui contrato emitido. A condição de pagamento abaixo está bloqueada para preservar o documento aceito.
-            </div>
-          )}
-
-          <div className="rounded-xl border border-red-100 bg-red-50/30 p-5 space-y-2">
-            <div className="flex justify-between gap-4 text-sm text-gray-600"><span>{reserva?.forma_pagamento === 'pix' ? 'Valor antes do desconto PIX' : 'Valor da reserva'}</span><span>{formatarMoeda(resumoPagamento.valorAntesDaCondicao)}</span></div>
-            {resumoPagamento.descontoPix > 0 && <div className="flex justify-between gap-4 text-sm text-green-700"><span>Desconto PIX (5%)</span><span>-{formatarMoeda(resumoPagamento.descontoPix)}</span></div>}
-            {resumoPagamento.quantidade > 1 && <div className="flex justify-between gap-4 text-sm text-gray-600"><span>{resumoPagamento.quantidade} parcelas</span><span className="text-right">{resumoPagamento.descricaoParcelamento}</span></div>}
-            <div className="flex justify-between gap-4 border-t border-red-100 pt-3 text-lg font-bold text-secondary"><span>Total contratado</span><span>{formatarMoeda(resumoPagamento.valorTotal)}</span></div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="bg-gray-50 border-b">
-          <CardTitle className="flex items-center gap-2"><FileText size={20} className="text-primary" />Contrato e aceite digital</CardTitle>
-        </CardHeader>
-        <CardContent className="p-6 space-y-5">
-          <div className="bg-gray-50 p-4 rounded-lg max-h-44 overflow-y-auto text-sm text-gray-700 border border-gray-200 leading-relaxed">
-            <h2 className="font-bold text-secondary mb-2">Termos essenciais da contratação</h2>
-            <p className="mb-2">O contrato registra a modalidade de hospedagem, os serviços selecionados, o valor total, a condição de pagamento e os dados cadastrais informados pelo contratante.</p>
-            <p className="mb-2">O passageiro deve apresentar documento de identificação no embarque e observar as regras de convivência e os horários definidos pela organização.</p>
-            <p>O aceite eletrônico registra data, hora e endereço IP, integrando o contrato que ficará disponível para download após a emissão.</p>
-          </div>
-
-          {contratoEmitido ? (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
-              <strong className="block">Contrato já emitido e preservado</strong>
-              Você pode retomar a etapa de pagamento sem gerar ou assinar outro documento.
-            </div>
-          ) : (
-            <label className="flex items-start gap-3 cursor-pointer p-4 border rounded-lg hover:bg-gray-50 transition-colors">
-              <input
-                type="checkbox"
-                className="mt-1 h-5 w-5 rounded border-gray-300 text-primary focus:ring-primary"
-                checked={contratoAceito}
-                onChange={(event) => setContratoAceito(event.target.checked)}
-              />
-              <span className="text-sm text-gray-700"><strong className="block text-gray-900">Li e aceito os termos do contrato</strong>Ao confirmar, reconheço a assinatura digital e a condição de pagamento selecionada acima.</span>
-            </label>
-          )}
-        </CardContent>
-      </Card>
-
-      <div className="flex flex-col sm:flex-row justify-between gap-4 items-center pt-2">
-        <div className="text-center sm:text-left">
-          <p className="text-sm text-gray-500">Total a pagar</p>
-          <p className="text-3xl font-bold text-secondary">{formatarMoeda(resumoPagamento.valorTotal)}</p>
-        </div>
-        {pagamentoEmAndamento ? (
-          <Link to={`/confirmacao/${reservaId}`} className="w-full sm:w-auto">
-            <Button size="lg" className="w-full px-8">Acompanhar pagamento</Button>
-          </Link>
-        ) : (
-          <Button
-            size="lg"
-            onClick={handleFinalizar}
-            isLoading={isProcessing}
-            disabled={(!contratoEmitido && !contratoAceito) || !reserva || !modalidade}
-            className="px-8 w-full sm:w-auto"
-          >
-            {contratoEmitido ? 'Retomar pagamento' : 'Gerar contrato e continuar'}
-          </Button>
-        )}
-      </div>
-    </div>
-  );
+    <div className="flex flex-col items-center justify-between gap-4 border-t pt-5 sm:flex-row"><div><p className="text-sm text-gray-500">Total desta contratação</p><p className="text-3xl font-black text-secondary">{formatarMoeda(resumo.total)}</p></div>{pagamentoEmAndamento && <Link to={`/confirmacao/${reservaId}`}><Button>Acompanhar pagamento</Button></Link>}</div>
+  </div>;
 }

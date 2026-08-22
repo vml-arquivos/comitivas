@@ -6,9 +6,10 @@ import { AuthService } from "../services/authService.js";
 import { ContratoService } from "../services/contratoService.js";
 import { ConfiguracaoService } from "../services/configuracaoService.js";
 import { db } from "../db/index.js";
-import { reservas, eventos, lotes, usuarios, leads_origem } from "../db/schema.js";
+import { reservas, eventos, lotes, usuarios, leads_origem, descontosAdministrativos, pagamentos, videosEvento, fotos_evento } from "../db/schema.js";
 import { eq, and, inArray, or, sql, desc } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
+import Decimal from "decimal.js";
 
 const router = Router();
 
@@ -34,6 +35,12 @@ function cpfValido(cpf: string): boolean {
 
 function erroDeUnicidade(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "23505");
+}
+
+function extrairYoutubeId(url: unknown): string | null {
+  const valor = String(url || "").trim();
+  const match = valor.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i);
+  return match?.[1] || (/^[A-Za-z0-9_-]{11}$/.test(valor) ? valor : null);
 }
 
 function gerarSenhaTemporaria(): string {
@@ -576,6 +583,65 @@ router.patch("/usuarios/:id/status", async (req: Request, res: Response) => {
 });
 
 // ==========================================================================
+// Vídeos do YouTube — administração sem embed automático
+router.get("/videos", requireRole("admin"), async (_req: Request, res: Response) => {
+  try { return res.json({ videos: await db.select().from(videosEvento).orderBy(videosEvento.ordem, desc(videosEvento.criado_em)) }); }
+  catch (error) { console.error("[ADMIN] Erro ao listar vídeos:", error); return res.status(500).json({ erro: "Erro ao listar vídeos" }); }
+});
+
+router.post("/videos", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const youtubeId = extrairYoutubeId(req.body?.url);
+    if (!youtubeId || !req.body?.evento_id) return res.status(400).json({ erro: "Informe URL do YouTube válida e evento" });
+    const video = (await db.insert(videosEvento).values({ id: randomUUID(), evento_id: String(req.body.evento_id), url: String(req.body.url), youtube_id: youtubeId, titulo: req.body.titulo ? String(req.body.titulo).slice(0, 255) : null, descricao: req.body.descricao ? String(req.body.descricao) : null, ordem: Number(req.body.ordem || 0), ativo: req.body.ativo !== false, destaque: req.body.destaque === true }).returning())[0];
+    return res.status(201).json({ video });
+  } catch (error: any) { console.error("[ADMIN] Erro ao criar vídeo:", error); return res.status(400).json({ erro: "Não foi possível salvar o vídeo" }); }
+});
+
+router.patch("/videos/:id", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const youtubeId = req.body?.url ? extrairYoutubeId(req.body.url) : undefined;
+    if (req.body?.url && !youtubeId) return res.status(400).json({ erro: "URL do YouTube inválida" });
+    const video = (await db.update(videosEvento).set({ ...(youtubeId ? { url: String(req.body.url), youtube_id: youtubeId } : {}), ...(req.body.titulo !== undefined ? { titulo: String(req.body.titulo).slice(0, 255) } : {}), ...(req.body.descricao !== undefined ? { descricao: String(req.body.descricao) } : {}), ...(req.body.ordem !== undefined ? { ordem: Number(req.body.ordem) } : {}), ...(req.body.ativo !== undefined ? { ativo: Boolean(req.body.ativo) } : {}), ...(req.body.destaque !== undefined ? { destaque: Boolean(req.body.destaque) } : {}), atualizado_em: new Date() }).where(eq(videosEvento.id, req.params.id)).returning())[0];
+    if (!video) return res.status(404).json({ erro: "Vídeo não encontrado" });
+    return res.json({ video });
+  } catch (error) { console.error("[ADMIN] Erro ao atualizar vídeo:", error); return res.status(400).json({ erro: "Não foi possível atualizar o vídeo" }); }
+});
+
+router.delete("/videos/:id", requireRole("admin"), async (req: Request, res: Response) => {
+  try { const excluido = await db.delete(videosEvento).where(eq(videosEvento.id, req.params.id)).returning({ id: videosEvento.id }); if (!excluido[0]) return res.status(404).json({ erro: "Vídeo não encontrado" }); return res.status(204).send(); }
+  catch (error) { console.error("[ADMIN] Erro ao remover vídeo:", error); return res.status(400).json({ erro: "Não foi possível remover o vídeo" }); }
+});
+
+// Fotos da galeria — metadados editoriais acessíveis e controláveis
+router.get("/fotos", requireRole("admin"), async (_req: Request, res: Response) => {
+  try { return res.json({ fotos: await db.select().from(fotos_evento).orderBy(desc(fotos_evento.ordem), desc(fotos_evento.criado_em)) }); }
+  catch (error) { console.error("[ADMIN] Erro ao listar fotos:", error); return res.status(500).json({ erro: "Erro ao listar fotos" }); }
+});
+
+router.post("/fotos", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const url = String(req.body?.url_foto || req.body?.url || "").trim();
+    if (!req.body?.evento_id || !url || !req.body?.alt_text?.trim()) return res.status(400).json({ erro: "evento_id, url e alt_text são obrigatórios" });
+    if (!url.startsWith("/") && !url.toLowerCase().startsWith("https://")) return res.status(400).json({ erro: "A URL da foto deve usar HTTPS" });
+    const foto = (await db.insert(fotos_evento).values({ id: randomUUID(), evento_id: String(req.body.evento_id), url_foto: url, legenda: req.body.legenda ? String(req.body.legenda).slice(0, 500) : null, alt_text: String(req.body.alt_text).slice(0, 500), categoria: req.body.categoria ? String(req.body.categoria).slice(0, 80) : "evento", destaque: req.body.destaque === true, capa: req.body.capa === true, formato: req.body.formato ? String(req.body.formato).slice(0, 30) : null, ordem: Number(req.body.ordem || 0) }).returning())[0];
+    return res.status(201).json({ foto });
+  } catch (error) { console.error("[ADMIN] Erro ao criar foto:", error); return res.status(400).json({ erro: "Não foi possível salvar a foto" }); }
+});
+
+router.patch("/fotos/:id", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const foto = (await db.update(fotos_evento).set({ ...(req.body?.url_foto || req.body?.url ? { url_foto: String(req.body.url_foto || req.body.url) } : {}), ...(req.body?.legenda !== undefined ? { legenda: String(req.body.legenda).slice(0, 500) } : {}), ...(req.body?.alt_text !== undefined ? { alt_text: String(req.body.alt_text).slice(0, 500) } : {}), ...(req.body?.categoria !== undefined ? { categoria: String(req.body.categoria).slice(0, 80) } : {}), ...(req.body?.destaque !== undefined ? { destaque: Boolean(req.body.destaque) } : {}), ...(req.body?.capa !== undefined ? { capa: Boolean(req.body.capa) } : {}), ...(req.body?.ordem !== undefined ? { ordem: Number(req.body.ordem) } : {}), ...(req.body?.formato !== undefined ? { formato: String(req.body.formato).slice(0, 30) } : {}) }).where(eq(fotos_evento.id, req.params.id)).returning())[0];
+    if (!foto) return res.status(404).json({ erro: "Foto não encontrada" });
+    return res.json({ foto });
+  } catch (error) { console.error("[ADMIN] Erro ao atualizar foto:", error); return res.status(400).json({ erro: "Não foi possível atualizar a foto" }); }
+});
+
+router.delete("/fotos/:id", requireRole("admin"), async (req: Request, res: Response) => {
+  try { const removida = await db.delete(fotos_evento).where(eq(fotos_evento.id, req.params.id)).returning({ id: fotos_evento.id }); if (!removida[0]) return res.status(404).json({ erro: "Foto não encontrada" }); return res.status(204).send(); }
+  catch (error) { console.error("[ADMIN] Erro ao remover foto:", error); return res.status(400).json({ erro: "Não foi possível remover a foto" }); }
+});
+
 // Configurações de pagamento (regras de negócio, editáveis sem redeploy)
 // ==========================================================================
 
@@ -586,18 +652,19 @@ router.patch("/usuarios/:id/status", async (req: Request, res: Response) => {
 router.get("/configuracoes/pagamento", async (_req: Request, res: Response) => {
   try {
     const configuracoes = await ConfiguracaoService.obterConfiguracoesPagamento();
-    const gateway = (process.env.PAYMENT_GATEWAY || "mercadopago").trim();
-    const gatewayConfigurado = gateway === "mercadopago"
-      ? Boolean(process.env.MERCADOPAGO_ACCESS_TOKEN?.trim())
-      : gateway === "asaas"
-        ? Boolean(process.env.ASAAS_API_KEY?.trim())
-        : gateway === "mock";
+    const gateway = process.env.PAYMENT_GATEWAY === "mock" && process.env.NODE_ENV !== "production" ? "mock" : "cora";
+    const gatewayConfigurado = gateway === "mock"
+      ? true
+      : Boolean(process.env.CORA_CLIENT_ID?.trim() && process.env.CORA_CERT_PATH?.trim() && process.env.CORA_PRIVATE_KEY_PATH?.trim());
 
     res.json({
       configuracoes,
       gateway: {
         ativo: gateway,
+        nome: gateway === "cora" ? "Banco Cora" : "Mock de testes locais",
+        ambiente: process.env.CORA_ENV === "production" ? "production" : "stage",
         configurado: gatewayConfigurado,
+        metodos: ["pix", "boleto", "boleto_pix", "carne"],
       },
     });
   } catch (error: any) {
@@ -629,6 +696,40 @@ router.put("/configuracoes/pagamento", async (req: Request, res: Response) => {
 });
 
 // ==========================================================================
+// Desconto administrativo controlado e auditável
+router.post("/reservas/:reserva_id/desconto", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const motivo = String(req.body?.motivo || "").trim();
+    const tipo = String(req.body?.tipo || "").trim().toLowerCase();
+    const informado = new Decimal(String(req.body?.valor ?? "0"));
+    if (motivo.length < 5) return res.status(400).json({ erro: "Motivo obrigatório para desconto administrativo" });
+    if (!["fixo", "percentual"].includes(tipo)) return res.status(400).json({ erro: "Tipo deve ser fixo ou percentual" });
+    if (!informado.isFinite() || informado.lessThanOrEqualTo(0)) return res.status(400).json({ erro: "Informe um desconto maior que zero" });
+
+    const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
+    if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
+    const pagamentoExistente = (await db.select({ id: pagamentos.id }).from(pagamentos).where(eq(pagamentos.reserva_id, reserva.id)).limit(1))[0];
+    if (pagamentoExistente) return res.status(409).json({ erro: "Não é permitido alterar o total depois de criar uma cobrança" });
+    const subtotalOriginal = new Decimal(reserva.valor_total.toString());
+    if (tipo === "percentual" && informado.greaterThan(100)) return res.status(400).json({ erro: "Percentual não pode exceder 100%" });
+    const desconto = tipo === "percentual" ? subtotalOriginal.times(informado).div(100) : informado;
+    const valorDesconto = Decimal.min(desconto, subtotalOriginal).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    const totalFinal = subtotalOriginal.minus(valorDesconto).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+
+    const resultado = await db.transaction(async (tx) => {
+      const atualizado = await tx.update(reservas).set({ valor_total: totalFinal.toFixed(2), atualizado_em: new Date() }).where(and(eq(reservas.id, reserva.id), sql`${reservas.status} IN ('pacote_montado', 'checkout_iniciado', 'contrato_gerado')`)).returning({ id: reservas.id, valor_total: reservas.valor_total });
+      if (!atualizado[0]) throw new Error("A reserva não está em uma etapa que permita desconto");
+      const registro = await tx.insert(descontosAdministrativos).values({ reserva_id: reserva.id, administrador_id: req.usuario!.id, motivo, tipo, valor_informado: informado.toFixed(2), subtotal_original: subtotalOriginal.toFixed(2), valor_desconto: valorDesconto.toFixed(2), total_final: totalFinal.toFixed(2) }).returning();
+      return registro[0];
+    });
+    return res.status(201).json({ desconto: resultado, total_final: totalFinal.toFixed(2) });
+  } catch (error: any) {
+    console.error("[ADMIN] Erro ao aplicar desconto:", error);
+    return res.status(400).json({ erro: error.message || "Não foi possível aplicar o desconto" });
+  }
+});
+
 // Geração de contrato diretamente pelo painel administrativo
 // ==========================================================================
 
@@ -697,6 +798,9 @@ router.post("/contratos/gerar/:reserva_id", async (req: Request, res: Response) 
     if (!metodoPagamento) {
       return res.status(400).json({ erro: "Informe a forma de pagamento para gerar o contrato" });
     }
+    if (!["pix", "boleto"].includes(String(metodoPagamento))) {
+      return res.status(400).json({ erro: "O checkout Cora oferece somente PIX e boleto" });
+    }
 
     let condicaoPagamento;
     try {
@@ -742,9 +846,9 @@ router.post("/contratos/gerar/:reserva_id", async (req: Request, res: Response) 
     await ContratoService.registrarAceiteContrato(reserva_id, `gerado-pelo-admin:${req.usuario.id}`);
 
     res.json({
-      mensagem: "Contrato gerado com sucesso",
+      mensagem: "Contrato preparado e aguardando validação eletrônica do cliente",
       reserva_id,
-      status: "contrato_gerado",
+      status: "aguardando_validacao",
       condicao_pagamento: condicaoPagamento,
     });
   } catch (error: any) {

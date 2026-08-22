@@ -1,14 +1,18 @@
-import axios from "axios";
 import { randomUUID } from "node:crypto";
-import { db } from "../db/index.js";
-import { pagamentos, reservas, usuarios } from "../db/schema.js";
+import Decimal from "decimal.js";
 import { eq } from "drizzle-orm";
+import { db } from "../db/index.js";
+import { pagamentos, pagamentoParcelas, pagamentoIdempotencias, reservas, usuarios } from "../db/schema.js";
+import { CoraMetodo, CoraPaymentProvider } from "./coraPaymentProvider.js";
 
 export interface CriarPagamentoRequest {
   reserva_id: string;
   valor: number;
-  metodo: "pix" | "boleto" | "credito" | "debito";
+  metodo: "pix" | "boleto";
+  parcelas?: number;
+  vencimento?: Date;
   descricao?: string;
+  idempotencyKey?: string;
 }
 
 export interface PagamentoGatewayResponse {
@@ -17,321 +21,188 @@ export interface PagamentoGatewayResponse {
   valor: number;
   metodo: string;
   qr_code?: string;
+  pix_copia_e_cola?: string;
   url_pagamento?: string;
+  document_url?: string;
+  parcelas?: Array<{ id: string; valor: number; status: string; vencimento?: string; url_pagamento?: string; pix_copia_e_cola?: string }>;
   [key: string]: any;
 }
 
+function statusCoraParaLocal(status: unknown): "pendente" | "processando" | "aprovado" | "cancelado" | "recusado" {
+  switch (String(status || "").toUpperCase()) {
+    case "PAID": return "aprovado";
+    case "CANCELED":
+    case "CANCELLED": return "cancelado";
+    case "DRAFT": return "processando";
+    default: return "pendente";
+  }
+}
+
+function metodoCora(metodo: CriarPagamentoRequest["metodo"], parcelas: number): CoraMetodo {
+  if (metodo === "pix") return "pix";
+  return parcelas > 1 ? "carne" : "boleto_pix";
+}
+
+function asNumber(valor: unknown): number {
+  const numero = Number(valor);
+  return Number.isFinite(numero) ? numero : 0;
+}
+
+function buildResponse(pagamento: typeof pagamentos.$inferSelect, cora: any): PagamentoGatewayResponse {
+  const response = (pagamento.gateway_resposta || {}) as any;
+  return {
+    id: String(pagamento.gateway_id || pagamento.id),
+    status: String(response.status || pagamento.status || "pendente"),
+    valor: asNumber(pagamento.valor),
+    metodo: pagamento.metodo,
+    qr_code: response.qr_code,
+    pix_copia_e_cola: response.pix_copia_e_cola,
+    url_pagamento: response.url_pagamento,
+    document_url: response.document_url,
+    parcelas: response.parcelas,
+    cora: cora || response.cora,
+  };
+}
+
 export class PaymentGatewayAdapter {
-  private static get GATEWAY() {
-    return process.env.PAYMENT_GATEWAY || "mercadopago";
-  }
-
-  private static get MERCADOPAGO_TOKEN() {
-    return process.env.MERCADOPAGO_ACCESS_TOKEN;
-  }
-
-  private static get ASAAS_TOKEN() {
-    return process.env.ASAAS_API_KEY;
+  /** Gateway de produção único: Banco Cora. */
+  static get GATEWAY(): "cora" | "mock" {
+    return process.env.PAYMENT_GATEWAY === "mock" && process.env.NODE_ENV !== "production" ? "mock" : "cora";
   }
 
   static validarConfiguracaoSegura(): void {
-    if (!["mock", "mercadopago", "asaas"].includes(this.GATEWAY)) {
-      throw new Error(`PAYMENT_GATEWAY inválido: ${this.GATEWAY}`);
+    const configurado = (process.env.PAYMENT_GATEWAY || "cora").trim().toLowerCase();
+    if (!(["cora", "mock"] as string[]).includes(configurado)) {
+      throw new Error("PAYMENT_GATEWAY inválido: somente cora é permitido em produção");
     }
-    if (process.env.NODE_ENV !== "production") return;
-    if (this.GATEWAY === "mock") {
-      // Opt-in explícito: permite subir em produção sem gateway real configurado
-      // ainda (ex.: site no ar antes das credenciais do Mercado Pago/Asaas chegarem).
-      // Nenhuma cobrança é enviada a provedor nenhum enquanto isso estiver ativo —
-      // ver criarPagamentoTeste(). Remova ALLOW_MOCK_PAYMENT_IN_PROD assim que
-      // configurar PAYMENT_GATEWAY=mercadopago (ou asaas) com credenciais reais.
-      if (process.env.ALLOW_MOCK_PAYMENT_IN_PROD === "true") {
-        console.warn(
-          "[PaymentGateway] ATENÇÃO: rodando em produção com PAYMENT_GATEWAY=mock " +
-          "(ALLOW_MOCK_PAYMENT_IN_PROD=true). Nenhum pagamento real será processado " +
-          "até configurar um gateway de verdade."
-        );
-        return;
+    if (process.env.NODE_ENV === "production" && configurado !== "cora") {
+      throw new Error("PAYMENT_GATEWAY=mock não é permitido em produção; Banco Cora é o único gateway");
+    }
+    if (configurado === "cora") {
+      try {
+        CoraPaymentProvider.validarConfiguracao();
+      } catch (error) {
+        if (process.env.NODE_ENV === "production") throw error;
+        console.warn("[PaymentGateway] Cora não configurada neste ambiente; cobranças ficarão bloqueadas até configurar mTLS.");
       }
-      throw new Error(
-        "PAYMENT_GATEWAY=mock não é permitido em produção. " +
-        "Configure PAYMENT_GATEWAY=mercadopago/asaas com credenciais reais, " +
-        "ou defina ALLOW_MOCK_PAYMENT_IN_PROD=true temporariamente para subir sem gateway."
-      );
     }
-    if (this.GATEWAY === "mercadopago" && !this.MERCADOPAGO_TOKEN?.trim()) {
-      throw new Error("MERCADOPAGO_ACCESS_TOKEN é obrigatório em produção");
-    }
-    if (this.GATEWAY === "asaas" && !this.ASAAS_TOKEN?.trim()) {
-      throw new Error("ASAAS_API_KEY é obrigatório em produção");
-    }
-    const apiUrl = process.env.API_URL?.trim();
-    if (!apiUrl || !apiUrl.startsWith("https://")) {
-      throw new Error("API_URL com HTTPS é obrigatória em produção para receber webhooks");
+    if (process.env.NODE_ENV === "production") {
+      const url = process.env.CORA_WEBHOOK_PUBLIC_URL?.trim();
+      if (!url || !url.startsWith("https://")) throw new Error("CORA_WEBHOOK_PUBLIC_URL com HTTPS é obrigatória em produção");
     }
   }
 
   static async criarPagamento(request: CriarPagamentoRequest): Promise<PagamentoGatewayResponse> {
-    if (this.GATEWAY === "mock") {
-      return this.criarPagamentoTeste(request);
+    const chave = request.idempotencyKey?.trim() || `comitiva-${request.reserva_id}-${request.metodo}-${request.parcelas || 1}`;
+    const existente = await db.select().from(pagamentos).where(eq(pagamentos.idempotency_key, chave)).limit(1);
+    if (existente[0]) return buildResponse(existente[0], (existente[0].gateway_resposta as any)?.cora);
+
+    if (this.GATEWAY === "mock") return this.criarPagamentoTeste(request, chave);
+
+    const reserva = (await db.select().from(reservas).where(eq(reservas.id, request.reserva_id)).limit(1))[0];
+    if (!reserva) throw new Error("Reserva não encontrada");
+    const usuario = (await db.select({ nome: usuarios.nome, email: usuarios.email, cpf: usuarios.cpf }).from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0];
+    if (!usuario) throw new Error("Cliente da reserva não encontrado");
+
+    const valorReserva = new Decimal(reserva.valor_total.toString()).toDecimalPlaces(2);
+    const valorSolicitado = new Decimal(request.valor).toDecimalPlaces(2);
+    if (!valorReserva.equals(valorSolicitado)) throw new Error("O valor da cobrança não corresponde ao total autoritativo da reserva");
+    if (request.metodo === "boleto" && (!request.parcelas || request.parcelas < 1)) throw new Error("Quantidade de parcelas inválida");
+    const parcelas = request.parcelas || 1;
+    const vencimento = request.vencimento || new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const cora = await CoraPaymentProvider.criarCobranca({
+      code: request.reserva_id,
+      metodo: metodoCora(request.metodo, parcelas),
+      valor: valorSolicitado.toNumber(),
+      descricao: request.descricao || `Reserva ${request.reserva_id}`,
+      cliente: {
+        name: usuario.nome,
+        email: usuario.email,
+        document: { identity: String(usuario.cpf || "").replace(/\D/g, ""), type: "CPF" },
+      },
+      vencimento,
+      parcelas,
+      idempotencyKey: chave,
+    });
+
+    const localStatus = statusCoraParaLocal(cora.status);
+    const responseData: Record<string, unknown> = {
+      cora,
+      status: cora.status,
+      qr_code: cora.qrCode,
+      pix_copia_e_cola: cora.pixCopiaECola,
+      url_pagamento: cora.boletoUrl,
+      document_url: cora.documentUrl,
+      parcelas: cora.parcelas?.map((parcela) => ({
+        id: parcela.id,
+        valor: parcela.valor,
+        status: parcela.status,
+        vencimento: parcela.vencimento,
+        url_pagamento: parcela.boletoUrl,
+        pix_copia_e_cola: parcela.pixCopiaECola,
+      })),
+    };
+    const inserido = await db.insert(pagamentos).values({
+      reserva_id: request.reserva_id,
+      valor: valorSolicitado.toFixed(2),
+      metodo: request.metodo,
+      status: localStatus,
+      gateway_id: cora.id,
+      gateway_resposta: responseData,
+      idempotency_key: chave,
+    }).returning();
+    const pagamento = inserido[0];
+    if (!pagamento) throw new Error("Não foi possível registrar o pagamento");
+    await db.insert(pagamentoIdempotencias).values({ chave, operacao: "criar-cobranca-cora", reserva_id: request.reserva_id, pagamento_id: pagamento.id, resposta: responseData }).onConflictDoNothing();
+
+    if (cora.parcelas?.length) {
+      await db.insert(pagamentoParcelas).values(cora.parcelas.map((parcela, index) => ({
+        pagamento_id: pagamento.id,
+        reserva_id: request.reserva_id,
+        sequencia: index + 1,
+        valor: parcela.valor.toFixed(2),
+        vencimento: parcela.vencimento || new Date(vencimento.getTime() + index * 30 * 86_400_000).toISOString().slice(0, 10),
+        cora_id: parcela.id,
+        status: statusCoraParaLocal(parcela.status),
+        boleto_url: parcela.boletoUrl,
+        pix_copia_e_cola: parcela.pixCopiaECola,
+        codigo_barras: parcela.barcode,
+        linha_digitavel: parcela.digitable,
+      })));
     }
-    if (this.GATEWAY === "asaas") {
-      return this.criarPagamentoAsaas(request);
-    }
-    return this.criarPagamentoMercadoPago(request);
+
+    return buildResponse(pagamento, cora);
   }
 
-  /**
-   * Modo de teste explícito: registra a intenção de pagamento no banco sem
-   * acionar qualquer provedor externo e sem gerar QR Code ou link fictício.
-   */
-  private static async criarPagamentoTeste(
-    request: CriarPagamentoRequest,
-  ): Promise<PagamentoGatewayResponse> {
-    const gatewayId = `teste-${randomUUID()}`;
-
-    await db.insert(pagamentos).values({
+  private static async criarPagamentoTeste(request: CriarPagamentoRequest, chave: string): Promise<PagamentoGatewayResponse> {
+    const inserido = await db.insert(pagamentos).values({
       reserva_id: request.reserva_id,
       valor: request.valor.toFixed(2),
       metodo: request.metodo,
       status: "pendente",
-      gateway_id: gatewayId,
-      gateway_resposta: JSON.stringify({
-        ambiente: "teste",
-        mensagem: "Nenhuma cobrança foi enviada a um gateway de pagamento.",
-      }),
-    });
-
-    return {
-      id: gatewayId,
-      status: "pendente",
-      valor: request.valor,
-      metodo: request.metodo,
-    };
-  }
-
-  private static async criarPagamentoMercadoPago(
-    request: CriarPagamentoRequest
-  ): Promise<PagamentoGatewayResponse> {
-    try {
-      if (!this.MERCADOPAGO_TOKEN) {
-        throw new Error("Token do Mercado Pago não configurado");
-      }
-
-      // Buscar dados da reserva
-      const reservaResult = await db
-        .select()
-        .from(reservas)
-        .where(eq(reservas.id, request.reserva_id))
-        .limit(1);
-
-      if (reservaResult.length === 0) {
-        throw new Error("Reserva não encontrada");
-      }
-
-      const reserva = reservaResult[0];
-      const usuarioResult = await db
-        .select({
-          nome: usuarios.nome,
-          email: usuarios.email,
-          cpf: usuarios.cpf,
-        })
-        .from(usuarios)
-        .where(eq(usuarios.id, reserva.usuario_id))
-        .limit(1);
-      const usuario = usuarioResult[0];
-      if (!usuario) {
-        throw new Error("Cliente da reserva não encontrado");
-      }
-      const partesNome = usuario.nome.trim().split(/\s+/);
-      const primeiroNome = partesNome.shift() || usuario.nome;
-      const sobrenome = partesNome.join(" ");
-      const cpf = String(usuario.cpf || "").replace(/\D/g, "");
-
-      // Preparar payload
-      const payload = {
-        transaction_amount: request.valor,
-        description: request.descricao || `Reserva ${request.reserva_id}`,
-        payment_method_id: this.mapMetodoParaMercadoPago(request.metodo),
-        payer: {
-          email: usuario.email,
-          first_name: primeiroNome,
-          last_name: sobrenome,
-          ...(cpf.length === 11 ? {
-            identification: {
-              type: "CPF",
-              number: cpf,
-            },
-          } : {}),
-        },
-        external_reference: request.reserva_id,
-        notification_url: `${process.env.API_URL}/api/pagamentos/webhook/mercadopago`,
-      };
-
-      // Fazer requisição
-      const response = await axios.post(
-        "https://api.mercadopago.com/v1/payments",
-        payload,
-        {
-          headers: {
-            Authorization: `Bearer ${this.MERCADOPAGO_TOKEN}`,
-            "Content-Type": "application/json",
-            "X-Idempotency-Key": `comitiva-${request.reserva_id}-${request.metodo}`,
-          },
-        }
-      );
-
-      // Salvar pagamento no banco
-      await db.insert(pagamentos).values({
-        reserva_id: request.reserva_id,
-        valor: request.valor.toString(),
-        metodo: request.metodo,
-        status: "processando",
-        gateway_id: response.data.id.toString(),
-        gateway_resposta: JSON.stringify(response.data),
-      });
-
-      return {
-        id: response.data.id.toString(),
-        status: response.data.status,
-        valor: request.valor,
-        metodo: request.metodo,
-        qr_code: response.data.point_of_interaction?.transaction_data?.qr_code,
-        url_pagamento: response.data.init_point,
-      };
-    } catch (error: any) {
-      console.error("[PaymentGateway] Erro Mercado Pago:", error.response?.data || error.message);
-      throw error;
-    }
-  }
-
-  private static async criarPagamentoAsaas(
-    request: CriarPagamentoRequest
-  ): Promise<PagamentoGatewayResponse> {
-    try {
-      if (!this.ASAAS_TOKEN) {
-        throw new Error("Token do Asaas não configurado");
-      }
-
-      // Preparar payload
-      const payload = {
-        billingType: this.mapMetodoParaAsaas(request.metodo),
-        value: request.valor,
-        dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-        description: request.descricao || `Reserva ${request.reserva_id}`,
-        externalReference: request.reserva_id,
-        notificationUrl: `${process.env.API_URL}/api/pagamentos/webhook/asaas`,
-      };
-
-      // Fazer requisição
-      const response = await axios.post("https://api.asaas.com/v3/payments", payload, {
-        headers: {
-          "access_token": this.ASAAS_TOKEN,
-          "Content-Type": "application/json",
-        },
-      });
-
-      // Salvar pagamento no banco
-      await db.insert(pagamentos).values({
-        reserva_id: request.reserva_id,
-        valor: request.valor.toString(),
-        metodo: request.metodo,
-        status: "pendente",
-        gateway_id: response.data.id,
-        gateway_resposta: JSON.stringify(response.data),
-      });
-
-      return {
-        id: response.data.id,
-        status: response.data.status,
-        valor: request.valor,
-        metodo: request.metodo,
-        qr_code: response.data.pixQrCode,
-        url_pagamento: response.data.invoiceUrl,
-      };
-    } catch (error: any) {
-      console.error("[PaymentGateway] Erro Asaas:", error.response?.data || error.message);
-      throw error;
-    }
+      gateway_id: `teste-${randomUUID()}`,
+      gateway_resposta: { ambiente: "teste", mensagem: "Nenhuma cobrança foi enviada a um gateway de pagamento." },
+      idempotency_key: chave,
+    }).returning();
+    const pagamento = inserido[0];
+    if (!pagamento) throw new Error("Não foi possível registrar o pagamento de teste");
+    await db.insert(pagamentoIdempotencias).values({ chave, operacao: "criar-cobranca-teste", reserva_id: request.reserva_id, pagamento_id: pagamento.id, resposta: { ambiente: "teste" } }).onConflictDoNothing();
+    return buildResponse(pagamento, undefined);
   }
 
   static async confirmarPagamento(gateway_id: string): Promise<boolean> {
-    try {
-      if (this.GATEWAY === "asaas") {
-        return this.confirmarPagamentoAsaas(gateway_id);
-      }
-      return this.confirmarPagamentoMercadoPago(gateway_id);
-    } catch (error) {
-      console.error("[PaymentGateway] Erro ao confirmar:", error);
-      return false;
-    }
+    if (this.GATEWAY === "mock") return false;
+    const data = await CoraPaymentProvider.consultarCobranca(gateway_id);
+    return String(data?.status || "").toUpperCase() === "PAID";
   }
 
-  private static async confirmarPagamentoMercadoPago(gateway_id: string): Promise<boolean> {
-    try {
-      if (!this.MERCADOPAGO_TOKEN) {
-        return false;
-      }
-
-      const response = await axios.get(`https://api.mercadopago.com/v1/payments/${gateway_id}`, {
-        headers: {
-          Authorization: `Bearer ${this.MERCADOPAGO_TOKEN}`,
-        },
-      });
-
-      return response.data.status === "approved";
-    } catch (error) {
-      console.error("[PaymentGateway] Erro ao confirmar Mercado Pago:", error);
-      return false;
-    }
+  static async consultarPagamento(gateway_id: string): Promise<any> {
+    if (this.GATEWAY === "mock") return null;
+    return CoraPaymentProvider.consultarCobranca(gateway_id);
   }
 
-  private static async confirmarPagamentoAsaas(gateway_id: string): Promise<boolean> {
-    try {
-      if (!this.ASAAS_TOKEN) {
-        return false;
-      }
-
-      const response = await axios.get(`https://api.asaas.com/v3/payments/${gateway_id}`, {
-        headers: {
-          "access_token": this.ASAAS_TOKEN,
-        },
-      });
-
-      return response.data.status === "CONFIRMED";
-    } catch (error) {
-      console.error("[PaymentGateway] Erro ao confirmar Asaas:", error);
-      return false;
-    }
-  }
-
-  private static mapMetodoParaMercadoPago(metodo: string): string {
-    switch (metodo) {
-      case "pix":
-        return "pix";
-      case "boleto":
-        return "bolbradesco";
-      case "credito":
-        return "credit_card";
-      case "debito":
-        return "debit_card";
-      default:
-        return "pix";
-    }
-  }
-
-  private static mapMetodoParaAsaas(metodo: string): string {
-    switch (metodo) {
-      case "pix":
-        return "PIX";
-      case "boleto":
-        return "BOLETO";
-      case "credito":
-        return "CREDIT_CARD";
-      case "debito":
-        return "DEBIT_CARD";
-      default:
-        return "PIX";
-    }
+  static async cancelarPagamento(gateway_id: string): Promise<any> {
+    if (this.GATEWAY === "mock") throw new Error("Cancelamento de mock não representa uma operação financeira");
+    return CoraPaymentProvider.cancelarCobranca(gateway_id);
   }
 }
