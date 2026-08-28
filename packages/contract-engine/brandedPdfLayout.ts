@@ -6,10 +6,13 @@ export type PdfBrand = "comitiva";
 
 export type BrandedPdfOptions = {
   brand?: PdfBrand | string | null;
+  /** Mantém o papel timbrado do modelo DOCX: sem logo no cabeçalho, apenas paginação. */
+  contractModel?: boolean;
 };
 
 const EMPTY_HEADER = '<style>* { margin: 0; padding: 0; }</style><div></div>';
 const EMPTY_FOOTER = '<style>* { margin: 0; padding: 0; }</style><div></div>';
+const CONTRACT_PAGE_FOOTER = `<style>* { margin: 0; padding: 0; box-sizing: border-box; } #pn { width: 100%; padding-top: 3mm; text-align: center; font: 8pt Arial, sans-serif; color: #111; }</style><div id="pn"><span class="pageNumber"></span></div>`;
 
 const FOOTER_TEMPLATE = `<style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -222,13 +225,18 @@ export async function generateBrandedPdfBuffer(
       format: "A4" as const,
       printBackground: true,
       displayHeaderFooter: true,
-      margin: {
-        top: "28mm",
-        bottom: "28mm",
-        left: "22mm",
-        right: "22mm",
-      },
+      margin: options.contractModel
+        ? { top: "10mm", bottom: "12mm", left: "12mm", right: "12mm" }
+        : { top: "28mm", bottom: "28mm", left: "22mm", right: "22mm" },
     };
+
+    if (options.contractModel) {
+      return Buffer.from(await page.pdf({
+        ...pdfOptions,
+        headerTemplate: EMPTY_HEADER,
+        footerTemplate: CONTRACT_PAGE_FOOTER,
+      }));
+    }
 
     const allPagesBuffer = await page.pdf({
       ...pdfOptions,

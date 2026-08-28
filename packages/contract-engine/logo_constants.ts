@@ -13,7 +13,7 @@ import path from "path";
 // (process.cwd(), que no container é /app) cobrindo tanto o layout de
 // dev (packages/contract-engine/assets, server/assets) quanto o layout
 // de produção (dist + assets copiados pelo Dockerfile).
-function loadLogoB64(filename: string): string {
+function loadAssetDataUri(filename: string): string {
   try {
     const candidates = [
       path.join(process.cwd(), "packages", "contract-engine", "assets", filename),
@@ -25,16 +25,18 @@ function loadLogoB64(filename: string): string {
     for (const p of candidates) {
       if (fs.existsSync(p)) {
         const buf = fs.readFileSync(p);
-        return `data:image/png;base64,${buf.toString("base64")}`;
+        const mime = filename.toLowerCase().endsWith(".jpeg") || filename.toLowerCase().endsWith(".jpg") ? "image/jpeg" : filename.toLowerCase().endsWith(".svg") ? "image/svg+xml" : "image/png";
+        return `data:${mime};base64,${buf.toString("base64")}`;
       }
     }
-    console.warn(`[logo_constants] Logo não encontrada: ${filename}`);
+    console.warn(`[logo_constants] Asset de contrato não encontrado: ${filename}`);
     return "";
   } catch (e) {
-    console.warn(`[logo_constants] Erro ao carregar logo ${filename}:`, e);
+    console.warn(`[logo_constants] Erro ao carregar asset ${filename}:`, e);
     return "";
   }
 }
 
-export const COMITIVA_LOGO_B64: string = loadLogoB64("logo.png");
-export const COMITIVA_LOGO_PDF_B64: string = loadLogoB64("logo-pdf.png");
+export const COMITIVA_LOGO_B64: string = loadAssetDataUri("logo.png");
+export const COMITIVA_LOGO_PDF_B64: string = loadAssetDataUri("logo-pdf.png");
+export const COMITIVA_CONTRACT_WATERMARK_B64: string = loadAssetDataUri("contract-watermark.jpeg");
