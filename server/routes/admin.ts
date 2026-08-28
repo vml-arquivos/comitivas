@@ -733,6 +733,19 @@ router.post("/reservas/:reserva_id/desconto", requireRole("admin"), async (req: 
 // Geração de contrato diretamente pelo painel administrativo
 // ==========================================================================
 
+router.post("/contratos/preview/:reserva_id", async (req: Request, res: Response) => {
+  try {
+    const reserva = (await db.select({ id: reservas.id }).from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
+    if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
+    const snapshot = await ContratoService.gerarSnapshot({ reserva_id: reserva.id, formulario: req.body?.formulario });
+    const html = await ContratoService.gerarContratoHTML({ reserva_id: reserva.id, snapshot });
+    return res.json({ snapshot, html, template: "2026.1-oficial", editavel: ["contratante", "hospedagem", "transporte", "bagagem", "seguro", "uso_imagem", "observacoes_especificas"] });
+  } catch (error: any) {
+    console.error("[ADMIN] Erro ao visualizar preview contratual:", error);
+    return res.status(400).json({ erro: error.message || "Não foi possível gerar o preview" });
+  }
+});
+
 // Lista reservas com e sem contrato gerado, já com nome do cliente e do
 // evento/lote, para alimentar a página "Contratos" do painel.
 router.get("/contratos", async (req: Request, res: Response) => {
@@ -843,7 +856,7 @@ router.post("/contratos/gerar/:reserva_id", async (req: Request, res: Response) 
       })
       .where(eq(reservas.id, reserva_id));
 
-    await ContratoService.registrarAceiteContrato(reserva_id, `gerado-pelo-admin:${req.usuario.id}`);
+    await ContratoService.registrarAceiteContrato(reserva_id, `gerado-pelo-admin:${req.usuario.id}`, req.body?.formulario);
 
     res.json({
       mensagem: "Contrato preparado e aguardando validação eletrônica do cliente",

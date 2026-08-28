@@ -16,16 +16,24 @@ const expectedTables = [
   "webhook_eventos",
   "descontos_administrativos",
   "videos_evento",
+  "contrato_eventos",
+  "consentimentos_imagem",
+  "precos_ledger",
+  "inventario_holds",
+  "notificacoes_outbox",
+  "sessoes",
 ];
 
 const expectedColumns = {
-  usuarios: ["rg", "data_nascimento", "estado_civil", "profissao", "endereco", "nacionalidade"],
+  usuarios: ["rg", "data_nascimento", "estado_civil", "profissao", "endereco", "nacionalidade", "session_version"],
+  reservas: ["checkout_estado", "inventario_hold_id", "valor_total_centavos", "preco_versao", "cronograma_pagamento"],
   pacotes: ["modalidade_hospedagem", "disponibilidade"],
-  pagamentos: ["idempotency_key"],
+  pagamentos: ["idempotency_key", "valor_centavos", "valor_pago_centavos", "status_reconciliado"],
   fotos_evento: ["alt_text", "categoria", "destaque", "capa", "formato"],
   contratos_documentos: [
     "id", "reserva_id", "versao", "versao_template", "snapshot", "snapshot_sha256",
     "pdf_sha256", "arquivo", "status", "criado_em", "validado_em", "invalidado_em",
+    "conteudo_canonico", "regras_versao", "regras_sha256", "aviso_privacidade_versao", "visualizado_em", "motivo_invalidacao",
   ],
   regras_convivencia_versoes: ["id", "versao", "titulo", "conteudo", "conteudo_sha256", "ativo", "criado_em"],
   contrato_validacoes: [
@@ -38,12 +46,14 @@ const expectedColumns = {
   otp_desafios: [
     "id", "usuario_id", "reserva_id", "contrato_id", "canal", "destinatario_mascarado",
     "segredo_hash", "expira_em", "tentativas", "max_tentativas", "cooldown_ate", "usado_em", "criado_em",
+    "status_envio", "provedor", "message_id", "solicitado_em", "enviado_em", "falhou_em", "erro_envio",
   ],
   password_reset_tokens: ["id", "usuario_id", "token_hash", "expira_em", "usado_em", "criado_em"],
   pagamento_idempotencias: ["id", "chave", "operacao", "reserva_id", "pagamento_id", "resposta", "criado_em", "atualizado_em"],
   pagamento_parcelas: [
     "id", "pagamento_id", "reserva_id", "sequencia", "valor", "vencimento", "cora_id", "status",
     "boleto_url", "pix_copia_e_cola", "codigo_barras", "linha_digitavel", "criado_em", "atualizado_em",
+    "valor_centavos", "valor_pago_centavos",
   ],
   webhook_eventos: ["id", "provedor", "evento_id", "tipo", "recurso_id", "payload", "processado_em", "criado_em"],
   descontos_administrativos: [
@@ -51,6 +61,12 @@ const expectedColumns = {
     "valor_desconto", "total_final", "criado_em",
   ],
   videos_evento: ["id", "evento_id", "url", "youtube_id", "titulo", "descricao", "ordem", "ativo", "destaque", "criado_em", "atualizado_em"],
+  contrato_eventos: ["id", "contrato_id", "reserva_id", "tipo", "criado_em", "ator_id", "sessao_id", "ip", "user_agent", "metadados", "hash_anterior", "hash_evento"],
+  consentimentos_imagem: ["id", "reserva_id", "usuario_id", "versao", "texto_exato", "aceito", "revogado_em", "criado_em"],
+  precos_ledger: ["id", "reserva_id", "tipo", "codigo", "descricao", "quantidade", "valor_unitario_centavos", "valor_total_centavos", "criado_em", "criado_por", "metadados"],
+  inventario_holds: ["id", "reserva_id", "lote_id", "modalidade", "quantidade", "status", "expira_em", "criado_em", "convertido_em", "liberado_em", "motivo_liberacao"],
+  notificacoes_outbox: ["id", "reserva_id", "tipo", "chave_idempotente", "template", "versao", "destinatario_mascarado", "payload", "anexos", "status", "tentativas", "proxima_tentativa", "message_id", "ultimo_erro", "criado_em", "enviado_em"],
+  sessoes: ["id", "usuario_id", "versao", "criado_em", "expira_em", "revogada_em", "ip", "user_agent"],
 };
 
 const expectedIndexes = [
@@ -63,6 +79,18 @@ const expectedIndexes = [
   "pagamento_parcelas_reserva_sequencia_idx",
   "descontos_administrativos_reserva_idx",
   "videos_evento_evento_idx",
+  "reservas_checkout_estado_idx",
+  "contratos_documentos_pendente_unico_idx",
+  "contrato_validacoes_contrato_unico_idx",
+  "otp_desafios_status_envio_idx",
+  "inventario_holds_lote_ativos_idx",
+  "inventario_holds_expiracao_idx",
+  "pagamentos_gateway_id_unico_idx",
+  "pagamentos_status_reconciliado_idx",
+  "pagamento_parcelas_cora_id_unico_idx",
+  "webhook_eventos_reprocessamento_idx",
+  "notificacoes_outbox_fila_idx",
+  "sessoes_usuario_ativas_idx",
 ];
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -109,7 +137,7 @@ try {
     `SELECT COUNT(*)::int AS count FROM drizzle.__drizzle_migrations`,
   );
   const migrationCount = Number(migrationCountResult.rows[0]?.count || 0);
-  if (migrationCount < 8) throw new Error(`Histórico Drizzle incompleto: ${migrationCount}/8 migrations`);
+  if (migrationCount < 9) throw new Error(`Histórico Drizzle incompleto: ${migrationCount}/9 migrations`);
 
   const rulesResult = await pool.query(
     `SELECT conteudo, conteudo_sha256 FROM regras_convivencia_versoes WHERE versao = $1 LIMIT 1`,
@@ -123,7 +151,7 @@ try {
   console.log(JSON.stringify({
     connection: "ok",
     validation: "ok",
-    migration: "0007",
+    migration: "0008",
     migrationHistory: migrationCount,
     tables: expectedTables.length,
     columns: Object.values(expectedColumns).reduce((total, columns) => total + columns.length, 0),

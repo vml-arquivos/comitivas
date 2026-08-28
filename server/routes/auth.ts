@@ -364,7 +364,15 @@ router.post("/login", async (req: Request<{}, {}, LoginRequest>, res: Response) 
 
     // Buscar usuário
     const usuarioResult = await db
-      .select()
+      .select({
+        id: usuarios.id,
+        email: usuarios.email,
+        nome: usuarios.nome,
+        tipo: usuarios.tipo,
+        ativo: usuarios.ativo,
+        senha_hash: usuarios.senha_hash,
+        session_version: usuarios.session_version,
+      })
       .from(usuarios)
       .where(eq(usuarios.email, emailNormalizado))
       .limit(1);

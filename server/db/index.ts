@@ -34,11 +34,14 @@ const CREATE_TABLES: string[] = [
     endereco TEXT,
     nacionalidade VARCHAR(50) DEFAULT 'Brasileira',
     ativo BOOLEAN DEFAULT true,
+    session_version INTEGER NOT NULL DEFAULT 1,
     criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
     atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS usuarios_email_idx ON usuarios (email)`,
   `CREATE INDEX IF NOT EXISTS usuarios_cpf_idx ON usuarios (cpf)`,
+  // Compatibilidade com bancos que já tinham usuarios antes da revogação de sessões.
+  `ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 1`,
 
   `CREATE TABLE IF NOT EXISTS eventos (
     id TEXT PRIMARY KEY,

@@ -38,12 +38,49 @@ const FORMAS_PAGAMENTO: Record<string, string> = {
   credito: "Parcelamento por cartão de crédito",
 };
 
+export interface ContratoFormulario {
+  contratante?: {
+    nome?: string;
+    cpf?: string;
+    rg?: string;
+    nacionalidade?: string;
+    estado_civil?: string;
+    profissao?: string;
+    nascimento?: string | null;
+    endereco?: string;
+    telefone?: string;
+    email?: string;
+  };
+  hospedagem?: {
+    check_in?: string | null;
+    check_out?: string | null;
+    modalidade?: string | null;
+    local?: string;
+  };
+  transporte?: {
+    rodoviario_incluido?: boolean;
+    local_embarque?: string | null;
+    ponto_referencia?: string | null;
+    data_saida?: string | null;
+    horario_saida?: string | null;
+    data_retorno?: string | null;
+    horario_retorno?: string | null;
+    veiculo?: string | null;
+  };
+  bagagem?: { limite_kg?: number | null };
+  seguro?: { seguradora?: string | null; apolice?: string | null; cobertura?: string | null; telefone?: string | null };
+  uso_imagem?: { autorizado?: boolean; prazo_anos?: number };
+  servicos_inclusos?: string[];
+  observacoes_especificas?: string | null;
+}
+
 export interface DadosContrato {
   reserva_id: string;
   usuario_id?: string;
   lote_id?: string;
   contrato_id?: string;
   snapshot?: SnapshotVenda;
+  formulario?: ContratoFormulario;
   aceite_ip?: string;
   aceite_timestamp?: Date;
   protocolo?: string;
@@ -87,7 +124,11 @@ type SnapshotVenda = {
     cronograma: Array<{ numero: number; vencimento: string; valor: string; valor_centavos: number }>;
 
   };
-  transporte: { rodoviario_incluido: boolean; local_embarque: string | null; data_saida: string | null; data_retorno: string | null; horario_saida: string | null; horario_retorno: string | null; veiculo: string | null };
+  transporte: { rodoviario_incluido: boolean; local_embarque: string | null; ponto_referencia: string | null; data_saida: string | null; data_retorno: string | null; horario_saida: string | null; horario_retorno: string | null; veiculo: string | null };
+  bagagem?: { limite_kg: number | null };
+  seguro?: { seguradora: string | null; apolice: string | null; cobertura: string | null; telefone: string | null };
+  uso_imagem?: { autorizado: boolean; prazo_anos: number };
+  observacoes_especificas?: string | null;
   politicas: Record<string, unknown>;
   regras: { versao: string; conteudo: string; sha256: string };
   data_contrato: string;
@@ -225,6 +266,23 @@ function transporteFoiContratado(itens: ItemContrato[]): boolean {
   return itens.some((item) => item.transporte_rodoviario === true || item.codigo === "transporte_rodoviario" || item.tipo === "transporte_rodoviario");
 }
 
+function textoOpcional(valor: unknown, fallback: string | null = null): string | null {
+  const texto = String(valor ?? "").trim();
+  return texto ? texto.slice(0, 500) : fallback;
+}
+
+function dataISOouNulo(valor: unknown): string | null {
+  if (!valor) return null;
+  const data = dataValida(String(valor));
+  return data ? data.toISOString().slice(0, 10) : null;
+}
+
+function numeroOpcional(valor: unknown): number | null {
+  if (valor === null || valor === undefined || valor === "") return null;
+  const numero = Number(valor);
+  return Number.isFinite(numero) && numero > 0 ? Math.round(numero * 100) / 100 : null;
+}
+
 export class ContratoService {
   static calcularParcelasMaximasBoleto(dataLimitePagamento: Date | string | null | undefined, dataReferencia: Date = new Date(), mesesMaximoAntecedencia = 20): number {
     const limite = dataValida(dataLimitePagamento);
@@ -282,26 +340,36 @@ export class ContratoService {
     const total = decimal(reserva.valor_total);
     const parcelas = reserva.quantidade_parcelas || 1;
     const aceite = dadosContrato.aceite_timestamp || reserva.aceite_timestamp || new Date();
-    const rodoviario = transporteFoiContratado(adicionais);
-    const localHospedagem = lote.local_hospedagem || "Chácara Recanto Novo Encantado ou Santa Thereza";
+    const formulario = dadosContrato.formulario || {};
+    const clienteForm = formulario.contratante || {};
+    const hospedagemForm = formulario.hospedagem || {};
+    const transporteForm = formulario.transporte || {};
+    const seguroForm = formulario.seguro || {};
+    const rodoviario = transporteForm.rodoviario_incluido === undefined ? transporteFoiContratado(adicionais) : transporteForm.rodoviario_incluido === true;
+    const localHospedagem = textoOpcional(hospedagemForm.local, lote.local_hospedagem || "Chácara Recanto Novo Encantado ou Santa Thereza") || "Chácara Recanto Novo Encantado ou Santa Thereza";
+    const modalidadeHospedagem = textoOpcional(hospedagemForm.modalidade, pacote?.modalidade_hospedagem || null);
     const regrasHash = sha256(REGRAS_CONVIVENCIA_OFICIAIS);
     const dataLimite = lote.data_embarque || lote.data_inicio;
     const servicos = ["Hospedagem", "Café da manhã", "Almoço", "Open Bar das 09h às 19h", "Translado entre a chácara e o Parque do Peão"];
     if (rodoviario) servicos.unshift("Transporte rodoviário de ida e volta, conforme programação previamente divulgada pela CONTRATADA");
     const cronograma = cronogramaPagamento(total, dataValida(dataLimite), parcelas);
     return {
-      cliente: { id: usuario.id, nome: usuario.nome, cpf: usuario.cpf, rg: usuario.rg, nacionalidade: usuario.nacionalidade || "Brasileira", estado_civil: usuario.estado_civil, profissao: usuario.profissao, nascimento: formatarDataISO(usuario.data_nascimento), endereco: usuario.endereco, telefone: usuario.telefone, email: usuario.email },
+      cliente: { id: usuario.id, nome: textoOpcional(clienteForm.nome, usuario.nome), cpf: textoOpcional(clienteForm.cpf, usuario.cpf), rg: textoOpcional(clienteForm.rg, usuario.rg), nacionalidade: textoOpcional(clienteForm.nacionalidade, usuario.nacionalidade || "Brasileira"), estado_civil: textoOpcional(clienteForm.estado_civil, usuario.estado_civil), profissao: textoOpcional(clienteForm.profissao, usuario.profissao), nascimento: dataISOouNulo(clienteForm.nascimento) || formatarDataISO(usuario.data_nascimento), endereco: textoOpcional(clienteForm.endereco, usuario.endereco), telefone: textoOpcional(clienteForm.telefone, usuario.telefone), email: textoOpcional(clienteForm.email, usuario.email) },
       evento: { id: evento.id, nome: evento.nome, local: evento.local, data_inicio: formatarDataISO(evento.data_inicio), data_fim: formatarDataISO(evento.data_fim) },
       lote: { id: lote.id, nome: lote.nome, descricao: lote.descricao },
-      periodo: { check_in: formatarDataISO(lote.data_inicio) || "", check_out: formatarDataISO(lote.data_fim) || "" },
+      periodo: { check_in: dataISOouNulo(hospedagemForm.check_in) || formatarDataISO(lote.data_inicio) || "", check_out: dataISOouNulo(hospedagemForm.check_out) || formatarDataISO(lote.data_fim) || "" },
       pacote: { id: pacote?.id || null, nome: pacote?.nome || null, descricao: pacote?.descricao || null },
-      hospedagem: { modalidade: pacote?.modalidade_hospedagem || null, modalidade_nome: MODALIDADES_HOSPEDAGEM[pacote?.modalidade_hospedagem || ""] || "Conforme contratação registrada", local: localHospedagem },
-      servicos_inclusos: servicos,
+      hospedagem: { modalidade: modalidadeHospedagem, modalidade_nome: MODALIDADES_HOSPEDAGEM[modalidadeHospedagem || ""] || "Conforme contratação registrada", local: localHospedagem },
+      servicos_inclusos: Array.isArray(formulario.servicos_inclusos) && formulario.servicos_inclusos.length > 0 ? formulario.servicos_inclusos.map((item) => String(item).trim()).filter(Boolean).slice(0, 30) : servicos,
       adicionais: adicionais.map((item) => ({ id: item.id, codigo: item.codigo, nome: item.nome, tipo: item.tipo, transporte_rodoviario: item.transporte_rodoviario, quantidade: item.quantidade, valor_unitario: item.valor.toFixed(2) })),
       quantidade: 1,
       precos_unitarios: itens.map((item) => ({ nome: item.nome, quantidade: item.quantidade, valor_unitario: item.valor.toFixed(2), total: item.valor.times(item.quantidade).toFixed(2) })),
       financeiro: { subtotal: subtotal.toFixed(2), cupom: descontoCupom.toFixed(2), desconto_pagamento: descontoPagamento.toFixed(2), desconto_administrativo: decimal(descontoAdministrativo?.valor_desconto).toFixed(2), total: total.toFixed(2), forma_pagamento: reserva.forma_pagamento, parcelas, valor_parcela: cronograma[0]?.valor || (reserva.valor_parcela ? decimal(reserva.valor_parcela).toFixed(2) : total.div(parcelas).toFixed(2)), vencimentos: cronograma.map((item) => item.vencimento), cronograma },
-      transporte: { rodoviario_incluido: rodoviario, local_embarque: rodoviario ? lote.local_embarque : null, data_saida: rodoviario ? formatarDataISO(lote.data_embarque) : null, data_retorno: rodoviario ? formatarDataISO(lote.data_retorno) : null, horario_saida: rodoviario ? formatarDataHora(lote.data_embarque) : null, horario_retorno: rodoviario ? formatarDataHora(lote.data_retorno) : null, veiculo: null },
+      transporte: { rodoviario_incluido: rodoviario, local_embarque: rodoviario ? textoOpcional(transporteForm.local_embarque, lote.local_embarque) : null, ponto_referencia: rodoviario ? textoOpcional(transporteForm.ponto_referencia, null) : null, data_saida: rodoviario ? dataISOouNulo(transporteForm.data_saida) || formatarDataISO(lote.data_embarque) : null, data_retorno: rodoviario ? dataISOouNulo(transporteForm.data_retorno) || formatarDataISO(lote.data_retorno) : null, horario_saida: rodoviario ? textoOpcional(transporteForm.horario_saida, lote.data_embarque ? formatarDataHora(lote.data_embarque) : null) : null, horario_retorno: rodoviario ? textoOpcional(transporteForm.horario_retorno, lote.data_retorno ? formatarDataHora(lote.data_retorno) : null) : null, veiculo: rodoviario ? textoOpcional(transporteForm.veiculo, null) : null },
+      bagagem: { limite_kg: numeroOpcional(formulario.bagagem?.limite_kg) },
+      seguro: { seguradora: textoOpcional(seguroForm.seguradora), apolice: textoOpcional(seguroForm.apolice), cobertura: textoOpcional(seguroForm.cobertura), telefone: textoOpcional(seguroForm.telefone) },
+      uso_imagem: { autorizado: formulario.uso_imagem?.autorizado === true, prazo_anos: Number(formulario.uso_imagem?.prazo_anos) > 0 ? Math.min(10, Math.round(Number(formulario.uso_imagem?.prazo_anos))) : 3 },
+      observacoes_especificas: textoOpcional(formulario.observacoes_especificas),
       politicas: { cancelamento: ["Superior a 90 dias: retenção de 10%", "Entre 80 e 60 dias: retenção de 20%", "Entre 50 e 30 dias: retenção de 30%", "Entre 20 e 15 dias: retenção de 50%", "Menos de 15 dias: retenção de 80%", "No-show ou abandono: retenção de 100%"], reembolso: "Até 30 dias da formalização do pedido" },
       regras: { versao: REGRAS_CONVIVENCIA_VERSION, conteudo: REGRAS_CONVIVENCIA_OFICIAIS, sha256: regrasHash },
       data_contrato: formatarData(aceite),
@@ -334,14 +402,23 @@ export class ContratoService {
     const h = snapshot.hospedagem;
     const f = snapshot.financeiro;
     const t = snapshot.transporte;
+    const bagagem = snapshot.bagagem || { limite_kg: null };
+    const seguroSnapshot = snapshot.seguro || { seguradora: null, apolice: null, cobertura: null, telefone: null };
+    const usoImagem = snapshot.uso_imagem || { autorizado: false, prazo_anos: 3 };
+    const observacoesEspecificas = snapshot.observacoes_especificas || null;
     const p = snapshot.politicas as any;
     const dataContrato = snapshot.data_contrato || formatarData(dadosContrato.aceite_timestamp || new Date());
     const linhasItens = snapshot.precos_unitarios.map((item: any) => `<tr><td>${escaparHtml(item.nome)}</td><td class="numero">${item.quantidade}</td><td class="numero">${formatarMoeda(item.valor_unitario)}</td><td class="numero">${formatarMoeda(item.total)}</td></tr>`).join("");
     const linhasRegras = snapshot.regras.conteudo.split("\n").map((linha) => linha.trim()).filter(Boolean).map((linha) => `<p>${escaparHtml(linha)}</p>`).join("");
     const modalidade = (nome: string, chave: string) => `<span class="modalidade"><span class="marcador">${checkbox(h.modalidade === chave)}</span> ${nome}</span>`;
     const inclusaoTransporte = t.rodoviario_incluido
-      ? `<p>10.1. A contratação inclui transporte rodoviário interestadual de passageiros, com saída de Brasília/DF e destino à cidade de Barretos/SP, bem como o respectivo retorno, conforme programação previamente divulgada pela CONTRATADA.</p><p>10.2. O transporte será realizado por empresa regularmente habilitada junto aos órgãos competentes, especialmente à ANTT, observadas as normas de segurança e a legislação vigente.</p><p>10.3. Local de embarque: ${escaparHtml(t.local_embarque || "a confirmar pela organização")}. Data de saída: ${escaparHtml(formatarData(t.data_saida))}. Data de retorno: ${escaparHtml(formatarData(t.data_retorno))}.</p>`
-      : `<p>10.1. Esta contratação não inclui transporte rodoviário interestadual. O translado contratado limita-se exclusivamente ao percurso entre a chácara e o Parque do Peão, em horários previamente divulgados pela organização.</p>`;
+      ? `<p>10.1. O presente contrato compreende, além dos serviços de hospedagem, alimentação e translado interno, o transporte rodoviário interestadual de passageiros, com saída da cidade de Brasília/DF e destino à cidade de Barretos/SP, bem como o respectivo retorno ao local de origem, conforme programação previamente divulgada pela CONTRATADA.</p><p>10.2. O transporte será realizado por empresa regularmente habilitada junto aos órgãos competentes, especialmente à Agência Nacional de Transportes Terrestres — ANTT, observadas as normas de segurança e a legislação vigente.</p><p>10.3. As informações referentes ao transporte são: <strong>Local de embarque:</strong> ${escaparHtml(t.local_embarque || "Não informado")}; <strong>ponto de referência:</strong> ${escaparHtml(t.ponto_referencia || "Não informado")}; <strong>data da saída:</strong> ${escaparHtml(formatarData(t.data_saida))}; <strong>horário previsto da saída:</strong> ${escaparHtml(t.horario_saida || "Não informado")}; <strong>data prevista para retorno:</strong> ${escaparHtml(formatarData(t.data_retorno))}; <strong>horário previsto do retorno:</strong> ${escaparHtml(t.horario_retorno || "Não informado")}; <strong>tipo do veículo:</strong> ${escaparHtml(t.veiculo || "Não informado")}.</p>`
+      : `<p>10.1. Esta contratação não inclui transporte rodoviário interestadual. O presente contrato compreende exclusivamente os serviços de hospedagem, alimentação, open bar, translado interno entre a chácara e o Parque do Peão e demais serviços expressamente previstos neste instrumento.</p>`;
+    const limiteBagagem = bagagem.limite_kg ? `${bagagem.limite_kg} kg` : "Não informado";
+    const seguro = seguroSnapshot;
+    const seguroDetalhes = seguro.seguradora || seguro.apolice || seguro.cobertura || seguro.telefone
+      ? `<p><strong>Seguradora:</strong> ${escaparHtml(seguro.seguradora || "Não informado")} · <strong>Número da apólice:</strong> ${escaparHtml(seguro.apolice || "Não informado")} · <strong>Cobertura:</strong> ${escaparHtml(seguro.cobertura || "Não informado")} · <strong>Telefone:</strong> ${escaparHtml(seguro.telefone || "Não informado")}</p>`
+      : `<p>Não há seguro adicional informado para esta contratação; aplicam-se apenas as coberturas obrigatórias previstas na legislação pertinente.</p>`;
     const forma = f.forma_pagamento ? FORMAS_PAGAMENTO[f.forma_pagamento] || f.forma_pagamento : "Não registrada";
     const pagamento = f.forma_pagamento === "pix"
       ? `Pagamento à vista via PIX, com desconto de ${formatarMoeda(f.desconto_pagamento)}.`
@@ -358,22 +435,23 @@ export class ContratoService {
       <h2>Cláusula primeira — Do objeto do contrato</h2><p>1.1. O presente contrato tem por objeto a prestação de serviços de hospedagem/transporte durante a Festa do Peão de Barretos/SP, compreendendo hospedagem, café da manhã, almoço, open bar, translado interno entre a chácara e o Parque do Peão e demais serviços expressamente descritos neste instrumento.</p><p>1.2. O evento possui caráter regional e ocorre apenas uma vez ao ano, motivo pelo qual não será possível a remarcação do pacote para data fora da temporada oficial.</p><p>1.3. É de responsabilidade do CONTRATANTE a leitura integral deste contrato antes de seu aceite eletrônico.</p>
       <h2>Cláusula segunda — Dos dados da hospedagem</h2><p>Check-in: <strong>${escaparHtml(formatarData(snapshot.periodo.check_in))}</strong>. Check-out: <strong>${escaparHtml(formatarData(snapshot.periodo.check_out))}</strong>. Os horários poderão sofrer pequenos ajustes por necessidade operacional.</p>
       <h2>Cláusula terceira — Da hospedagem</h2><p>3.1. A hospedagem será realizada na ${escaparHtml(h.local)}.</p><div class="modalidades">${modalidade("CAMPING", "camping")}${modalidade("QUARTO COM VENTILADOR COMPARTILHADO", "quarto_ventilador")}${modalidade("QUARTO COM CLIMATIZADOR COMPARTILHADO", "quarto_ar_condicionado")}</div><p>3.2. Havendo necessidade, a CONTRATADA poderá substituir a hospedagem por estabelecimento de padrão equivalente ou superior, preservando localização, segurança e estrutura semelhantes.</p><p>3.3. Os quartos são compartilhados, separados por masculino e feminino, com ocupação variável entre 5 e 10 pessoas.</p><p>3.4. Todos os quartos possuem banheiro privativo. A área de camping possui banheiros coletivos.</p><p>3.5. A hospedagem dispõe de piscina, ventilador ou climatizador.</p><p>3.6. A roupa de cama é de responsabilidade exclusiva do hóspede, bem como itens de higiene pessoal.</p>
-      <h2>Cláusula quarta — Dos serviços inclusos</h2><p>4.1. Estão inclusos nesta contratação: ${escaparHtml(snapshot.servicos_inclusos.join("; "))}.</p><table class="itens"><thead><tr><th>Item</th><th>Qtd.</th><th>Valor unitário</th><th>Total</th></tr></thead><tbody>${linhasItens}<tr><td colspan="3" class="numero">Subtotal dos serviços</td><td class="numero">${formatarMoeda(f.subtotal)}</td></tr>${Number(f.cupom) > 0 ? `<tr><td colspan="3" class="numero">Desconto de cupom</td><td class="numero">-${formatarMoeda(f.cupom)}</td></tr>` : ""}${Number(f.desconto_pagamento) > 0 ? `<tr><td colspan="3" class="numero">Desconto da forma de pagamento</td><td class="numero">-${formatarMoeda(f.desconto_pagamento)}</td></tr>` : ""}${Number(f.desconto_administrativo) > 0 ? `<tr><td colspan="3" class="numero">Desconto administrativo autorizado</td><td class="numero">-${formatarMoeda(f.desconto_administrativo)}</td></tr>` : ""}<tr class="total"><td colspan="3" class="numero">VALOR TOTAL CONTRATADO</td><td class="numero">${formatarMoeda(f.total)}</td></tr></tbody></table>
-      <h2>Cláusula quinta — Das formas de pagamento</h2><div class="resumo"><strong>Condição escolhida:</strong> ${escaparHtml(forma)}<br>${escaparHtml(pagamento)}<br><strong>Valor por extenso:</strong> ${escaparHtml(valorPorExtenso(decimal(f.total)))}</div><p>5.1. O valor total do pacote turístico é de ${formatarMoeda(f.total)} (${escaparHtml(valorPorExtenso(decimal(f.total)))}).</p><p>5.2. A confirmação da reserva somente ocorrerá após a comprovação do pagamento da primeira parcela ou do valor integral contratado, conforme a modalidade escolhida.</p><p>5.3. O inadimplemento das parcelas não garante ao CONTRATANTE o direito de usufruir dos serviços contratados, ficando a participação condicionada à quitação integral antes da data do evento.</p>
+      <h2>Cláusula quarta — Dos serviços inclusos</h2><p>4.1. Estão inclusos nesta contratação: ${escaparHtml(snapshot.servicos_inclusos.join("; "))}.</p><p>O café da manhã será servido das 8h30 às 10h; o almoço, das 13h às 15h; e o Open Bar funcionará das 9h às 19h. O Open Bar é destinado exclusivamente a maiores de 18 anos. A CONTRATADA não se responsabiliza por embriaguez, mal súbito ou acidentes decorrentes do consumo excessivo de bebidas alcoólicas.</p><table class="itens"><thead><tr><th>Item</th><th>Qtd.</th><th>Valor unitário</th><th>Total</th></tr></thead><tbody>${linhasItens}<tr><td colspan="3" class="numero">Subtotal dos serviços</td><td class="numero">${formatarMoeda(f.subtotal)}</td></tr>${Number(f.cupom) > 0 ? `<tr><td colspan="3" class="numero">Desconto de cupom</td><td class="numero">-${formatarMoeda(f.cupom)}</td></tr>` : ""}${Number(f.desconto_pagamento) > 0 ? `<tr><td colspan="3" class="numero">Desconto da forma de pagamento</td><td class="numero">-${formatarMoeda(f.desconto_pagamento)}</td></tr>` : ""}${Number(f.desconto_administrativo) > 0 ? `<tr><td colspan="3" class="numero">Desconto administrativo autorizado</td><td class="numero">-${formatarMoeda(f.desconto_administrativo)}</td></tr>` : ""}<tr class="total"><td colspan="3" class="numero">VALOR TOTAL CONTRATADO</td><td class="numero">${formatarMoeda(f.total)}</td></tr></tbody></table>
+      <h2>Cláusula quinta — Das formas de pagamento</h2><div class="resumo"><strong>Condição escolhida:</strong> ${escaparHtml(forma)}<br>${escaparHtml(pagamento)}<br><strong>Valor por extenso:</strong> ${escaparHtml(valorPorExtenso(decimal(f.total)))}<br><strong>Chave PIX:</strong> ${escaparHtml(CONTRATADA_DADOS.pix_chave)} · <strong>Banco:</strong> ${escaparHtml(CONTRATADA_DADOS.pix_banco)}</div><p>5.1. O valor total do pacote turístico é de ${formatarMoeda(f.total)} (${escaparHtml(valorPorExtenso(decimal(f.total)))}), podendo ser pago por uma das modalidades registradas acima.</p><p>5.2. A confirmação da reserva somente ocorrerá após a comprovação do pagamento da primeira parcela ou do valor integral contratado, conforme a modalidade escolhida.</p><p>5.3. O inadimplemento das parcelas não garante ao CONTRATANTE o direito de usufruir dos serviços contratados, ficando a participação condicionada à quitação integral do contrato antes da data do evento.</p>
       <h2>Cláusula sexta — Do atraso no pagamento</h2><p>6.1. O atraso de qualquer parcela implicará multa moratória de 2% sobre o valor da parcela vencida, juros de mora de 1% ao mês, calculados proporcionalmente aos dias de atraso, e atualização monetária pelo IPCA ou outro índice oficial que o substitua.</p><p>6.2. Permanecendo o débito em aberto, a CONTRATADA poderá promover a cobrança pelos meios legalmente admitidos.</p><p>6.3. O atraso ou inadimplemento de 2 ou mais parcelas poderá acarretar a suspensão da reserva e impedir a participação na excursão caso o pagamento integral não seja efetuado até a data de início do evento.</p>
-      <h2>Cláusula sétima — Do cancelamento e da política de reembolso</h2><p>7.1. O CONTRATANTE poderá solicitar cancelamento a qualquer tempo, mediante comunicação formal à CONTRATADA.</p><p>7.2. O cancelamento sujeitará o CONTRATANTE às retenções destinadas exclusivamente à compensação das despesas administrativas, operacionais e financeiras assumidas pela CONTRATADA.</p><p>7.3. Serão observados os seguintes percentuais sobre o valor total: ${escaparHtml(p.cancelamento.join("; "))}.</p><p>7.4. Os valores eventualmente devidos serão restituídos no prazo de até 30 dias contados da formalização do pedido.</p><p>7.5. As retenções possuem natureza exclusivamente compensatória, não constituindo penalidade ou enriquecimento sem causa.</p><p>7.6. Esta cláusula observa a boa-fé objetiva, razoabilidade, proporcionalidade e a legislação aplicável, especialmente o Código de Defesa do Consumidor, o Código Civil e a Lei Geral do Turismo.</p><p>7.7. No cancelamento do evento por autoridade pública, caso fortuito ou força maior, as partes buscarão de comum acordo a melhor solução, observada a legislação vigente.</p>
+      <h2>Cláusula sétima — Do cancelamento e da política de reembolso</h2><p>7.1. O CONTRATANTE poderá solicitar o cancelamento deste contrato a qualquer tempo, mediante comunicação formal à CONTRATADA, por escrito ou por outro meio de comunicação disponibilizado pela empresa.</p><p>7.2. Considerando as reservas antecipadas de hospedagem, fornecedores, alimentos, bebidas, mão de obra e estrutura operacional, o cancelamento sujeitará o CONTRATANTE às retenções destinadas exclusivamente à compensação das despesas administrativas, operacionais e financeiras já assumidas pela CONTRATADA.</p><p>7.3. Em caso de cancelamento por iniciativa do CONTRATANTE, serão observadas as seguintes retenções sobre o valor total: ${escaparHtml(p.cancelamento.join("; "))}.</p><p>7.4. Os valores eventualmente devidos serão restituídos no prazo de até 30 (trinta) dias contados da formalização do pedido, pelo mesmo meio de pagamento ou por outro acordado entre as partes.</p><p>7.5. As retenções possuem natureza exclusivamente compensatória, não constituindo penalidade ou enriquecimento sem causa.</p><p>7.6. Esta cláusula observa a boa-fé objetiva, razoabilidade, proporcionalidade e a legislação aplicável, especialmente o Código de Defesa do Consumidor (Lei nº 8.078/1990), o Código Civil (Lei nº 10.406/2002) e a Lei Geral do Turismo (Lei nº 11.771/2008).</p><p>7.7. No cancelamento do evento por autoridade pública, caso fortuito ou força maior, as partes buscarão de comum acordo a melhor solução, observada a legislação vigente.</p>
       <h2>Cláusula oitava — Das exclusões</h2><p>8.1. Não estão incluídos ingressos para a Festa do Peão, shows, rodeios, camarotes, festas particulares, despesas pessoais, passeios opcionais, atendimento médico, perdas de objetos pessoais e quaisquer serviços não expressamente descritos como inclusos.</p><p>8.2. ${t.rodoviario_incluido ? "O transporte rodoviário interestadual está incluído conforme a composição acima." : "O presente contrato não abrange transporte rodoviário interestadual, compreendendo exclusivamente os serviços expressamente descritos e o translado interno entre a chácara e o Parque do Peão."}</p><p>8.3. Serviços contratados diretamente pelo CONTRATANTE junto a terceiros são de sua exclusiva responsabilidade.</p>
       <h2>Cláusula nona — Dos danos</h2><p>9.1. O CONTRATANTE compromete-se a zelar pelas instalações da hospedagem, áreas comuns, equipamentos, mobiliários, veículos utilizados no translado interno e demais bens disponibilizados.</p><p>9.2. Danos materiais causados pelo CONTRATANTE serão de sua exclusiva responsabilidade, com ressarcimento dos prejuízos efetivamente apurados.</p><p>9.3. A apuração será realizada mediante vistoria, registro fotográfico, orçamento ou documento equivalente, assegurada a ciência do CONTRATANTE.</p><p>9.4. O ressarcimento deverá ser efetuado em até 10 dias úteis da apresentação da comprovação do prejuízo.</p>
       <h2>Cláusula décima — Do transporte rodoviário</h2>${inclusaoTransporte}
-      <h2>Cláusula décima primeira — Do embarque</h2><p>11.1. Quando houver transporte rodoviário contratado, o CONTRATANTE deverá comparecer ao local de embarque com antecedência mínima de 30 minutos, portando documento oficial com foto.</p><p>11.2. O atraso que impossibilite o embarque será de responsabilidade exclusiva do CONTRATANTE, sem direito a reembolso, remarcação ou indenização.</p><p>11.3. A CONTRATADA poderá alterar horário ou local por necessidade operacional, comunicando pelos meios cadastrados com pelo menos 24 horas de antecedência.</p>
-      <h2>Cláusula décima segunda — Da bagagem</h2><p>12.1. Quando houver transporte rodoviário, cada passageiro poderá transportar 01 bagagem principal de até ______ kg e 01 bagagem de mão.</p><p>12.2. Objetos de valor, dinheiro, documentos, eletrônicos, joias, medicamentos e bens pessoais permanecem sob guarda exclusiva do CONTRATANTE.</p><p>12.3. Não será permitido o transporte de armas de fogo sem autorização legal, explosivos, inflamáveis, substâncias ilícitas ou animais, salvo hipóteses legais.</p>
+      <h2>Cláusula décima primeira — Do embarque</h2><p>11.1. O CONTRATANTE deverá comparecer ao local de embarque com antecedência mínima de 30 (trinta) minutos do horário previsto para saída do veículo, portando documento oficial de identificação com foto.</p><p>11.2. O atraso do CONTRATANTE que impossibilite seu embarque será considerado de sua exclusiva responsabilidade, não gerando direito a reembolso, remarcação da viagem ou indenização.</p><p>11.3. A CONTRATADA poderá alterar o horário de embarque ou o local previamente informado por necessidade operacional, devendo comunicar os passageiros pelos meios de comunicação informados no cadastro, com pelo menos 24 horas de antecedência.</p><p>11.4. O embarque estará condicionado à apresentação de documento pessoal e à confirmação do nome em lista previamente gerada pela CONTRATADA.</p>
+      <h2>Cláusula décima segunda — Da bagagem</h2><p>12.1. Cada passageiro poderá transportar gratuitamente 01 (uma) bagagem principal de até <strong>${escaparHtml(limiteBagagem)}</strong> e 01 (uma) bagagem de mão.</p><p>12.2. Objetos de valor, dinheiro, documentos pessoais, equipamentos eletrônicos, joias, medicamentos e bens de uso pessoal deverão permanecer sob a guarda exclusiva do CONTRATANTE durante toda a viagem.</p><p>12.3. A CONTRATADA não se responsabiliza por objetos esquecidos no interior do veículo ou por perdas decorrentes de culpa exclusiva do passageiro ou de terceiros.</p><p>12.4. Não será permitido o transporte de armas de fogo sem autorização legal, explosivos, materiais inflamáveis, substâncias ilícitas ou animais, salvo nas hipóteses previstas em lei.</p>
       <h2>Cláusula décima terceira — Da poltrona</h2><p>13.1. Quando houver transporte rodoviário, a poltrona será indicada pela organização no momento do embarque. Havendo necessidade operacional, poderá ser alterada, preservando-se, sempre que possível, categoria equivalente.</p>
-      <h2>Cláusula décima quarta — Do seguro de viagem</h2><p>14.1. Caso o transporte seja acompanhado de seguro de viagem, seus dados serão informados no momento da contratação. Na inexistência de seguro adicional, aplicam-se apenas as coberturas obrigatórias previstas na legislação.</p>
+      <h2>Cláusula décima quarta — Do seguro de viagem</h2><p>14.1. Caso o transporte seja acompanhado de seguro de viagem, seus dados serão informados no momento da contratação:</p>${seguroDetalhes}<p>14.2. Na hipótese de inexistência de seguro adicional contratado para a viagem, o CONTRATANTE declara estar ciente de que serão aplicáveis apenas as coberturas obrigatórias previstas na legislação pertinente.</p>
       <h2>Cláusula décima quinta — Dos atrasos, imprevistos e substituição do veículo</h2><p>15.1. A CONTRATADA envidará esforços para cumprir os horários, não se responsabilizando por congestionamentos, acidentes, condições climáticas, interdições, fiscalizações, manutenção, caso fortuito ou força maior. Sempre que necessário, poderá substituir o veículo por outro de categoria equivalente ou superior.</p>
       <h2>Cláusula décima sexta — Das regras de convivência e desligamento</h2><p>Constituem motivos para desligamento: agressão física ou verbal, ameaças, dano ao patrimônio, uso de drogas ilícitas, violência, desrespeito reiterado às normas de convivência ou aos colaboradores da organização.</p>
       <h2>Cláusula décima sétima — Do responsável operacional</h2><p>O guia da excursão é o responsável operacional pela organização dos serviços durante o evento.</p>
       <h2>Cláusula décima oitava — Do translado</h2><p>O translado compreende exclusivamente o percurso entre a chácara e o Parque do Peão, em horários previamente divulgados.</p>
       <h2>Cláusula décima nona — Das comunicações</h2><p>As comunicações poderão ocorrer por WhatsApp, e-mail ou telefone informado pelo CONTRATANTE. Consideram-se válidas as comunicações enviadas aos contatos cadastrados.</p>
+      <h2>Cláusula vigésima — Do uso de imagem</h2><p>O CONTRATANTE ${usoImagem.autorizado ? `autoriza o uso de sua imagem pelo prazo de ${usoImagem.prazo_anos} ano(s) para divulgação institucional da excursão, podendo manifestar oposição por escrito antes do início do evento` : "não autoriza o uso de sua imagem para divulgação institucional, permanecendo esta decisão registrada no snapshot contratual"}.</p>${observacoesEspecificas ? `<p><strong>Observações específicas:</strong> ${escaparHtml(observacoesEspecificas)}</p>` : ""}
       <h2>Regras de convivência aceitas</h2><div class="regras">${linhasRegras}</div>
       <p>Brasília, ${escaparHtml(dataContrato)}.</p><div class="assinaturas"><div class="assinatura"><strong>CONTRATANTE</strong><br>${escaparHtml(c.nome)}<br>CPF: ${escaparHtml(formatarCpf(c.cpf))}</div><div class="assinatura"><strong>CONTRATADA</strong><br>${escaparHtml(CONTRATADA_DADOS.razao_social)}<br>CNPJ: ${escaparHtml(CONTRATADA_DADOS.cnpj)}</div></div>
       <div class="rodape">Documento contratual ${escaparHtml(snapshot.versao_contratual)} · Regras ${escaparHtml(snapshot.regras.versao)} · Hash do snapshot: ${escaparHtml(sha256(serializarSnapshot(snapshot)))} · Reserva: ${escaparHtml(dadosContrato.reserva_id)}</div>
@@ -424,8 +502,8 @@ export class ContratoService {
     return caminho;
   }
 
-  static async prepararContrato(reservaId: string): Promise<{ id: string; versao: number; snapshot: SnapshotVenda; snapshot_sha256: string; status: string }> {
-    const snapshot = await this.gerarSnapshot({ reserva_id: reservaId });
+  static async prepararContrato(reservaId: string, formulario?: ContratoFormulario): Promise<{ id: string; versao: number; snapshot: SnapshotVenda; snapshot_sha256: string; status: string }> {
+    const snapshot = await this.gerarSnapshot({ reserva_id: reservaId, formulario });
     const hash = sha256(serializarSnapshot(snapshot));
     const agora = new Date();
     const resultado = await db.transaction(async (tx) => {
@@ -442,8 +520,8 @@ export class ContratoService {
     return resultado;
   }
 
-  static async registrarAceiteContrato(reservaId: string, _aceiteIp: string): Promise<void> {
-    await this.prepararContrato(reservaId);
+  static async registrarAceiteContrato(reservaId: string, _aceiteIp: string, formulario?: ContratoFormulario): Promise<void> {
+    await this.prepararContrato(reservaId, formulario);
   }
 }
 

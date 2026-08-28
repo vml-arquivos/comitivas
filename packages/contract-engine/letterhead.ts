@@ -12,7 +12,7 @@ export const CONTRATADA_DADOS = {
   cnpj: '39.763.571/0001-13',
   endereco_sede: 'QR 502 Conjunto 20 – Samambaia Sul/DF, CEP 72.210-420',
   email: 'excursaodascomitivas@gmail.com',
-  pix_chave: '43.580.053/0001-31',
+  pix_chave: '39.763.571/0001-13',
   pix_banco: 'CORA',
   foro: 'Comarca de Brasília/DF',
 };
