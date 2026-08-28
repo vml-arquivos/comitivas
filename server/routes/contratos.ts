@@ -1,11 +1,12 @@
 import { Router, Request, Response } from "express";
 import { authMiddleware } from "../middleware/authMiddleware.js";
-import { ContratoService } from "../services/contratoService.js";
+import { ContratoService, REGRAS_CONVIVENCIA_OFICIAIS, REGRAS_CONVIVENCIA_VERSION } from "../services/contratoService.js";
 import { ConfiguracaoService } from "../services/configuracaoService.js";
 import { db } from "../db/index.js";
-import { eventos, lotes, pacotes, reservas, usuarios, contratoValidacoes } from "../db/schema.js";
+import { eventos, lotes, pacotes, reservas, usuarios, pagamentos, contratosDocumentos, contratoValidacoes } from "../db/schema.js";
 import { desc, eq } from "drizzle-orm";
 import fs from "fs/promises";
+import path from "node:path";
 import { generateBrandedPdfBuffer } from "../../packages/contract-engine/brandedPdfLayout.js";
 import { OtpService } from "../services/otpService.js";
 
@@ -56,7 +57,7 @@ router.post("/preparar/:reserva_id", authMiddleware, async (req: Request, res: R
 });
 
 router.get("/regras-convivencia", (_req: Request, res: Response) => {
-  res.json({ versao: "2026.1", titulo: "Regras de Convivência — Excursão das Comitivas", conteudo: "Mais que uma viagem, uma experiência inesquecível!\n\nPara que todos aproveitem cada momento da nossa excursão com segurança, respeito e alegria, contamos com a colaboração de cada integrante.\n\nJUNTOS, FAZEMOS DA NOSSA COMITIVA UMA FAMÍLIA!\n\n1. RESPEITO ACIMA DE TUDO\nRespeite todos os integrantes da comitiva, motoristas, equipe de apoio e a comunidade local. Gentileza gera bons momentos!\n\n2. LIMPEZA É RESPONSABILIDADE DE TODOS\nMantenha o ônibus e os locais que visitarmos sempre limpos. Use as lixeiras e não deixe sujeira ou objetos para trás.\n\n3. PONTUALIDADE\nRespeite os horários combinados. Atrasos podem prejudicar todo o grupo e nosso roteiro.\n\n4. CUIDE DOS SEUS PERTENCES\nA excursão não se responsabiliza por objetos pessoais. Fique atento e cuide dos seus pertences durante toda a viagem.\n\n5. BRIGAS E AGRESSÕES\nBrigas, agressões verbais e agressões físicas não serão toleradas em nenhuma hipótese. O respeito entre todos é indispensável durante toda a excursão.\n\n6. USO DE DROGAS É PROIBIDO\nÉ expressamente proibido o uso, porte ou circulação de drogas ilícitas durante toda a excursão.\n\n7. SOM E BARULHO\nNão é permitido som e barulho antes das 10hrs da manhã. O som só será permitido a partir das 10hrs da manhã, juntamente com a abertura do Open Bar. Após esse horário, mantenha o volume em nível adequado e respeite o descanso dos demais.\n\n8. BEBIDA COM RESPONSABILIDADE\nSe for consumir bebida alcoólica, faça isso com moderação. Nunca dirija após beber. Segurança sempre!\n\n9. CUIDE DO PRÓXIMO\nEsteja atento aos colegas da comitiva. Ajude quem precisar e informe a equipe sobre qualquer situação que demande atenção.\n\n10. NÃO É NÃO\nRespeite os limites e o espaço do outro. Qualquer atitude desrespeitosa não será tolerada.\n\n11. SIGA AS ORIENTAÇÕES DA EQUIPE\nNossa equipe está aqui para cuidar de tudo e de todos. Siga as orientações para que tudo ocorra da melhor forma.\n\nRespeito, união e alegria são o que tornam nossa comitiva única!" });
+  res.json({ versao: REGRAS_CONVIVENCIA_VERSION, titulo: "Regras de Convivência — Excursão das Comitivas", conteudo: REGRAS_CONVIVENCIA_OFICIAIS });
 });
 
 router.post("/otp/solicitar/:reserva_id", authMiddleware, async (req: Request, res: Response) => {
@@ -90,6 +91,22 @@ router.post("/otp/confirmar/:reserva_id", authMiddleware, async (req: Request, r
   } catch (error: any) {
     console.error("[CONTRATOS] Erro ao confirmar OTP:", error);
     return res.status(400).json({ erro: error.message || "Não foi possível validar o contrato" });
+  }
+});
+
+router.get("/estado/:reserva_id", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
+    if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
+    if (reserva.usuario_id !== req.usuario.id && req.usuario.tipo !== "admin") return res.status(403).json({ erro: "Acesso negado" });
+    const documento = (await db.select({ id: contratosDocumentos.id, versao: contratosDocumentos.versao, status: contratosDocumentos.status, snapshot_sha256: contratosDocumentos.snapshot_sha256, pdf_sha256: contratosDocumentos.pdf_sha256, arquivo: contratosDocumentos.arquivo }).from(contratosDocumentos).where(eq(contratosDocumentos.reserva_id, reserva.id)).orderBy(desc(contratosDocumentos.versao)).limit(1))[0] || null;
+    const pagamento = (await db.select().from(pagamentos).where(eq(pagamentos.reserva_id, reserva.id)).orderBy(desc(pagamentos.criado_em)).limit(1))[0] || null;
+    const checkoutEstado = reserva.checkout_estado || (reserva.status === "cliente_confirmado" ? "primeira_parcela_confirmada" : reserva.status === "aguardando_pagamento" ? "aguardando_pagamento" : reserva.status === "contrato_gerado" ? "contrato_validado" : reserva.status);
+    return res.json({ reserva_id: reserva.id, status: reserva.status, checkout_estado: checkoutEstado, contrato: documento, pagamento: pagamento ? { id: pagamento.id, status: pagamento.status, gateway_id: pagamento.gateway_id, valor: pagamento.valor, valor_pago_centavos: pagamento.valor_pago_centavos, resposta: pagamento.gateway_resposta } : null });
+  } catch (error) {
+    console.error("[CONTRATOS] Erro ao consultar estado:", error);
+    return res.status(500).json({ erro: "Erro ao consultar estado do checkout" });
   }
 });
 
@@ -189,6 +206,8 @@ router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Re
         valor_parcela: condicaoPagamento.valor_parcela,
         desconto_pagamento: condicaoPagamento.desconto_pagamento,
         valor_total: condicaoPagamento.valor_total,
+        valor_total_centavos: Math.round(Number(condicaoPagamento.valor_total) * 100),
+        checkout_estado: "contrato_preparado",
         atualizado_em: new Date(),
       })
       .where(eq(reservas.id, reserva_id));
@@ -238,8 +257,10 @@ router.get("/download/:reserva_id", authMiddleware, async (req: Request, res: Re
       return res.status(404).json({ erro: "Contrato não disponível" });
     }
 
-    // Ler arquivo
-    const pdfBuffer = await fs.readFile(reserva.contrato_pdf_url);
+    const caminhoBase = path.resolve(process.env.STORAGE_PATH || "./uploads");
+    const caminhoArquivo = path.resolve(reserva.contrato_pdf_url);
+    if (caminhoArquivo !== caminhoBase && !caminhoArquivo.startsWith(`${caminhoBase}${path.sep}`)) return res.status(403).json({ erro: "Arquivo contratual inválido" });
+    const pdfBuffer = await fs.readFile(caminhoArquivo);
 
     // Enviar arquivo
     res.setHeader("Content-Type", "application/pdf");
@@ -251,6 +272,21 @@ router.get("/download/:reserva_id", authMiddleware, async (req: Request, res: Re
   } catch (error: any) {
     console.error("[CONTRATOS] Erro ao baixar:", error);
     res.status(500).json({ erro: "Erro ao baixar contrato" });
+  }
+});
+
+router.get("/evidencias/:reserva_id", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const reserva = (await db.select({ id: reservas.id, usuario_id: reservas.usuario_id }).from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
+    if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
+    if (reserva.usuario_id !== req.usuario.id && req.usuario.tipo !== "admin") return res.status(403).json({ erro: "Acesso negado" });
+    const validacao = (await db.select().from(contratoValidacoes).where(eq(contratoValidacoes.reserva_id, reserva.id)).orderBy(desc(contratoValidacoes.confirmado_em)).limit(1))[0];
+    if (!validacao) return res.status(404).json({ erro: "Relatório de evidências não disponível" });
+    return res.json({ protocolo: validacao.protocolo, contrato_id: validacao.contrato_id, reserva_id: validacao.reserva_id, versao: validacao.versao, snapshot_sha256: validacao.snapshot_sha256, pdf_sha256: validacao.pdf_sha256, aceite_contrato: validacao.aceite_contrato, aceite_regras: validacao.aceite_regras, aceite_contrato_texto: validacao.aceite_contrato_texto, aceite_regras_texto: validacao.aceite_regras_texto, regras_versao: validacao.regras_versao, aviso_privacidade_versao: validacao.aviso_privacidade_versao, canal: validacao.canal, destinatario_mascarado: validacao.destinatario_mascarado, confirmado_em: validacao.confirmado_em, servidor_utc: validacao.servidor_utc, navegador: validacao.navegador, sistema_operacional: validacao.sistema_operacional, idioma: validacao.idioma, timezone: validacao.timezone, geolocalizacao_consentida: validacao.geolocalizacao_consentida });
+  } catch (error) {
+    console.error("[CONTRATOS] Erro ao baixar evidências:", error);
+    return res.status(500).json({ erro: "Erro ao consultar evidências" });
   }
 });
 
@@ -383,12 +419,10 @@ router.get("/visualizar/:reserva_id", authMiddleware, async (req: Request, res: 
     }
 
     // Gerar HTML do contrato
-    const html = await ContratoService.gerarContratoHTML({
-      reserva_id,
-      usuario_id: reserva.usuario_id,
-      lote_id: reserva.lote_id,
-      aceite_ip: reserva.aceite_ip || "desconhecido",
-    });
+    const documento = (await db.select().from(contratosDocumentos).where(eq(contratosDocumentos.reserva_id, reserva_id)).orderBy(desc(contratosDocumentos.versao)).limit(1))[0];
+    if (!documento || documento.status === "invalidado") return res.status(404).json({ erro: "Versão contratual não disponível" });
+    await ContratoService.marcarVisualizacao(documento.id, reserva_id, req.usuario.id, req.ip || req.socket.remoteAddress, req.get("user-agent"));
+    const html = await ContratoService.gerarContratoHTML({ reserva_id, contrato_id: documento.id, snapshot: documento.snapshot as any, aceite_ip: reserva.aceite_ip || "desconhecido" });
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.send(html);

@@ -20,6 +20,7 @@ export interface CriarCobrancaCoraInput {
   descricao: string;
   cliente: CoraCustomer;
   vencimento: Date;
+  datasVencimento?: string[];
   parcelas?: number;
   servicos?: CoraService[];
   idempotencyKey?: string;
@@ -87,6 +88,12 @@ export class CoraPaymentProvider {
     return process.env.CORA_TOKEN_URL?.trim() || `${this.baseUrl}/token`;
   }
 
+  private static get installmentsBaseUrl(): string {
+    return process.env.CORA_INSTALLMENTS_API_BASE_URL?.trim() || (
+      this.ambiente === "production" ? "https://api.cora.com.br" : "https://api.stage.cora.com.br"
+    );
+  }
+
   static validarConfiguracao(): void {
     const obrigatorios: Array<[string, string | undefined]> = [
       ["CORA_CLIENT_ID", process.env.CORA_CLIENT_ID],
@@ -146,10 +153,10 @@ export class CoraPaymentProvider {
     const token = await this.accessToken();
     const config: AxiosRequestConfig = {
       method,
-      url: `${this.baseUrl}${endpoint}`,
+      url: endpoint.startsWith("http") ? endpoint : `${this.baseUrl}${endpoint}`,
       data,
       httpsAgent: this.httpsAgent(),
-      timeout: Number(process.env.CORA_HTTP_TIMEOUT_MS || 15_000),
+      timeout: Number(endpoint.includes("/installments") ? (process.env.CORA_CARNE_TIMEOUT_MS || 45_000) : (process.env.CORA_HTTP_TIMEOUT_MS || 15_000)),
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
@@ -218,12 +225,12 @@ export class CoraPaymentProvider {
       if (!Number.isInteger(quantidade) || quantidade < 2 || quantidade > 24) {
         throw new Error("O carnê Cora deve ter entre 2 e 24 parcelas");
       }
-      const dates = Array.from({ length: quantidade }, (_, index) => {
+      const dates = input.datasVencimento?.length === quantidade ? input.datasVencimento.map((data) => dataISO(new Date(data))) : Array.from({ length: quantidade }, (_, index) => {
         const data = new Date(input.vencimento);
         data.setMonth(data.getMonth() + index);
         return dataISO(data);
       });
-      const data = await this.request<any>("POST", "/v2/invoices/installments", {
+      const data = await this.request<any>("POST", `${this.installmentsBaseUrl}/v2/invoices/installments`, {
         code: input.code,
         customer,
         service: {
@@ -254,23 +261,23 @@ export class CoraPaymentProvider {
     }
 
     const forms = input.metodo === "pix" ? ["PIX"] : input.metodo === "boleto_pix" ? ["BANK_SLIP", "PIX"] : ["BANK_SLIP"];
-    const data = await this.request<any>("POST", "/invoices", {
+    const data = await this.request<any>("POST", "/v2/invoices", {
       code: input.code,
       customer,
       services: servicos,
       payment_terms: { due_date: dueDate },
-      ...(input.metodo === "pix" ? { payment_forms: "PIX" } : { payment_forms: forms }),
+      payment_forms: forms,
     }, idempotencyKey);
     return this.pixResponse(data, input);
   }
 
   static async consultarCobranca(id: string): Promise<any> {
     if (!id?.trim()) throw new Error("ID da cobrança Cora é obrigatório");
-    return this.request<any>("GET", `/invoices/${encodeURIComponent(id)}`);
+    return this.request<any>("GET", `/v2/invoices/${encodeURIComponent(id)}`);
   }
 
   static async cancelarCobranca(id: string): Promise<any> {
     if (!id?.trim()) throw new Error("ID da cobrança Cora é obrigatório");
-    return this.request<any>("DELETE", `/invoices/${encodeURIComponent(id)}`, undefined, randomUUID());
+    return this.request<any>("DELETE", `/v2/invoices/${encodeURIComponent(id)}`, undefined, randomUUID());
   }
 }

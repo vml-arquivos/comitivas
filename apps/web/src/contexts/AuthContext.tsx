@@ -19,7 +19,8 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const api = axios.create({
-  baseURL: '/api'
+  baseURL: '/api',
+  withCredentials: true,
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -33,80 +34,58 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(null);
     setUser(null);
     delete api.defaults.headers.common['Authorization'];
+    void api.post('/auth/logout').catch(() => undefined);
   }, []);
 
   useEffect(() => {
     let active = true;
-
     const restoreSession = async () => {
-      const storedToken = localStorage.getItem('token');
-      const storedUser = localStorage.getItem('user');
-      if (!storedToken || !storedUser) {
-        clearSession();
-        if (active) setIsLoading(false);
-        return;
-      }
-
       try {
-        JSON.parse(storedUser);
-        api.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
         const response = await api.get('/auth/perfil');
         const currentUser = response.data.usuario as User;
         if (!currentUser?.id || !currentUser?.tipo) throw new Error('Sessão inválida');
-
-        if (active) {
-          setToken(storedToken);
-          setUser(currentUser);
-          localStorage.setItem('user', JSON.stringify(currentUser));
-        }
+        if (active) setUser(currentUser);
       } catch {
-        if (active) clearSession();
+        if (active) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          setUser(null);
+          setToken(null);
+        }
       } finally {
         if (active) setIsLoading(false);
       }
     };
-
     restoreSession();
     return () => { active = false; };
-  }, [clearSession]);
+  }, []);
 
   useEffect(() => {
     const interceptor = api.interceptors.response.use(
       (response) => response,
       (error) => {
         const url = String(error.config?.url || '');
-        const publicAuthRequest = url.includes('/auth/login') || url.includes('/auth/cadastro');
-        if (error.response?.status === 401 && !publicAuthRequest && localStorage.getItem('token')) {
-          clearSession();
-        }
+        const publicAuthRequest = url.includes('/auth/login') || url.includes('/auth/cadastro') || url.includes('/auth/logout');
+        if (error.response?.status === 401 && !publicAuthRequest) clearSession();
         return Promise.reject(error);
       },
     );
-
     return () => api.interceptors.response.eject(interceptor);
   }, [clearSession]);
 
-  const login = (newToken: string, newUser: User) => {
-    localStorage.setItem('token', newToken);
-    localStorage.setItem('user', JSON.stringify(newUser));
-    setToken(newToken);
+  const login = (_newToken: string, newUser: User) => {
+    setToken(null);
     setUser(newUser);
-    api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+    delete api.defaults.headers.common['Authorization'];
   };
 
   const logout = clearSession;
 
-  return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, logout }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={{ user, token, isLoading, login, logout }}>{children}</AuthContext.Provider>;
 }
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (context === undefined) throw new Error('useAuth must be used within AuthProvider');
   return context;
 };

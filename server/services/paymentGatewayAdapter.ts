@@ -11,6 +11,7 @@ export interface CriarPagamentoRequest {
   metodo: "pix" | "boleto";
   parcelas?: number;
   vencimento?: Date;
+  datasVencimento?: string[];
   descricao?: string;
   idempotencyKey?: string;
 }
@@ -96,6 +97,11 @@ export class PaymentGatewayAdapter {
     const chave = request.idempotencyKey?.trim() || `comitiva-${request.reserva_id}-${request.metodo}-${request.parcelas || 1}`;
     const existente = await db.select().from(pagamentos).where(eq(pagamentos.idempotency_key, chave)).limit(1);
     if (existente[0]) return buildResponse(existente[0], (existente[0].gateway_resposta as any)?.cora);
+    const idempotenciaExistente = await db.select({ pagamento_id: pagamentoIdempotencias.pagamento_id }).from(pagamentoIdempotencias).where(eq(pagamentoIdempotencias.chave, chave)).limit(1);
+    if (idempotenciaExistente[0]?.pagamento_id) {
+      const pagamentoExistente = (await db.select().from(pagamentos).where(eq(pagamentos.id, idempotenciaExistente[0].pagamento_id)).limit(1))[0];
+      if (pagamentoExistente) return buildResponse(pagamentoExistente, (pagamentoExistente.gateway_resposta as any)?.cora);
+    }
 
     if (this.GATEWAY === "mock") return this.criarPagamentoTeste(request, chave);
 
@@ -121,6 +127,7 @@ export class PaymentGatewayAdapter {
         document: { identity: String(usuario.cpf || "").replace(/\D/g, ""), type: "CPF" },
       },
       vencimento,
+      datasVencimento: request.datasVencimento,
       parcelas,
       idempotencyKey: chave,
     });
@@ -150,9 +157,16 @@ export class PaymentGatewayAdapter {
       gateway_id: cora.id,
       gateway_resposta: responseData,
       idempotency_key: chave,
-    }).returning();
+      valor_centavos: valorSolicitado.times(100).toDecimalPlaces(0).toNumber(),
+      valor_pago_centavos: 0,
+      status_reconciliado: "pendente",
+    }).onConflictDoNothing({ target: pagamentos.idempotency_key }).returning();
     const pagamento = inserido[0];
-    if (!pagamento) throw new Error("Não foi possível registrar o pagamento");
+    if (!pagamento) {
+      const concorrente = (await db.select().from(pagamentos).where(eq(pagamentos.idempotency_key, chave)).limit(1))[0];
+      if (concorrente) return buildResponse(concorrente, (concorrente.gateway_resposta as any)?.cora);
+      throw new Error("Não foi possível registrar o pagamento");
+    }
     await db.insert(pagamentoIdempotencias).values({ chave, operacao: "criar-cobranca-cora", reserva_id: request.reserva_id, pagamento_id: pagamento.id, resposta: responseData }).onConflictDoNothing();
 
     if (cora.parcelas?.length) {
@@ -161,6 +175,8 @@ export class PaymentGatewayAdapter {
         reserva_id: request.reserva_id,
         sequencia: index + 1,
         valor: parcela.valor.toFixed(2),
+        valor_centavos: Math.round(parcela.valor * 100),
+        valor_pago_centavos: 0,
         vencimento: parcela.vencimento || new Date(vencimento.getTime() + index * 30 * 86_400_000).toISOString().slice(0, 10),
         cora_id: parcela.id,
         status: statusCoraParaLocal(parcela.status),
@@ -183,9 +199,15 @@ export class PaymentGatewayAdapter {
       gateway_id: `teste-${randomUUID()}`,
       gateway_resposta: { ambiente: "teste", mensagem: "Nenhuma cobrança foi enviada a um gateway de pagamento." },
       idempotency_key: chave,
-    }).returning();
+      valor_centavos: Math.round(request.valor * 100),
+      status_reconciliado: "pendente",
+    }).onConflictDoNothing({ target: pagamentos.idempotency_key }).returning();
     const pagamento = inserido[0];
-    if (!pagamento) throw new Error("Não foi possível registrar o pagamento de teste");
+    if (!pagamento) {
+      const concorrente = (await db.select().from(pagamentos).where(eq(pagamentos.idempotency_key, chave)).limit(1))[0];
+      if (concorrente) return buildResponse(concorrente, (concorrente.gateway_resposta as any)?.cora);
+      throw new Error("Não foi possível registrar o pagamento de teste");
+    }
     await db.insert(pagamentoIdempotencias).values({ chave, operacao: "criar-cobranca-teste", reserva_id: request.reserva_id, pagamento_id: pagamento.id, resposta: { ambiente: "teste" } }).onConflictDoNothing();
     return buildResponse(pagamento, undefined);
   }

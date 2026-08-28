@@ -38,6 +38,7 @@ export default function ConfiguradorPacote() {
   const [pacotes, setPacotes] = useState<PacotePublicado[]>([]);
   const [pacoteId, setPacoteId] = useState<string>('');
   const [itensSelecionados, setItensSelecionados] = useState<Record<string, number>>({});
+  const [cupomCodigo, setCupomCodigo] = useState('');
   const [calculo, setCalculo] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isCalculating, setIsCalculating] = useState(false);
@@ -90,7 +91,7 @@ export default function ConfiguradorPacote() {
         const itensPayload = Object.entries(itensSelecionados)
           .filter(([, quantidade]) => quantidade > 0)
           .map(([id, quantidade]) => ({ id, quantidade }));
-        const response = await api.post('/pacotes/calcular', { lote_id: loteId, pacote_id: pacoteId || undefined, itens: itensPayload });
+        const response = await api.post('/pacotes/calcular', { lote_id: loteId, pacote_id: pacoteId || undefined, itens: itensPayload, cupom_codigo: cupomCodigo.trim() || undefined });
         setCalculo(response.data);
       } catch (err: any) {
         setError(err.response?.data?.erro || 'Erro ao calcular o valor do pacote.');
@@ -100,10 +101,20 @@ export default function ConfiguradorPacote() {
       }
     }, 250);
     return () => clearTimeout(timer);
-  }, [itensSelecionados, loteId, pacoteId, pacotes.length, isLoading]);
+  }, [itensSelecionados, loteId, pacoteId, pacotes.length, cupomCodigo, isLoading]);
 
-  const toggleItem = (id: string) => {
-    setItensSelecionados((prev) => ({ ...prev, [id]: prev[id] ? 0 : 1 }));
+  const gruposItens = useMemo(() => itensDisponiveis.reduce<Record<string, any[]>>((grupos, item) => {
+    const grupo = item.tipo || 'Outros';
+    (grupos[grupo] ||= []).push(item);
+    return grupos;
+  }, {}), [itensDisponiveis]);
+
+  const alterarQuantidade = (item: any, valor: number) => {
+    const minimo = Number(item.min_quantity ?? 0);
+    const maximo = Number(item.max_quantity ?? 99);
+    const passo = Math.max(1, Number(item.step ?? 1));
+    const quantidade = Math.min(maximo, Math.max(minimo, valor));
+    setItensSelecionados((prev) => ({ ...prev, [item.id]: quantidade > 0 ? Math.round(quantidade / passo) * passo : 0 }));
   };
 
   const selecionarPacote = (id: string) => {
@@ -159,6 +170,7 @@ export default function ConfiguradorPacote() {
         lote_id: loteId,
         pacote_id: pacoteId || undefined,
         itens: itensPayload,
+        cupom_codigo: cupomCodigo.trim() || undefined,
         lead_id: leadId || undefined,
       });
       limparIntencaoCheckout();
@@ -213,16 +225,22 @@ export default function ConfiguradorPacote() {
 
         <section>
           <div className="mb-3"><h2 className="text-xl font-bold text-slate-900">Personalize com adicionais</h2><p className="text-sm text-gray-500">Selecione apenas o que deseja incluir na experiência.</p></div>
-          <div className="space-y-3">
-            {itensDisponiveis.map((item) => {
-              const selecionado = Boolean(itensSelecionados[item.id]);
-              return <Card key={item.id} className={`cursor-pointer transition-all ${selecionado ? 'border-primary ring-1 ring-primary' : 'hover:border-gray-300'}`} onClick={() => toggleItem(item.id)}>
-                <CardContent className="flex items-center justify-between p-4">
-                  <div className="flex items-center gap-4"><div className={`flex h-6 w-6 items-center justify-center rounded-full border ${selecionado ? 'border-primary bg-primary text-white' : 'border-gray-300'}`}>{selecionado && <Check size={14} />}</div><div><h3 className="font-semibold text-gray-900">{item.nome}</h3><p className="text-sm text-gray-500">{item.descricao}</p></div></div>
-                  <div className="font-semibold text-slate-900">+ {formatarMoeda(item.valor)}</div>
-                </CardContent>
-              </Card>
-            })}
+          <div className="space-y-6">
+            {Object.entries(gruposItens).map(([grupo, itens]) => <div key={grupo}>
+              <h3 className="mb-3 text-sm font-black uppercase tracking-[0.14em] text-primary">{grupo}</h3>
+              <div className="space-y-3">{itens.map((item) => {
+                const quantidade = Number(itensSelecionados[item.id] || 0);
+                const minimo = Number(item.min_quantity ?? 0);
+                const maximo = Number(item.max_quantity ?? 99);
+                const obrigatorio = minimo > 0;
+                return <Card key={item.id} className={`transition-all ${quantidade > 0 ? 'border-primary ring-1 ring-primary' : 'hover:border-gray-300'}`}>
+                  <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-start gap-4"><div className={`mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${quantidade > 0 ? 'border-primary bg-primary text-white' : 'border-gray-300'}`}>{quantidade > 0 && <Check size={14} />}</div><div><h3 className="font-semibold text-gray-900">{item.nome}{obrigatorio && <span className="ml-2 text-xs font-bold uppercase text-primary">Obrigatório</span>}</h3><p className="text-sm text-gray-500">{item.descricao || 'Adicional disponível para este lote.'}</p><p className="mt-1 text-xs text-slate-500">{formatarMoeda(item.valor)} por unidade{maximo < 99 ? ` · máximo ${maximo}` : ''}</p></div></div>
+                    <div className="flex items-center justify-between gap-4 sm:justify-end"><span className="text-sm font-semibold text-slate-900">{formatarMoeda(Number(item.valor) * quantidade)}</span><div className="flex items-center gap-2 rounded-lg border border-slate-200 p-1"><button type="button" onClick={() => alterarQuantidade(item, quantidade - 1)} disabled={quantidade <= minimo} className="h-8 w-8 rounded-md text-lg font-bold hover:bg-slate-100 disabled:opacity-40" aria-label={`Reduzir ${item.nome}`}>−</button><span className="w-7 text-center text-sm font-bold" aria-live="polite">{quantidade}</span><button type="button" onClick={() => alterarQuantidade(item, quantidade + 1)} disabled={quantidade >= maximo} className="h-8 w-8 rounded-md text-lg font-bold hover:bg-slate-100 disabled:opacity-40" aria-label={`Adicionar ${item.nome}`}>+</button></div></div>
+                  </CardContent>
+                </Card>;
+              })}</div>
+            </div>)}
             {itensDisponiveis.length === 0 && <p className="rounded-lg border border-dashed p-5 text-center text-sm text-gray-500">Não há adicionais disponíveis para este lote.</p>}
           </div>
         </section>
@@ -234,6 +252,8 @@ export default function ConfiguradorPacote() {
           <div className="flex justify-between text-sm"><span className="text-gray-600">Valor-base</span><span className="font-medium">{formatarMoeda(calculo?.valor_base || 0)}</span></div>
           {Object.entries(itensSelecionados).some(([, qtd]) => qtd > 0) && <div className="space-y-2 border-t pt-4"><p className="text-xs font-bold uppercase text-gray-500">Adicionais</p>{Object.entries(itensSelecionados).filter(([, qtd]) => qtd > 0).map(([id, qtd]) => { const item = itensDisponiveis.find((i) => i.id === id); return item ? <div key={id} className="flex justify-between text-sm"><span className="text-gray-600">{item.nome}</span><span>{formatarMoeda(Number(item.valor) * qtd)}</span></div> : null; })}</div>}
           <div className="border-t pt-4"><div className="flex items-center justify-between"><span className="text-lg font-bold">Total</span><span className="text-2xl font-bold text-primary">{isCalculating ? '...' : formatarMoeda(calculo?.valor_total || 0)}</span></div></div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Prévia do contrato</p><p className="mt-2 text-sm leading-relaxed text-slate-700">Serão registrados: <strong>{pacoteSelecionado?.nome || 'pacote base'}</strong>{Object.entries(itensSelecionados).filter(([, qtd]) => qtd > 0).length ? ` e ${Object.entries(itensSelecionados).filter(([, qtd]) => qtd > 0).length} adicional(is)` : ''}, com o total calculado pelo servidor.</p></div>
+          <label className="block text-sm font-semibold text-slate-700">Cupom de desconto (opcional)<input value={cupomCodigo} onChange={(event) => setCupomCodigo(event.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 50))} placeholder="Digite seu cupom" className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono uppercase" /></label>
           <Button className="mt-3 w-full" size="lg" onClick={handleReservar} isLoading={isReserving} disabled={isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado'}>{user ? 'Continuar para checkout' : 'Continuar com esta escolha'}</Button>
           <div className="flex gap-2 rounded-md bg-blue-50 p-3 text-xs text-blue-700"><Info size={16} className="shrink-0" /><p>{user ? 'Os valores são calculados no servidor. Seu contrato refletirá exatamente as escolhas confirmadas.' : 'Você só precisará criar sua conta na próxima etapa. Sua escolha ficará salva para continuar sem recomeçar.'}</p></div>
         </CardContent></Card>

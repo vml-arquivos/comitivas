@@ -5,5 +5,10 @@ Disallow: /checkout/
 Disallow: /confirmacao/
 Disallow: /minhas-reservas
 Disallow: /meus-dados
+Disallow: /cliente/
+Disallow: /vendedor/
+Disallow: /login
+Disallow: /cadastro
+Disallow: /redefinir-senha
 
 Sitemap: https://excursaodascomitivas.com.br/sitemap.xml

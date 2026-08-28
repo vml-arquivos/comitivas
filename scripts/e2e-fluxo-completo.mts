@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-type MetodoPagamento = "pix" | "boleto" | "credito";
+type MetodoPagamento = "pix" | "boleto";
 type CasoE2E = {
   modalidade: "camping" | "quarto_ventilador" | "quarto_ar_condicionado";
   nome: string;
@@ -39,7 +39,7 @@ const casos: CasoE2E[] = [
     modalidade: "quarto_ar_condicionado",
     nome: "Quarto Ar-condicionado E2E",
     valor: 2600,
-    metodo: "credito",
+    metodo: "boleto",
     parcelas: 12,
     valorTotalEsperado: "2600.00",
     descontoEsperado: "0.00",

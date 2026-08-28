@@ -1,5 +1,6 @@
 import { db } from "../db/index.js";
-import { eventos, lotes, pacotes, itens_addon, cupons, reservas } from "../db/schema.js";
+import { eventos, lotes, pacotes, itens_addon, cupons, reservas, inventarioHolds, precosLedger } from "../db/schema.js";
+import { createId } from "@paralleldrive/cuid2";
 import { and, eq, sql } from "drizzle-orm";
 import Decimal from "decimal.js";
 
@@ -80,23 +81,42 @@ export class PacoteService {
       const loteLock = await tx.execute(sql`SELECT id, "vagas_disponíveis" FROM lotes WHERE id = ${lote_id} FOR UPDATE`);
       const lote = loteLock.rows[0] as { id: string; vagas_disponíveis: number } | undefined;
       if (!lote || Number(lote.vagas_disponíveis) < 1) throw new Error("Vagas indisponíveis");
+      const baixa = await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = "vagas_disponíveis" - 1, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${lote_id} AND "vagas_disponíveis" > 0 RETURNING id`);
+      if (baixa.rows.length === 0) throw new Error("Vagas indisponíveis");
 
       if (calculo.cupom_id) {
         const consumo = await tx.execute(sql`UPDATE cupons SET uso_atual = COALESCE(uso_atual, 0) + 1 WHERE id = ${calculo.cupom_id} AND ativo = true AND (uso_maximo IS NULL OR uso_atual < uso_maximo) RETURNING id`);
         if (consumo.rows.length === 0) throw new Error("Cupom com limite de uso atingido");
       }
+      const reservaId = createId();
+      const agora = new Date();
+      const holdId = createId();
       const inserido = await tx.insert(reservas).values({
+        id: reservaId,
         usuario_id,
         lote_id,
         pacote_id: config.pacote_id || null,
         status: "pacote_montado",
+        checkout_estado: "inventario_reservado",
+        inventario_hold_id: holdId,
+        valor_total_centavos: Math.round(calculo.valor_total * 100),
+        preco_versao: "2026.1",
         itens_selecionados: JSON.stringify(calculo.itens_selecionados),
         valor_total: calculo.valor_total.toFixed(2),
         cupom_id: calculo.cupom_id,
         desconto_aplicado: calculo.desconto_cupom.toFixed(2),
+        criado_em: agora,
+        atualizado_em: agora,
       }).returning();
       const novaReserva = inserido[0];
       if (!novaReserva) throw new Error("Não foi possível criar a reserva");
+      await tx.insert(inventarioHolds).values({ id: holdId, reserva_id: novaReserva.id, lote_id, modalidade: calculo.modalidade_hospedagem || null, quantidade: 1, status: "ativo", expira_em: new Date(agora.getTime() + 30 * 60 * 1000), criado_em: agora });
+      const linhasLedger = [
+        { tipo: "pacote", codigo: calculo.pacote_id || "lote-base", descricao: calculo.pacote_nome || "Pacote base", quantidade: 1, valor_unitario_centavos: Math.round(calculo.valor_base * 100), valor_total_centavos: Math.round(calculo.valor_base * 100) },
+        ...calculo.itens_selecionados.map((item) => ({ tipo: "adicional", codigo: item.id, descricao: item.nome, quantidade: item.quantidade, valor_unitario_centavos: Math.round(item.valor * 100), valor_total_centavos: Math.round(item.valor * item.quantidade * 100) })),
+        ...(calculo.desconto_cupom > 0 ? [{ tipo: "cupom", codigo: calculo.cupom_id, descricao: "Desconto de cupom", quantidade: 1, valor_unitario_centavos: -Math.round(calculo.desconto_cupom * 100), valor_total_centavos: -Math.round(calculo.desconto_cupom * 100) }] : []),
+      ];
+      await tx.insert(precosLedger).values(linhasLedger.map((linha) => ({ id: createId(), reserva_id: novaReserva.id, ...linha, criado_em: agora, metadados: { fonte: "PacoteService.calcularValorPacote", preco_versao: "2026.1" } })));
       return novaReserva;
     });
     return { reserva, calculo, ip_origem };

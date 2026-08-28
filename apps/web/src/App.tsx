@@ -1,37 +1,34 @@
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import { HelmetProvider } from 'react-helmet-async';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { MainLayout } from './layouts/MainLayout';
 import { AdminLayout } from './layouts/AdminLayout';
 
-// Páginas públicas
-import Login from './pages/Login';
-import PasswordReset from './pages/PasswordReset';
-import Cadastro from './pages/Cadastro';
-import Eventos from './pages/Eventos';
-import Home from './pages/publico/Home';
-import Historia from './pages/publico/Historia';
-import AvaliacoesPublicas from './pages/publico/AvaliacoesPublicas';
-import Regras from './pages/publico/Regras';
-import Galeria from './pages/publico/Galeria';
-
-// Páginas do cliente
-import ConfiguradorPacote from './pages/cliente/ConfiguradorPacote';
-import Checkout from './pages/cliente/Checkout';
-import Confirmacao from './pages/cliente/Confirmacao';
-import MinhasReservas from './pages/cliente/MinhasReservas';
-import DadosCadastrais from './pages/cliente/DadosCadastrais';
-
-// Páginas do admin/vendedor
-import Dashboard from './pages/admin/Dashboard';
-import Reservas from './pages/admin/Reservas';
-import Clientes from './pages/admin/Clientes';
-import Contratos from './pages/admin/Contratos';
-import Configuracoes from './pages/admin/Configuracoes';
-import Cupons from './pages/admin/Cupons';
-import Jornada from './pages/admin/Jornada';
-import EventosAdmin from './pages/admin/Eventos';
-import Relatorios from './pages/admin/Relatorios';
+const Login = lazy(() => import('./pages/Login'));
+const PasswordReset = lazy(() => import('./pages/PasswordReset'));
+const Cadastro = lazy(() => import('./pages/Cadastro'));
+const Eventos = lazy(() => import('./pages/Eventos'));
+const Home = lazy(() => import('./pages/publico/Home'));
+const Historia = lazy(() => import('./pages/publico/Historia'));
+const AvaliacoesPublicas = lazy(() => import('./pages/publico/AvaliacoesPublicas'));
+const Regras = lazy(() => import('./pages/publico/Regras'));
+const Galeria = lazy(() => import('./pages/publico/Galeria'));
+const Legal = lazy(() => import('./pages/publico/Legal'));
+const ConfiguradorPacote = lazy(() => import('./pages/cliente/ConfiguradorPacote'));
+const Checkout = lazy(() => import('./pages/cliente/Checkout'));
+const Confirmacao = lazy(() => import('./pages/cliente/Confirmacao'));
+const MinhasReservas = lazy(() => import('./pages/cliente/MinhasReservas'));
+const DadosCadastrais = lazy(() => import('./pages/cliente/DadosCadastrais'));
+const Dashboard = lazy(() => import('./pages/admin/Dashboard'));
+const Reservas = lazy(() => import('./pages/admin/Reservas'));
+const Clientes = lazy(() => import('./pages/admin/Clientes'));
+const Contratos = lazy(() => import('./pages/admin/Contratos'));
+const Configuracoes = lazy(() => import('./pages/admin/Configuracoes'));
+const Cupons = lazy(() => import('./pages/admin/Cupons'));
+const Jornada = lazy(() => import('./pages/admin/Jornada'));
+const EventosAdmin = lazy(() => import('./pages/admin/Eventos'));
+const Relatorios = lazy(() => import('./pages/admin/Relatorios'));
 
 // Proteção de rotas
 const ProtectedRoute = ({ children, roles }: { children: React.ReactNode, roles?: string[] }) => {
@@ -54,6 +51,7 @@ const ProtectedRoute = ({ children, roles }: { children: React.ReactNode, roles?
 
 function AppRoutes() {
   return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-[#fffaf5] text-sm font-semibold text-secondary">Carregando a experiência da comitiva...</div>}>
     <Routes>
       {/* Rotas Públicas */}
       <Route element={<MainLayout />}>
@@ -63,6 +61,9 @@ function AppRoutes() {
         <Route path="/avaliacoes" element={<AvaliacoesPublicas />} />
         <Route path="/regras" element={<Regras />} />
         <Route path="/eventos" element={<Eventos />} />
+        <Route path="/privacidade" element={<Legal />} />
+        <Route path="/termos" element={<Legal />} />
+        <Route path="/cancelamento" element={<Legal />} />
         <Route path="/login" element={<Login />} />
         <Route path="/redefinir-senha" element={<PasswordReset />} />
         <Route path="/cadastro" element={<Cadastro />} />
@@ -132,6 +133,7 @@ function AppRoutes() {
         } />
       </Route>
     </Routes>
+    </Suspense>
   );
 }
 

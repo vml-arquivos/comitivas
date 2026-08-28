@@ -24,6 +24,9 @@
     "seed:barretos-2026:prod": "node dist/seed-barretos-2026.js",
     "db:verify-contract-fields": "node scripts/verificar-migration.mjs",
     "test": "vitest",
+    "test:integration": "node scripts/test-integration.mjs",
+    "test:a11y": "node scripts/test-a11y.mjs",
+    "test:cora:stage": "node scripts/test-cora-stage.mjs",
     "test:e2e": "tsx scripts/e2e-fluxo-completo.mts"
   },
   "dependencies": {

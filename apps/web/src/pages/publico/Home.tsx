@@ -24,6 +24,7 @@ import {
   Users,
   Volume2,
   Waves,
+  PlayCircle,
   Wine,
   Zap,
   X,
@@ -140,6 +141,8 @@ function formatarData(valor?: string | null) {
 export default function Home() {
   const [eventoAtivo, setEventoAtivo] = useState<any>(null);
   const [avaliacoes, setAvaliacoes] = useState<any[]>([]);
+  const [videos, setVideos] = useState<any[]>([]);
+  const [videoAtivo, setVideoAtivo] = useState<string | null>(null);
   const [stats, setStats] = useState<{ clientes: number | null; edicoes: number | null; nota: number | null }>({
     clientes: null,
     edicoes: null,
@@ -150,10 +153,11 @@ export default function Home() {
 
   useEffect(() => {
     const carregarDadosPublicos = async () => {
-      const [eventosResultado, avaliacoesResultado, statsResultado] = await Promise.allSettled([
+      const [eventosResultado, avaliacoesResultado, statsResultado, videosResultado] = await Promise.allSettled([
         api.get('/publico/eventos-ativos'),
         api.get('/publico/avaliacoes'),
         api.get('/publico/stats'),
+        api.get('/publico/videos'),
       ]);
 
       if (eventosResultado.status === 'fulfilled') {
@@ -165,6 +169,10 @@ export default function Home() {
         setAvaliacoes((avaliacoesResultado.value.data.avaliacoes || [])
           .filter((avaliacao: any) => Boolean(avaliacao.comentario?.trim()))
           .slice(0, 3));
+      }
+
+      if (videosResultado.status === 'fulfilled') {
+        setVideos((videosResultado.value.data.videos || []).filter((video: any) => video.youtube_id).slice(0, 3));
       }
 
       if (statsResultado.status === 'fulfilled') {
@@ -392,6 +400,15 @@ export default function Home() {
                 </article>
               ))}
             </div>
+          </div>
+        </section>
+      )}
+
+      {videos.length > 0 && (
+        <section className="bg-white py-24">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="flex flex-col justify-between gap-6 md:flex-row md:items-end"><div className="max-w-2xl"><p className="text-sm font-bold uppercase tracking-[0.16em] text-primary">Histórias reais</p><h2 className="mt-3 text-3xl font-black tracking-tight text-secondary sm:text-4xl">Veja a comitiva em movimento</h2><p className="mt-4 text-sm leading-relaxed text-slate-600">Vídeos publicados pela equipe para você sentir a energia de Barretos antes de montar o seu pacote.</p></div><PlayCircle className="hidden text-primary md:block" size={38} /></div>
+            <div className="mt-12 grid gap-6 md:grid-cols-3">{videos.map((video) => <article key={video.id || video.youtube_id} className="overflow-hidden rounded-2xl border border-slate-200 bg-[#fffdf9] shadow-sm"><div className="aspect-video bg-slate-950">{videoAtivo === video.youtube_id ? <iframe title={video.titulo || 'Vídeo da Excursão das Comitivas'} src={`https://www.youtube-nocookie.com/embed/${encodeURIComponent(video.youtube_id)}?rel=0&modestbranding=1`} className="h-full w-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen /> : <button type="button" onClick={() => setVideoAtivo(video.youtube_id)} className="group relative h-full w-full text-left focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary"><img src={`https://i.ytimg.com/vi/${encodeURIComponent(video.youtube_id)}/hqdefault.jpg`} alt="" className="h-full w-full object-cover opacity-80 transition group-hover:scale-105 group-hover:opacity-100" loading="lazy" /><span className="absolute inset-0 grid place-items-center"><span className="rounded-full bg-primary p-4 text-white shadow-xl"><PlayCircle size={28} /></span></span><span className="sr-only">Reproduzir vídeo</span></button>}</div><div className="p-5"><h3 className="font-bold text-secondary">{video.titulo || 'História da comitiva'}</h3>{video.descricao && <p className="mt-2 text-sm leading-relaxed text-slate-600">{video.descricao}</p>}</div></article>)}</div>
           </div>
         </section>
       )}

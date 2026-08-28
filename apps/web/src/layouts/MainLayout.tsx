@@ -110,21 +110,38 @@ export function MainLayout() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 lg:px-8">
+      <main className="flex-1">
         <Outlet />
       </main>
 
-      <footer className="bg-secondary py-10 text-white">
-        <div className="mx-auto max-w-7xl space-y-4 px-4 text-center sm:px-6 lg:px-8">
-          <picture className="inline-block">
-            <source srcSet={logoBrancaWebp} type="image/webp" />
-            <img src={logoBranca} alt="Excursão das Comitivas" className="mx-auto h-20 w-20 object-contain" loading="lazy" />
-          </picture>
-          <a href="https://instagram.com/excurssaodascomitivas" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-semibold transition-colors hover:text-accent">
-            <Instagram size={18} /> @excurssaodascomitivas
-          </a>
-          <p className="text-sm text-gray-300">&copy; {new Date().getFullYear()} Excursão das Comitivas. Todos os direitos reservados.</p>
+      <footer className="bg-secondary py-12 text-white">
+        <div className="mx-auto grid max-w-7xl gap-10 px-4 sm:px-6 md:grid-cols-[1.2fr_1fr_1fr] lg:px-8">
+          <div>
+            <picture className="inline-block">
+              <source srcSet={logoBrancaWebp} type="image/webp" />
+              <img src={logoBranca} alt="Excursão das Comitivas" className="h-20 w-20 object-contain" loading="lazy" width="80" height="80" />
+            </picture>
+            <p className="mt-5 max-w-sm text-sm leading-relaxed text-white/70">Desde 2015, criando experiências organizadas, acolhedoras e inesquecíveis para quem ama viver Barretos em boa companhia.</p>
+          </div>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#ffb0b5]">Informações</p>
+            <div className="mt-4 grid gap-3 text-sm text-white/75">
+              <Link to="/regras" className="transition hover:text-white">Regras de convivência</Link>
+              <Link to="/privacidade" className="transition hover:text-white">Privacidade</Link>
+              <Link to="/termos" className="transition hover:text-white">Termos de contratação</Link>
+              <Link to="/cancelamento" className="transition hover:text-white">Cancelamento</Link>
+            </div>
+          </div>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#ffb0b5]">Fale com a equipe</p>
+            <div className="mt-4 grid gap-3 text-sm text-white/75">
+              <a href="https://wa.me/5561994459086" target="_blank" rel="noopener noreferrer" className="transition hover:text-white">WhatsApp: (61) 99445-9086</a>
+              <a href="mailto:excursaodascomitivas@gmail.com" className="transition hover:text-white">excursaodascomitivas@gmail.com</a>
+              <a href="https://instagram.com/excurssaodascomitivas" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 transition hover:text-white"><Instagram size={17} /> @excurssaodascomitivas</a>
+            </div>
+          </div>
         </div>
+        <div className="mx-auto mt-10 max-w-7xl border-t border-white/10 px-4 pt-5 text-xs text-white/55 sm:px-6 lg:px-8">&copy; {new Date().getFullYear()} Excursão das Comitivas. Todos os direitos reservados.</div>
       </footer>
 
       <WhatsAppFloatButton />

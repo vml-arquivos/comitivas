@@ -2,6 +2,7 @@ export interface UsuarioPayload {
   id: string;
   email: string;
   tipo: "cliente" | "vendedor" | "admin";
+  session_version?: number;
 }
 
 export interface JWTPayload extends UsuarioPayload {

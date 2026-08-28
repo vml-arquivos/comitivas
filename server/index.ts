@@ -27,6 +27,10 @@ PaymentGatewayAdapter.validarConfiguracaoSegura();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const trustedProxyIps = new Set((process.env.TRUSTED_PROXY_IPS || "127.0.0.1,::1").split(",").map((value) => value.trim()).filter(Boolean));
+app.set("trust proxy", (ip: string) => trustedProxyIps.has(ip));
+const limiteOtp = rateLimit({ windowMs: 15 * 60 * 1000, max: process.env.NODE_ENV === "production" ? 10 : 1_000, standardHeaders: "draft-7", legacyHeaders: false, message: { erro: "Muitas tentativas de validação. Aguarde alguns minutos." } });
+const limiteWebhook = rateLimit({ windowMs: 60 * 1000, max: process.env.NODE_ENV === "production" ? 120 : 1_000, standardHeaders: "draft-7", legacyHeaders: false, message: { erro: "Muitos eventos recebidos. Tente novamente." } });
 const limiteAutenticacao = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: process.env.NODE_ENV === "production" ? 20 : 1_000,
@@ -38,12 +42,23 @@ const limiteAutenticacao = rateLimit({
 // Middleware
 app.disable("x-powered-by");
 app.use(helmet({
-  // O frontend inclui JSON-LD e estilos processados pelo Vite; uma política CSP
-  // estrita deve ser configurada no proxy de produção após inventariar esses ativos.
-  contentSecurityPolicy: false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      baseUri: ["'self'"],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      fontSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "https://api.cora.com.br", "https://matls-clients.api.cora.com.br"],
+      frameSrc: ["https://www.youtube-nocookie.com"],
+    },
+  },
   crossOriginEmbedderPolicy: false,
 }));
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "1mb", verify: (req, _res, buffer) => { (req as any).rawBody = Buffer.from(buffer); } }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 const configuredWebOrigins = (process.env.WEB_URL || "")
   .split(",")
@@ -86,9 +101,11 @@ app.use("/api/lotes", lotesRoutes);
 app.use("/api/pacotes", pacotesRoutes);
 
 // Rotas de contratos (autenticado)
+app.use("/api/contratos/otp", limiteOtp);
 app.use("/api/contratos", authMiddleware, contratosRoutes);
 
 // Rotas de pagamentos (autenticado)
+app.use("/api/pagamentos/webhook/cora", limiteWebhook);
 app.use("/api/pagamentos", pagamentosRoutes);
 
 // Rotas de e-mails (autenticado)

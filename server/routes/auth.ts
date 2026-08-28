@@ -9,6 +9,17 @@ import { authMiddleware } from "../middleware/authMiddleware.js";
 import { EmailProvider } from "../services/notificationProvider.js";
 
 const router = Router();
+const AUTH_COOKIE = "auth_token";
+
+function definirCookieAuth(res: Response, token: string) {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  res.setHeader("Set-Cookie", `${AUTH_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800${secure}`);
+}
+
+function limparCookieAuth(res: Response) {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  res.setHeader("Set-Cookie", `${AUTH_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
+}
 
 interface CadastroRequest {
   nome: string;
@@ -120,7 +131,7 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
           senha_hash: senhaHash,
           tipo: "cliente",
         })
-        .returning({ id: usuarios.id, email: usuarios.email, nome: usuarios.nome, tipo: usuarios.tipo });
+        .returning({ id: usuarios.id, email: usuarios.email, nome: usuarios.nome, tipo: usuarios.tipo, session_version: usuarios.session_version });
 
       if (!criado[0]) throw new Error("Erro ao criar usuário");
 
@@ -186,8 +197,10 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
       id: novoUsuario[0].id,
       email: novoUsuario[0].email,
       tipo: novoUsuario[0].tipo || "cliente",
+      session_version: Number(novoUsuario[0].session_version || 1),
     });
 
+    definirCookieAuth(res, token);
     res.status(201).json({
       usuario: novoUsuario[0],
       token,
@@ -329,7 +342,7 @@ router.post("/redefinir-senha", async (req: Request, res: Response) => {
       const atualizado = await tx.update(passwordResetTokens).set({ usado_em: agora }).where(and(eq(passwordResetTokens.token_hash, tokenHash), isNull(passwordResetTokens.usado_em), sql`${passwordResetTokens.expira_em} > CURRENT_TIMESTAMP`)).returning({ usuario_id: passwordResetTokens.usuario_id });
       if (!atualizado[0]) return null;
       const senhaHash = await AuthService.hashPassword(senha);
-      await tx.update(usuarios).set({ senha_hash: senhaHash, atualizado_em: agora }).where(eq(usuarios.id, atualizado[0].usuario_id));
+      await tx.update(usuarios).set({ senha_hash: senhaHash, session_version: sql`COALESCE(session_version, 1) + 1`, atualizado_em: agora }).where(eq(usuarios.id, atualizado[0].usuario_id));
       return atualizado[0];
     });
     if (!resultado) return res.status(400).json({ erro: "Token inválido, expirado ou já utilizado" });
@@ -378,8 +391,10 @@ router.post("/login", async (req: Request<{}, {}, LoginRequest>, res: Response) 
       id: usuario.id,
       email: usuario.email,
       tipo: usuario.tipo || "cliente",
+      session_version: Number(usuario.session_version || 1),
     });
 
+    definirCookieAuth(res, token);
     res.json({
       usuario: {
         id: usuario.id,
@@ -395,9 +410,17 @@ router.post("/login", async (req: Request<{}, {}, LoginRequest>, res: Response) 
   }
 });
 
+router.post("/logout", (_req: Request, res: Response) => {
+  limparCookieAuth(res);
+  return res.json({ ok: true });
+});
+
 router.post("/refresh", (req: Request, res: Response) => {
   try {
-    const token = AuthService.extractTokenFromHeader(req.headers.authorization);
+    const bearer = AuthService.extractTokenFromHeader(req.headers.authorization);
+    const cookie = req.headers.cookie || "";
+    const cookiePart = cookie.split(";").map((item) => item.trim()).find((item) => item.startsWith(`${AUTH_COOKIE}=`));
+    const token = bearer || (cookiePart ? decodeURIComponent(cookiePart.slice(`${AUTH_COOKIE}=`.length)) : null);
 
     if (!token) {
       return res.status(401).json({ erro: "Token não fornecido" });
@@ -412,8 +435,10 @@ router.post("/refresh", (req: Request, res: Response) => {
       id: payload.id,
       email: payload.email,
       tipo: payload.tipo,
+      session_version: Number(payload.session_version || 1),
     });
 
+    definirCookieAuth(res, novoToken);
     res.json({ token: novoToken });
   } catch (error) {
     console.error("[AUTH] Erro ao renovar token:", error);

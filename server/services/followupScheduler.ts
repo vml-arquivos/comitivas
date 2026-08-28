@@ -3,6 +3,8 @@ import type { ScheduledTask } from 'node-cron';
 import { db } from '../db/index.js';
 import { reservas, emails_enviados, usuarios } from '../db/schema.js';
 import { eq, lt, and } from 'drizzle-orm';
+import { InventoryService } from './inventoryService.js';
+import { NotificationOutboxService } from './notificationOutboxService.js';
 
 interface FollowupConfig {
   etapa: NonNullable<typeof reservas.$inferSelect.status>;
@@ -47,6 +49,9 @@ export class FollowupScheduler {
     
     this.cronJob = cron.schedule(cronExpression, async () => {
       console.log(`[FOLLOWUP] Verificando leads para follow-up em ${new Date().toISOString()}`);
+      const liberados = await InventoryService.liberarExpirados();
+      if (liberados > 0) console.log(`[INVENTARIO] ${liberados} hold(s) expirado(s) liberado(s)`);
+      await NotificationOutboxService.processarLote();
       await this.checkAndSendFollowups();
     });
 

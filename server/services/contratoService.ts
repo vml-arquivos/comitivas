@@ -1,13 +1,18 @@
 import { createHash } from "node:crypto";
 import fs from "fs/promises";
+import { randomUUID } from "node:crypto";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import path from "path";
 import Decimal from "decimal.js";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { CONTRATADA_DADOS } from "../../packages/contract-engine/letterhead.js";
 import { generateBrandedPdfBuffer } from "../../packages/contract-engine/brandedPdfLayout.js";
 import { db } from "../db/index.js";
+import regrasRuntime from "../../packages/legal-content/regras-2026.1.json";
 import {
   contratosDocumentos,
+  contratoEventos,
+  otpDesafios,
   descontosAdministrativos,
   eventos,
   lotes,
@@ -18,48 +23,8 @@ import {
 
 export type FormaPagamentoContrato = "pix" | "boleto" | "credito";
 export const CONTRATO_TEMPLATE_VERSION = "2026.1-oficial";
-export const REGRAS_CONVIVENCIA_VERSION = "2026.1";
-
-export const REGRAS_CONVIVENCIA_OFICIAIS = `Mais que uma viagem, uma experiência inesquecível!
-
-Para que todos aproveitem cada momento da nossa excursão com segurança, respeito e alegria, contamos com a colaboração de cada integrante.
-
-JUNTOS, FAZEMOS DA NOSSA COMITIVA UMA FAMÍLIA!
-
-1. RESPEITO ACIMA DE TUDO
-Respeite todos os integrantes da comitiva, motoristas, equipe de apoio e a comunidade local. Gentileza gera bons momentos!
-
-2. LIMPEZA É RESPONSABILIDADE DE TODOS
-Mantenha o ônibus e os locais que visitarmos sempre limpos. Use as lixeiras e não deixe sujeira ou objetos para trás.
-
-3. PONTUALIDADE
-Respeite os horários combinados. Atrasos podem prejudicar todo o grupo e nosso roteiro.
-
-4. CUIDE DOS SEUS PERTENCES
-A excursão não se responsabiliza por objetos pessoais. Fique atento e cuide dos seus pertences durante toda a viagem.
-
-5. BRIGAS E AGRESSÕES
-Brigas, agressões verbais e agressões físicas não serão toleradas em nenhuma hipótese. O respeito entre todos é indispensável durante toda a excursão.
-
-6. USO DE DROGAS É PROIBIDO
-É expressamente proibido o uso, porte ou circulação de drogas ilícitas durante toda a excursão. O descumprimento desta regra poderá acarretar desligamento imediato da comitiva.
-
-7. SOM E BARULHO
-Não é permitido som e barulho antes das 10hrs da manhã. O som só será permitido a partir das 10hrs da manhã, juntamente com a abertura do Open Bar. Após esse horário, mantenha o volume em nível adequado e respeite o descanso dos demais.
-
-8. BEBIDA COM RESPONSABILIDADE
-Se for consumir bebida alcoólica, faça isso com moderação. Nunca dirija após beber. Segurança sempre!
-
-9. CUIDE DO PRÓXIMO
-Esteja atento aos colegas da comitiva. Ajude quem precisar e informe a equipe sobre qualquer situação que demande atenção.
-
-10. NÃO É NÃO
-Respeite os limites e o espaço do outro. Qualquer atitude desrespeitosa não será tolerada.
-
-11. SIGA AS ORIENTAÇÕES DA EQUIPE
-Nossa equipe está aqui para cuidar de tudo e de todos. Siga as orientações para que tudo ocorra da melhor forma.
-
-Respeito, união e alegria são o que tornam nossa comitiva única!`;
+export const REGRAS_CONVIVENCIA_VERSION = regrasRuntime.versao;
+export const REGRAS_CONVIVENCIA_OFICIAIS = regrasRuntime.conteudo;
 
 const MODALIDADES_HOSPEDAGEM: Record<string, string> = {
   camping: "Camping",
@@ -77,8 +42,15 @@ export interface DadosContrato {
   reserva_id: string;
   usuario_id?: string;
   lote_id?: string;
+  contrato_id?: string;
+  snapshot?: SnapshotVenda;
   aceite_ip?: string;
   aceite_timestamp?: Date;
+  protocolo?: string;
+  canal?: string;
+  destinatario_mascarado?: string;
+  aceite_contrato_texto?: string;
+  aceite_regras_texto?: string;
 }
 
 export interface CondicaoPagamentoCalculada {
@@ -89,7 +61,7 @@ export interface CondicaoPagamentoCalculada {
   desconto_pagamento: string;
 }
 
-type ItemContrato = { id?: string; nome: string; tipo?: string; quantidade: number; valor: Decimal };
+type ItemContrato = { id?: string; codigo?: string; nome: string; tipo?: string; transporte_rodoviario?: boolean; quantidade: number; valor: Decimal };
 
 type SnapshotVenda = {
   cliente: Record<string, unknown>;
@@ -112,10 +84,13 @@ type SnapshotVenda = {
     parcelas: number;
     valor_parcela: string;
     vencimentos: string[];
+    cronograma: Array<{ numero: number; vencimento: string; valor: string; valor_centavos: number }>;
+
   };
   transporte: { rodoviario_incluido: boolean; local_embarque: string | null; data_saida: string | null; data_retorno: string | null; horario_saida: string | null; horario_retorno: string | null; veiculo: string | null };
   politicas: Record<string, unknown>;
   regras: { versao: string; conteudo: string; sha256: string };
+  data_contrato: string;
   versao_contratual: string;
 };
 
@@ -172,15 +147,27 @@ function normalizarItens(valor: unknown): ItemContrato[] {
   if (!Array.isArray(dados)) return [];
   return dados.map((item: any) => ({
     id: item?.id ? String(item.id) : undefined,
+    codigo: item?.codigo ? String(item.codigo) : undefined,
     nome: String(item?.nome || "Item adicional"),
     tipo: item?.tipo ? String(item.tipo) : undefined,
+    transporte_rodoviario: item?.transporte_rodoviario === true,
     quantidade: Number.isInteger(Number(item?.quantidade)) && Number(item.quantidade) > 0 ? Number(item.quantidade) : 1,
     valor: decimal(item?.valor),
   })).filter((item) => item.valor.greaterThanOrEqualTo(0));
 }
 
 function sha256(valor: string): string { return createHash("sha256").update(valor, "utf8").digest("hex"); }
-function serializarSnapshot(snapshot: SnapshotVenda): string { return JSON.stringify(snapshot); }
+function canonizar(valor: unknown): unknown {
+  if (Array.isArray(valor)) return valor.map(canonizar);
+  if (valor && typeof valor === "object") {
+    return Object.fromEntries(Object.entries(valor as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([chave, item]) => [chave, canonizar(item)]));
+  }
+  return valor;
+}
+function serializarSnapshot(snapshot: SnapshotVenda): string { return JSON.stringify(canonizar(snapshot)); }
+function hashEvento(evento: unknown, hashAnterior?: string | null): string {
+  return sha256(`${hashAnterior || ""}:${JSON.stringify(canonizar(evento))}`);
+}
 function checkbox(selecionado: boolean): string { return selecionado ? "☒" : "☐"; }
 
 function valorPorExtenso(valor: Decimal): string {
@@ -212,18 +199,30 @@ function valorPorExtenso(valor: Decimal): string {
   return `${textoInteiro} ${moeda} e ${grupo(centavos)} ${centavos === 1 ? "centavo" : "centavos"}`;
 }
 
-function vencimentos(dataInicial: Date | null, parcelas: number): string[] {
-  if (!dataInicial || parcelas <= 1) return dataInicial ? [dataInicial.toISOString().slice(0, 10)] : [];
+function vencimentos(dataLimite: Date | null, parcelas: number): string[] {
+  if (!dataLimite || parcelas < 1) return [];
+  const ultimo = new Date(dataLimite);
+  ultimo.setUTCDate(ultimo.getUTCDate() - 1);
   return Array.from({ length: parcelas }, (_, index) => {
-    const data = new Date(dataInicial);
-    data.setMonth(data.getMonth() + index);
+    const data = new Date(ultimo);
+    data.setUTCMonth(data.getUTCMonth() - (parcelas - 1 - index));
     return data.toISOString().slice(0, 10);
   });
 }
 
-function transporteFoiContratado(itens: ItemContrato[], pacote: typeof pacotes.$inferSelect | undefined): boolean {
-  const texto = [...itens.map((item) => `${item.nome} ${item.tipo || ""}`), pacote?.nome || "", pacote?.descricao || ""].join(" ").toLowerCase();
-  return /transporte rodoviário|transporte rodoviario|ônibus|onibus|micro-ônibus|microonibus|van interestadual/.test(texto);
+function cronogramaPagamento(total: Decimal, dataLimite: Date | null, parcelas: number) {
+  const totalCentavos = total.times(100).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toNumber();
+  const datas = vencimentos(dataLimite, parcelas);
+  const base = Math.floor(totalCentavos / Math.max(1, parcelas));
+  const resto = totalCentavos - base * Math.max(1, parcelas);
+  return Array.from({ length: parcelas }, (_, index) => {
+    const valorCentavos = base + (index === parcelas - 1 ? resto : 0);
+    return { numero: index + 1, vencimento: datas[index] || "", valor_centavos: valorCentavos, valor: new Decimal(valorCentavos).div(100).toFixed(2) };
+  });
+}
+
+function transporteFoiContratado(itens: ItemContrato[]): boolean {
+  return itens.some((item) => item.transporte_rodoviario === true || item.codigo === "transporte_rodoviario" || item.tipo === "transporte_rodoviario");
 }
 
 export class ContratoService {
@@ -283,12 +282,13 @@ export class ContratoService {
     const total = decimal(reserva.valor_total);
     const parcelas = reserva.quantidade_parcelas || 1;
     const aceite = dadosContrato.aceite_timestamp || reserva.aceite_timestamp || new Date();
-    const rodoviario = transporteFoiContratado(adicionais, pacote);
+    const rodoviario = transporteFoiContratado(adicionais);
     const localHospedagem = lote.local_hospedagem || "Chácara Recanto Novo Encantado ou Santa Thereza";
     const regrasHash = sha256(REGRAS_CONVIVENCIA_OFICIAIS);
     const dataLimite = lote.data_embarque || lote.data_inicio;
     const servicos = ["Hospedagem", "Café da manhã", "Almoço", "Open Bar das 09h às 19h", "Translado entre a chácara e o Parque do Peão"];
     if (rodoviario) servicos.unshift("Transporte rodoviário de ida e volta, conforme programação previamente divulgada pela CONTRATADA");
+    const cronograma = cronogramaPagamento(total, dataValida(dataLimite), parcelas);
     return {
       cliente: { id: usuario.id, nome: usuario.nome, cpf: usuario.cpf, rg: usuario.rg, nacionalidade: usuario.nacionalidade || "Brasileira", estado_civil: usuario.estado_civil, profissao: usuario.profissao, nascimento: formatarDataISO(usuario.data_nascimento), endereco: usuario.endereco, telefone: usuario.telefone, email: usuario.email },
       evento: { id: evento.id, nome: evento.nome, local: evento.local, data_inicio: formatarDataISO(evento.data_inicio), data_fim: formatarDataISO(evento.data_fim) },
@@ -297,19 +297,37 @@ export class ContratoService {
       pacote: { id: pacote?.id || null, nome: pacote?.nome || null, descricao: pacote?.descricao || null },
       hospedagem: { modalidade: pacote?.modalidade_hospedagem || null, modalidade_nome: MODALIDADES_HOSPEDAGEM[pacote?.modalidade_hospedagem || ""] || "Conforme contratação registrada", local: localHospedagem },
       servicos_inclusos: servicos,
-      adicionais: adicionais.map((item) => ({ id: item.id, nome: item.nome, tipo: item.tipo, quantidade: item.quantidade, valor_unitario: item.valor.toFixed(2) })),
+      adicionais: adicionais.map((item) => ({ id: item.id, codigo: item.codigo, nome: item.nome, tipo: item.tipo, transporte_rodoviario: item.transporte_rodoviario, quantidade: item.quantidade, valor_unitario: item.valor.toFixed(2) })),
       quantidade: 1,
       precos_unitarios: itens.map((item) => ({ nome: item.nome, quantidade: item.quantidade, valor_unitario: item.valor.toFixed(2), total: item.valor.times(item.quantidade).toFixed(2) })),
-      financeiro: { subtotal: subtotal.toFixed(2), cupom: descontoCupom.toFixed(2), desconto_pagamento: descontoPagamento.toFixed(2), desconto_administrativo: decimal(descontoAdministrativo?.valor_desconto).toFixed(2), total: total.toFixed(2), forma_pagamento: reserva.forma_pagamento, parcelas, valor_parcela: (reserva.valor_parcela ? decimal(reserva.valor_parcela) : total.div(parcelas)).toFixed(2), vencimentos: vencimentos(dataValida(dataLimite), parcelas) },
+      financeiro: { subtotal: subtotal.toFixed(2), cupom: descontoCupom.toFixed(2), desconto_pagamento: descontoPagamento.toFixed(2), desconto_administrativo: decimal(descontoAdministrativo?.valor_desconto).toFixed(2), total: total.toFixed(2), forma_pagamento: reserva.forma_pagamento, parcelas, valor_parcela: cronograma[0]?.valor || (reserva.valor_parcela ? decimal(reserva.valor_parcela).toFixed(2) : total.div(parcelas).toFixed(2)), vencimentos: cronograma.map((item) => item.vencimento), cronograma },
       transporte: { rodoviario_incluido: rodoviario, local_embarque: rodoviario ? lote.local_embarque : null, data_saida: rodoviario ? formatarDataISO(lote.data_embarque) : null, data_retorno: rodoviario ? formatarDataISO(lote.data_retorno) : null, horario_saida: rodoviario ? formatarDataHora(lote.data_embarque) : null, horario_retorno: rodoviario ? formatarDataHora(lote.data_retorno) : null, veiculo: null },
       politicas: { cancelamento: ["Superior a 90 dias: retenção de 10%", "Entre 80 e 60 dias: retenção de 20%", "Entre 50 e 30 dias: retenção de 30%", "Entre 20 e 15 dias: retenção de 50%", "Menos de 15 dias: retenção de 80%", "No-show ou abandono: retenção de 100%"], reembolso: "Até 30 dias da formalização do pedido" },
       regras: { versao: REGRAS_CONVIVENCIA_VERSION, conteudo: REGRAS_CONVIVENCIA_OFICIAIS, sha256: regrasHash },
+      data_contrato: formatarData(aceite),
       versao_contratual: CONTRATO_TEMPLATE_VERSION,
     };
   }
 
+  private static async obterSnapshotPersistido(contratoId: string): Promise<{ id: string; versao: number; status: string; snapshot: SnapshotVenda; snapshot_sha256: string; pdf_sha256: string | null }> {
+    const documento = (await db.select({ id: contratosDocumentos.id, versao: contratosDocumentos.versao, status: contratosDocumentos.status, snapshot: contratosDocumentos.snapshot, snapshot_sha256: contratosDocumentos.snapshot_sha256, pdf_sha256: contratosDocumentos.pdf_sha256 }).from(contratosDocumentos).where(eq(contratosDocumentos.id, contratoId)).limit(1))[0];
+    if (!documento) throw new Error("Documento contratual não encontrado");
+    return { ...documento, snapshot: documento.snapshot as SnapshotVenda };
+  }
+
+  static async marcarVisualizacao(contratoId: string, reservaId: string, atorId?: string, ip?: string, userAgent?: string): Promise<void> {
+    const documento = await this.obterSnapshotPersistido(contratoId);
+    const agora = new Date();
+    await db.transaction(async (tx) => {
+      await tx.update(contratosDocumentos).set({ visualizado_em: documento.status === "validado" ? undefined : agora }).where(and(eq(contratosDocumentos.id, contratoId), eq(contratosDocumentos.reserva_id, reservaId)));
+      const anterior = (await tx.select({ hash_evento: contratoEventos.hash_evento }).from(contratoEventos).where(eq(contratoEventos.contrato_id, contratoId)).orderBy(desc(contratoEventos.criado_em)).limit(1))[0];
+      const metadados = { contrato_id: contratoId, versao: documento.versao };
+      await tx.insert(contratoEventos).values({ id: `evt-${randomUUID()}`, contrato_id: contratoId, reserva_id: reservaId, tipo: "visualizado", criado_em: agora, ator_id: atorId || null, ip: ip || null, user_agent: userAgent || null, metadados, hash_anterior: anterior?.hash_evento || null, hash_evento: hashEvento(metadados, anterior?.hash_evento) });
+    });
+  }
+
   static async gerarContratoHTML(dadosContrato: DadosContrato): Promise<string> {
-    const snapshot = await this.gerarSnapshot(dadosContrato);
+    const snapshot = dadosContrato.snapshot || (dadosContrato.contrato_id ? (await this.obterSnapshotPersistido(dadosContrato.contrato_id)).snapshot : await this.gerarSnapshot(dadosContrato));
     const c = snapshot.cliente as any;
     const e = snapshot.evento as any;
     const l = snapshot.lote as any;
@@ -317,7 +335,7 @@ export class ContratoService {
     const f = snapshot.financeiro;
     const t = snapshot.transporte;
     const p = snapshot.politicas as any;
-    const dataContrato = formatarData(dadosContrato.aceite_timestamp || new Date());
+    const dataContrato = snapshot.data_contrato || formatarData(dadosContrato.aceite_timestamp || new Date());
     const linhasItens = snapshot.precos_unitarios.map((item: any) => `<tr><td>${escaparHtml(item.nome)}</td><td class="numero">${item.quantidade}</td><td class="numero">${formatarMoeda(item.valor_unitario)}</td><td class="numero">${formatarMoeda(item.total)}</td></tr>`).join("");
     const linhasRegras = snapshot.regras.conteudo.split("\n").map((linha) => linha.trim()).filter(Boolean).map((linha) => `<p>${escaparHtml(linha)}</p>`).join("");
     const modalidade = (nome: string, chave: string) => `<span class="modalidade"><span class="marcador">${checkbox(h.modalidade === chave)}</span> ${nome}</span>`;
@@ -356,7 +374,6 @@ export class ContratoService {
       <h2>Cláusula décima sétima — Do responsável operacional</h2><p>O guia da excursão é o responsável operacional pela organização dos serviços durante o evento.</p>
       <h2>Cláusula décima oitava — Do translado</h2><p>O translado compreende exclusivamente o percurso entre a chácara e o Parque do Peão, em horários previamente divulgados.</p>
       <h2>Cláusula décima nona — Das comunicações</h2><p>As comunicações poderão ocorrer por WhatsApp, e-mail ou telefone informado pelo CONTRATANTE. Consideram-se válidas as comunicações enviadas aos contatos cadastrados.</p>
-      <h2>Cláusula vigésima — Do uso de imagem</h2><p>O CONTRATANTE autoriza o uso de sua imagem pelo prazo de 3 anos para divulgação institucional da excursão, podendo manifestar oposição por escrito antes do início do evento.</p>
       <h2>Regras de convivência aceitas</h2><div class="regras">${linhasRegras}</div>
       <p>Brasília, ${escaparHtml(dataContrato)}.</p><div class="assinaturas"><div class="assinatura"><strong>CONTRATANTE</strong><br>${escaparHtml(c.nome)}<br>CPF: ${escaparHtml(formatarCpf(c.cpf))}</div><div class="assinatura"><strong>CONTRATADA</strong><br>${escaparHtml(CONTRATADA_DADOS.razao_social)}<br>CNPJ: ${escaparHtml(CONTRATADA_DADOS.cnpj)}</div></div>
       <div class="rodape">Documento contratual ${escaparHtml(snapshot.versao_contratual)} · Regras ${escaparHtml(snapshot.regras.versao)} · Hash do snapshot: ${escaparHtml(sha256(serializarSnapshot(snapshot)))} · Reserva: ${escaparHtml(dadosContrato.reserva_id)}</div>
@@ -364,7 +381,38 @@ export class ContratoService {
   }
 
   static async gerarContratoPDF(dadosContrato: DadosContrato): Promise<Buffer> {
-    return generateBrandedPdfBuffer(await this.gerarContratoHTML(dadosContrato), { brand: "comitiva" });
+    const base = await generateBrandedPdfBuffer(await this.gerarContratoHTML(dadosContrato), { brand: "comitiva" });
+    if (!dadosContrato.protocolo) return base;
+    const documento = await PDFDocument.load(base);
+    const fonte = await documento.embedFont(StandardFonts.Helvetica);
+    const fonteNegrito = await documento.embedFont(StandardFonts.HelveticaBold);
+    const pagina = documento.addPage([595.28, 841.89]);
+    const linhas = [
+      "CERTIFICADO DE EVIDÊNCIAS DA ASSINATURA ELETRÔNICA",
+      "Excursão das Comitivas — contratação 2026",
+      "",
+      `Protocolo: ${dadosContrato.protocolo}`,
+      `Reserva: ${dadosContrato.reserva_id}`,
+      `Contrato: ${dadosContrato.contrato_id || "não informado"}`,
+      `Canal: ${dadosContrato.canal || "não informado"}`,
+      `Destino: ${dadosContrato.destinatario_mascarado || "não informado"}`,
+      `Data/hora UTC: ${(dadosContrato.aceite_timestamp || new Date()).toISOString()}`,
+      `IP confiável registrado: ${dadosContrato.aceite_ip || "não informado"}`,
+      "",
+      "Hash SHA-256 do conteúdo contratual aceito:",
+      dadosContrato.snapshot ? sha256(serializarSnapshot(dadosContrato.snapshot)) : "ver registro de validação",
+      "",
+      `Aceite do contrato: ${dadosContrato.aceite_contrato_texto || "texto registrado no banco"}`,
+      `Aceite das regras: ${dadosContrato.aceite_regras_texto || "texto registrado no banco"}`,
+      "",
+      "Este certificado acompanha o PDF final e não altera o conteúdo contratual congelado.",
+      "O hash SHA-256 do arquivo final está registrado na validação e pode ser conferido pela área autenticada.",
+    ];
+    let y = 780;
+    pagina.drawText(linhas[0], { x: 48, y, size: 14, font: fonteNegrito, color: rgb(0.5, 0.05, 0.05) });
+    y -= 30;
+    linhas.slice(1).forEach((linha) => { pagina.drawText(linha.slice(0, 105), { x: 48, y, size: linha.startsWith("Hash") ? 9 : 10, font: linha.startsWith("CERTIFICADO") ? fonteNegrito : fonte, color: rgb(0.12, 0.16, 0.22) }); y -= 18; });
+    return Buffer.from(await documento.save());
   }
 
   static async salvarContratoPDF(dadosContrato: DadosContrato): Promise<string> {
@@ -379,11 +427,19 @@ export class ContratoService {
   static async prepararContrato(reservaId: string): Promise<{ id: string; versao: number; snapshot: SnapshotVenda; snapshot_sha256: string; status: string }> {
     const snapshot = await this.gerarSnapshot({ reserva_id: reservaId });
     const hash = sha256(serializarSnapshot(snapshot));
-    const ultima = (await db.select({ versao: contratosDocumentos.versao }).from(contratosDocumentos).where(eq(contratosDocumentos.reserva_id, reservaId)).orderBy(desc(contratosDocumentos.versao)).limit(1))[0];
-    const versao = Number(ultima?.versao || 0) + 1;
-    const inserido = await db.insert(contratosDocumentos).values({ reserva_id: reservaId, versao, versao_template: CONTRATO_TEMPLATE_VERSION, snapshot, snapshot_sha256: hash, status: "aguardando_validacao" }).returning({ id: contratosDocumentos.id, versao: contratosDocumentos.versao, status: contratosDocumentos.status });
-    if (!inserido[0]) throw new Error("Não foi possível criar a versão contratual");
-    return { id: inserido[0].id, versao: inserido[0].versao, snapshot, snapshot_sha256: hash, status: inserido[0].status };
+    const agora = new Date();
+    const resultado = await db.transaction(async (tx) => {
+      await tx.update(contratosDocumentos).set({ status: "invalidado", invalidado_em: agora, motivo_invalidacao: "Nova versão preparada; aceite anterior pendente invalidado" }).where(and(eq(contratosDocumentos.reserva_id, reservaId), sql`status IN ('rascunho', 'aguardando_validacao', 'preparado')`));
+      const ultima = (await tx.select({ versao: contratosDocumentos.versao }).from(contratosDocumentos).where(eq(contratosDocumentos.reserva_id, reservaId)).orderBy(desc(contratosDocumentos.versao)).limit(1))[0];
+      const versao = Number(ultima?.versao || 0) + 1;
+      const inserido = await tx.insert(contratosDocumentos).values({ reserva_id: reservaId, versao, versao_template: CONTRATO_TEMPLATE_VERSION, snapshot, snapshot_sha256: hash, conteudo_canonico: serializarSnapshot(snapshot), regras_versao: REGRAS_CONVIVENCIA_VERSION, regras_sha256: snapshot.regras.sha256, aviso_privacidade_versao: process.env.AVISO_PRIVACIDADE_VERSION || "2026.1", status: "aguardando_validacao", criado_em: agora }).returning({ id: contratosDocumentos.id, versao: contratosDocumentos.versao, status: contratosDocumentos.status });
+      if (!inserido[0]) throw new Error("Não foi possível criar a versão contratual");
+      const metadados = { snapshot_sha256: hash, versao: inserido[0].versao, template: CONTRATO_TEMPLATE_VERSION };
+      await tx.insert(contratoEventos).values({ id: `evt-${randomUUID()}`, contrato_id: inserido[0].id, reserva_id: reservaId, tipo: "conteudo_preparado", criado_em: agora, metadados, hash_evento: hashEvento(metadados) });
+      await tx.update(reservas).set({ checkout_estado: "contrato_preparado", cronograma_pagamento: snapshot.financeiro.cronograma, atualizado_em: agora }).where(eq(reservas.id, reservaId));
+      return { id: inserido[0].id, versao: inserido[0].versao, snapshot, snapshot_sha256: hash, status: inserido[0].status };
+    });
+    return resultado;
   }
 
   static async registrarAceiteContrato(reservaId: string, _aceiteIp: string): Promise<void> {
