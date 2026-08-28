@@ -71,7 +71,8 @@ export class PaymentGatewayAdapter {
     return process.env.PAYMENT_GATEWAY === "mock" && process.env.NODE_ENV !== "production" ? "mock" : "cora";
   }
 
-  static validarConfiguracaoSegura(): void {
+  static validarConfiguracaoSegura(opcoes: { strict?: boolean } = {}): void {
+    const strict = opcoes.strict ?? process.env.NODE_ENV === "production";
     const configurado = (process.env.PAYMENT_GATEWAY || "cora").trim().toLowerCase();
     if (!(["cora", "mock"] as string[]).includes(configurado)) {
       throw new Error("PAYMENT_GATEWAY inválido: somente cora é permitido em produção");
@@ -83,11 +84,11 @@ export class PaymentGatewayAdapter {
       try {
         CoraPaymentProvider.validarConfiguracao();
       } catch (error) {
-        if (process.env.NODE_ENV === "production") throw error;
-        console.warn("[PaymentGateway] Cora não configurada neste ambiente; cobranças ficarão bloqueadas até configurar mTLS.");
+        if (strict) throw error;
+        console.warn("[PaymentGateway] Cora não configurada; o site subirá, mas cobranças permanecerão bloqueadas até configurar mTLS.");
       }
     }
-    if (process.env.NODE_ENV === "production") {
+    if (strict && process.env.NODE_ENV === "production") {
       const url = process.env.CORA_WEBHOOK_PUBLIC_URL?.trim();
       if (!url || !url.startsWith("https://")) throw new Error("CORA_WEBHOOK_PUBLIC_URL com HTTPS é obrigatória em produção");
     }
@@ -104,6 +105,7 @@ export class PaymentGatewayAdapter {
     }
 
     if (this.GATEWAY === "mock") return this.criarPagamentoTeste(request, chave);
+    this.validarConfiguracaoSegura({ strict: true });
 
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, request.reserva_id)).limit(1))[0];
     if (!reserva) throw new Error("Reserva não encontrada");

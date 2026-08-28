@@ -23,7 +23,7 @@ import adminRoutes from "./routes/admin.js";
 
 dotenv.config();
 AuthService.validarConfiguracaoSegura();
-PaymentGatewayAdapter.validarConfiguracaoSegura();
+PaymentGatewayAdapter.validarConfiguracaoSegura({ strict: false });
 
 const app = express();
 const PORT = process.env.PORT || 3000;
