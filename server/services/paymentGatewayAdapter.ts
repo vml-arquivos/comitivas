@@ -217,7 +217,7 @@ export class PaymentGatewayAdapter {
   static async confirmarPagamento(gateway_id: string): Promise<boolean> {
     if (this.GATEWAY === "mock") return false;
     const data = await CoraPaymentProvider.consultarCobranca(gateway_id);
-    return String(data?.status || "").toUpperCase() === "PAID";
+    return ["PAID", "PAID_OUT"].includes(String(data?.status || "").toUpperCase());
   }
 
   static async consultarPagamento(gateway_id: string): Promise<any> {

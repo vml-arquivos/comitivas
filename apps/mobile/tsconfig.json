@@ -17,9 +17,9 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],
-      "@ui/*": ["../../../packages/ui/*"]
+      "@ui/*": ["../../packages/ui/*"]
     }
   },
-  "include": ["src", "../../../packages/ui"],
+  "include": ["src", "../../packages/ui", "../../apps/web/src/vite-env.d.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

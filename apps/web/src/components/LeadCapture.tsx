@@ -33,7 +33,7 @@ export default function LeadCapture() {
         pagina: '/',
         codigo_origem: new URLSearchParams(window.location.search).get('ref') || undefined,
       });
-      salvarLeadId(response.data.lead_id);
+      salvarLeadId(response.data.lead_id, response.data.lead_intent_token);
       setSucesso(true);
     } catch (err: any) {
       setError(err.response?.data?.erro || 'Não foi possível registrar seu contato. Tente novamente.');

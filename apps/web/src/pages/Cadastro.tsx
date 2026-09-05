@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth, api } from '../contexts/AuthContext';
 import { Button, Input, Card, CardHeader, CardTitle, CardContent } from '@ui/index';
-import { destinoSeguro, lerLeadId } from '../utils/checkoutIntent';
+import { destinoSeguro, lerLeadId, lerLeadIntentToken } from '../utils/checkoutIntent';
 
 export default function Cadastro() {
   const [step, setStep] = useState(1);
@@ -71,6 +71,7 @@ export default function Cadastro() {
         telefone: formData.telefone,
         senha: formData.senha,
         lead_id: lerLeadId() || undefined,
+        lead_intent_token: lerLeadIntentToken() || undefined,
         ...(incluirDadosContratuais ? {
           rg: formData.rg || undefined,
           data_nascimento: formData.data_nascimento || undefined,

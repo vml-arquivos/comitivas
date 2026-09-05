@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { App as CapacitorApp } from '@capacitor/app';
 import { AuthProvider, useAuth } from '../../../apps/web/src/contexts/AuthContext';
 import { MainLayout } from '../../../apps/web/src/layouts/MainLayout';

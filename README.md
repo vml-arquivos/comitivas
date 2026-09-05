@@ -74,22 +74,11 @@ docker-compose up -d
 - API: http://localhost:3000
 - Frontend: http://localhost:5173
 
-## 📋 Etapas de Implementação
+## 📋 Estado auditado
 
-A plataforma foi construída em 13 etapas principais:
+A plataforma preserva o fluxo existente de autenticação, CRM, eventos, lotes, pacotes, adicionais, cupons, reservas, contratos versionados, OTP, geração de PDF, inventário e integração Cora. A auditoria e as correções atuais priorizam segurança, isolamento de carteiras, snapshots financeiros, idempotência e compatibilidade histórica.
 
-1. Motor de contratos oficial Excursão das Comitivas
-2. Identidade visual e marca
-3. Schema PostgreSQL completo
-4. Autenticação segura
-5. Configurador de pacotes
-6. Geração de contratos
-7. Pagamento integrado
-8. E-mail automático
-9. Cupons e painel admin
-10. App mobile Capacitor
-11. Jornada CRM
-12. Docker e deploy
+O app mobile Capacitor possui build independente validado com `apps/mobile/index.html`, aliases compartilhados corrigidos e configuração sem endpoint localhost na distribuição. A operação produtiva continua condicionada à configuração externa de PostgreSQL, Cora mTLS, HMAC do webhook, SMTP e volume persistente.
 
 ## 📧 Variáveis de Ambiente
 
@@ -119,21 +108,25 @@ SMTP_FROM=noreply@comitiva.com.br
 ## 🚢 Deployment
 
 Veja [docs/cora-deploy-readiness.md](./docs/cora-deploy-readiness.md) para a prontidão de produção. Os guias antigos de Mercado Pago/Asaas são históricos e não devem ser usados para este sistema.
+Consulte também a [fonte única operacional](./docs/operacao/FONTE_UNICA_OPERACIONAL.md) antes de executar migrations, redeploy ou smoke tests.
 
 ## 📚 Documentação
 
 - **[docs/cora-deploy-readiness.md](./docs/cora-deploy-readiness.md)** - Checklist de deploy Cora mTLS
+- **[docs/operacao/FONTE_UNICA_OPERACIONAL.md](./docs/operacao/FONTE_UNICA_OPERACIONAL.md)** - Fonte atual de operação, variáveis e deploy
 - **Schema do Banco** - Ver `server/db/schema.ts`
 
-## ✅ Checklist de Conclusão
+## ✅ Verificações locais
 
-- [x] Nenhum placeholder, mock, TODO ou dado fictício no código
-- [x] Todas as 13 etapas com commit e push confirmados
-- [x] Fluxo completo testável de ponta a ponta
-- [x] Identidade visual aplicada em web e mobile
-- [x] .env.example completo, sem credenciais reais
-- [x] Dockerfile e docker-compose funcionais
-- [x] Documentação de deployment completa
+- [x] Typecheck do servidor
+- [x] Typecheck e build web
+- [x] Typecheck e build mobile
+- [x] Suíte unitária existente
+- [x] `git diff --check`
+- [x] Gateway produtivo restrito a Cora no código
+- [x] `.env.example` sem credenciais reais
+- [ ] Integração PostgreSQL, Cora stage e E2E: dependem de credenciais e ambiente isolado
+- [ ] Redeploy e validação do Coolify: dependem do acesso operacional externo
 
 ---
 

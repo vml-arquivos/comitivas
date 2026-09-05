@@ -493,6 +493,7 @@ router.put("/usuarios/:id", async (req: Request, res: Response) => {
     }
 
     const atualizacoes: Partial<typeof usuarios.$inferInsert> = { atualizado_em: new Date() };
+    let revogarSessoes = false;
 
     if (nome !== undefined) {
       const nomeNormalizado = String(nome).trim();
@@ -517,6 +518,7 @@ router.put("/usuarios/:id", async (req: Request, res: Response) => {
     if (telefone !== undefined) atualizacoes.telefone = somenteDigitos(telefone) || null;
     if (tipo !== undefined && ["cliente", "vendedor", "admin"].includes(tipo)) {
       atualizacoes.tipo = tipo;
+      revogarSessoes = tipo !== existente[0].tipo;
     }
     if (data_nascimento !== undefined) {
       const dataNascimento = data_nascimento ? new Date(data_nascimento) : null;
@@ -534,12 +536,16 @@ router.put("/usuarios/:id", async (req: Request, res: Response) => {
         return res.status(400).json({ erro: "Senha deve ter no mínimo 8 caracteres" });
       }
       atualizacoes.senha_hash = await AuthService.hashPassword(String(senha));
+      revogarSessoes = true;
     }
 
     try {
       const atualizado = await db
         .update(usuarios)
-        .set(atualizacoes)
+        .set({
+          ...atualizacoes,
+          ...(revogarSessoes ? { session_version: sql`COALESCE(${usuarios.session_version}, 1) + 1` } : {}),
+        })
         .where(eq(usuarios.id, id))
         .returning(CAMPOS_PUBLICOS_USUARIO);
 
@@ -567,7 +573,11 @@ router.patch("/usuarios/:id/status", async (req: Request, res: Response) => {
 
     const atualizado = await db
       .update(usuarios)
-      .set({ ativo, atualizado_em: new Date() })
+      .set({
+        ativo,
+        atualizado_em: new Date(),
+        session_version: sql`COALESCE(${usuarios.session_version}, 1) + 1`,
+      })
       .where(eq(usuarios.id, id))
       .returning(CAMPOS_PUBLICOS_USUARIO);
 
@@ -852,6 +862,7 @@ router.post("/contratos/gerar/:reserva_id", async (req: Request, res: Response) 
         valor_parcela: condicaoPagamento.valor_parcela,
         desconto_pagamento: condicaoPagamento.desconto_pagamento,
         valor_total: condicaoPagamento.valor_total,
+        valor_total_centavos: Math.round(Number(condicaoPagamento.valor_total) * 100),
         atualizado_em: new Date(),
       })
       .where(eq(reservas.id, reserva_id));

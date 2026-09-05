@@ -38,6 +38,13 @@ const limiteAutenticacao = rateLimit({
   legacyHeaders: false,
   message: { erro: "Muitas tentativas. Aguarde alguns minutos antes de tentar novamente." },
 });
+const limiteIntencaoLead = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === "production" ? 60 : 1_000,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { erro: "Muitas atualizações de intenção. Aguarde alguns minutos." },
+});
 
 // Middleware
 app.disable("x-powered-by");
@@ -84,6 +91,7 @@ app.use(express.static(webDistPath));
 
 // Rotas públicas
 app.use("/api/auth", limiteAutenticacao, authRoutes);
+app.use("/api/publico/leads/:lead_id/intencao", limiteIntencaoLead);
 app.use("/api/publico", publicoRoutes);
 
 // Health check

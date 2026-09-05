@@ -81,7 +81,13 @@ export default function Checkout() {
 
   const resumo = useMemo(() => {
     const base = Math.max(0, Number(reserva?.valor_total || 0));
-    const desconto = metodoPagamento === 'pix' ? base * percentualDescontoPix / 100 : 0;
+    // Após a preparação do contrato, valor_total já é o total final congelado
+    // pelo servidor e desconto_pagamento já está incluído nele. Reaplicar o
+    // percentual aqui fazia a UI mostrar menos que o valor cobrado pela Cora.
+    const contratoCongelado = Boolean(reserva?.forma_pagamento && reserva?.desconto_pagamento !== undefined);
+    const desconto = contratoCongelado
+      ? 0
+      : metodoPagamento === 'pix' ? base * percentualDescontoPix / 100 : 0;
     const total = base - desconto;
     const quantidade = metodoPagamento === 'pix' ? 1 : quantidadeParcelas;
     return { base, desconto, total, quantidade, parcela: total / quantidade };

@@ -106,7 +106,7 @@ export class FollowupScheduler {
 
         if (jaEnviado.length === 0) {
           // Enviar follow-up
-          await this.enviarFollowup(reserva, config);
+          await this.enfileirarFollowup(reserva, config);
         }
       }
     } catch (error) {
@@ -114,7 +114,7 @@ export class FollowupScheduler {
     }
   }
 
-  private async enviarFollowup(reserva: any, config: FollowupConfig) {
+  private async enfileirarFollowup(reserva: any, config: FollowupConfig) {
     try {
       const usuarioResult = await db
         .select()
@@ -132,20 +132,24 @@ export class FollowupScheduler {
       // Construir conteúdo do e-mail baseado no template
       const corpoEmail = this.construirCorpoFollowup(config.template, reserva);
 
-      // Enviar e-mail (simulado aqui — integrar com EmailService/SMTP real quando configurado)
-      console.log(`[FOLLOWUP] Enviando follow-up para reserva ${reserva.id} - etapa: ${config.etapa}`);
+      if (!usuario.email) {
+        console.warn(`[FOLLOWUP] Usuário ${usuario.id} sem e-mail, follow-up não enfileirado`);
+        return;
+      }
 
-      // Registrar o envio
-      await db.insert(emails_enviados).values({
+      const filaId = await NotificationOutboxService.enfileirarEmail({
         reserva_id: reserva.id,
+        usuario_id: usuario.id,
         tipo: `followup_${config.etapa}`,
+        chave_idempotente: `followup:${reserva.id}:${config.etapa}`,
+        template: config.template,
+        versao: '2026.1',
         destinatario: usuario.email,
         assunto: config.assunto,
-        corpo: corpoEmail,
-        enviado_em: new Date(),
+        corpo_html: corpoEmail,
       });
 
-      console.log(`[FOLLOWUP] Follow-up registrado para reserva ${reserva.id}`);
+      console.log(`[FOLLOWUP] Follow-up ${filaId ? 'enfileirado' : 'já existente'} para reserva ${reserva.id}`);
     } catch (error) {
       console.error(`[FOLLOWUP] Erro ao enviar follow-up:`, error);
     }

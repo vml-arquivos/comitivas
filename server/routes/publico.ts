@@ -1,8 +1,9 @@
 import { Router, Request, Response } from "express";
 import { db } from "../db/index.js";
 import { eventos, lotes, pacotes, fotos_evento, avaliacoes, reservas, leads_origem, usuarios, videosEvento } from "../db/schema.js";
-import { eq, and, gt, lt, desc, sql } from "drizzle-orm";
+import { eq, and, gt, lt, desc, sql, isNull } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
+import { AuthService } from "../services/authService.js";
 
 const router = Router();
 
@@ -184,6 +185,7 @@ router.post("/leads", async (req: Request, res: Response) => {
     res.status(201).json({
       mensagem: "Contato registrado. Nossa equipe já pode acompanhar seu interesse.",
       lead_id: lead[0].id,
+      lead_intent_token: AuthService.generateLeadIntentToken(lead[0].id),
     });
   } catch (error: any) {
     console.error("[PUBLICO] Erro ao captar lead:", error);
@@ -195,6 +197,12 @@ router.post("/leads", async (req: Request, res: Response) => {
 // do login, sem expor dados pessoais na resposta.
 router.patch("/leads/:lead_id/intencao", async (req: Request, res: Response) => {
   try {
+    const leadId = String(req.params.lead_id || "");
+    const token = String(req.body?.lead_intent_token || req.header("x-lead-intent-token") || "").trim();
+    if (!AuthService.verifyLeadIntentToken(token, leadId)) {
+      return res.status(401).json({ erro: "Token de intenção inválido ou expirado" });
+    }
+
     const { lote_id, pacote_id, status } = req.body;
     const statusPermitidos = ["interessado", "checkout_iniciado", "abandonado"];
     const proximoStatus = statusPermitidos.includes(status) ? status : "interessado";
@@ -216,7 +224,10 @@ router.patch("/leads/:lead_id/intencao", async (req: Request, res: Response) => 
       pacote_id,
       status: proximoStatus,
       atualizado_em: new Date(),
-    }).where(eq(leads_origem.id, req.params.lead_id)).returning({ id: leads_origem.id });
+    }).where(and(
+      eq(leads_origem.id, leadId),
+      isNull(leads_origem.usuario_id),
+    )).returning({ id: leads_origem.id });
 
     if (atualizado.length === 0) {
       return res.status(404).json({ erro: "Lead não encontrado" });

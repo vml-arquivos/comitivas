@@ -33,6 +33,7 @@ interface CadastroRequest {
   endereco?: string;
   nacionalidade?: string;
   lead_id?: string;
+  lead_intent_token?: string;
   senha: string;
 }
 
@@ -67,7 +68,7 @@ function erroDeUnicidade(error: unknown): boolean {
 
 router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Response) => {
   try {
-    const { nome, email, cpf, rg, telefone, data_nascimento, estado_civil, profissao, endereco, nacionalidade, lead_id, senha } = req.body;
+    const { nome, email, cpf, rg, telefone, data_nascimento, estado_civil, profissao, endereco, nacionalidade, lead_id, lead_intent_token, senha } = req.body;
     const emailNormalizado = String(email || "").trim().toLowerCase();
     const nomeNormalizado = String(nome || "").trim();
     const cpfNormalizado = somenteDigitos(cpf);
@@ -112,6 +113,8 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
     // Hash da senha
     const senhaHash = await AuthService.hashPassword(senha);
 
+    const leadTokenValido = Boolean(lead_id && AuthService.verifyLeadIntentToken(String(lead_intent_token || ""), lead_id));
+
     // Usuário e lead são gravados na mesma transação. Se qualquer operação
     // falhar, não fica uma conta sem card correspondente no CRM.
     const novoUsuario = await db.transaction(async (tx) => {
@@ -136,7 +139,7 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
       if (!criado[0]) throw new Error("Erro ao criar usuário");
 
       let leadVinculado: Array<{ id: string }> = [];
-      if (lead_id) {
+      if (leadTokenValido) {
         leadVinculado = await tx.update(leads_origem).set({
           usuario_id: criado[0].id,
           nome: nomeNormalizado,
@@ -144,13 +147,14 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
           whatsapp: telefoneNormalizado || undefined,
           status: "cadastrado",
           atualizado_em: new Date(),
-        }).where(and(eq(leads_origem.id, lead_id), isNull(leads_origem.usuario_id)))
+        }).where(and(eq(leads_origem.id, lead_id!), isNull(leads_origem.usuario_id)))
           .returning({ id: leads_origem.id });
       }
 
       // O navegador pode perder o lead_id. Nesse caso, reaproveita a captação
-      // não vinculada mais recente pelo mesmo e-mail ou WhatsApp.
-      if (leadVinculado.length === 0) {
+      // não vinculada mais recente pelo mesmo e-mail ou WhatsApp. Se um lead_id
+      // foi informado sem token válido, não fazemos associação por aproximação.
+      if (leadVinculado.length === 0 && (!lead_id || leadTokenValido)) {
         const mesmoContato = telefoneNormalizado
           ? or(eq(leads_origem.email, emailNormalizado), eq(leads_origem.whatsapp, telefoneNormalizado))
           : eq(leads_origem.email, emailNormalizado);

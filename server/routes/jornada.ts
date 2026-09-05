@@ -216,12 +216,27 @@ router.get("/cliente/:usuario_id", authMiddleware, requireRole("admin", "vendedo
   try {
     const { usuario_id } = req.params;
 
-    // Buscar origem
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+
+    // A jornada comercial só pode ser consultada pelo admin ou pelo vendedor
+    // responsável pela origem vinculada ao cliente. O filtro é aplicado no
+    // banco para impedir acesso por manipulação direta do endpoint.
+    const filtroOrigem = req.usuario.tipo === "admin"
+      ? eq(leads_origem.usuario_id, usuario_id)
+      : and(
+        eq(leads_origem.usuario_id, usuario_id),
+        eq(leads_origem.vendedor_id, req.usuario.id),
+      );
+
     const leadResult = await db
       .select()
       .from(leads_origem)
-      .where(eq(leads_origem.usuario_id, usuario_id))
+      .where(filtroOrigem)
       .limit(1);
+
+    if (req.usuario.tipo !== "admin" && leadResult.length === 0) {
+      return res.status(404).json({ erro: "Usuário não encontrado na sua carteira" });
+    }
 
     // Buscar reservas
     const reservasResult = await db

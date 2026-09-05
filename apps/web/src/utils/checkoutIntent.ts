@@ -1,5 +1,6 @@
 export const CHECKOUT_INTENT_KEY = 'comitivas_checkout_intent';
 export const LEAD_ID_KEY = 'comitivas_lead_id';
+export const LEAD_INTENT_TOKEN_KEY = 'comitivas_lead_intent_token';
 
 export interface CheckoutIntent {
   loteId: string;
@@ -28,12 +29,17 @@ export function limparIntencaoCheckout() {
   localStorage.removeItem(CHECKOUT_INTENT_KEY);
 }
 
-export function salvarLeadId(leadId: string) {
+export function salvarLeadId(leadId: string, token?: string) {
   localStorage.setItem(LEAD_ID_KEY, leadId);
+  if (token) localStorage.setItem(LEAD_INTENT_TOKEN_KEY, token);
 }
 
 export function lerLeadId() {
   return localStorage.getItem(LEAD_ID_KEY);
+}
+
+export function lerLeadIntentToken() {
+  return localStorage.getItem(LEAD_INTENT_TOKEN_KEY);
 }
 
 export function destinoSeguro(valor: string | null, fallback = '/') {

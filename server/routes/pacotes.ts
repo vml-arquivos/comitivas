@@ -3,6 +3,7 @@ import { authMiddleware, requireRole } from "../middleware/authMiddleware.js";
 import { PacoteService, ConfiguracaoPacote } from "../services/pacoteService.js";
 import { ContratoService } from "../services/contratoService.js";
 import { ConfiguracaoService } from "../services/configuracaoService.js";
+import { AuthService } from "../services/authService.js";
 import { db } from "../db/index.js";
 import { eventos, lotes, pacotes, itens_addon, reservas, usuarios, leads_origem } from "../db/schema.js";
 import { eq, and, desc, isNull, or } from "drizzle-orm";
@@ -70,6 +71,8 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
 
     let leadAtualizado: Array<{ id: string }> = [];
     if (req.body.lead_id) {
+      const leadId = String(req.body.lead_id);
+      const tokenValido = AuthService.verifyLeadIntentToken(String(req.body.lead_intent_token || ""), leadId);
       leadAtualizado = await db.update(leads_origem).set({
         usuario_id: req.usuario.id,
         lote_id: config.lote_id,
@@ -77,8 +80,10 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
         status: "checkout_iniciado",
         atualizado_em: new Date(),
       }).where(and(
-        eq(leads_origem.id, req.body.lead_id),
-        or(isNull(leads_origem.usuario_id), eq(leads_origem.usuario_id, req.usuario.id)),
+        eq(leads_origem.id, leadId),
+        tokenValido
+          ? or(isNull(leads_origem.usuario_id), eq(leads_origem.usuario_id, req.usuario.id))
+          : eq(leads_origem.usuario_id, req.usuario.id),
       )).returning({ id: leads_origem.id });
     }
 

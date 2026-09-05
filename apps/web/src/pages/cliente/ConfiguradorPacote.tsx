@@ -7,6 +7,7 @@ import { Check, Info, TentTree, Wind, Snowflake, Sparkles } from 'lucide-react';
 import {
   lerIntencaoCheckout,
   lerLeadId,
+  lerLeadIntentToken,
   limparIntencaoCheckout,
   salvarIntencaoCheckout,
 } from '../../utils/checkoutIntent';
@@ -120,11 +121,13 @@ export default function ConfiguradorPacote() {
   const selecionarPacote = (id: string) => {
     setPacoteId(id);
     const leadId = lerLeadId();
-    if (leadId && loteId) {
+    const leadIntentToken = lerLeadIntentToken();
+    if (leadId && leadIntentToken && loteId) {
       api.patch(`/publico/leads/${leadId}/intencao`, {
         lote_id: loteId,
         pacote_id: id,
         status: 'interessado',
+        lead_intent_token: leadIntentToken,
       }).catch(() => undefined);
     }
   };
@@ -140,6 +143,7 @@ export default function ConfiguradorPacote() {
     }
     setError('');
     const leadId = lerLeadId();
+    const leadIntentToken = lerLeadIntentToken();
     const intent = {
       loteId: loteId!,
       pacoteId,
@@ -149,11 +153,12 @@ export default function ConfiguradorPacote() {
     salvarIntencaoCheckout(intent);
 
     if (!user) {
-      if (leadId) {
+      if (leadId && leadIntentToken) {
         api.patch(`/publico/leads/${leadId}/intencao`, {
           lote_id: loteId,
           pacote_id: pacoteId,
           status: 'checkout_iniciado',
+          lead_intent_token: leadIntentToken,
         }).catch(() => undefined);
       }
       const retorno = `/pacote/${loteId}?retomar=1`;

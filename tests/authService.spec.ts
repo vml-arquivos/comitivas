@@ -27,4 +27,14 @@ describe("AuthService.validarConfiguracaoSegura", () => {
 
     expect(() => AuthService.validarConfiguracaoSegura()).not.toThrow();
   });
+
+  it("emite e valida token de intenção somente para o lead correto", () => {
+    process.env.NODE_ENV = "test";
+    process.env.JWT_SECRET = "segredo-de-teste-com-tamanho-suficiente";
+    const token = AuthService.generateLeadIntentToken("lead-123");
+
+    expect(AuthService.verifyLeadIntentToken(token, "lead-123")).toBe(true);
+    expect(AuthService.verifyLeadIntentToken(token, "lead-456")).toBe(false);
+    expect(AuthService.verifyLeadIntentToken("token-inválido", "lead-123")).toBe(false);
+  });
 });

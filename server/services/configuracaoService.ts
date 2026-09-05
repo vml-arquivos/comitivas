@@ -63,10 +63,13 @@ export class ConfiguracaoService {
       cache = mapearLinha(linha[0]);
       return cache;
     } catch (error) {
-      // Se a tabela ainda não existir (deploy antes da migration rodar) ou o
-      // banco estiver indisponível, seguimos com os valores padrão em vez de
-      // quebrar checkout/geração de contrato.
-      console.error("[ConfiguracaoService] Erro ao ler configurações, usando padrão:", error);
+      // Em produção, nunca congelar contrato ou cobrança com uma regra
+      // possivelmente obsoleta quando a fonte de verdade está indisponível.
+      if (process.env.NODE_ENV === "production") {
+        console.error("[ConfiguracaoService] Configuração financeira indisponível em produção:", error);
+        throw new Error("Configuração financeira indisponível; operação bloqueada com segurança");
+      }
+      console.error("[ConfiguracaoService] Erro ao ler configurações, usando padrão local:", error);
       return { ...PADRAO };
     }
   }

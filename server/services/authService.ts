@@ -42,6 +42,25 @@ export class AuthService {
     }
   }
 
+  static generateLeadIntentToken(leadId: string): string {
+    if (!leadId) throw new Error("leadId é obrigatório");
+    return jwt.sign(
+      { lead_id: leadId, purpose: "lead-intent" },
+      obterJwtSecret(),
+      { expiresIn: "30m" },
+    );
+  }
+
+  static verifyLeadIntentToken(token: string, leadId: string): boolean {
+    if (!token || !leadId) return false;
+    try {
+      const payload = jwt.verify(token, obterJwtSecret()) as { lead_id?: string; purpose?: string };
+      return payload.purpose === "lead-intent" && payload.lead_id === leadId;
+    } catch {
+      return false;
+    }
+  }
+
   static extractTokenFromHeader(authHeader: string | undefined): string | null {
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return null;

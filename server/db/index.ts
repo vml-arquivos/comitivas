@@ -257,6 +257,10 @@ async function ensureAdminTestUser() {
     return;
   }
 
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("ENABLE_TEST_ADMIN=true não é permitido em produção");
+  }
+
   const adminExists = await pool.query(
     "SELECT id FROM usuarios WHERE email = $1",
     ["admin@comitivas.test"]

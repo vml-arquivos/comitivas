@@ -199,7 +199,7 @@ router.post("/webhook/cora", async (req: Request, res: Response) => {
       if (pagamento && (tipo.includes("paid") || tipo.includes("canceled") || tipo.includes("cancelled") || tipo.includes("overdue") || tipo.includes("late"))) {
         const remoto = await PaymentGatewayAdapter.consultarPagamento(recursoId);
         const remotoStatus = String(remoto?.status || "").toUpperCase();
-        if (tipo.includes("paid") && remotoStatus === "PAID") {
+        if (tipo.includes("paid") && ["PAID", "PAID_OUT"].includes(remotoStatus)) {
           if (parcela) await db.update(pagamentoParcelas).set({ status: "aprovado", valor_pago_centavos: parcela.valor_centavos || centavos(parcela.valor), atualizado_em: new Date() }).where(eq(pagamentoParcelas.id, parcela.id));
           else await db.update(pagamentos).set({ status: "aprovado", atualizado_em: new Date() }).where(eq(pagamentos.id, pagamento.id));
           await reconciliarPagamento(pagamento.id);
