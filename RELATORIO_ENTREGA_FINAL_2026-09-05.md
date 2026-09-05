@@ -96,9 +96,15 @@ Commit principal realizado:
 95d02e8 refactor: finalize commercial excursion platform
 ```
 
+Commit documental de evidências:
+
+```text
+33ff396 docs: record release validation evidence
+```
+
 ## 10. Push realizado
 
-Push confirmado para `origin/main` no repositório GitHub autorizado `vml-arquivos/comitivas`. O branch local ficou alinhado com `origin/main` no commit `95d02e8`.
+Push confirmado para `origin/main` no repositório GitHub autorizado `vml-arquivos/comitivas`. O branch local ficou alinhado com `origin/main` no commit `33ff396`, que contém o commit principal `95d02e8`.
 
 ## 11. Deploy realizado
 
