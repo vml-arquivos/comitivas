@@ -104,7 +104,7 @@ Commit documental de evidências:
 
 ## 10. Push realizado
 
-Push confirmado para `origin/main` no repositório GitHub autorizado `vml-arquivos/comitivas`. O branch local ficou alinhado com `origin/main` no commit `33ff396`, que contém o commit principal `95d02e8`.
+Push confirmado para `origin/main` no repositório GitHub autorizado `vml-arquivos/comitivas`. O branch local ficou alinhado com `origin/main` após a publicação da sequência de commits, que contém o commit principal `95d02e8`.
 
 ## 11. Deploy realizado
 
