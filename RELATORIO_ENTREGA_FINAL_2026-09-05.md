@@ -108,7 +108,9 @@ Push confirmado para `origin/main` no repositório GitHub autorizado `vml-arquiv
 
 ## 11. Deploy realizado
 
-**Não confirmado nesta sessão.** Não há conector Coolify autenticado nem URL real do painel disponível. O GitHub não registrou workflow/deployment após o push, e o smoke test encontrou `Last-Modified: Fri, 28 Aug 2026 11:25:23 GMT` e o bundle antigo `index-B4pDfErG.js`, sem a nova chave `comitivas_lead_intent_token`. Isso indica que a produção continua no artefato anterior. O redeploy deve ser acionado no Coolify e confirmado pelos logs, pelo commit `95d02e8` e por um novo bundle.
+**Confirmado.** Após autenticação no painel, o redeploy foi acionado no Coolify. O deployment `apw6e6olgphniv7o29gweqv8` importou o commit `1475bdde0aafd5749800a82ad47169e8fc28456c`, criou o novo container, executou o healthcheck interno em `/api/health` com HTTP 200 e terminou com o estado `Deployment is Finished` e container saudável.
+
+O build final produziu o bundle `index-DkXo0bn5.js`; o domínio passou a responder com `Last-Modified: Sat, 05 Sep 2026 23:11:43 GMT`, confirmando a troca do artefato antigo. O deployment usou o HEAD documental publicado após o commit principal; não foram alteradas variáveis de produção nem dados.
 
 ## 12. URL de produção
 
@@ -121,10 +123,10 @@ O smoke test passivo atual retornou:
 ```text
 GET https://excursaodascomitivas.com.br/       HTTP 200
 GET https://excursaodascomitivas.com.br/api/health HTTP 200
-{"status":"ok","timestamp":"2026-09-05T23:03:31.032Z"}
+{"status":"ok","timestamp":"2026-09-05T23:15:03.168Z"}
 ```
 
-A Home respondeu com a marca oficial e referências ao domínio canônico. Nenhuma rota autenticada, cobrança, OTP ou alteração de dados foi executada no ambiente público.
+Após o redeploy, o healthcheck externo retornou novamente HTTP 200 com status `ok`. A Home respondeu com a marca oficial e referências ao domínio canônico. Um `PATCH` não destrutivo para um lead fictício sem token retornou HTTP 401 com `Token de intenção inválido ou expirado`, confirmando a proteção implantada. Nenhuma rota autenticada, cobrança, OTP ou alteração de dados foi executada no ambiente público.
 
 ## 14. Variáveis necessárias
 
@@ -134,9 +136,9 @@ Nenhum valor secreto foi incluído no commit ou neste relatório.
 
 ## 15. Pendências externas
 
-A publicação GitHub foi concluída. Permanecem pendentes o redeploy no Coolify e a confirmação de que o container de produção executa este commit. Também permanecem externas a configuração Cora stage, o banco PostgreSQL de homologação, a validação E2E isolada, a auditoria de acessibilidade com navegador/axe, o backup/restauração verificável e a confirmação de volume persistente para PDFs.
+A publicação GitHub e o redeploy no Coolify foram concluídos. Permanecem externas a configuração Cora stage, o banco PostgreSQL de homologação, a validação E2E isolada, a auditoria de acessibilidade com navegador/axe, o backup/restauração verificável e a confirmação de volume persistente para PDFs.
 
-A conclusão responsável desta entrega é: **código corrigido e validado localmente; produção pública saudável no commit anterior; redeploy e validações financeiras externas não comprovados nesta sessão**.
+A conclusão responsável desta entrega é: **código corrigido e validado localmente; commit publicado; redeploy Coolify concluído; produção pública saudável; validações financeiras e integração PostgreSQL de homologação permanecem pendentes por falta de credenciais/ambiente isolado**.
 
 ## Referências
 
