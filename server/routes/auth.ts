@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { createHash, randomBytes } from "node:crypto";
 import { db } from "../db/index.js";
-import { leads_origem, usuarios, passwordResetTokens } from "../db/schema.js";
+import { leads_origem, usuarios, passwordResetTokens, verificacoesEmail } from "../db/schema.js";
 import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { AuthService } from "../services/authService.js";
@@ -64,6 +64,14 @@ function cpfValido(cpf: string): boolean {
 
 function erroDeUnicidade(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "23505");
+}
+
+function hashCodigo(codigo: string): string {
+  return createHash("sha256").update(codigo, "utf8").digest("hex");
+}
+
+function gerarCodigoEmail(): string {
+  return String(100000 + (randomBytes(4).readUInt32BE(0) % 900000));
 }
 
 router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Response) => {
@@ -133,6 +141,7 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
           nacionalidade: String(nacionalidade || "").trim() || "Brasileira",
           senha_hash: senhaHash,
           tipo: "cliente",
+          email_confirmado: false,
         })
         .returning({ id: usuarios.id, email: usuarios.email, nome: usuarios.nome, tipo: usuarios.tipo, session_version: usuarios.session_version });
 
@@ -196,25 +205,60 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
       return criado;
     });
 
-    // Gerar token
-    const token = AuthService.generateToken({
-      id: novoUsuario[0].id,
-      email: novoUsuario[0].email,
-      tipo: novoUsuario[0].tipo || "cliente",
-      session_version: Number(novoUsuario[0].session_version || 1),
-    });
-
-    definirCookieAuth(res, token);
-    res.status(201).json({
-      usuario: novoUsuario[0],
-      token,
-    });
+    const codigo = gerarCodigoEmail();
+    const agora = new Date();
+    await db.update(verificacoesEmail).set({ usado_em: agora }).where(and(eq(verificacoesEmail.usuario_id, novoUsuario[0].id), isNull(verificacoesEmail.usado_em)));
+    await db.insert(verificacoesEmail).values({ id: createId(), usuario_id: novoUsuario[0].id, codigo_hash: hashCodigo(codigo), expira_em: new Date(agora.getTime() + 30 * 60 * 1000), enviado_em: agora });
+    const envio = await new EmailProvider().sendEmailVerification(novoUsuario[0].email, novoUsuario[0].nome, codigo).catch(() => ({ sent: false }));
+    res.status(201).json({ usuario: novoUsuario[0], email_confirmacao_necessaria: true, envio_email: envio.sent ? "enviado" : "pendente" });
   } catch (error) {
     console.error("[AUTH] Erro no cadastro:", error);
     if (erroDeUnicidade(error)) {
       return res.status(409).json({ erro: "E-mail ou CPF já cadastrado" });
     }
     res.status(500).json({ erro: "Erro interno do servidor" });
+  }
+});
+
+router.post("/confirmar-email", async (req: Request, res: Response) => {
+  try {
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    const codigo = String(req.body?.codigo || "").trim();
+    if (!email || !/^\d{6}$/.test(codigo)) return res.status(400).json({ erro: "Informe o e-mail e o código de 6 dígitos" });
+    const usuario = (await db.select({ id: usuarios.id, email: usuarios.email, nome: usuarios.nome, tipo: usuarios.tipo, session_version: usuarios.session_version, email_confirmado: usuarios.email_confirmado }).from(usuarios).where(eq(usuarios.email, email)).limit(1))[0];
+    if (!usuario || usuario.email_confirmado) return res.status(400).json({ erro: "Código inválido ou conta já confirmada" });
+    const agora = new Date();
+    const confirmado = await db.transaction(async (tx) => {
+      const desafio = await tx.update(verificacoesEmail).set({ usado_em: agora }).where(and(eq(verificacoesEmail.usuario_id, usuario.id), eq(verificacoesEmail.codigo_hash, hashCodigo(codigo)), isNull(verificacoesEmail.usado_em), sql`${verificacoesEmail.expira_em} > CURRENT_TIMESTAMP`)).returning({ id: verificacoesEmail.id });
+      if (!desafio[0]) return false;
+      await tx.update(usuarios).set({ email_confirmado: true, email_confirmado_em: agora, atualizado_em: agora }).where(eq(usuarios.id, usuario.id));
+      return true;
+    });
+    if (!confirmado) return res.status(400).json({ erro: "Código inválido, expirado ou já utilizado" });
+    const token = AuthService.generateToken({ id: usuario.id, email: usuario.email, tipo: usuario.tipo || "cliente", session_version: Number(usuario.session_version || 1) });
+    definirCookieAuth(res, token);
+    return res.json({ mensagem: "E-mail confirmado com sucesso", usuario: { id: usuario.id, email: usuario.email, nome: usuario.nome, tipo: usuario.tipo } });
+  } catch (error) {
+    console.error("[AUTH] Erro na confirmação de e-mail:", error);
+    return res.status(400).json({ erro: "Não foi possível confirmar o e-mail" });
+  }
+});
+
+router.post("/reenviar-confirmacao", async (req: Request, res: Response) => {
+  const respostaNeutra = { mensagem: "Se a conta estiver pendente, um novo código será enviado." };
+  try {
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    const usuario = (await db.select({ id: usuarios.id, email: usuarios.email, nome: usuarios.nome, email_confirmado: usuarios.email_confirmado }).from(usuarios).where(eq(usuarios.email, email)).limit(1))[0];
+    if (!usuario || usuario.email_confirmado) return res.json(respostaNeutra);
+    const codigo = gerarCodigoEmail();
+    const agora = new Date();
+    await db.update(verificacoesEmail).set({ usado_em: agora }).where(and(eq(verificacoesEmail.usuario_id, usuario.id), isNull(verificacoesEmail.usado_em)));
+    await db.insert(verificacoesEmail).values({ id: createId(), usuario_id: usuario.id, codigo_hash: hashCodigo(codigo), expira_em: new Date(agora.getTime() + 30 * 60 * 1000), enviado_em: agora });
+    await new EmailProvider().sendEmailVerification(usuario.email, usuario.nome, codigo).catch(() => undefined);
+    return res.json(respostaNeutra);
+  } catch (error) {
+    console.error("[AUTH] Erro no reenvio de confirmação:", error);
+    return res.json(respostaNeutra);
   }
 });
 
@@ -376,6 +420,7 @@ router.post("/login", async (req: Request<{}, {}, LoginRequest>, res: Response) 
         ativo: usuarios.ativo,
         senha_hash: usuarios.senha_hash,
         session_version: usuarios.session_version,
+        email_confirmado: usuarios.email_confirmado,
       })
       .from(usuarios)
       .where(eq(usuarios.email, emailNormalizado))
@@ -397,6 +442,9 @@ router.post("/login", async (req: Request<{}, {}, LoginRequest>, res: Response) 
     if (!usuario.ativo) {
       return res.status(403).json({ erro: "Usuário desativado" });
     }
+    if (!usuario.email_confirmado) {
+      return res.status(403).json({ erro: "Confirme seu e-mail antes de entrar", email_confirmacao_necessaria: true });
+    }
 
     // Gerar token
     const token = AuthService.generateToken({
@@ -414,7 +462,6 @@ router.post("/login", async (req: Request<{}, {}, LoginRequest>, res: Response) 
         nome: usuario.nome,
         tipo: usuario.tipo,
       },
-      token,
     });
   } catch (error) {
     console.error("[AUTH] Erro no login:", error);
@@ -451,7 +498,7 @@ router.post("/refresh", (req: Request, res: Response) => {
     });
 
     definirCookieAuth(res, novoToken);
-    res.json({ token: novoToken });
+    res.json({ mensagem: "Sessão renovada" });
   } catch (error) {
     console.error("[AUTH] Erro ao renovar token:", error);
     res.status(500).json({ erro: "Erro interno do servidor" });

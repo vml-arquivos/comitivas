@@ -184,8 +184,12 @@ router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Re
         configPagamento.boleto_meses_maximo_antecedencia,
       );
 
+      // O valor_total persistido já pode conter o desconto da condição anterior.
+      // Reconstituímos a base somando apenas o desconto financeiro anterior para
+      // impedir que uma retomada aplique o desconto PIX cumulativamente.
+      const valorBaseSemDescontoPagamento = Number(reserva.valor_total) + Number(reserva.desconto_pagamento || 0);
       condicaoPagamento = ContratoService.calcularCondicaoPagamento(
-        reserva.valor_total.toString(),
+        valorBaseSemDescontoPagamento.toFixed(2),
         metodoPagamento,
         quantidadeParcelas,
         parcelasMaximasBoleto,
@@ -329,6 +333,22 @@ router.get("/voucher/:reserva_id", authMiddleware, async (req: Request, res: Res
     }
     if (voucher.status !== "cliente_confirmado") {
       return res.status(409).json({ erro: "O voucher será liberado após a confirmação do pagamento" });
+    }
+    const pagamentoQuitado = (await db.select({ status_reconciliado: pagamentos.status_reconciliado, valor_pago_centavos: pagamentos.valor_pago_centavos, valor_centavos: pagamentos.valor_centavos })
+      .from(pagamentos)
+      .where(eq(pagamentos.reserva_id, voucher.reserva_id))
+      .orderBy(desc(pagamentos.atualizado_em))
+      .limit(1))[0];
+    const validacaoContrato = (await db.select({ id: contratoValidacoes.id, aceite_contrato: contratoValidacoes.aceite_contrato, aceite_regras: contratoValidacoes.aceite_regras })
+      .from(contratoValidacoes)
+      .where(eq(contratoValidacoes.reserva_id, voucher.reserva_id))
+      .orderBy(desc(contratoValidacoes.confirmado_em))
+      .limit(1))[0];
+    if (!validacaoContrato?.aceite_contrato || !validacaoContrato.aceite_regras) {
+      return res.status(409).json({ erro: "O voucher será liberado após a validação eletrônica do contrato" });
+    }
+    if (pagamentoQuitado?.status_reconciliado !== "quitado" || Number(pagamentoQuitado.valor_pago_centavos || 0) < Number(pagamentoQuitado.valor_centavos || 0)) {
+      return res.status(409).json({ erro: "O voucher será liberado após a quitação integral do pagamento" });
     }
 
     const modalidades: Record<string, string> = {

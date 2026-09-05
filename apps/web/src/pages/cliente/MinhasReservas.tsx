@@ -10,6 +10,9 @@ const STATUS: Record<string, { classes: string; label: string; descricao: string
   checkout_iniciado: { classes: 'bg-purple-100 text-purple-800', label: 'Checkout iniciado', descricao: 'Falta aceitar o contrato e escolher o pagamento.' },
   contrato_gerado: { classes: 'bg-amber-100 text-amber-800', label: 'Contrato gerado', descricao: 'Seu contrato está pronto; conclua o pagamento.' },
   aguardando_pagamento: { classes: 'bg-yellow-100 text-yellow-800', label: 'Aguardando pagamento', descricao: 'A confirmação será atualizada após o retorno do meio de pagamento.' },
+  pagamento_parcial: { classes: 'bg-blue-100 text-blue-800', label: 'Pagamento parcial', descricao: 'A primeira parcela foi recebida; acompanhe o cronograma das próximas.' },
+  primeira_parcela_confirmada: { classes: 'bg-blue-100 text-blue-800', label: 'Primeira parcela confirmada', descricao: 'A primeira parcela foi recebida; as demais seguem no cronograma.' },
+  quitado: { classes: 'bg-emerald-100 text-emerald-800', label: 'Pagamento quitado', descricao: 'Pagamento integral confirmado.' },
   cliente_confirmado: { classes: 'bg-emerald-100 text-emerald-800', label: 'Viagem confirmada', descricao: 'Contrato e voucher de embarque estão disponíveis.' },
   abandonado: { classes: 'bg-red-100 text-red-800', label: 'Reserva interrompida', descricao: 'Fale com a equipe para verificar como retomar.' },
 };
@@ -114,7 +117,7 @@ export default function MinhasReservas() {
       ) : (
         <div className="grid gap-6 md:grid-cols-2">
           {reservas.map((reserva) => {
-            const status = STATUS[reserva.status] || {
+            const status = STATUS[reserva.checkout_estado] || STATUS[reserva.status] || {
               classes: 'bg-slate-100 text-slate-700',
               label: 'Em andamento',
               descricao: 'Acompanhe os próximos passos desta reserva.',
@@ -145,6 +148,15 @@ export default function MinhasReservas() {
                       </div>
                       <p className="text-lg font-black text-secondary">{moeda(reserva.valor_total)}</p>
                     </div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-bold text-slate-800">Pagamento</span>
+                      <span className="font-semibold text-slate-600">{reserva.pagamento?.status_reconciliado === 'quitado' ? 'Quitado' : reserva.pagamento?.status_reconciliado === 'pagamento_parcial' ? 'Parcial' : reserva.pagamento?.status_reconciliado === 'cancelado' ? 'Cancelado' : 'Pendente'}</span>
+                    </div>
+                    <p className="mt-1 text-slate-500">{reserva.forma_pagamento ? `${String(reserva.forma_pagamento).toUpperCase()} · ${reserva.quantidade_parcelas || 1}x de ${moeda(reserva.valor_parcela || reserva.valor_total)}` : 'Escolha o meio de pagamento para continuar.'}</p>
+                    {Array.isArray(reserva.cronograma_pagamento) && reserva.cronograma_pagamento.length > 0 && <div className="mt-3 grid gap-2 sm:grid-cols-2">{reserva.cronograma_pagamento.map((parcela: any) => <div key={parcela.numero} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-xs"><span>Parcela {parcela.numero} · {parcela.vencimento || 'a confirmar'}</span><strong>{moeda(parcela.valor)}</strong></div>)}</div>}
                   </div>
 
                   <div className="flex items-start gap-3 text-sm text-slate-600">

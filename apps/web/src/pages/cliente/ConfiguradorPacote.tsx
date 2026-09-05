@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { api, useAuth } from '../../contexts/AuthContext';
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@ui/index';
@@ -35,6 +35,7 @@ export default function ConfiguradorPacote() {
   const { loteId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
   const [itensDisponiveis, setItensDisponiveis] = useState<any[]>([]);
   const [pacotes, setPacotes] = useState<PacotePublicado[]>([]);
   const [pacoteId, setPacoteId] = useState<string>('');
@@ -142,7 +143,7 @@ export default function ConfiguradorPacote() {
       return;
     }
     setError('');
-    const leadId = lerLeadId();
+    let leadId = lerLeadId();
     const leadIntentToken = lerLeadIntentToken();
     const intent = {
       loteId: loteId!,
@@ -161,13 +162,17 @@ export default function ConfiguradorPacote() {
           lead_intent_token: leadIntentToken,
         }).catch(() => undefined);
       }
-      const retorno = `/pacote/${loteId}?retomar=1`;
+      const retorno = `/pacote/${loteId}?retomar=1${searchParams.get('ref') ? `&ref=${encodeURIComponent(searchParams.get('ref')!)}` : ''}`;
       navigate(`/cadastro?redirect=${encodeURIComponent(retorno)}`);
       return;
     }
 
     setIsReserving(true);
     try {
+      if (!leadId && searchParams.get('ref')) {
+        const origem = await api.post('/jornada/registrar-origem', { codigo_origem: searchParams.get('ref') });
+        leadId = origem.data.lead_id || undefined;
+      }
       const itensPayload = Object.entries(itensSelecionados)
         .filter(([, quantidade]) => quantidade > 0)
         .map(([id, quantidade]) => ({ id, quantidade }));

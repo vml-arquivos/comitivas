@@ -14,6 +14,10 @@ interface Cupom {
   desconto_percentual: string | null;
   desconto_fixo: string | null;
   uso_maximo: number | null;
+  limite_por_cliente: number | null;
+  pacote_id: string | null;
+  vendedor_id: string | null;
+  campanha: string | null;
   uso_atual: number;
   validade: string | null;
   ativo: boolean;
@@ -21,6 +25,7 @@ interface Cupom {
 
 export default function Cupons() {
   const [eventos, setEventos] = useState<Evento[]>([]);
+  const [vendedores, setVendedores] = useState<any[]>([]);
   const [eventoId, setEventoId] = useState<string>('');
   const [cupons, setCupons] = useState<Cupom[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -31,6 +36,11 @@ export default function Cupons() {
   const [tipoDesconto, setTipoDesconto] = useState<'percentual' | 'fixo'>('percentual');
   const [valorDesconto, setValorDesconto] = useState('');
   const [usoMaximo, setUsoMaximo] = useState('');
+  const [limiteCliente, setLimiteCliente] = useState('');
+  const [pacoteId, setPacoteId] = useState('');
+  const [vendedorId, setVendedorId] = useState('');
+  const [campanha, setCampanha] = useState('');
+  const [valorMinimo, setValorMinimo] = useState('');
   const [validade, setValidade] = useState('');
   const [salvando, setSalvando] = useState(false);
   const [formErro, setFormErro] = useState<string | null>(null);
@@ -38,9 +48,10 @@ export default function Cupons() {
   useEffect(() => {
     const fetchEventos = async () => {
       try {
-        const response = await api.get('/eventos');
-        const lista: Evento[] = response.data.eventos || [];
+        const [eventosResponse, vendedoresResponse] = await Promise.all([api.get('/eventos'), api.get('/admin/usuarios?tipo=vendedor')]);
+        const lista: Evento[] = eventosResponse.data.eventos || [];
         setEventos(lista);
+        setVendedores(vendedoresResponse.data.usuarios || []);
         if (lista.length > 0) {
           setEventoId(lista[0].id);
         } else {
@@ -76,6 +87,11 @@ export default function Cupons() {
     setTipoDesconto('percentual');
     setValorDesconto('');
     setUsoMaximo('');
+    setLimiteCliente('');
+    setPacoteId('');
+    setVendedorId('');
+    setCampanha('');
+    setValorMinimo('');
     setValidade('');
     setFormErro(null);
   };
@@ -95,6 +111,11 @@ export default function Cupons() {
         evento_id: eventoId,
         codigo,
         uso_maximo: usoMaximo ? parseInt(usoMaximo) : undefined,
+        limite_por_cliente: limiteCliente ? parseInt(limiteCliente) : undefined,
+        pacote_id: pacoteId || undefined,
+        vendedor_id: vendedorId || undefined,
+        campanha: campanha || undefined,
+        valor_minimo: valorMinimo ? parseFloat(valorMinimo) : undefined,
         validade: validade || undefined,
       };
       if (tipoDesconto === 'percentual') {
@@ -211,6 +232,11 @@ export default function Cupons() {
                   value={validade}
                   onChange={(e) => setValidade(e.target.value)}
                 />
+                <Input label="Limite por cliente" type="number" min="1" value={limiteCliente} onChange={(e) => setLimiteCliente(e.target.value)} placeholder="Ilimitado" />
+                <Input label="Campanha (opcional)" value={campanha} onChange={(e) => setCampanha(e.target.value)} placeholder="Ex.: influenciador" />
+                <Input label="Valor mínimo (R$)" type="number" min="0" step="0.01" value={valorMinimo} onChange={(e) => setValorMinimo(e.target.value)} placeholder="Sem mínimo" />
+                <Input label="ID do pacote (opcional)" value={pacoteId} onChange={(e) => setPacoteId(e.target.value)} placeholder="Escopo por modalidade" />
+                <label className="text-sm font-medium text-gray-700">Vendedor (opcional)<select value={vendedorId} onChange={(e) => setVendedorId(e.target.value)} className="mt-1 flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"><option value="">Qualquer origem</option>{vendedores.map((vendedor) => <option key={vendedor.id} value={vendedor.id}>{vendedor.nome}</option>)}</select></label>
               </div>
               <Button type="submit" disabled={salvando}>
                 {salvando ? 'Salvando...' : 'Criar Cupom'}

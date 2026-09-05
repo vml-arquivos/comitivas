@@ -15,6 +15,22 @@ export interface NotificationProvider {
 }
 
 export class EmailProvider implements NotificationProvider {
+  async sendEmailVerification(destination: string, nome: string, code: string): Promise<NotificationResult> {
+    const host = process.env.SMTP_HOST?.trim();
+    const user = process.env.SMTP_USER?.trim();
+    const pass = process.env.SMTP_PASS;
+    if (!host || !user || !pass) return { sent: false, reason: "SMTP não configurado" };
+    const transporter = nodemailer.createTransport({ host, port: Number(process.env.SMTP_PORT || 587), secure: process.env.SMTP_SECURE === "true", auth: { user, pass } });
+    const info = await transporter.sendMail({
+      from: process.env.SMTP_FROM?.trim() || `Excursão das Comitivas <${user}>`,
+      to: destination,
+      subject: "Confirme seu e-mail — Excursão das Comitivas",
+      text: `Olá, ${nome}. Seu código de confirmação é ${code}. Ele expira em 30 minutos.`,
+      html: `<div style="font-family:Arial,sans-serif;color:#2b1718;padding:24px"><h1 style="color:#540c16">Confirme seu e-mail</h1><p>Olá, ${nome.replace(/[<>]/g, "")}. Use este código para ativar sua conta:</p><div style="font-size:32px;letter-spacing:.24em;font-weight:800;color:#7f1d1d;text-align:center;padding:18px;background:#fff7ed;border-radius:8px">${code}</div><p>O código expira em 30 minutos e só pode ser usado uma vez.</p></div>`,
+    });
+    return { sent: true, messageId: info.messageId, sentAt: new Date() };
+  }
+
   async sendPasswordReset(destination: string, nome: string, resetUrl: string): Promise<NotificationResult> {
     const host = process.env.SMTP_HOST?.trim();
     const user = process.env.SMTP_USER?.trim();

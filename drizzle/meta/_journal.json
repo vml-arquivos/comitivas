@@ -64,6 +64,13 @@
       "when": 1787913588000,
       "tag": "0008_contratacao_integridade_operacional",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1788000000000,
+      "tag": "0009_comercial_preco_comissao_email",
+      "breakpoints": true
     }
   ]
 }

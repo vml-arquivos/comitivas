@@ -30,7 +30,7 @@ router.get("/evento/:evento_id", authMiddleware, requireRole("admin"), async (re
 // Criar cupom (admin)
 router.post("/criar", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
   try {
-    const { evento_id, codigo, desconto_percentual, desconto_fixo, uso_maximo, validade } = req.body;
+    const { evento_id, codigo, desconto_percentual, desconto_fixo, uso_maximo, limite_por_cliente, pacote_id, vendedor_id, campanha, valor_minimo, validade } = req.body;
 
     if (!evento_id || !codigo) {
       return res.status(400).json({ erro: "evento_id e codigo são obrigatórios" });
@@ -60,6 +60,11 @@ router.post("/criar", authMiddleware, requireRole("admin"), async (req: Request,
         desconto_percentual: desconto_percentual ? desconto_percentual.toString() : null,
         desconto_fixo: desconto_fixo ? desconto_fixo.toString() : null,
         uso_maximo: uso_maximo || null,
+        limite_por_cliente: limite_por_cliente || null,
+        pacote_id: pacote_id || null,
+        vendedor_id: vendedor_id || null,
+        campanha: campanha ? String(campanha).trim().slice(0, 120) : null,
+        valor_minimo: valor_minimo !== undefined && valor_minimo !== null ? String(valor_minimo) : null,
         validade: validade ? new Date(validade) : null,
         ativo: true,
       })
@@ -79,7 +84,7 @@ router.post("/criar", authMiddleware, requireRole("admin"), async (req: Request,
 router.put("/:cupom_id", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
   try {
     const { cupom_id } = req.params;
-    const { desconto_percentual, desconto_fixo, uso_maximo, validade, ativo } = req.body;
+    const { desconto_percentual, desconto_fixo, uso_maximo, limite_por_cliente, pacote_id, vendedor_id, campanha, valor_minimo, validade, ativo } = req.body;
 
     // Buscar cupom
     const cupomResult = await db
@@ -99,6 +104,11 @@ router.put("/:cupom_id", authMiddleware, requireRole("admin"), async (req: Reque
         desconto_percentual: desconto_percentual ? desconto_percentual.toString() : undefined,
         desconto_fixo: desconto_fixo ? desconto_fixo.toString() : undefined,
         uso_maximo: uso_maximo !== undefined ? uso_maximo : undefined,
+        limite_por_cliente: limite_por_cliente !== undefined ? limite_por_cliente : undefined,
+        pacote_id: pacote_id !== undefined ? (pacote_id || null) : undefined,
+        vendedor_id: vendedor_id !== undefined ? (vendedor_id || null) : undefined,
+        campanha: campanha !== undefined ? (campanha ? String(campanha).trim().slice(0, 120) : null) : undefined,
+        valor_minimo: valor_minimo !== undefined ? (valor_minimo === null || valor_minimo === "" ? null : String(valor_minimo)) : undefined,
         validade: validade ? new Date(validade) : undefined,
         ativo: ativo !== undefined ? ativo : undefined,
       })

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { AlertCircle, ArrowRight, Bed, Bus, Calendar, CheckCircle2, MapPin, Snowflake, TentTree, Wind } from 'lucide-react';
 import { Button, WhatsAppCTA } from '@ui/index';
@@ -11,6 +11,8 @@ type Modalidade = {
   descricao?: string | null;
   modalidade_hospedagem: 'camping' | 'quarto_ventilador' | 'quarto_ar_condicionado';
   disponibilidade: 'disponivel' | 'ultimas_vagas' | 'esgotado';
+  valor_total: string | number;
+  itens_inclusos?: unknown;
 };
 
 type Lote = {
@@ -56,9 +58,13 @@ function Skeleton() {
 }
 
 export default function Eventos() {
+  const { eventoId } = useParams();
+  const [searchParams] = useSearchParams();
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const eventosExibidos = eventoId ? eventos.filter((evento) => evento.id === eventoId) : eventos;
+  const ref = searchParams.get('ref');
 
   const carregar = async () => {
     setIsLoading(true);
@@ -80,8 +86,8 @@ export default function Eventos() {
   return (
     <div className="min-h-screen bg-[#fffdf9]">
       <Helmet>
-        <title>Pacotes para Barretos 2026 | Excursão das Comitivas</title>
-        <meta name="description" content="Conheça as excursões e modalidades Camping, Quarto com Ventilador e Quarto com Ar-condicionado. Consulte disponibilidade e condições." />
+        <title>{eventoId ? 'Oferta para Barretos 2026' : 'Pacotes para Barretos 2026'} | Excursão das Comitivas</title>
+        <meta name="description" content="Compare modalidades, veja o que está incluso e continue para reservar sua experiência em Barretos." />
         <meta name="robots" content="index,follow" />
         <link rel="canonical" href="https://excursaodascomitivas.com.br/eventos" />
         <meta property="og:type" content="website" />
@@ -102,7 +108,7 @@ export default function Eventos() {
         <div className="relative mx-auto max-w-5xl text-center">
           <p className="text-xs font-black uppercase tracking-[0.2em] text-[#ff9fa6]">Escolha como viver Barretos</p>
           <h1 className="mt-4 text-4xl font-black tracking-tight sm:text-6xl">Sua experiência começa pela escolha certa.</h1>
-          <p className="mx-auto mt-6 max-w-3xl text-lg leading-8 text-slate-200">Conheça as datas, compare as modalidades e veja todos os detalhes antes de criar sua conta. O cadastro só é solicitado quando você decidir continuar para a reserva.</p>
+          <p className="mx-auto mt-6 max-w-3xl text-lg leading-8 text-slate-200">Compare modalidades, veja preços e tudo o que está incluso. O cadastro só é solicitado quando você decidir continuar para a reserva.</p>
           <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
             <a href="#ofertas"><Button size="lg">Ver excursões abertas <ArrowRight size={18} className="ml-2" /></Button></a>
             <WhatsAppCTA mensagem={mensagemWhatsApp} label="Tirar dúvidas no WhatsApp" size="lg" />
@@ -114,7 +120,7 @@ export default function Eventos() {
         <div className="mb-10 text-center">
           <p className="text-xs font-black uppercase tracking-[0.18em] text-primary">Vagas e modalidades em tempo real</p>
           <h2 className="mt-3 text-3xl font-black text-secondary sm:text-4xl">Excursões disponíveis</h2>
-          <p className="mx-auto mt-4 max-w-2xl text-slate-600">Os valores aparecem somente depois que você abre a oferta e escolhe uma modalidade. Nesta vitrine, você decide pela experiência e pela disponibilidade.</p>
+          <p className="mx-auto mt-4 max-w-2xl text-slate-600">Preços e disponibilidade vêm do servidor. A condição final é congelada no contrato antes do pagamento.</p>
         </div>
 
         {isLoading && <Skeleton />}
@@ -128,7 +134,7 @@ export default function Eventos() {
           </div>
         )}
 
-        {!isLoading && !error && eventos.length === 0 && (
+        {!isLoading && !error && eventosExibidos.length === 0 && (
           <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center">
             <Calendar className="mx-auto text-primary" size={38} />
             <h3 className="mt-4 text-2xl font-black text-secondary">Novas datas serão publicadas em breve.</h3>
@@ -138,7 +144,7 @@ export default function Eventos() {
         )}
 
         <div className="space-y-8">
-          {eventos.map((evento) => (
+          {eventosExibidos.map((evento) => (
             <article key={evento.id} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl shadow-slate-950/5">
               <div className="grid lg:grid-cols-[0.75fr_1.25fr]">
                 <div className="relative min-h-72 overflow-hidden bg-slate-950">
@@ -182,6 +188,8 @@ export default function Eventos() {
                                 </div>
                                 <p className="mt-3 text-sm font-bold text-slate-900">{meta?.label || modalidade.nome}</p>
                                 <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{modalidade.descricao || modalidade.nome}</p>
+                                <p className="mt-3 text-lg font-black text-secondary">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(modalidade.valor_total) || 0)} <span className="text-[10px] font-semibold text-slate-500">por pessoa</span></p>
+                                {Array.isArray(modalidade.itens_inclusos) && modalidade.itens_inclusos.length > 0 && <ul className="mt-2 space-y-1 text-[11px] text-slate-500">{modalidade.itens_inclusos.slice(0, 3).map((item: unknown, index: number) => <li key={index} className="truncate">✓ {typeof item === 'string' ? item : String((item as any)?.nome || 'Item incluso')}</li>)}</ul>}
                               </div>
                             );
                           })}
@@ -190,7 +198,7 @@ export default function Eventos() {
                         <div className="mt-5 flex flex-col gap-3 border-t border-slate-200 pt-5 sm:flex-row sm:items-center sm:justify-between">
                           <p className="flex items-center gap-2 text-xs font-semibold text-slate-600"><CheckCircle2 size={16} className="text-emerald-600" />Navegação livre e cadastro apenas no final.</p>
                           {lote.vagas_disponiveis > 0 && lote.modalidades.some((modalidade) => modalidade.disponibilidade !== 'esgotado') ? (
-                            <Link to={`/pacote/${lote.id}`}><Button>Ver detalhes e disponibilidade <ArrowRight size={16} className="ml-2" /></Button></Link>
+                            <Link to={`/pacote/${lote.id}${ref ? `?ref=${encodeURIComponent(ref)}` : ''}`}><Button>Escolher modalidade <ArrowRight size={16} className="ml-2" /></Button></Link>
                           ) : (
                             <WhatsAppCTA mensagem={`Olá! Vi que ${lote.nome} está esgotado e quero saber se existe lista de espera.`} label="Entrar na lista de espera" size="sm" />
                           )}

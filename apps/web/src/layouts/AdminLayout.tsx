@@ -12,7 +12,8 @@ import {
   LogOut,
   ArrowLeft,
   PartyPopper,
-  BarChart3
+  BarChart3,
+  Percent
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import iconUrl from '../assets/brand/icon.svg';
@@ -37,6 +38,7 @@ export function AdminLayout() {
     { name: 'Cupons', path: '/admin/cupons', icon: Ticket, roles: ['admin'] },
     { name: 'Configurações', path: '/admin/configuracoes', icon: Settings, roles: ['admin'] },
     { name: 'Relatórios', path: '/admin/relatorios', icon: BarChart3, roles: ['admin'] },
+    { name: 'Comissões', path: '/admin/comissoes', icon: Percent, roles: ['admin'] },
   ];
 
   return (

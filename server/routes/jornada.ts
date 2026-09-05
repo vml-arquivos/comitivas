@@ -73,7 +73,9 @@ router.get("/leads", authMiddleware, requireRole("admin", "vendedor"), async (re
           valor_total: reservas.valor_total,
           atualizado_em: reservas.atualizado_em,
         }).from(reservas)
-          .where(eq(reservas.usuario_id, lead.usuario_id))
+          .where(req.usuario!.tipo === "admin"
+            ? eq(reservas.usuario_id, lead.usuario_id)
+            : and(eq(reservas.usuario_id, lead.usuario_id), eq(reservas.vendedor_id, req.usuario!.id)))
           .orderBy(desc(reservas.atualizado_em))
           .limit(1)
         : [];
@@ -242,7 +244,9 @@ router.get("/cliente/:usuario_id", authMiddleware, requireRole("admin", "vendedo
     const reservasResult = await db
       .select()
       .from(reservas)
-      .where(eq(reservas.usuario_id, usuario_id));
+      .where(req.usuario.tipo === "admin"
+        ? eq(reservas.usuario_id, usuario_id)
+        : and(eq(reservas.usuario_id, usuario_id), eq(reservas.vendedor_id, req.usuario.id)));
 
     // Buscar usuário
     const usuarioResult = await db

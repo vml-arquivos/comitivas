@@ -4,7 +4,7 @@ import { authMiddleware } from "../middleware/authMiddleware.js";
 import { PaymentGatewayAdapter } from "../services/paymentGatewayAdapter.js";
 import { InventoryService } from "../services/inventoryService.js";
 import { db } from "../db/index.js";
-import { inventarioHolds, leads_origem, pagamentoParcelas, pagamentos, reservas, webhookEventos } from "../db/schema.js";
+import { comissoes, inventarioHolds, leads_origem, pagamentoParcelas, pagamentos, reservas, webhookEventos } from "../db/schema.js";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 
@@ -78,8 +78,9 @@ async function reconciliarPagamento(pagamentoId: string): Promise<void> {
 
     const agora = new Date();
     await reservarOuConverterHold(tx, reserva.id, reserva, agora);
-    await tx.update(reservas).set({ status: "cliente_confirmado", checkout_estado: quitado ? "quitado" : "primeira_parcela_confirmada", atualizado_em: agora }).where(eq(reservas.id, reserva.id));
-    await tx.update(leads_origem).set({ status: "cliente_confirmado", atualizado_em: agora }).where(eq(leads_origem.usuario_id, reserva.usuario_id));
+    await tx.update(reservas).set({ status: quitado ? "cliente_confirmado" : "aguardando_pagamento", checkout_estado: quitado ? "quitado" : "primeira_parcela_confirmada", atualizado_em: agora }).where(eq(reservas.id, reserva.id));
+    await tx.update(leads_origem).set({ status: quitado ? "cliente_confirmado" : "pagamento_parcial", atualizado_em: agora }).where(eq(leads_origem.usuario_id, reserva.usuario_id));
+    if (quitado) await tx.update(comissoes).set({ status: "elegivel", atualizado_em: agora }).where(eq(comissoes.reserva_id, reserva.id));
   });
 }
 
@@ -186,10 +187,9 @@ router.post("/webhook/cora", async (req: Request, res: Response) => {
 
   try {
     if (!webhookAssinado(req)) return res.status(401).json({ erro: "Assinatura do webhook inválida" });
-    const existente = await db.select({ id: webhookEventos.id, processado_em: webhookEventos.processado_em }).from(webhookEventos).where(eq(webhookEventos.evento_id, eventoId)).limit(1);
-    if (existente[0]?.processado_em) return res.json({ ok: true, duplicado: true });
-    if (!existente[0]) await db.insert(webhookEventos).values({ id: createId(), evento_id: eventoId, tipo: eventoTipo, recurso_id: recursoId || null, payload, tentativas: 1 }).onConflictDoNothing();
-    else await db.update(webhookEventos).set({ tentativas: sql`tentativas + 1` }).where(eq(webhookEventos.evento_id, eventoId));
+    await db.insert(webhookEventos).values({ id: createId(), evento_id: eventoId, tipo: eventoTipo, recurso_id: recursoId || null, payload, tentativas: 0 }).onConflictDoNothing();
+    const claim = await db.update(webhookEventos).set({ tentativas: sql`tentativas + 1` }).where(and(eq(webhookEventos.evento_id, eventoId), isNull(webhookEventos.processado_em))).returning({ id: webhookEventos.id });
+    if (!claim[0]) return res.json({ ok: true, duplicado: true });
 
     const tipo = eventoTipo.toLowerCase();
     if (recursoId) {

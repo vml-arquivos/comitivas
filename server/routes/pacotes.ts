@@ -5,8 +5,8 @@ import { ContratoService } from "../services/contratoService.js";
 import { ConfiguracaoService } from "../services/configuracaoService.js";
 import { AuthService } from "../services/authService.js";
 import { db } from "../db/index.js";
-import { eventos, lotes, pacotes, itens_addon, reservas, usuarios, leads_origem } from "../db/schema.js";
-import { eq, and, desc, isNull, or } from "drizzle-orm";
+import { eventos, lotes, pacotes, itens_addon, reservas, usuarios, leads_origem, pagamentos } from "../db/schema.js";
+import { eq, and, desc, inArray, isNull, or } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 
 const router = Router();
@@ -62,30 +62,42 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
 
     const ip = req.ip || req.socket.remoteAddress || "desconhecido";
 
-    const resultado = await PacoteService.reservarPacote(
-      req.usuario.id,
-      config.lote_id,
-      config,
-      ip
-    );
-
+    let origem: { lead_id?: string; vendedor_id?: string; codigo_origem?: string } = {};
     let leadAtualizado: Array<{ id: string }> = [];
     if (req.body.lead_id) {
       const leadId = String(req.body.lead_id);
       const tokenValido = AuthService.verifyLeadIntentToken(String(req.body.lead_intent_token || ""), leadId);
+      const lead = (await db.select({ id: leads_origem.id, vendedor_id: leads_origem.vendedor_id, codigo_origem: leads_origem.codigo_origem, usuario_id: leads_origem.usuario_id })
+        .from(leads_origem)
+        .where(and(eq(leads_origem.id, leadId), tokenValido ? or(isNull(leads_origem.usuario_id), eq(leads_origem.usuario_id, req.usuario.id)) : eq(leads_origem.usuario_id, req.usuario.id)))
+        .limit(1))[0];
+      if (!lead) return res.status(401).json({ erro: "Origem comercial inválida ou sem permissão" });
+      origem = { lead_id: lead.id, vendedor_id: lead.vendedor_id || undefined, codigo_origem: lead.codigo_origem || undefined };
       leadAtualizado = await db.update(leads_origem).set({
         usuario_id: req.usuario.id,
         lote_id: config.lote_id,
         pacote_id: config.pacote_id || null,
         status: "checkout_iniciado",
         atualizado_em: new Date(),
-      }).where(and(
-        eq(leads_origem.id, leadId),
-        tokenValido
-          ? or(isNull(leads_origem.usuario_id), eq(leads_origem.usuario_id, req.usuario.id))
-          : eq(leads_origem.usuario_id, req.usuario.id),
-      )).returning({ id: leads_origem.id });
+      }).where(and(eq(leads_origem.id, lead.id), or(isNull(leads_origem.usuario_id), eq(leads_origem.usuario_id, req.usuario.id)))).returning({ id: leads_origem.id });
     }
+
+    if (leadAtualizado.length === 0) {
+      const leadDaConta = await db.select({ id: leads_origem.id, vendedor_id: leads_origem.vendedor_id, codigo_origem: leads_origem.codigo_origem })
+        .from(leads_origem)
+        .where(eq(leads_origem.usuario_id, req.usuario.id))
+        .orderBy(desc(leads_origem.atualizado_em))
+        .limit(1);
+      if (leadDaConta[0]) origem = { lead_id: leadDaConta[0].id, vendedor_id: leadDaConta[0].vendedor_id || undefined, codigo_origem: leadDaConta[0].codigo_origem || undefined };
+    }
+
+    const resultado = await PacoteService.reservarPacote(
+      req.usuario.id,
+      config.lote_id,
+      config,
+      ip,
+      origem,
+    );
 
     // Cadastro direto não possui lead_id no navegador. Atualiza o card ligado
     // à conta para que pacote e etapa também apareçam no CRM.
@@ -129,9 +141,13 @@ router.get("/minhas-reservas", authMiddleware, async (req: Request, res: Respons
         lote_id: reservas.lote_id,
         pacote_id: reservas.pacote_id,
         status: reservas.status,
+        checkout_estado: reservas.checkout_estado,
         valor_total: reservas.valor_total,
+        valor_total_centavos: reservas.valor_total_centavos,
         forma_pagamento: reservas.forma_pagamento,
         quantidade_parcelas: reservas.quantidade_parcelas,
+        valor_parcela: reservas.valor_parcela,
+        cronograma_pagamento: reservas.cronograma_pagamento,
         contrato_pdf_url: reservas.contrato_pdf_url,
         criado_em: reservas.criado_em,
         atualizado_em: reservas.atualizado_em,
@@ -150,12 +166,22 @@ router.get("/minhas-reservas", authMiddleware, async (req: Request, res: Respons
       .where(eq(reservas.usuario_id, req.usuario.id))
       .orderBy(desc(reservas.criado_em));
 
+    const pagamentosRecentes = minhasReservas.length
+      ? await db.select({ id: pagamentos.id, reserva_id: pagamentos.reserva_id, status: pagamentos.status, status_reconciliado: pagamentos.status_reconciliado, valor_pago_centavos: pagamentos.valor_pago_centavos, valor_centavos: pagamentos.valor_centavos, metodo: pagamentos.metodo, atualizado_em: pagamentos.atualizado_em })
+        .from(pagamentos)
+        .where(inArray(pagamentos.reserva_id, minhasReservas.map((reserva) => reserva.id)))
+        .orderBy(desc(pagamentos.atualizado_em))
+      : [];
+    const pagamentoPorReserva = new Map<string, typeof pagamentosRecentes[number]>();
+    for (const pagamento of pagamentosRecentes) if (!pagamentoPorReserva.has(pagamento.reserva_id)) pagamentoPorReserva.set(pagamento.reserva_id, pagamento);
+
     res.json({
       total: minhasReservas.length,
       reservas: minhasReservas.map(({ contrato_pdf_url, ...reserva }) => ({
         ...reserva,
+        pagamento: pagamentoPorReserva.get(reserva.id) || null,
         contrato_disponivel: Boolean(contrato_pdf_url),
-        voucher_disponivel: reserva.status === "cliente_confirmado",
+        voucher_disponivel: reserva.status === "cliente_confirmado" && pagamentoPorReserva.get(reserva.id)?.status_reconciliado === "quitado",
       })),
     });
   } catch (error) {

@@ -94,6 +94,8 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
             id: pacotes.id,
             nome: pacotes.nome,
             descricao: pacotes.descricao,
+            valor_total: pacotes.valor_total,
+            itens_inclusos: pacotes.itens_selecionados,
             modalidade_hospedagem: pacotes.modalidade_hospedagem,
             disponibilidade: pacotes.disponibilidade,
           })

@@ -6,7 +6,7 @@ import { AuthService } from "../services/authService.js";
 import { ContratoService } from "../services/contratoService.js";
 import { ConfiguracaoService } from "../services/configuracaoService.js";
 import { db } from "../db/index.js";
-import { reservas, eventos, lotes, usuarios, leads_origem, descontosAdministrativos, pagamentos, videosEvento, fotos_evento } from "../db/schema.js";
+import { reservas, eventos, lotes, usuarios, leads_origem, descontosAdministrativos, pagamentos, videosEvento, fotos_evento, comissaoRegras, comissoes } from "../db/schema.js";
 import { eq, and, inArray, or, sql, desc } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import Decimal from "decimal.js";
@@ -840,8 +840,9 @@ router.post("/contratos/gerar/:reserva_id", async (req: Request, res: Response) 
         configPagamento.boleto_meses_maximo_antecedencia,
       );
 
+      const valorBaseSemDescontoPagamento = Number(reserva.valor_total) + Number(reserva.desconto_pagamento || 0);
       condicaoPagamento = ContratoService.calcularCondicaoPagamento(
-        reserva.valor_total.toString(),
+        valorBaseSemDescontoPagamento.toFixed(2),
         metodoPagamento,
         quantidadeParcelas,
         parcelasMaximasBoleto,
@@ -878,6 +879,44 @@ router.post("/contratos/gerar/:reserva_id", async (req: Request, res: Response) 
   } catch (error: any) {
     console.error("[ADMIN] Erro ao gerar contrato:", error);
     res.status(500).json({ erro: error.message || "Erro ao gerar contrato" });
+  }
+});
+
+router.get("/comissoes/regras", authMiddleware, requireRole("admin"), async (_req: Request, res: Response) => {
+  try {
+    const regras = await db.select().from(comissaoRegras).orderBy(desc(comissaoRegras.criado_em));
+    return res.json({ regras });
+  } catch (error) {
+    console.error("[ADMIN] Erro ao listar regras de comissão:", error);
+    return res.status(500).json({ erro: "Erro ao listar regras de comissão" });
+  }
+});
+
+router.post("/comissoes/regras", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const vendedorId = String(req.body?.vendedor_id || "").trim();
+    const tipo = String(req.body?.tipo || "").trim().toLowerCase();
+    const valor = Number(req.body?.valor);
+    if (!vendedorId || !["percentual", "fixo"].includes(tipo) || !Number.isFinite(valor) || valor < 0) return res.status(400).json({ erro: "vendedor_id, tipo percentual/fixo e valor válido são obrigatórios" });
+    const vendedor = await db.select({ id: usuarios.id, tipo: usuarios.tipo }).from(usuarios).where(eq(usuarios.id, vendedorId)).limit(1);
+    if (vendedor[0]?.tipo !== "vendedor") return res.status(400).json({ erro: "A regra só pode ser atribuída a um usuário vendedor" });
+    if (tipo === "percentual" && valor > 100) return res.status(400).json({ erro: "A comissão percentual não pode exceder 100%" });
+    const criado = await db.insert(comissaoRegras).values({ id: randomUUID(), vendedor_id: vendedorId, evento_id: req.body?.evento_id ? String(req.body.evento_id) : null, pacote_id: req.body?.pacote_id ? String(req.body.pacote_id) : null, tipo, valor: valor.toFixed(4), ativo: req.body?.ativo !== false, criado_em: new Date(), atualizado_em: new Date() }).returning();
+    return res.status(201).json({ regra: criado[0] });
+  } catch (error: any) {
+    console.error("[ADMIN] Erro ao criar regra de comissão:", error);
+    return res.status(400).json({ erro: error.message || "Erro ao criar regra de comissão" });
+  }
+});
+
+router.get("/comissoes", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const vendedorId = req.query.vendedor_id ? String(req.query.vendedor_id) : undefined;
+    const lista = await db.select().from(comissoes).where(vendedorId ? eq(comissoes.vendedor_id, vendedorId) : undefined).orderBy(desc(comissoes.criado_em));
+    return res.json({ total: lista.length, comissoes: lista });
+  } catch (error) {
+    console.error("[ADMIN] Erro ao listar comissões:", error);
+    return res.status(500).json({ erro: "Erro ao listar comissões" });
   }
 });
 

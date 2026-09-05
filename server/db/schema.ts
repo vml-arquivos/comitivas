@@ -48,6 +48,8 @@ export const usuarios = pgTable("usuarios", {
   nacionalidade: varchar("nacionalidade", { length: 50 }).default("Brasileira"),
   ativo: boolean("ativo").default(true),
   session_version: integer("session_version").notNull().default(1),
+  email_confirmado: boolean("email_confirmado").notNull().default(true),
+  email_confirmado_em: timestamp("email_confirmado_em"),
   criado_em: timestamp("criado_em").defaultNow().notNull(),
   atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
 }, (table) => ({
@@ -128,6 +130,11 @@ export const cupons = pgTable("cupons", {
   desconto_percentual: decimal("desconto_percentual", { precision: 5, scale: 2 }),
   desconto_fixo: decimal("desconto_fixo", { precision: 12, scale: 2 }),
   uso_maximo: integer("uso_maximo"),
+  limite_por_cliente: integer("limite_por_cliente"),
+  pacote_id: text("pacote_id"),
+  vendedor_id: text("vendedor_id"),
+  campanha: varchar("campanha", { length: 120 }),
+  valor_minimo: decimal("valor_minimo", { precision: 12, scale: 2 }),
   uso_atual: integer("uso_atual").default(0),
   validade: timestamp("validade"),
   ativo: boolean("ativo").default(true),
@@ -158,6 +165,11 @@ export const reservas = pgTable("reservas", {
   valor_parcela: decimal("valor_parcela", { precision: 12, scale: 2 }),
   desconto_pagamento: decimal("desconto_pagamento", { precision: 12, scale: 2 }).default("0"),
   cronograma_pagamento: jsonb("cronograma_pagamento").notNull().default([]),
+  vendedor_id: text("vendedor_id"),
+  lead_id: text("lead_id"),
+  origem_comercial: varchar("origem_comercial", { length: 100 }),
+  comissao_regra_snapshot: jsonb("comissao_regra_snapshot"),
+  comissao_centavos: integer("comissao_centavos").notNull().default(0),
   contrato_pdf_url: varchar("contrato_pdf_url", { length: 500 }),
   aceite_timestamp: timestamp("aceite_timestamp"),
   aceite_ip: varchar("aceite_ip", { length: 45 }),
@@ -484,6 +496,50 @@ export const descontosAdministrativos = pgTable("descontos_administrativos", {
   total_final: decimal("total_final", { precision: 12, scale: 2 }).notNull(),
   criado_em: timestamp("criado_em").defaultNow().notNull(),
 }, (table) => ({ reservaIdx: index("descontos_administrativos_reserva_idx").on(table.reserva_id) }));
+
+export const comissaoRegras = pgTable("comissao_regras", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  vendedor_id: text("vendedor_id").notNull().references(() => usuarios.id),
+  evento_id: text("evento_id").references(() => eventos.id),
+  pacote_id: text("pacote_id"),
+  tipo: varchar("tipo", { length: 20 }).notNull(), // percentual | fixo
+  valor: decimal("valor", { precision: 12, scale: 4 }).notNull(),
+  ativo: boolean("ativo").notNull().default(true),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+  atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
+}, (table) => ({ vendedorIdx: index("comissao_regras_vendedor_idx").on(table.vendedor_id, table.ativo) }));
+
+export const comissoes = pgTable("comissoes", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  reserva_id: text("reserva_id").notNull().references(() => reservas.id),
+  vendedor_id: text("vendedor_id").notNull().references(() => usuarios.id),
+  regra_id: text("regra_id").references(() => comissaoRegras.id),
+  base_centavos: integer("base_centavos").notNull(),
+  valor_centavos: integer("valor_centavos").notNull(),
+  regra_snapshot: jsonb("regra_snapshot").notNull().default({}),
+  status: varchar("status", { length: 20 }).notNull().default("prevista"),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+  atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
+}, (table) => ({ reservaUnica: index("comissoes_reserva_idx").on(table.reserva_id), vendedorIdx: index("comissoes_vendedor_idx").on(table.vendedor_id, table.status) }));
+
+export const cuponsUtilizacoes = pgTable("cupons_utilizacoes", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  cupom_id: text("cupom_id").notNull().references(() => cupons.id),
+  usuario_id: text("usuario_id").notNull().references(() => usuarios.id),
+  reserva_id: text("reserva_id").notNull().references(() => reservas.id),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+}, (table) => ({ clienteIdx: index("cupons_utilizacoes_cliente_idx").on(table.cupom_id, table.usuario_id) }));
+
+export const verificacoesEmail = pgTable("verificacoes_email", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  usuario_id: text("usuario_id").notNull().references(() => usuarios.id),
+  codigo_hash: varchar("codigo_hash", { length: 128 }).notNull(),
+  expira_em: timestamp("expira_em").notNull(),
+  tentativas: integer("tentativas").notNull().default(0),
+  usado_em: timestamp("usado_em"),
+  enviado_em: timestamp("enviado_em"),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+}, (table) => ({ usuarioIdx: index("verificacoes_email_usuario_idx").on(table.usuario_id, table.expira_em) }));
 
 export const videosEvento = pgTable("videos_evento", {
   id: text("id").primaryKey().$defaultFn(() => createId()),

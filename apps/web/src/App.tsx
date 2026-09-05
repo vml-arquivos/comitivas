@@ -8,6 +8,7 @@ import { AdminLayout } from './layouts/AdminLayout';
 const Login = lazy(() => import('./pages/Login'));
 const PasswordReset = lazy(() => import('./pages/PasswordReset'));
 const Cadastro = lazy(() => import('./pages/Cadastro'));
+const ConfirmarEmail = lazy(() => import('./pages/ConfirmarEmail'));
 const Eventos = lazy(() => import('./pages/Eventos'));
 const Home = lazy(() => import('./pages/publico/Home'));
 const Historia = lazy(() => import('./pages/publico/Historia'));
@@ -29,6 +30,7 @@ const Cupons = lazy(() => import('./pages/admin/Cupons'));
 const Jornada = lazy(() => import('./pages/admin/Jornada'));
 const EventosAdmin = lazy(() => import('./pages/admin/Eventos'));
 const Relatorios = lazy(() => import('./pages/admin/Relatorios'));
+const Comissoes = lazy(() => import('./pages/admin/Comissoes'));
 
 // Proteção de rotas
 const ProtectedRoute = ({ children, roles }: { children: React.ReactNode, roles?: string[] }) => {
@@ -61,12 +63,14 @@ function AppRoutes() {
         <Route path="/avaliacoes" element={<AvaliacoesPublicas />} />
         <Route path="/regras" element={<Regras />} />
         <Route path="/eventos" element={<Eventos />} />
+        <Route path="/excursoes/:eventoId" element={<Eventos />} />
         <Route path="/privacidade" element={<Legal />} />
         <Route path="/termos" element={<Legal />} />
         <Route path="/cancelamento" element={<Legal />} />
         <Route path="/login" element={<Login />} />
         <Route path="/redefinir-senha" element={<PasswordReset />} />
         <Route path="/cadastro" element={<Cadastro />} />
+        <Route path="/confirmar-email" element={<ConfirmarEmail />} />
         
         {/* O configurador é público; a autenticação só é pedida ao reservar. */}
         <Route path="/pacote/:loteId" element={<ConfiguradorPacote />} />
@@ -124,6 +128,11 @@ function AppRoutes() {
         <Route path="relatorios" element={
           <ProtectedRoute roles={['admin']}>
             <Relatorios />
+          </ProtectedRoute>
+        } />
+        <Route path="comissoes" element={
+          <ProtectedRoute roles={['admin']}>
+            <Comissoes />
           </ProtectedRoute>
         } />
         <Route path="cupons" element={
