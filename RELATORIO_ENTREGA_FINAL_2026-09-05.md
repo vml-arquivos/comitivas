@@ -90,15 +90,19 @@ Nenhuma migration nova foi criada nesta entrega. A decisão preserva o escopo in
 
 ## 9. Commit realizado
 
-O commit desta entrega será registrado após a revisão final do diff e será informado junto do hash completo no fechamento.
+Commit principal realizado:
+
+```text
+95d02e8 refactor: finalize commercial excursion platform
+```
 
 ## 10. Push realizado
 
-O push será realizado para o remoto GitHub autorizado `vml-arquivos/comitivas` após o commit.
+Push confirmado para `origin/main` no repositório GitHub autorizado `vml-arquivos/comitivas`. O branch local ficou alinhado com `origin/main` no commit `95d02e8`.
 
 ## 11. Deploy realizado
 
-Não há conector Coolify autenticado nesta sessão nem URL real do painel disponível. O domínio público atual respondeu, mas isso é evidência do container já publicado e não prova que este commit foi redeployado. O redeploy automático por webhook, se configurado no Coolify, deve ser confirmado pelo commit e pelos logs do painel.
+**Não confirmado nesta sessão.** Não há conector Coolify autenticado nem URL real do painel disponível. O GitHub não registrou workflow/deployment após o push, e o smoke test encontrou `Last-Modified: Fri, 28 Aug 2026 11:25:23 GMT` e o bundle antigo `index-B4pDfErG.js`, sem a nova chave `comitivas_lead_intent_token`. Isso indica que a produção continua no artefato anterior. O redeploy deve ser acionado no Coolify e confirmado pelos logs, pelo commit `95d02e8` e por um novo bundle.
 
 ## 12. URL de produção
 
@@ -124,7 +128,7 @@ Nenhum valor secreto foi incluído no commit ou neste relatório.
 
 ## 15. Pendências externas
 
-A publicação GitHub, o redeploy no Coolify e a confirmação de que o container de produção executa este commit ainda precisam ser confirmados. Também permanecem externas a configuração Cora stage, o banco PostgreSQL de homologação, a validação E2E isolada, a auditoria de acessibilidade com navegador/axe, o backup/restauração verificável e a confirmação de volume persistente para PDFs.
+A publicação GitHub foi concluída. Permanecem pendentes o redeploy no Coolify e a confirmação de que o container de produção executa este commit. Também permanecem externas a configuração Cora stage, o banco PostgreSQL de homologação, a validação E2E isolada, a auditoria de acessibilidade com navegador/axe, o backup/restauração verificável e a confirmação de volume persistente para PDFs.
 
 A conclusão responsável desta entrega é: **código corrigido e validado localmente; produção pública saudável no commit anterior; redeploy e validações financeiras externas não comprovados nesta sessão**.
 
