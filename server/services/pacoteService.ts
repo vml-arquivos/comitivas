@@ -138,7 +138,9 @@ export class PacoteService {
         pacote_id: config.pacote_id || null,
         status: "pacote_montado",
         checkout_estado: "inventario_reservado",
-        inventario_hold_id: holdId,
+        // A FK aponta para inventario_holds, que referencia esta reserva.
+        // Portanto, o hold precisa existir antes de preencher esta coluna.
+        inventario_hold_id: null,
         valor_total_centavos: Math.round(calculo.valor_total * 100),
         preco_versao: "2026.1",
         itens_selecionados: JSON.stringify(calculo.itens_selecionados),
@@ -162,6 +164,7 @@ export class PacoteService {
         await tx.insert(comissoes).values({ id: createId(), reserva_id: novaReserva.id, vendedor_id: origem.vendedor_id, regra_id: regra.id, base_centavos: baseComissaoCentavos, valor_centavos: comissaoCentavos, regra_snapshot: regraSnapshot || {}, status: "prevista", criado_em: agora, atualizado_em: agora });
       }
       await tx.insert(inventarioHolds).values({ id: holdId, reserva_id: novaReserva.id, lote_id, modalidade: calculo.modalidade_hospedagem || null, quantidade: 1, status: "ativo", expira_em: new Date(agora.getTime() + 30 * 60 * 1000), criado_em: agora });
+      await tx.update(reservas).set({ inventario_hold_id: holdId, atualizado_em: agora }).where(eq(reservas.id, novaReserva.id));
       const linhasLedger = [
         { tipo: "pacote", codigo: calculo.pacote_id || "lote-base", descricao: calculo.pacote_nome || "Pacote base", quantidade: 1, valor_unitario_centavos: Math.round(calculo.valor_base * 100), valor_total_centavos: Math.round(calculo.valor_base * 100) },
         ...calculo.itens_selecionados.map((item) => ({ tipo: "adicional", codigo: item.id, descricao: item.nome, quantidade: item.quantidade, valor_unitario_centavos: Math.round(item.valor * 100), valor_total_centavos: Math.round(item.valor * item.quantidade * 100) })),
