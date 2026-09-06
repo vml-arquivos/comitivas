@@ -30,9 +30,11 @@ A confirmação OTP passou a registrar tentativas inválidas sem abortar a trans
 
 Nenhuma migration ou alteração destrutiva de dados foi introduzida nesta etapa.
 
-## Publicação
+## Publicação e produção
 
-O próximo passo operacional é versionar e publicar este conjunto no remoto autorizado e acionar o redeploy do ambiente Coolify já configurado. O relatório não declara deploy concluído antes da confirmação externa do deployment e do smoke test do domínio.
+O commit `f6a5b51` foi publicado em `main` no GitHub e o deployment Coolify `audgr3vvcfjqydav9roe9saa` foi concluído com status **Finished**. O log confirmou a importação do SHA completo `f6a5b51289395bfaeb71610dd69e37f661390b3c`, criação do novo container e healthcheck interno `http://localhost:3000/api/health` retornando HTTP 200.
+
+Smoke tests externos não destrutivos após o redeploy: Home HTTP 200; healthcheck HTTP 200 com `{"status":"ok"}`; página singular `/excursao/barretos-2026?ref=smoke` HTTP 200; mutação de intenção sem token HTTP 401 com `Token de intenção inválido ou expirado`. A rota pública de ofertas respondeu HTTP 200 com `{"eventos":[]}` porque as ofertas seed existentes têm datas de agosto de 2026 e já estão encerradas na data desta validação; o seed idempotente já havia confirmado os registros no ambiente.
 
 ## Arquivos de maior impacto
 
@@ -54,8 +56,8 @@ O próximo passo operacional é versionar e publicar este conjunto no remoto aut
 
 Os endpoints legados foram preservados, o download continua usando o mesmo caminho protegido, o HTML contratual existente continua sendo usado para leitura e os testes de autenticação, PDF, contrato e gateway permaneceram verdes. O comportamento financeiro continua autoritativo no servidor; a interface não reaplica desconto sobre total congelado.
 
-## Estado final antes da publicação
+## Estado final
 
-Código validado localmente, sem whitespace inválido e sem dependência de segredo no repositório. A comprovação de produção será registrada somente após o commit remoto, redeploy e smoke test externo.
+Código validado localmente, publicado no GitHub, redeployado no Coolify e validado externamente, sem whitespace inválido e sem dependência de segredo no repositório. A verificação local de migration continua condicionada a `DATABASE_URL`, ausente no sandbox; o deployment saudável executou o bootstrap/migrations configurado no container.
 
 > Este documento é operacional e não substitui a aprovação jurídica formal do modelo contratual versionado.
