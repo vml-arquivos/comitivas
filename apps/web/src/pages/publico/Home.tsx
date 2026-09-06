@@ -208,6 +208,12 @@ export default function Home() {
   }, [imagemSelecionada]);
 
   const dataEvento = eventoAtivo ? `${formatarData(eventoAtivo.data_inicio)} a ${formatarData(eventoAtivo.data_fim)}` : null;
+  const precosPorModalidade = new Map<string, number>();
+  (eventoAtivo?.lotes || []).forEach((lote: any) => (lote.modalidades || []).forEach((modalidade: any) => {
+    const valor = Number(modalidade.valor_total);
+    if (Number.isFinite(valor) && !precosPorModalidade.has(modalidade.modalidade_hospedagem)) precosPorModalidade.set(modalidade.modalidade_hospedagem, valor);
+  }));
+  const formatarMoeda = (valor: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
   const exibirNumero = (valor: number | null, sufixo = '') => valor === null ? '—' : `${valor.toLocaleString('pt-BR')}${sufixo}`;
 
   return (
@@ -265,11 +271,11 @@ export default function Home() {
               )}
 
               <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:items-center">
-                <a href="#hospedagem">
+                <Link to="/eventos">
                   <Button size="lg" className="group w-full px-8 py-6 text-base shadow-xl shadow-black/25 sm:w-auto">
-                    Conhecer as modalidades <ArrowRight size={18} className="ml-2 transition-transform group-hover:translate-x-1" />
+                    Ver excursões abertas <ArrowRight size={18} className="ml-2 transition-transform group-hover:translate-x-1" />
                   </Button>
-                </a>
+                </Link>
                 <a href="#galeria" className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-white/35 px-7 py-3.5 text-sm font-semibold text-white transition hover:border-white hover:bg-white/10 sm:w-auto">
                   <ImageIcon size={18} /> Conhecer Barretos
                 </a>
@@ -435,7 +441,7 @@ export default function Home() {
                     </li>
                   ))}
                 </ul>
-                <p className="mt-6 text-xs font-semibold uppercase tracking-wide text-slate-400">Valores e parcelamento sob consulta</p>
+                {precosPorModalidade.has(id) ? <p className="mt-6 text-lg font-black text-secondary">A partir de {formatarMoeda(precosPorModalidade.get(id) || 0)} <span className="text-xs font-semibold text-slate-500">por pessoa</span></p> : <p className="mt-6 text-xs font-semibold uppercase tracking-wide text-slate-400">Preço atualizado no configurador</p>}
                 <div className="mt-3 flex flex-col gap-2">
                   <WhatsAppCTA mensagem={mensagemWhatsApp} label="Falar no WhatsApp" size="sm" className="w-full" />
                   <Link to="/eventos" className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-full border border-slate-300 text-xs font-bold text-slate-700 transition hover:border-primary hover:text-primary">

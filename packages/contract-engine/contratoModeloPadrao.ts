@@ -2,6 +2,9 @@ import { CONTRATADA_DADOS } from "./letterhead.js";
 import { COMITIVA_CONTRACT_WATERMARK_B64 } from "./logo_constants.js";
 
 export type ContratoModeloSnapshot = {
+  evento?: { nome?: string; local?: string; data_inicio?: string | null; data_fim?: string | null };
+  lote?: { nome?: string; descricao?: string | null };
+  pacote?: { nome?: string; descricao?: string | null };
   cliente: Record<string, unknown>;
   periodo: { check_in: string; check_out: string };
   hospedagem: { modalidade: string | null; local: string };
@@ -160,6 +163,17 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
   const imagemTexto = usoImagem.autorizado === false
     ? "O contratante não autoriza o uso de sua imagem para divulgação institucional da excursão."
     : `O contratante autoriza o uso de sua imagem pelo prazo de ${usoImagem.prazo_anos || 3} (três) anos para divulgação institucional da excursão, podendo manifestar oposição por escrito antes do início do evento.`;
+  const objetoTexto = t.rodoviario_incluido
+    ? "O presente contrato tem por objeto a prestação de serviços de hospedagem, alimentação, translado interno e transporte rodoviário interestadual durante a Festa do Peão de Barretos/SP, conforme os serviços expressamente descritos neste instrumento."
+    : "O presente contrato tem por objeto a prestação de serviços de hospedagem, alimentação e translado interno durante a Festa do Peão de Barretos/SP, conforme os serviços expressamente descritos neste instrumento, sem contratação de transporte rodoviário interestadual.";
+  const exclusaoTransporte = t.rodoviario_incluido
+    ? "O transporte rodoviário contratado limita-se à programação e aos dados registrados neste instrumento, permanecendo excluídos serviços de terceiros não expressamente descritos."
+    : "O presente contrato compreende exclusivamente os serviços expressamente previstos neste instrumento, não abrangendo transporte rodoviário interestadual ou qualquer outro serviço de transporte diverso do translado interno entre a chácara e o Parque do Peão.";
+  const blocoTransporte = t.rodoviario_incluido ? `<h2>CLÁUSULA DÉCIMA<br/>DO TRANSPORTE RODOVIÁRIO</h2>
+<p><strong>10.1.</strong> O presente contrato compreende o transporte rodoviário interestadual de passageiros, com saída da cidade de Brasília/DF e destino à cidade de Barretos/SP, bem como o respectivo retorno ao local de origem, conforme programação previamente divulgada pela <strong>CONTRATADA.</strong></p>
+<p><strong>10.2.</strong> O transporte será realizado por empresa regularmente habilitada junto aos órgãos competentes, especialmente à Agência Nacional de Transportes Terrestres – ANTT, observadas as normas de segurança e a legislação vigente.</p>
+<p><strong>10.3.</strong> As informações referentes ao transporte</p>
+<ul class="model-list"><li>• Local de embarque: ${transportValue(t.local_embarque, "SAMAMBAIA AO LADO DO MERCADO DIA A DIA, ESTACIONAMENTO DO POSTO IPIRANGA.")}</li><li>• PONTO DE REFERÊNCIA: ${transportValue(t.ponto_referencia, "DISTRIBUIDORA ROIAL-SAIDA DA BR 060")}</li><li>• Data da saída: ${escapeHtml(formatDate(t.data_saida))}</li></ul><div class="page-break"></div><ul class="model-list"><li>• Horário previsto da saída: ${escapeHtml(valueOrBlank(t.horario_saida, "___/___/____"))}</li><li>• Data prevista para retorno: ${escapeHtml(formatDate(t.data_retorno))}</li><li>• Horário previsto do retorno: ${escapeHtml(valueOrBlank(t.horario_retorno, "___/___/____"))}</li><li>• Tipo do veículo:</li>${vehicle(t.veiculo, "Ônibus", "Ônibus")}${vehicle(t.veiculo, "Micro-ônibus", "Micro-ônibus")}${vehicle(t.veiculo, "Van", "Van")}</ul>` : "";
 
   return `<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>CONTRATO DE PACOTE DE VIAGEM- EXCURSÃO DAS COMITIVAS 2026</title>
@@ -201,7 +215,7 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
 <p class="qualification"><strong>Contratada:</strong> ${escapeHtml(CONTRATADA_DADOS.razao_social)}, empresa inscrita no CNPJ ${escapeHtml(CONTRATADA_DADOS.cnpj)}, com sede na Qr 502 conjunto 20 – Samambaia Sul/DF, CEP 72.210-420, e-mail: ${escapeHtml(CONTRATADA_DADOS.email)}</p>
 <p class="qualification"><strong>Contratante:</strong> ${escapeHtml(nome)}, ${escapeHtml(nacionalidade)}, ${escapeHtml(estadoCivil)}, ${escapeHtml(profissao)}, nascida em ${escapeHtml(nascimento)} portador da identidade nº ${escapeHtml(identidade)} e CPF ${escapeHtml(cpf(c.cpf))}, Residente: ${escapeHtml(endereco)}, telefone: ${escapeHtml(telefone)} e-mail: ${escapeHtml(email)}, têm entre si, justo e contratados, o que mutuamente outorgam, aceitam e assinam, convencionados pelas cláusulas termos e condições a seguir devidamente enumeradas.</p>
 <h2>CLÁUSULA PRIMEIRA<br/>DO OBJETO DO CONTRATO</h2>
-<p class="clause"><strong>1.1</strong> O presente contrato tem por objeto a prestação de serviços de hospedagem/transporte durante a Festa do Peão de Barretos/SP, compreendendo hospedagem, café da manhã, almoço, open bar, translado interno entre a chácara e o Parque do Peão e demais serviços expressamente descritos neste instrumento.</p>
+<p class="clause"><strong>1.1</strong> ${objetoTexto}</p>
 <p class="clause"><strong>1.2</strong> O evento possui caráter regional e ocorre apenas uma vez ao ano, motivo pelo qual não será possível a remarcação do pacote para data fora da temporada oficial.</p>
 <p class="clause"><strong>1.3</strong> É de responsabilidade do contratante a leitura integral deste contrato antes de sua assinatura.</p>
 <h2>CLÁUSULA SEGUNDA<br/>DOS DADOS DA HOSPEDAGEM</h2>
@@ -244,7 +258,7 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
 <h2>CLÁUSULA OITAVA<br/>DAS EXCLUSÕES</h2>
 <p><strong>8.1.</strong> O valor do pacote contratado não inclui quaisquer serviços ou despesas que não estejam expressamente previstos neste instrumento, permanecendo de responsabilidade exclusiva do <strong>CONTRATANTE</strong>, dentre eles:</p>
 <p>I – Ingressos para a Festa do Peão de Barretos, shows, rodeios, camarotes, festas particulares ou quaisquer outros eventos;<br/>II – Despesas pessoais, tais como lavanderia, medicamentos, alimentação e bebidas não previstas no pacote, compras, transporte por aplicativos ou quaisquer outros gastos de natureza particular;<br/>III – Contratação de passeios opcionais ou serviços oferecidos por terceiros durante a estadia;<br/>IV – Despesas decorrentes de atendimento médico, hospitalar, odontológico ou farmacêutico, bem como seguros de qualquer natureza;<br/>V – Perdas, extravios ou danos causados a objetos de uso pessoal, ressalvadas as hipóteses previstas em lei;<br/>VI – Quaisquer outros serviços ou despesas não expressamente descritos como inclusos neste contrato.</p>
-<p><strong>8.2.</strong> O presente contrato compreende exclusivamente os serviços de hospedagem, alimentação, open bar, translado interno entre a chácara e o Parque do Peão e demais serviços expressamente previstos neste instrumento, não abrangendo transporte rodoviário interestadual ou qualquer outro serviço de transporte diverso do translado interno mencionado.</p>
+<p><strong>8.2.</strong> ${exclusaoTransporte}</p>
 <p><strong>8.3.</strong> Eventuais serviços contratados diretamente pelo <strong>CONTRATANTE</strong> junto a terceiros durante a execução da excursão serão de sua exclusiva responsabilidade, não respondendo a <strong>CONTRATADA</strong> por sua prestação, qualidade, pontualidade ou eventuais prejuízos deles decorrentes.</p>
 
 <div class="page-break"></div><h2>CLÁUSULA NONA<br/>DOS DANOS</h2>
@@ -252,11 +266,7 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
 <p><strong>9.2.</strong> Todo dano material causado pelo <strong>CONTRATANTE</strong>, às instalações da hospedagem ou aos bens disponibilizados para utilização durante a excursão será de sua exclusiva responsabilidade, obrigando-se ao ressarcimento integral dos prejuízos efetivamente apurados.</p>
 <p><strong>9.3.</strong> A apuração dos danos será realizada mediante vistoria, registro fotográfico, orçamento ou documento equivalente emitido pelo proprietário do estabelecimento ou fornecedor responsável, sendo assegurado ao <strong>CONTRATANTE</strong> o direito de ciência quanto aos prejuízos apurados.</p>
 <p><strong>9.4.</strong> O ressarcimento dos danos deverá ser efetuado pelo <strong>CONTRATANTE</strong> no prazo de até 10 (dez) dias úteis contados da apresentação da comprovação do prejuízo, sem prejuízo das medidas judiciais cabíveis em caso de inadimplemento.</p>
-<h2>CLÁUSULA DÉCIMA<br/>DO TRANSPORTE RODOVIÁRIO</h2>
-<p><strong>10.1.</strong> O presente contrato poderá compreender, além dos serviços de hospedagem, alimentação e translado interno, o transporte rodoviário interestadual de passageiros, com saída da cidade de Brasília/DF e destino à cidade de Barretos/SP, bem como o respectivo retorno ao local de origem, conforme programação previamente divulgada pela <strong>CONTRATADA.</strong></p>
-<p><strong>10.2.</strong> O transporte será realizado por empresa regularmente habilitada junto aos órgãos competentes, especialmente à Agência Nacional de Transportes Terrestres – ANTT, observadas as normas de segurança e a legislação vigente.</p>
-<p><strong>10.3.</strong> As informações referentes ao transporte</p>
-<ul class="model-list"><li>• Local de embarque: ${transportValue(t.local_embarque, "SAMAMBAIA AO LADO DO MERCADO DIA A DIA, ESTACIONAMENTO DO POSTO IPIRANGA.")}</li><li>• PONTO DE REFERÊNCIA: ${transportValue(t.ponto_referencia, "DISTRIBUIDORA ROIAL-SAIDA DA BR 060")}</li><li>• Data da saída: ${escapeHtml(formatDate(t.data_saida))}</li></ul><div class="page-break"></div><ul class="model-list"><li>• Horário previsto da saída: ${escapeHtml(valueOrBlank(t.horario_saida, "___/___/____"))}</li><li>• Data prevista para retorno: ${escapeHtml(formatDate(t.data_retorno))}</li><li>• Horário previsto do retorno: ${escapeHtml(valueOrBlank(t.horario_retorno, "___/___/____"))}</li><li>• Tipo do veículo:</li>${vehicle(t.veiculo, "Ônibus", "Ônibus")}${vehicle(t.veiculo, "Micro-ônibus", "Micro-ônibus")}${vehicle(t.veiculo, "Van", "Van")}</ul>
+${blocoTransporte}${t.rodoviario_incluido ? `
 <h2>CLÁUSULA DÉCIMA PRIMEIRA<br/>DO EMBARQUE</h2>
 <p><strong>11.1.</strong> O <strong>CONTRATANTE</strong> deverá comparecer ao local de embarque com antecedência mínima de 30 (trinta) minutos do horário previsto para saída do veículo, portando documento oficial de identificação com foto.</p>
 <p><strong>11.2.</strong> O atraso do <strong>CONTRATANTE</strong> que impossibilite seu embarque será considerado de sua exclusiva responsabilidade, não gerando direito a reembolso, remarcação da viagem ou qualquer indenização.</p>
@@ -282,7 +292,7 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
 <p>I – Congestionamentos; II – acidentes de trânsito; III – condições climáticas adversas; IV – interdições de rodovias; V – fiscalizações realizadas por órgãos competentes; VI – manutenção corretiva ou preventiva do veículo; VII – caso fortuito ou força maior.</p>
 <div class="page-break"></div><p><strong>15.2.</strong> Sempre que necessário para garantir a segurança dos passageiros ou a continuidade da viagem, a <strong>CONTRATADA</strong> poderá substituir o veículo inicialmente previsto por outro de categoria equivalente ou superior.</p>
 <p><strong>15.3.</strong> Eventuais atrasos ou alterações decorrentes das hipóteses previstas nesta cláusula não caracterizarão descumprimento contratual, desde que a <strong>CONTRATADA</strong> adote as providências razoáveis para minimizar os impactos aos passageiros.</p>
-<p><strong>15.4.</strong> O <strong>CONTRATANTE</strong> compromete-se a observar as normas de segurança durante todo o percurso, utilizando corretamente os equipamentos de segurança disponibilizados e atendendo às orientações do motorista e do responsável operacional da excursão.</p>
+<p><strong>15.4.</strong> O <strong>CONTRATANTE</strong> compromete-se a observar as normas de segurança durante todo o percurso, utilizando corretamente os equipamentos de segurança disponibilizados e atendendo às orientações do motorista e do responsável operacional da excursão.</p>` : ''}
 
 <h2>CLAUSULA DECIMA SEXTA<br/>DAS REGRAS DE CONVIVÊNCIA E DESLIGAMENTO</h2>
 <p>Constituem motivos para desligamento da excursão: agressão física ou verbal, ameaças, dano ao patrimônio, uso de drogas ilícitas, violência, desrespeito reiterado às normas de convivência ou aos colaboradores da organização.</p>

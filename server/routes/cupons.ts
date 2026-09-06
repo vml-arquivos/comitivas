@@ -6,6 +6,12 @@ import { eq, and, lt } from "drizzle-orm";
 
 const router = Router();
 
+function numeroOpcional(valor: unknown): number | null {
+  if (valor === undefined || valor === null || valor === "") return null;
+  const numero = Number(valor);
+  return Number.isFinite(numero) ? numero : null;
+}
+
 // Listar cupons de um evento (admin)
 router.get("/evento/:evento_id", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
   try {
@@ -36,9 +42,13 @@ router.post("/criar", authMiddleware, requireRole("admin"), async (req: Request,
       return res.status(400).json({ erro: "evento_id e codigo são obrigatórios" });
     }
 
-    if (!desconto_percentual && !desconto_fixo) {
+    const percentual = numeroOpcional(desconto_percentual);
+    const fixo = numeroOpcional(desconto_fixo);
+    if ((percentual === null && fixo === null) || (percentual !== null && fixo !== null)) {
       return res.status(400).json({ erro: "Forneça desconto_percentual ou desconto_fixo" });
     }
+    if (percentual !== null && (percentual <= 0 || percentual > 100)) return res.status(400).json({ erro: "desconto_percentual deve estar entre 0 e 100" });
+    if (fixo !== null && fixo <= 0) return res.status(400).json({ erro: "desconto_fixo deve ser maior que zero" });
 
     // Verificar se código já existe
     const existente = await db
@@ -57,8 +67,8 @@ router.post("/criar", authMiddleware, requireRole("admin"), async (req: Request,
       .values({
         evento_id,
         codigo: codigo.toUpperCase(),
-        desconto_percentual: desconto_percentual ? desconto_percentual.toString() : null,
-        desconto_fixo: desconto_fixo ? desconto_fixo.toString() : null,
+        desconto_percentual: percentual !== null ? percentual.toFixed(2) : null,
+        desconto_fixo: fixo !== null ? fixo.toFixed(2) : null,
         uso_maximo: uso_maximo || null,
         limite_por_cliente: limite_por_cliente || null,
         pacote_id: pacote_id || null,
@@ -97,12 +107,17 @@ router.put("/:cupom_id", authMiddleware, requireRole("admin"), async (req: Reque
       return res.status(404).json({ erro: "Cupom não encontrado" });
     }
 
+    const percentual = numeroOpcional(desconto_percentual);
+    const fixo = numeroOpcional(desconto_fixo);
+    if (percentual !== null && (percentual <= 0 || percentual > 100)) return res.status(400).json({ erro: "desconto_percentual deve estar entre 0 e 100" });
+    if (fixo !== null && fixo <= 0) return res.status(400).json({ erro: "desconto_fixo deve ser maior que zero" });
+
     // Atualizar
     const atualizado = await db
       .update(cupons)
       .set({
-        desconto_percentual: desconto_percentual ? desconto_percentual.toString() : undefined,
-        desconto_fixo: desconto_fixo ? desconto_fixo.toString() : undefined,
+        desconto_percentual: desconto_percentual !== undefined ? (percentual === null ? null : percentual.toFixed(2)) : undefined,
+        desconto_fixo: desconto_fixo !== undefined ? (fixo === null ? null : fixo.toFixed(2)) : undefined,
         uso_maximo: uso_maximo !== undefined ? uso_maximo : undefined,
         limite_por_cliente: limite_por_cliente !== undefined ? limite_por_cliente : undefined,
         pacote_id: pacote_id !== undefined ? (pacote_id || null) : undefined,

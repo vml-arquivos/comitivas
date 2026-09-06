@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
-import { AlertCircle, Calendar, CheckCircle2, Clock3, Download, MapPin, Ticket } from 'lucide-react';
+import { AlertCircle, Calendar, CheckCircle2, Clock3, Download, Eye, MapPin, Ticket } from 'lucide-react';
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@ui/index';
 import { api } from '../../contexts/AuthContext';
 
@@ -83,6 +83,10 @@ export default function MinhasReservas() {
     } finally {
       setBaixando('');
     }
+  };
+
+  const visualizarContrato = (reservaId: string) => {
+    window.open(`/api/contratos/download/${encodeURIComponent(reservaId)}?inline=1`, '_blank', 'noopener,noreferrer');
   };
 
   return (
@@ -169,9 +173,7 @@ export default function MinhasReservas() {
                       <Link to={`/checkout/${reserva.id}`} className="flex-1"><Button className="w-full">{reserva.status === 'aguardando_pagamento' ? 'Ver pagamento' : 'Continuar reserva'}</Button></Link>
                     )}
                     {reserva.contrato_disponivel && (
-                      <Button variant="outline" className="flex-1 gap-2" onClick={() => baixarDocumento(reserva.id, 'contrato')} isLoading={baixando === `contrato-${reserva.id}`}>
-                        <Download size={16} /> Contrato
-                      </Button>
+                      <><Button variant="outline" className="flex-1 gap-2" onClick={() => visualizarContrato(reserva.id)}><Eye size={16} /> Visualizar contrato</Button><Button variant="outline" className="flex-1 gap-2" onClick={() => baixarDocumento(reserva.id, 'contrato')} isLoading={baixando === `contrato-${reserva.id}`}><Download size={16} /> Baixar contrato</Button></>
                     )}
                     {reserva.voucher_disponivel && (
                       <Button variant="outline" className="flex-1 gap-2" onClick={() => baixarDocumento(reserva.id, 'voucher')} isLoading={baixando === `voucher-${reserva.id}`}>

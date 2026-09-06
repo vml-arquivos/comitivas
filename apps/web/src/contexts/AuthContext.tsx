@@ -12,7 +12,7 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   isLoading: boolean;
-  login: (token: string, user: User) => void;
+  login: (user: User) => void;
   logout: () => void;
 }
 
@@ -45,12 +45,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const currentUser = response.data.usuario as User;
         if (!currentUser?.id || !currentUser?.tipo) throw new Error('Sessão inválida');
         if (active) setUser(currentUser);
-      } catch {
+      } catch (error: any) {
         if (active) {
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          setUser(null);
-          setToken(null);
+          // Falhas de rede/5xx não invalidam uma sessão cookie-only presumida.
+          if ([401, 403].includes(error?.response?.status)) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            setUser(null);
+            setToken(null);
+          }
         }
       } finally {
         if (active) setIsLoading(false);
@@ -73,7 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => api.interceptors.response.eject(interceptor);
   }, [clearSession]);
 
-  const login = (_newToken: string, newUser: User) => {
+  const login = (newUser: User) => {
     setToken(null);
     setUser(newUser);
     delete api.defaults.headers.common['Authorization'];

@@ -68,8 +68,14 @@ export class PacoteService {
         if (usos.length >= Number(cupom.limite_por_cliente)) throw new Error("Este cupom já atingiu o limite por cliente");
       }
       cupomId = cupom.id;
-      if (cupom.desconto_percentual !== null) desconto = subtotal.times(new Decimal(cupom.desconto_percentual.toString())).div(100);
-      else if (cupom.desconto_fixo !== null) desconto = new Decimal(cupom.desconto_fixo.toString());
+      if (cupom.desconto_percentual !== null) {
+        const percentual = new Decimal(cupom.desconto_percentual.toString());
+        if (percentual.lessThanOrEqualTo(0) || percentual.greaterThan(100)) throw new Error("Percentual de cupom inválido");
+        desconto = subtotal.times(percentual).div(100);
+      } else if (cupom.desconto_fixo !== null) {
+        desconto = new Decimal(cupom.desconto_fixo.toString());
+        if (desconto.lessThanOrEqualTo(0)) throw new Error("Valor de cupom inválido");
+      }
       desconto = Decimal.min(desconto, subtotal);
     }
 
@@ -105,7 +111,7 @@ export class PacoteService {
             if (Number(usosCliente?.total || 0) >= Number(cupomBloqueado.limite_por_cliente)) throw new Error("Este cupom já atingiu o limite por cliente");
           }
         }
-        const consumo = await tx.execute(sql`UPDATE cupons SET uso_atual = COALESCE(uso_atual, 0) + 1 WHERE id = ${calculo.cupom_id} AND ativo = true AND (uso_maximo IS NULL OR uso_atual < uso_maximo) RETURNING id`);
+        const consumo = await tx.execute(sql`UPDATE cupons SET uso_atual = COALESCE(uso_atual, 0) + 1 WHERE id = ${calculo.cupom_id} AND ativo = true AND (validade IS NULL OR validade > CURRENT_TIMESTAMP) AND (uso_maximo IS NULL OR uso_atual < uso_maximo) RETURNING id`);
         if (consumo.rows.length === 0) throw new Error("Cupom com limite de uso atingido");
       }
       const reservaId = createId();

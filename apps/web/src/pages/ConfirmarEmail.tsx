@@ -23,7 +23,7 @@ export default function ConfirmarEmail() {
     setCarregando(true);
     try {
       const response = await api.post('/auth/confirmar-email', { email, codigo });
-      login('', response.data.usuario);
+      login(response.data.usuario);
       navigate(redirect, { replace: true });
     } catch (error: any) {
       setErro(error.response?.data?.erro || 'Não foi possível confirmar seu e-mail.');

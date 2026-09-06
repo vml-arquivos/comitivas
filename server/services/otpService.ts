@@ -66,7 +66,7 @@ export class OtpService {
       ? (await db.select().from(contratosDocumentos).where(and(eq(contratosDocumentos.id, input.contrato_id), eq(contratosDocumentos.reserva_id, input.reserva_id))).limit(1))[0]
       : (await db.select().from(contratosDocumentos).where(and(eq(contratosDocumentos.reserva_id, input.reserva_id), sql`status IN ('aguardando_validacao', 'preparado')`)).orderBy(desc(contratosDocumentos.versao)).limit(1))[0];
     if (!documento) throw new Error("Prepare o contrato antes de solicitar a validação");
-    if (documento.status === "validado") throw new Error("Este contrato já foi validado");
+    if (!["aguardando_validacao", "preparado"].includes(documento.status)) throw new Error("Este contrato não está disponível para validação");
 
     const anterior = (await db.select().from(otpDesafios).where(and(eq(otpDesafios.usuario_id, input.usuario_id), eq(otpDesafios.reserva_id, input.reserva_id), isNull(otpDesafios.usado_em))).orderBy(desc(otpDesafios.criado_em)).limit(1))[0];
     if (anterior && new Date(anterior.cooldown_ate).getTime() > Date.now()) throw new Error("Aguarde o cooldown antes de solicitar outro código");
@@ -139,7 +139,12 @@ export class OtpService {
 
         const tentativas = Number(desafio.tentativas) + 1;
         await tx.update(otpDesafios).set({ tentativas }).where(eq(otpDesafios.id, String(desafio.id)));
-        if (!hashEquals(String(desafio.segredo_hash), digest(input.codigo))) throw new Error("Código inválido");
+        if (!hashEquals(String(desafio.segredo_hash), digest(input.codigo))) {
+          if (tentativas >= Number(desafio.max_tentativas)) {
+            await tx.update(otpDesafios).set({ status_envio: "esgotado" }).where(eq(otpDesafios.id, String(desafio.id)));
+          }
+          return { erro: "Código inválido", tentativas_restantes: Math.max(0, Number(desafio.max_tentativas) - tentativas) };
+        }
 
         const base = await ContratoService.obterDadosBase(input.reserva_id);
         if (base.reserva.usuario_id !== input.usuario_id) throw new Error("Acesso negado");
@@ -221,6 +226,7 @@ export class OtpService {
         await tx.insert(contratoEventos).values({ id: `evt-${randomUUID()}`, contrato_id: documento.id, reserva_id: input.reserva_id, tipo: "assinatura_concluida", criado_em: agora, ator_id: input.usuario_id, ip: input.ip || null, user_agent: input.userAgent || null, metadados, hash_evento: eventoHash(metadados) });
         return { protocolo: validacao.protocolo, contrato_id: documento.id, versao: documento.versao, arquivo: arquivoCriado, pdf_sha256: pdfHash, confirmado_em: agora };
       });
+      if ("erro" in resultado) throw new Error(resultado.erro);
       return resultado;
     } catch (error) {
       if (arquivoCriado) await fs.rm(arquivoCriado, { force: true }).catch(() => undefined);

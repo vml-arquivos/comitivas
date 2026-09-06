@@ -27,7 +27,7 @@ function WhatsAppFloatButton() {
 }
 
 export function MainLayout() {
-  const { user, logout } = useAuth();
+  const { user, isLoading, logout } = useAuth();
   const navigate = useNavigate();
   const [menuAberto, setMenuAberto] = useState(false);
 
@@ -54,7 +54,7 @@ export function MainLayout() {
               <span className="truncate text-base font-black tracking-tight sm:text-lg lg:text-xl">Excursão das Comitivas</span>
             </Link>
 
-            <nav className="hidden items-center gap-5 text-sm font-semibold lg:flex">
+            <nav className="hidden items-center gap-5 text-sm font-semibold lg:flex" aria-label="Navegação principal">
               <Link to="/eventos" className="transition-colors hover:text-accent">Excursões</Link>
               <Link to="/historia" className="transition-colors hover:text-accent">Nossa História</Link>
               <Link to="/galeria" className="transition-colors hover:text-accent">Galeria</Link>
@@ -62,18 +62,18 @@ export function MainLayout() {
               <Link to="/regras" className="transition-colors hover:text-accent">Regras</Link>
             </nav>
 
-            <nav className="hidden items-center gap-3 md:flex">
+            <nav className="hidden items-center gap-3 lg:flex">
               {user ? (
                 <>
-                  <Link to="/minhas-reservas" className="text-sm font-semibold transition-colors hover:text-accent">Minhas reservas</Link>
-                  {(user.tipo === 'admin' || user.tipo === 'vendedor') && <Link to="/admin" className="rounded-lg bg-white/10 px-3 py-2 text-sm font-bold hover:bg-white/20">Painel</Link>}
+                  <Link to="/minhas-reservas" className="text-sm font-semibold transition-colors hover:text-accent">Minha conta</Link>
+                  {(user.tipo === 'admin' || user.tipo === 'vendedor') && <Link to="/admin" className="rounded-lg bg-white/10 px-3 py-2 text-sm font-bold hover:bg-white/20">{user.tipo === 'admin' ? 'Painel' : 'Meu painel'}</Link>}
                   <div className="flex items-center gap-2 border-l border-white/20 pl-3">
                     <UserIcon size={17} />
                     <span className="hidden max-w-28 truncate text-sm xl:inline">{user.nome}</span>
                     <button onClick={handleLogout} className="rounded-md p-1.5 transition hover:bg-white/10" aria-label="Sair"><LogOut size={17} /></button>
                   </div>
                 </>
-              ) : (
+              ) : isLoading ? <span className="text-sm text-white/70" aria-live="polite">Verificando sessão…</span> : (
                 <>
                   <Link to="/login" className="text-sm font-semibold hover:text-accent">Entrar</Link>
                   <Link to="/cadastro" className="rounded-lg bg-white px-4 py-2 text-sm font-bold text-primary transition hover:bg-gray-100">Cadastrar</Link>
@@ -81,13 +81,13 @@ export function MainLayout() {
               )}
             </nav>
 
-            <button type="button" className="shrink-0 rounded-lg p-2 transition hover:bg-white/10 md:hidden" onClick={() => setMenuAberto((aberto) => !aberto)} aria-expanded={menuAberto} aria-label={menuAberto ? 'Fechar menu' : 'Abrir menu'}>
+            <button type="button" className="shrink-0 rounded-lg p-2 transition hover:bg-white/10 lg:hidden" onClick={() => setMenuAberto((aberto) => !aberto)} aria-expanded={menuAberto} aria-controls="navegacao-publica-mobile" aria-label={menuAberto ? 'Fechar menu' : 'Abrir menu'}>
               {menuAberto ? <X size={23} /> : <Menu size={23} />}
             </button>
           </div>
 
           {menuAberto && (
-            <nav className="space-y-1 border-t border-white/15 py-4 text-sm md:hidden">
+            <nav id="navegacao-publica-mobile" className="space-y-1 border-t border-white/15 py-4 text-sm lg:hidden" aria-label="Navegação móvel">
               <Link to="/eventos" onClick={fecharMenu} className="block rounded-lg px-3 py-2 hover:bg-white/10">Excursões</Link>
               <Link to="/historia" onClick={fecharMenu} className="block rounded-lg px-3 py-2 hover:bg-white/10">Nossa História</Link>
               <Link to="/galeria" onClick={fecharMenu} className="block rounded-lg px-3 py-2 hover:bg-white/10">Galeria</Link>

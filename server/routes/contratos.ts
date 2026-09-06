@@ -268,9 +268,10 @@ router.get("/download/:reserva_id", authMiddleware, async (req: Request, res: Re
 
     // Enviar arquivo
     res.setHeader("Content-Type", "application/pdf");
+    const disposicao = req.query.inline === "1" ? "inline" : "attachment";
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="contrato-${reserva_id}.pdf"`
+      `${disposicao}; filename="contrato-${reserva_id}.pdf"`
     );
     res.send(pdfBuffer);
   } catch (error: any) {

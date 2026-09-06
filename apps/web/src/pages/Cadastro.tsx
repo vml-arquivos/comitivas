@@ -84,7 +84,7 @@ export default function Cadastro() {
       if (response.data.email_confirmacao_necessaria) {
         navigate(`/confirmar-email?email=${encodeURIComponent(formData.email)}&redirect=${encodeURIComponent(redirect)}`, { replace: true });
       } else {
-        login('', response.data.usuario);
+        login(response.data.usuario);
         navigate(redirect, { replace: true });
       }
     } catch (err: any) {

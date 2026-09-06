@@ -111,8 +111,12 @@ router.get("/dashboard", requireRole("admin", "vendedor"), async (req: Request, 
   }
 });
 
-// As demais rotas administrativas são exclusivas do administrador.
-router.use(requireRole("admin"));
+// Vendedores podem consultar somente suas reservas atribuídas; as demais
+// operações administrativas continuam exclusivas do administrador.
+router.use((req: Request, res: Response, next) => {
+  if (req.usuario?.tipo === "vendedor" && req.method === "GET" && req.path === "/reservas") return next();
+  return requireRole("admin")(req, res, next);
+});
 
 // Listar reservas com filtros
 router.get("/reservas", async (req: Request, res: Response) => {
@@ -148,6 +152,10 @@ router.get("/reservas", async (req: Request, res: Response) => {
         return res.status(400).json({ erro: "Status de reserva inválido" });
       }
       condicoes.push(eq(reservas.status, status as NonNullable<typeof reservas.$inferSelect.status>));
+    }
+
+    if (req.usuario?.tipo === "vendedor") {
+      condicoes.push(eq(reservas.vendedor_id, req.usuario.id));
     }
 
     let query = db.select().from(reservas).$dynamic();
@@ -728,7 +736,7 @@ router.post("/reservas/:reserva_id/desconto", requireRole("admin"), async (req: 
     const totalFinal = subtotalOriginal.minus(valorDesconto).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
     const resultado = await db.transaction(async (tx) => {
-      const atualizado = await tx.update(reservas).set({ valor_total: totalFinal.toFixed(2), atualizado_em: new Date() }).where(and(eq(reservas.id, reserva.id), sql`${reservas.status} IN ('pacote_montado', 'checkout_iniciado', 'contrato_gerado')`)).returning({ id: reservas.id, valor_total: reservas.valor_total });
+      const atualizado = await tx.update(reservas).set({ valor_total: totalFinal.toFixed(2), valor_total_centavos: totalFinal.times(100).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toNumber(), atualizado_em: new Date() }).where(and(eq(reservas.id, reserva.id), sql`${reservas.status} IN ('pacote_montado', 'checkout_iniciado', 'contrato_gerado')`)).returning({ id: reservas.id, valor_total: reservas.valor_total, valor_total_centavos: reservas.valor_total_centavos });
       if (!atualizado[0]) throw new Error("A reserva não está em uma etapa que permita desconto");
       const registro = await tx.insert(descontosAdministrativos).values({ reserva_id: reserva.id, administrador_id: req.usuario!.id, motivo, tipo, valor_informado: informado.toFixed(2), subtotal_original: subtotalOriginal.toFixed(2), valor_desconto: valorDesconto.toFixed(2), total_final: totalFinal.toFixed(2) }).returning();
       return registro[0];

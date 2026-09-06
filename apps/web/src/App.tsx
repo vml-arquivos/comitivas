@@ -64,6 +64,7 @@ function AppRoutes() {
         <Route path="/regras" element={<Regras />} />
         <Route path="/eventos" element={<Eventos />} />
         <Route path="/excursoes/:eventoId" element={<Eventos />} />
+        <Route path="/excursao/:eventoSlug" element={<Eventos />} />
         <Route path="/privacidade" element={<Legal />} />
         <Route path="/termos" element={<Legal />} />
         <Route path="/cancelamento" element={<Legal />} />
@@ -103,7 +104,7 @@ function AppRoutes() {
         </ProtectedRoute>
       }>
         <Route index element={<Dashboard />} />
-        <Route path="reservas" element={<Reservas />} />
+        <Route path="reservas" element={<ProtectedRoute roles={['admin', 'vendedor']}><Reservas /></ProtectedRoute>} />
         <Route path="contratos" element={
           <ProtectedRoute roles={['admin']}>
             <Contratos />

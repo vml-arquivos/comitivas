@@ -103,8 +103,9 @@ export function AdminLayout() {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
-        <header className="h-16 bg-white border-b border-gray-200 flex items-center px-6 md:hidden">
+        <header className="flex h-16 items-center justify-between border-b border-gray-200 bg-white px-6 md:hidden">
           <span className="font-bold text-lg text-secondary">Painel {user?.tipo === 'admin' ? 'Admin' : 'Vendedor'}</span>
+          <div className="flex items-center gap-3 text-sm"><span className="max-w-32 truncate text-gray-500">{user?.nome}</span><button onClick={handleLogout} className="rounded-md p-2 text-gray-600 hover:bg-gray-100" aria-label="Sair"><LogOut size={18} /></button></div>
         </header>
         
         <div className="flex-1 overflow-auto p-6">

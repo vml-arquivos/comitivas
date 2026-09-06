@@ -36,6 +36,10 @@ type Evento = {
   lotes: Lote[];
 };
 
+function slugify(valor: string) {
+  return valor.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+}
+
 const modalidadeMeta = {
   camping: { label: 'Camping', Icone: TentTree },
   quarto_ventilador: { label: 'Quarto com ventilador', Icone: Wind },
@@ -58,12 +62,13 @@ function Skeleton() {
 }
 
 export default function Eventos() {
-  const { eventoId } = useParams();
+  const { eventoId, eventoSlug } = useParams();
   const [searchParams] = useSearchParams();
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const eventosExibidos = eventoId ? eventos.filter((evento) => evento.id === eventoId) : eventos;
+  const identificadorEvento = eventoId || eventoSlug;
+  const eventosExibidos = identificadorEvento ? eventos.filter((evento) => evento.id === identificadorEvento || slugify(evento.nome) === identificadorEvento) : eventos;
   const ref = searchParams.get('ref');
 
   const carregar = async () => {
@@ -86,15 +91,15 @@ export default function Eventos() {
   return (
     <div className="min-h-screen bg-[#fffdf9]">
       <Helmet>
-        <title>{eventoId ? 'Oferta para Barretos 2026' : 'Pacotes para Barretos 2026'} | Excursão das Comitivas</title>
+        <title>{identificadorEvento ? `${eventosExibidos[0]?.nome || 'Oferta para Barretos 2026'} | Excursão das Comitivas` : 'Pacotes para Barretos 2026 | Excursão das Comitivas'}</title>
         <meta name="description" content="Compare modalidades, veja o que está incluso e continue para reservar sua experiência em Barretos." />
         <meta name="robots" content="index,follow" />
-        <link rel="canonical" href="https://excursaodascomitivas.com.br/eventos" />
+        <link rel="canonical" href={`https://excursaodascomitivas.com.br/${identificadorEvento ? `excursao/${encodeURIComponent(eventoSlug || identificadorEvento)}` : 'eventos'}`} />
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="Excursão das Comitivas" />
         <meta property="og:title" content="Pacotes para Barretos 2026 | Excursão das Comitivas" />
         <meta property="og:description" content="Escolha sua modalidade, confira o que está incluso e fale com a equipe da Excursão das Comitivas." />
-        <meta property="og:url" content="https://excursaodascomitivas.com.br/eventos" />
+        <meta property="og:url" content={`https://excursaodascomitivas.com.br/${identificadorEvento ? `excursao/${encodeURIComponent(eventoSlug || identificadorEvento)}` : 'eventos'}`} />
         <meta property="og:image" content="https://excursaodascomitivas.com.br/images/logo-compartilhamento.webp" />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content="Pacotes para Barretos 2026 | Excursão das Comitivas" />
