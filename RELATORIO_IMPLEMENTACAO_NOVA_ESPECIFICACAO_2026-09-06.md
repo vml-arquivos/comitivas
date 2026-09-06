@@ -32,9 +32,9 @@ Nenhuma migration ou alteração destrutiva de dados foi introduzida nesta etapa
 
 ## Publicação e produção
 
-O commit `f6a5b51` foi publicado em `main` no GitHub e o deployment Coolify `audgr3vvcfjqydav9roe9saa` foi concluído com status **Finished**. O log confirmou a importação do SHA completo `f6a5b51289395bfaeb71610dd69e37f661390b3c`, criação do novo container e healthcheck interno `http://localhost:3000/api/health` retornando HTTP 200.
+O commit `f6a5b51` foi publicado em `main` no GitHub e o deployment Coolify `audgr3vvcfjqydav9roe9saa` foi concluído com status **Finished**. Em seguida, o commit final de prioridade da Home `0c07b4a` foi publicado e o deployment Coolify `p12ygqdgccrhxmhdx8pt9a7g` também terminou com status **Finished**. O log final confirmou a importação do SHA completo `0c07b4ab2a539d0b8892e3e4886ca187f463c6ed`, criação do novo container e healthcheck interno `http://localhost:3000/api/health` retornando HTTP 200.
 
-Smoke tests externos não destrutivos após o redeploy: Home HTTP 200; healthcheck HTTP 200 com `{"status":"ok"}`; página singular `/excursao/barretos-2026?ref=smoke` HTTP 200; mutação de intenção sem token HTTP 401 com `Token de intenção inválido ou expirado`. A rota pública de ofertas respondeu HTTP 200 com `{"eventos":[]}` porque as ofertas seed existentes têm datas de agosto de 2026 e já estão encerradas na data desta validação; o seed idempotente já havia confirmado os registros no ambiente.
+Smoke tests externos não destrutivos após o redeploy final: Home HTTP 200; healthcheck HTTP 200 com `{"status":"ok"}`; página singular `/excursao/barretos-2026?ref=smoke` HTTP 200; mutação de intenção sem token HTTP 401 com `Token de intenção inválido ou expirado`. O chunk lazy da Home publicado continha `Escolha seu pacote`, `Escolher pacote`, `Ver todos os pacotes` e `Ver excursões abertas`. A rota pública de ofertas respondeu HTTP 200 com `{"eventos":[]}` porque as ofertas seed existentes têm datas de agosto de 2026 e já estão encerradas na data desta validação; o seed idempotente já havia confirmado os registros no ambiente.
 
 ## Arquivos de maior impacto
 
