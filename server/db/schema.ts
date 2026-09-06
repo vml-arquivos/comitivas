@@ -555,6 +555,43 @@ export const videosEvento = pgTable("videos_evento", {
   atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
 }, (table) => ({ eventoIdx: index("videos_evento_evento_idx").on(table.evento_id, table.ativo, table.ordem) }));
 
+
+export const clienteDocumentos = pgTable("cliente_documentos", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  usuario_id: text("usuario_id").notNull().references(() => usuarios.id),
+  reserva_id: text("reserva_id").references(() => reservas.id),
+  categoria: varchar("categoria", { length: 60 }).notNull().default("outros"),
+  nome: varchar("nome", { length: 255 }).notNull(),
+  nome_original: varchar("nome_original", { length: 255 }).notNull(),
+  mime_type: varchar("mime_type", { length: 120 }).notNull(),
+  tamanho_bytes: integer("tamanho_bytes").notNull(),
+  sha256: varchar("sha256", { length: 64 }).notNull(),
+  arquivo: varchar("arquivo", { length: 500 }).notNull(),
+  observacoes: text("observacoes"),
+  criado_por: text("criado_por").references(() => usuarios.id),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+  atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
+  removido_em: timestamp("removido_em"),
+}, (table) => ({
+  usuarioIdx: index("cliente_documentos_usuario_idx").on(table.usuario_id, table.removido_em, table.criado_em),
+  reservaIdx: index("cliente_documentos_reserva_idx").on(table.reserva_id),
+  hashIdx: index("cliente_documentos_hash_idx").on(table.usuario_id, table.sha256),
+}));
+
+export const clienteHistorico = pgTable("cliente_historico", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  usuario_id: text("usuario_id").notNull().references(() => usuarios.id),
+  tipo: varchar("tipo", { length: 60 }).notNull(),
+  titulo: varchar("titulo", { length: 255 }).notNull(),
+  descricao: text("descricao"),
+  metadados: jsonb("metadados").notNull().default({}),
+  criado_por: text("criado_por").references(() => usuarios.id),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+}, (table) => ({
+  usuarioIdx: index("cliente_historico_usuario_idx").on(table.usuario_id, table.criado_em),
+  tipoIdx: index("cliente_historico_tipo_idx").on(table.usuario_id, table.tipo, table.criado_em),
+}));
+
 // Relations
 export const usuariosRelations = relations(usuarios, ({ many }) => ({
   reservas: many(reservas),

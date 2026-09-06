@@ -1,4 +1,4 @@
-import { Router, Request, Response } from "express";
+import { Router, Request, Response, NextFunction, raw } from "express";
 import { authMiddleware, requireRole } from "../middleware/authMiddleware.js";
 import { RelatorioService } from "../services/relatorioService.js";
 import { EmailService } from "../services/emailService.js";
@@ -7,9 +7,11 @@ import { ContratoService } from "../services/contratoService.js";
 import { ConfiguracaoService } from "../services/configuracaoService.js";
 import { PacoteService, ConfiguracaoPacote } from "../services/pacoteService.js";
 import { db } from "../db/index.js";
-import { reservas, eventos, lotes, pacotes, usuarios, leads_origem, descontosAdministrativos, pagamentos, contratosDocumentos, videosEvento, fotos_evento, comissaoRegras, comissoes } from "../db/schema.js";
-import { eq, and, inArray, or, sql, desc } from "drizzle-orm";
-import { randomUUID } from "node:crypto";
+import { reservas, eventos, lotes, pacotes, usuarios, leads_origem, descontosAdministrativos, pagamentos, contratosDocumentos, contratoValidacoes, pagamentoParcelas, emails_enviados, clienteDocumentos, clienteHistorico, videosEvento, fotos_evento, comissaoRegras, comissoes } from "../db/schema.js";
+import { eq, and, inArray, or, sql, desc, isNull } from "drizzle-orm";
+import { createHash, randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
+import nodePath from "node:path";
 import { createId } from "@paralleldrive/cuid2";
 import Decimal from "decimal.js";
 
@@ -43,6 +45,230 @@ function extrairYoutubeId(url: unknown): string | null {
   const valor = String(url || "").trim();
   const match = valor.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i);
   return match?.[1] || (/^[A-Za-z0-9_-]{11}$/.test(valor) ? valor : null);
+}
+
+function escaparHtml(valor: unknown): string {
+  return String(valor ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function csvCampo(valor: unknown): string {
+  return `"${String(valor ?? "").replace(/"/g, '""')}"`;
+}
+
+function nomeArquivoSeguro(valor: string): string {
+  return valor
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[-.]+|[-.]+$/g, "")
+    .slice(0, 140) || "documento";
+}
+
+async function registrarHistoricoCliente(
+  usuarioId: string,
+  tipo: string,
+  titulo: string,
+  descricao: string | null,
+  criadoPor?: string | null,
+  metadados: Record<string, unknown> = {},
+) {
+  await db.insert(clienteHistorico).values({
+    id: createId(),
+    usuario_id: usuarioId,
+    tipo: tipo.slice(0, 60),
+    titulo: titulo.slice(0, 255),
+    descricao: descricao?.slice(0, 5000) || null,
+    criado_por: criadoPor || null,
+    metadados,
+    criado_em: new Date(),
+  });
+}
+
+async function obterFichaCliente(usuarioId: string) {
+  const usuario = (await db.select(CAMPOS_PUBLICOS_USUARIO).from(usuarios).where(and(eq(usuarios.id, usuarioId), eq(usuarios.tipo, "cliente"))).limit(1))[0];
+  if (!usuario) return null;
+
+  const reservasLista = await db.select({
+    id: reservas.id,
+    status: reservas.status,
+    checkout_estado: reservas.checkout_estado,
+    valor_total: reservas.valor_total,
+    valor_total_centavos: reservas.valor_total_centavos,
+    forma_pagamento: reservas.forma_pagamento,
+    quantidade_parcelas: reservas.quantidade_parcelas,
+    valor_parcela: reservas.valor_parcela,
+    desconto_aplicado: reservas.desconto_aplicado,
+    desconto_pagamento: reservas.desconto_pagamento,
+    contrato_pdf_url: reservas.contrato_pdf_url,
+    aceite_timestamp: reservas.aceite_timestamp,
+    criado_em: reservas.criado_em,
+    atualizado_em: reservas.atualizado_em,
+    evento_id: eventos.id,
+    evento_nome: eventos.nome,
+    evento_local: eventos.local,
+    lote_id: lotes.id,
+    lote_nome: lotes.nome,
+    data_inicio: lotes.data_inicio,
+    data_fim: lotes.data_fim,
+    data_embarque: lotes.data_embarque,
+    data_retorno: lotes.data_retorno,
+    local_embarque: lotes.local_embarque,
+    pacote_id: pacotes.id,
+    pacote_nome: pacotes.nome,
+    modalidade_hospedagem: pacotes.modalidade_hospedagem,
+  }).from(reservas)
+    .innerJoin(lotes, eq(reservas.lote_id, lotes.id))
+    .innerJoin(eventos, eq(lotes.evento_id, eventos.id))
+    .leftJoin(pacotes, eq(reservas.pacote_id, pacotes.id))
+    .where(eq(reservas.usuario_id, usuarioId))
+    .orderBy(desc(reservas.criado_em));
+
+  const reservaIds = reservasLista.map((item) => item.id);
+  const pagamentosLista = reservaIds.length ? await db.select({
+    id: pagamentos.id,
+    reserva_id: pagamentos.reserva_id,
+    status: pagamentos.status,
+    status_reconciliado: pagamentos.status_reconciliado,
+    metodo: pagamentos.metodo,
+    valor: pagamentos.valor,
+    valor_centavos: pagamentos.valor_centavos,
+    valor_pago_centavos: pagamentos.valor_pago_centavos,
+    gateway_id: pagamentos.gateway_id,
+    criado_em: pagamentos.criado_em,
+    atualizado_em: pagamentos.atualizado_em,
+  }).from(pagamentos).where(inArray(pagamentos.reserva_id, reservaIds)).orderBy(desc(pagamentos.atualizado_em)) : [];
+
+  const parcelasLista = reservaIds.length ? await db.select({
+    id: pagamentoParcelas.id,
+    pagamento_id: pagamentoParcelas.pagamento_id,
+    reserva_id: pagamentoParcelas.reserva_id,
+    sequencia: pagamentoParcelas.sequencia,
+    valor: pagamentoParcelas.valor,
+    vencimento: pagamentoParcelas.vencimento,
+    status: pagamentoParcelas.status,
+    valor_pago_centavos: pagamentoParcelas.valor_pago_centavos,
+    criado_em: pagamentoParcelas.criado_em,
+    atualizado_em: pagamentoParcelas.atualizado_em,
+  }).from(pagamentoParcelas).where(inArray(pagamentoParcelas.reserva_id, reservaIds)).orderBy(desc(pagamentoParcelas.vencimento)) : [];
+
+  const contratosLista = reservaIds.length ? await db.select({
+    id: contratosDocumentos.id,
+    reserva_id: contratosDocumentos.reserva_id,
+    versao: contratosDocumentos.versao,
+    versao_template: contratosDocumentos.versao_template,
+    status: contratosDocumentos.status,
+    snapshot_sha256: contratosDocumentos.snapshot_sha256,
+    pdf_sha256: contratosDocumentos.pdf_sha256,
+    regras_versao: contratosDocumentos.regras_versao,
+    visualizado_em: contratosDocumentos.visualizado_em,
+    criado_em: contratosDocumentos.criado_em,
+    validado_em: contratosDocumentos.validado_em,
+    invalidado_em: contratosDocumentos.invalidado_em,
+  }).from(contratosDocumentos).where(inArray(contratosDocumentos.reserva_id, reservaIds)).orderBy(desc(contratosDocumentos.criado_em)) : [];
+
+  const validacoesLista = reservaIds.length ? await db.select({
+    id: contratoValidacoes.id,
+    protocolo: contratoValidacoes.protocolo,
+    contrato_id: contratoValidacoes.contrato_id,
+    reserva_id: contratoValidacoes.reserva_id,
+    versao: contratoValidacoes.versao,
+    canal: contratoValidacoes.canal,
+    destinatario_mascarado: contratoValidacoes.destinatario_mascarado,
+    confirmado_em: contratoValidacoes.confirmado_em,
+    navegador: contratoValidacoes.navegador,
+    sistema_operacional: contratoValidacoes.sistema_operacional,
+  }).from(contratoValidacoes).where(inArray(contratoValidacoes.reserva_id, reservaIds)).orderBy(desc(contratoValidacoes.confirmado_em)) : [];
+
+  const documentosLista = await db.select({
+    id: clienteDocumentos.id,
+    usuario_id: clienteDocumentos.usuario_id,
+    reserva_id: clienteDocumentos.reserva_id,
+    categoria: clienteDocumentos.categoria,
+    nome: clienteDocumentos.nome,
+    nome_original: clienteDocumentos.nome_original,
+    mime_type: clienteDocumentos.mime_type,
+    tamanho_bytes: clienteDocumentos.tamanho_bytes,
+    sha256: clienteDocumentos.sha256,
+    observacoes: clienteDocumentos.observacoes,
+    criado_por: clienteDocumentos.criado_por,
+    criado_em: clienteDocumentos.criado_em,
+  }).from(clienteDocumentos)
+    .where(and(eq(clienteDocumentos.usuario_id, usuarioId), isNull(clienteDocumentos.removido_em)))
+    .orderBy(desc(clienteDocumentos.criado_em));
+
+  const historicoManual = await db.select({
+    id: clienteHistorico.id,
+    tipo: clienteHistorico.tipo,
+    titulo: clienteHistorico.titulo,
+    descricao: clienteHistorico.descricao,
+    metadados: clienteHistorico.metadados,
+    criado_por: clienteHistorico.criado_por,
+    criado_em: clienteHistorico.criado_em,
+  }).from(clienteHistorico).where(eq(clienteHistorico.usuario_id, usuarioId)).orderBy(desc(clienteHistorico.criado_em));
+
+  const leadsLista = await db.select({
+    id: leads_origem.id,
+    codigo_origem: leads_origem.codigo_origem,
+    origem: leads_origem.origem,
+    status: leads_origem.status,
+    vendedor_id: leads_origem.vendedor_id,
+    observacoes: leads_origem.observacoes,
+    proximo_contato_em: leads_origem.proximo_contato_em,
+    criado_em: leads_origem.criado_em,
+    atualizado_em: leads_origem.atualizado_em,
+  }).from(leads_origem).where(eq(leads_origem.usuario_id, usuarioId)).orderBy(desc(leads_origem.atualizado_em));
+
+  const emailsLista = reservaIds.length ? await db.select({
+    id: emails_enviados.id,
+    reserva_id: emails_enviados.reserva_id,
+    tipo: emails_enviados.tipo,
+    destinatario: emails_enviados.destinatario,
+    assunto: emails_enviados.assunto,
+    enviado_em: emails_enviados.enviado_em,
+    erro: emails_enviados.erro,
+    criado_em: emails_enviados.criado_em,
+  }).from(emails_enviados).where(inArray(emails_enviados.reserva_id, reservaIds)).orderBy(desc(emails_enviados.criado_em)) : [];
+
+  const valorContratado = reservasLista.reduce((total, item) => total + Number(item.valor_total || 0), 0);
+  const valorPagoCentavos = pagamentosLista.reduce((total, item) => total + Number(item.valor_pago_centavos || 0), 0);
+
+  const linhaTempo = [
+    { id: `cadastro-${usuario.id}`, tipo: "cadastro", titulo: "Cadastro criado", descricao: usuario.email, criado_em: usuario.criado_em, origem: "sistema" },
+    ...historicoManual.map((item) => ({ ...item, origem: "historico" })),
+    ...reservasLista.map((item) => ({ id: `reserva-${item.id}`, tipo: "reserva", titulo: `Reserva ${item.status || "criada"}`, descricao: `${item.evento_nome} · ${item.lote_nome}${item.pacote_nome ? ` · ${item.pacote_nome}` : ""}`, criado_em: item.criado_em, origem: "sistema", reserva_id: item.id })),
+    ...contratosLista.map((item) => ({ id: `contrato-${item.id}`, tipo: "contrato", titulo: `Contrato v${item.versao} · ${item.status}`, descricao: item.validado_em ? `Validado em ${new Date(item.validado_em).toLocaleString("pt-BR")}` : `Template ${item.versao_template}`, criado_em: item.validado_em || item.criado_em, origem: "sistema", reserva_id: item.reserva_id })),
+    ...pagamentosLista.map((item) => ({ id: `pagamento-${item.id}`, tipo: "pagamento", titulo: `Pagamento ${item.status_reconciliado || item.status}`, descricao: `${String(item.metodo || "").toUpperCase()} · R$ ${Number(item.valor || 0).toFixed(2)}`, criado_em: item.atualizado_em || item.criado_em, origem: "sistema", reserva_id: item.reserva_id })),
+    ...leadsLista.map((item) => ({ id: `lead-${item.id}`, tipo: "crm", titulo: `CRM · ${item.status || "novo"}`, descricao: item.observacoes || item.origem || item.codigo_origem, criado_em: item.atualizado_em || item.criado_em, origem: "sistema" })),
+    ...emailsLista.map((item) => ({ id: `email-${item.id}`, tipo: "comunicacao", titulo: item.erro ? "Falha no envio de e-mail" : `E-mail · ${item.tipo}`, descricao: item.assunto, criado_em: item.enviado_em || item.criado_em, origem: "sistema", reserva_id: item.reserva_id })),
+  ].sort((a, b) => new Date(String(b.criado_em)).getTime() - new Date(String(a.criado_em)).getTime()).slice(0, 500);
+
+  return {
+    usuario,
+    resumo: {
+      reservas: reservasLista.length,
+      reservas_confirmadas: reservasLista.filter((item) => item.status === "cliente_confirmado").length,
+      contratos: contratosLista.length,
+      documentos: documentosLista.length,
+      valor_contratado: valorContratado,
+      valor_pago: valorPagoCentavos / 100,
+      ultima_interacao_em: linhaTempo[0]?.criado_em || usuario.atualizado_em,
+    },
+    reservas: reservasLista,
+    pagamentos: pagamentosLista,
+    parcelas: parcelasLista,
+    contratos: contratosLista,
+    validacoes: validacoesLista,
+    documentos: documentosLista,
+    leads: leadsLista,
+    emails: emailsLista,
+    historico: linhaTempo,
+  };
 }
 
 function gerarSenhaTemporaria(): string {
@@ -243,6 +469,7 @@ router.post("/vendas/clientes", async (req: Request, res: Response) => {
       }
       return { usuario, lead };
     });
+    await registrarHistoricoCliente(criado.usuario.id, "cadastro", "Cliente criado em venda interna", "Cadastro criado pelo módulo de vendas internas", req.usuario.id, { lead_id: criado.lead?.id || null, vendedor_id: vendedorId || null });
     return res.status(201).json({ ...criado, senha_gerada: req.body?.senha ? undefined : senhaTemporaria });
   } catch (error: any) {
     if (erroDeUnicidade(error)) return res.status(409).json({ erro: "E-mail ou CPF já cadastrado" });
@@ -595,7 +822,7 @@ const CAMPOS_PUBLICOS_USUARIO = {
   atualizado_em: usuarios.atualizado_em,
 };
 
-router.get("/usuarios", async (req: Request, res: Response) => {
+router.get("/usuarios", requireRole("admin"), async (req: Request, res: Response) => {
   try {
     const { tipo, busca, pagina = "1", limite = "20" } = req.query;
 
@@ -638,7 +865,7 @@ router.get("/usuarios", async (req: Request, res: Response) => {
   }
 });
 
-router.get("/usuarios/:id", async (req: Request, res: Response) => {
+router.get("/usuarios/:id", requireRole("admin"), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -665,7 +892,7 @@ router.get("/usuarios/:id", async (req: Request, res: Response) => {
   }
 });
 
-router.post("/usuarios", async (req: Request, res: Response) => {
+router.post("/usuarios", requireRole("admin"), async (req: Request, res: Response) => {
   try {
     const {
       nome, email, cpf, rg, telefone, tipo,
@@ -722,6 +949,9 @@ router.post("/usuarios", async (req: Request, res: Response) => {
         })
         .returning(CAMPOS_PUBLICOS_USUARIO);
 
+      if (criado[0]?.tipo === "cliente" && req.usuario) {
+        await registrarHistoricoCliente(criado[0].id, "cadastro", "Cliente cadastrado", "Cadastro criado pelo painel administrativo", req.usuario.id);
+      }
       res.status(201).json({
         usuario: criado[0],
         senha_gerada: senha ? undefined : senhaTemporaria,
@@ -738,7 +968,7 @@ router.post("/usuarios", async (req: Request, res: Response) => {
   }
 });
 
-router.put("/usuarios/:id", async (req: Request, res: Response) => {
+router.put("/usuarios/:id", requireRole("admin"), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const {
@@ -809,6 +1039,9 @@ router.put("/usuarios/:id", async (req: Request, res: Response) => {
         .where(eq(usuarios.id, id))
         .returning(CAMPOS_PUBLICOS_USUARIO);
 
+      if (atualizado[0]?.tipo === "cliente" && req.usuario) {
+        await registrarHistoricoCliente(id, "cadastro_atualizado", "Cadastro atualizado", "Dados cadastrais alterados pelo painel administrativo", req.usuario.id);
+      }
       res.json({ usuario: atualizado[0] });
     } catch (error: any) {
       if (erroDeUnicidade(error)) {
@@ -822,7 +1055,7 @@ router.put("/usuarios/:id", async (req: Request, res: Response) => {
   }
 });
 
-router.patch("/usuarios/:id/status", async (req: Request, res: Response) => {
+router.patch("/usuarios/:id/status", requireRole("admin"), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { ativo } = req.body ?? {};
@@ -845,10 +1078,246 @@ router.patch("/usuarios/:id/status", async (req: Request, res: Response) => {
       return res.status(404).json({ erro: "Usuário não encontrado" });
     }
 
+    if (atualizado[0]?.tipo === "cliente" && req.usuario) {
+      await registrarHistoricoCliente(id, "status", ativo ? "Cliente reativado" : "Cliente desativado", ativo ? "Acesso reativado pelo painel" : "Acesso desativado pelo painel", req.usuario.id);
+    }
     res.json({ usuario: atualizado[0] });
   } catch (error: any) {
     console.error("[ADMIN] Erro ao atualizar status do usuário:", error);
     res.status(500).json({ erro: "Erro ao atualizar status do usuário" });
+  }
+});
+
+// ==========================================================================
+// Ficha 360º de clientes: dados, histórico, documentos, contratos e relatórios
+// ==========================================================================
+
+router.get("/clientes/exportar", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const busca = String(req.query.busca || "").trim();
+    const condicoes = [eq(usuarios.tipo, "cliente")];
+    if (busca) {
+      const termo = `%${busca}%`;
+      const digitos = somenteDigitos(busca);
+      condicoes.push(or(
+        sql`${usuarios.nome} ILIKE ${termo}`,
+        sql`${usuarios.email} ILIKE ${termo}`,
+        digitos ? sql`regexp_replace(COALESCE(${usuarios.cpf}, ''), '\\D', '', 'g') LIKE ${`%${digitos}%`}` : sql`false`,
+      )!);
+    }
+    const clientes = await db.select(CAMPOS_PUBLICOS_USUARIO).from(usuarios).where(and(...condicoes)).orderBy(desc(usuarios.criado_em));
+    const linhas = [
+      ["Nome", "E-mail", "CPF", "RG", "Telefone", "Nascimento", "Estado civil", "Profissão", "Endereço", "Nacionalidade", "Status", "Criado em"],
+      ...clientes.map((cliente) => [cliente.nome, cliente.email, cliente.cpf, cliente.rg, cliente.telefone, cliente.data_nascimento?.toISOString?.() || cliente.data_nascimento, cliente.estado_civil, cliente.profissao, cliente.endereco, cliente.nacionalidade, cliente.ativo ? "Ativo" : "Inativo", cliente.criado_em?.toISOString?.() || cliente.criado_em]),
+    ];
+    const csv = `\uFEFF${linhas.map((linha) => linha.map(csvCampo).join(";")).join("\n")}`;
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="clientes.csv"');
+    return res.send(csv);
+  } catch (error) {
+    console.error("[ADMIN/CLIENTES] Erro ao exportar clientes:", error);
+    return res.status(500).json({ erro: "Erro ao exportar clientes" });
+  }
+});
+
+router.get("/clientes/:id/ficha", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const ficha = await obterFichaCliente(req.params.id);
+    if (!ficha) return res.status(404).json({ erro: "Cliente não encontrado" });
+    return res.json(ficha);
+  } catch (error) {
+    console.error("[ADMIN/CLIENTES] Erro ao carregar ficha:", error);
+    return res.status(500).json({ erro: "Erro ao carregar ficha do cliente" });
+  }
+});
+
+router.post("/clientes/:id/historico", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const cliente = (await db.select({ id: usuarios.id }).from(usuarios).where(eq(usuarios.id, req.params.id)).limit(1))[0];
+    if (!cliente) return res.status(404).json({ erro: "Cliente não encontrado" });
+    const titulo = String(req.body?.titulo || "Anotação").trim().slice(0, 255);
+    const descricao = String(req.body?.descricao || "").trim();
+    if (!descricao) return res.status(400).json({ erro: "Informe a anotação" });
+    await registrarHistoricoCliente(cliente.id, "anotacao", titulo || "Anotação", descricao, req.usuario.id, { origem: "painel_admin" });
+    return res.status(201).json({ mensagem: "Anotação registrada" });
+  } catch (error) {
+    console.error("[ADMIN/CLIENTES] Erro ao registrar histórico:", error);
+    return res.status(500).json({ erro: "Erro ao registrar anotação" });
+  }
+});
+
+const parserDocumentoCliente = raw({ type: "application/octet-stream", limit: "12mb" });
+
+function uploadDocumentoCliente(req: Request, res: Response, next: NextFunction) {
+  parserDocumentoCliente(req, res, (error?: any) => {
+    if (error?.type === "entity.too.large") return res.status(413).json({ erro: "Arquivo excede o limite de 12 MB" });
+    if (error) return next(error);
+    return next();
+  });
+}
+
+function detectarMimeDocumento(buffer: Buffer, extensao: string): string | null {
+  const pdf = buffer.length >= 5 && buffer.subarray(0, 5).toString("ascii") === "%PDF-";
+  const jpeg = buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  const png = buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const webp = buffer.length >= 12 && buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP";
+  if (extensao === ".pdf" && pdf) return "application/pdf";
+  if ([".jpg", ".jpeg"].includes(extensao) && jpeg) return "image/jpeg";
+  if (extensao === ".png" && png) return "image/png";
+  if (extensao === ".webp" && webp) return "image/webp";
+  return null;
+}
+
+router.post("/clientes/:id/documentos", requireRole("admin"), uploadDocumentoCliente, async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const cliente = (await db.select({ id: usuarios.id }).from(usuarios).where(eq(usuarios.id, req.params.id)).limit(1))[0];
+    if (!cliente) return res.status(404).json({ erro: "Cliente não encontrado" });
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) return res.status(400).json({ erro: "Arquivo não recebido" });
+
+    const nomeOriginal = decodeURIComponent(String(req.get("x-file-name") || "documento"));
+    const extensao = nodePath.extname(nomeOriginal).toLowerCase();
+    const extensoesPermitidas = new Set([".pdf", ".jpg", ".jpeg", ".png", ".webp"]);
+    if (!extensoesPermitidas.has(extensao)) return res.status(415).json({ erro: "Extensão não permitida. Envie PDF, JPG, JPEG, PNG ou WEBP" });
+    const mimeType = detectarMimeDocumento(req.body, extensao);
+    if (!mimeType) return res.status(415).json({ erro: "O conteúdo do arquivo não corresponde a um PDF ou imagem permitida" });
+    const mimeInformado = String(req.get("x-file-mime") || "").trim().toLowerCase();
+    if (mimeInformado && mimeInformado !== mimeType) return res.status(415).json({ erro: "Tipo do arquivo inconsistente com o conteúdo enviado" });
+
+    const hash = createHash("sha256").update(req.body).digest("hex");
+    const duplicado = (await db.select({ id: clienteDocumentos.id }).from(clienteDocumentos).where(and(eq(clienteDocumentos.usuario_id, cliente.id), eq(clienteDocumentos.sha256, hash), isNull(clienteDocumentos.removido_em))).limit(1))[0];
+    if (duplicado) return res.status(409).json({ erro: "Este mesmo arquivo já consta na ficha do cliente" });
+
+    const base = nodePath.resolve(process.env.STORAGE_PATH || "./uploads");
+    const pasta = nodePath.resolve(base, "clientes", cliente.id);
+    if (!pasta.startsWith(`${base}${nodePath.sep}`)) return res.status(400).json({ erro: "Caminho de armazenamento inválido" });
+    await fs.mkdir(pasta, { recursive: true });
+    const id = createId();
+    const nomeFisico = `${Date.now()}-${id}-${nomeArquivoSeguro(nodePath.basename(nomeOriginal, extensao))}${extensao}`;
+    const arquivo = nodePath.join(pasta, nomeFisico);
+    await fs.writeFile(arquivo, req.body);
+
+    const categoriasPermitidas = new Set(["identidade", "cpf", "comprovante_residencia", "autorizacao", "comprovante_pagamento", "saude", "outros"]);
+    const categoriaBruta = String(req.query.categoria || "outros").trim().slice(0, 60) || "outros";
+    const categoria = categoriasPermitidas.has(categoriaBruta) ? categoriaBruta : "outros";
+    const nome = String(req.query.nome || nodePath.basename(nomeOriginal, extensao)).trim().slice(0, 255) || "Documento";
+    const observacoes = String(req.query.observacoes || "").trim().slice(0, 5000) || null;
+    const reservaId = String(req.query.reserva_id || "").trim() || null;
+    if (reservaId) {
+      const pertence = (await db.select({ id: reservas.id }).from(reservas).where(and(eq(reservas.id, reservaId), eq(reservas.usuario_id, cliente.id))).limit(1))[0];
+      if (!pertence) {
+        await fs.unlink(arquivo).catch(() => undefined);
+        return res.status(400).json({ erro: "A reserva informada não pertence ao cliente" });
+      }
+    }
+
+    const documento = (await db.insert(clienteDocumentos).values({
+      id,
+      usuario_id: cliente.id,
+      reserva_id: reservaId,
+      categoria,
+      nome,
+      nome_original: nomeOriginal.slice(0, 255),
+      mime_type: mimeType,
+      tamanho_bytes: req.body.length,
+      sha256: hash,
+      arquivo,
+      observacoes,
+      criado_por: req.usuario.id,
+      criado_em: new Date(),
+      atualizado_em: new Date(),
+    }).returning({
+      id: clienteDocumentos.id,
+      usuario_id: clienteDocumentos.usuario_id,
+      reserva_id: clienteDocumentos.reserva_id,
+      categoria: clienteDocumentos.categoria,
+      nome: clienteDocumentos.nome,
+      nome_original: clienteDocumentos.nome_original,
+      mime_type: clienteDocumentos.mime_type,
+      tamanho_bytes: clienteDocumentos.tamanho_bytes,
+      sha256: clienteDocumentos.sha256,
+      observacoes: clienteDocumentos.observacoes,
+      criado_em: clienteDocumentos.criado_em,
+    }))[0];
+
+    await registrarHistoricoCliente(cliente.id, "documento", "Documento adicionado", `${categoria}: ${nome}`, req.usuario.id, { documento_id: id, sha256: hash, reserva_id: reservaId });
+    return res.status(201).json({ documento });
+  } catch (error: any) {
+    console.error("[ADMIN/CLIENTES] Erro ao anexar documento:", error);
+    return res.status(500).json({ erro: "Erro ao anexar documento" });
+  }
+});
+
+router.get("/clientes/:id/documentos/:documentoId", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const documento = (await db.select().from(clienteDocumentos).where(and(eq(clienteDocumentos.id, req.params.documentoId), eq(clienteDocumentos.usuario_id, req.params.id), isNull(clienteDocumentos.removido_em))).limit(1))[0];
+    if (!documento) return res.status(404).json({ erro: "Documento não encontrado" });
+    const base = nodePath.resolve(process.env.STORAGE_PATH || "./uploads");
+    const arquivo = nodePath.resolve(documento.arquivo);
+    if (!arquivo.startsWith(`${base}${nodePath.sep}`)) return res.status(403).json({ erro: "Arquivo inválido" });
+    const conteudo = await fs.readFile(arquivo);
+    const inline = req.query.inline === "1";
+    res.setHeader("Content-Type", documento.mime_type || "application/octet-stream");
+    res.setHeader("Content-Disposition", `${inline ? "inline" : "attachment"}; filename="${nomeArquivoSeguro(documento.nome_original)}"`);
+    await registrarHistoricoCliente(documento.usuario_id, inline ? "documento_visualizado" : "documento_baixado", inline ? "Documento visualizado" : "Documento baixado", documento.nome, req.usuario.id, { documento_id: documento.id, sha256: documento.sha256 });
+    return res.send(conteudo);
+  } catch (error) {
+    console.error("[ADMIN/CLIENTES] Erro ao abrir documento:", error);
+    return res.status(500).json({ erro: "Erro ao abrir documento" });
+  }
+});
+
+router.delete("/clientes/:id/documentos/:documentoId", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const documento = (await db.select().from(clienteDocumentos).where(and(eq(clienteDocumentos.id, req.params.documentoId), eq(clienteDocumentos.usuario_id, req.params.id), isNull(clienteDocumentos.removido_em))).limit(1))[0];
+    if (!documento) return res.status(404).json({ erro: "Documento não encontrado" });
+    await db.update(clienteDocumentos).set({ removido_em: new Date(), atualizado_em: new Date() }).where(eq(clienteDocumentos.id, documento.id));
+    await fs.unlink(documento.arquivo).catch((erro) => console.warn("[ADMIN/CLIENTES] Arquivo já ausente ou não removido:", erro));
+    await registrarHistoricoCliente(documento.usuario_id, "documento_removido", "Documento removido", documento.nome, req.usuario.id, { documento_id: documento.id, sha256: documento.sha256 });
+    return res.status(204).send();
+  } catch (error) {
+    console.error("[ADMIN/CLIENTES] Erro ao remover documento:", error);
+    return res.status(500).json({ erro: "Erro ao remover documento" });
+  }
+});
+
+router.get("/clientes/:id/relatorio", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const ficha = await obterFichaCliente(req.params.id);
+    if (!ficha) return res.status(404).json({ erro: "Cliente não encontrado" });
+    const { usuario, resumo } = ficha;
+    if (String(req.query.formato || "").toLowerCase() === "csv") {
+      const linhas: unknown[][] = [
+        ["FICHA DO CLIENTE", usuario.nome],
+        ["E-mail", usuario.email], ["CPF", usuario.cpf], ["RG", usuario.rg], ["Telefone", usuario.telefone],
+        ["Nascimento", usuario.data_nascimento], ["Estado civil", usuario.estado_civil], ["Profissão", usuario.profissao], ["Endereço", usuario.endereco],
+        [], ["RESUMO"], ["Reservas", resumo.reservas], ["Reservas confirmadas", resumo.reservas_confirmadas], ["Contratos", resumo.contratos], ["Documentos", resumo.documentos], ["Valor contratado", resumo.valor_contratado], ["Valor pago", resumo.valor_pago],
+        [], ["RESERVAS"], ["ID", "Evento", "Lote", "Pacote", "Status", "Valor", "Criado em"],
+        ...ficha.reservas.map((item) => [item.id, item.evento_nome, item.lote_nome, item.pacote_nome, item.status, item.valor_total, item.criado_em]),
+        [], ["PAGAMENTOS"], ["Reserva", "Método", "Status", "Valor", "Valor pago", "Atualizado em"],
+        ...ficha.pagamentos.map((item) => [item.reserva_id, item.metodo, item.status_reconciliado || item.status, item.valor, Number(item.valor_pago_centavos || 0) / 100, item.atualizado_em]),
+        [], ["DOCUMENTOS"], ["Categoria", "Nome", "Arquivo", "SHA-256", "Criado em"],
+        ...ficha.documentos.map((item) => [item.categoria, item.nome, item.nome_original, item.sha256, item.criado_em]),
+      ];
+      const csv = `\uFEFF${linhas.map((linha) => linha.map(csvCampo).join(";")).join("\n")}`;
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="ficha-${nomeArquivoSeguro(usuario.nome)}.csv"`);
+      return res.send(csv);
+    }
+
+    const linhasReservas = ficha.reservas.map((item) => `<tr><td>${escaparHtml(item.evento_nome)}</td><td>${escaparHtml(item.lote_nome)}</td><td>${escaparHtml(item.pacote_nome || "—")}</td><td>${escaparHtml(item.status || "—")}</td><td>R$ ${Number(item.valor_total || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</td><td>${new Date(item.criado_em).toLocaleDateString("pt-BR")}</td></tr>`).join("") || '<tr><td colspan="6">Nenhuma reserva.</td></tr>';
+    const linhasContratos = ficha.contratos.map((item) => `<tr><td>${escaparHtml(item.reserva_id)}</td><td>v${item.versao}</td><td>${escaparHtml(item.status)}</td><td>${item.validado_em ? new Date(item.validado_em).toLocaleString("pt-BR") : "—"}</td><td>${escaparHtml(item.pdf_sha256 || "—")}</td></tr>`).join("") || '<tr><td colspan="5">Nenhum contrato.</td></tr>';
+    const linhasDocumentos = ficha.documentos.map((item) => `<tr><td>${escaparHtml(item.categoria)}</td><td>${escaparHtml(item.nome)}</td><td>${escaparHtml(item.nome_original)}</td><td>${new Date(item.criado_em).toLocaleString("pt-BR")}</td></tr>`).join("") || '<tr><td colspan="4">Nenhum documento adicional.</td></tr>';
+    const linhasHistorico = ficha.historico.slice(0, 80).map((item: any) => `<tr><td>${new Date(item.criado_em).toLocaleString("pt-BR")}</td><td>${escaparHtml(item.tipo)}</td><td>${escaparHtml(item.titulo)}</td><td>${escaparHtml(item.descricao || "")}</td></tr>`).join("");
+    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Ficha de ${escaparHtml(usuario.nome)}</title><style>body{font-family:Arial,sans-serif;color:#182d3b;margin:32px;font-size:12px}h1{font-family:Georgia,serif;font-size:28px;margin:0 0 4px}h2{font-family:Georgia,serif;font-size:18px;margin-top:26px;border-bottom:1px solid #ddd;padding-bottom:6px}.muted{color:#667085}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.box{border:1px solid #ddd;border-radius:10px;padding:12px}.box strong{display:block;font-size:18px;color:#851f32}table{width:100%;border-collapse:collapse;margin-top:8px}th,td{border-bottom:1px solid #e5e7eb;text-align:left;padding:7px;vertical-align:top}th{background:#f8f5ef}.dados{display:grid;grid-template-columns:1fr 1fr;gap:6px 24px}.dados div{padding:4px 0}.label{font-size:10px;text-transform:uppercase;color:#667085}@media print{body{margin:10mm}}</style></head><body><h1>${escaparHtml(usuario.nome)}</h1><p class="muted">Ficha completa do cliente · gerada em ${new Date().toLocaleString("pt-BR")}</p><section class="dados"><div><span class="label">E-mail</span><br>${escaparHtml(usuario.email)}</div><div><span class="label">Telefone</span><br>${escaparHtml(usuario.telefone || "—")}</div><div><span class="label">CPF</span><br>${escaparHtml(usuario.cpf || "—")}</div><div><span class="label">RG</span><br>${escaparHtml(usuario.rg || "—")}</div><div><span class="label">Nascimento</span><br>${usuario.data_nascimento ? new Date(usuario.data_nascimento).toLocaleDateString("pt-BR") : "—"}</div><div><span class="label">Estado civil / profissão</span><br>${escaparHtml(usuario.estado_civil || "—")} · ${escaparHtml(usuario.profissao || "—")}</div><div><span class="label">Endereço</span><br>${escaparHtml(usuario.endereco || "—")}</div><div><span class="label">Cliente desde</span><br>${new Date(usuario.criado_em).toLocaleDateString("pt-BR")}</div></section><h2>Resumo</h2><div class="grid"><div class="box"><span>Reservas</span><strong>${resumo.reservas}</strong></div><div class="box"><span>Contratos</span><strong>${resumo.contratos}</strong></div><div class="box"><span>Documentos</span><strong>${resumo.documentos}</strong></div><div class="box"><span>Valor contratado</span><strong>R$ ${Number(resumo.valor_contratado).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</strong></div><div class="box"><span>Valor pago</span><strong>R$ ${Number(resumo.valor_pago).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</strong></div><div class="box"><span>Status</span><strong>${usuario.ativo ? "Ativo" : "Inativo"}</strong></div></div><h2>Reservas e viagens</h2><table><thead><tr><th>Evento</th><th>Lote</th><th>Pacote</th><th>Status</th><th>Valor</th><th>Data</th></tr></thead><tbody>${linhasReservas}</tbody></table><h2>Contratos</h2><table><thead><tr><th>Reserva</th><th>Versão</th><th>Status</th><th>Validação</th><th>Hash PDF</th></tr></thead><tbody>${linhasContratos}</tbody></table><h2>Documentos</h2><table><thead><tr><th>Categoria</th><th>Nome</th><th>Arquivo</th><th>Data</th></tr></thead><tbody>${linhasDocumentos}</tbody></table><h2>Histórico</h2><table><thead><tr><th>Quando</th><th>Tipo</th><th>Evento</th><th>Detalhe</th></tr></thead><tbody>${linhasHistorico}</tbody></table></body></html>`;
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    return res.send(html);
+  } catch (error) {
+    console.error("[ADMIN/CLIENTES] Erro ao gerar relatório:", error);
+    return res.status(500).json({ erro: "Erro ao gerar relatório do cliente" });
   }
 });
 

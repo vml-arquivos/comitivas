@@ -37,7 +37,7 @@ export function AdminLayout() {
     { name: 'Reservas', path: '/admin/reservas', icon: CalendarDays, roles: ['admin', 'vendedor'] },
     { name: 'Contratos', path: '/admin/contratos', icon: FileText, roles: ['admin', 'vendedor'] },
     { name: 'Pagamentos', path: '/admin/pagamentos', icon: CreditCard, roles: ['admin'] },
-    { name: 'Clientes & Usuários', path: '/admin/clientes', icon: UserCog, roles: ['admin'] },
+    { name: 'Clientes', path: '/admin/clientes', icon: UserCog, roles: ['admin'] },
     { name: 'Jornada (CRM)', path: '/admin/jornada', icon: Users, roles: ['admin', 'vendedor'] },
     { name: 'Cupons', path: '/admin/cupons', icon: Ticket, roles: ['admin'] },
     { name: 'Configurações', path: '/admin/configuracoes', icon: Settings, roles: ['admin'] },
@@ -62,7 +62,7 @@ export function AdminLayout() {
           <nav className="space-y-1">
             {navItems.filter(item => user && item.roles.includes(user.tipo)).map((item) => {
               const Icon = item.icon;
-              const isActive = location.pathname === item.path;
+              const isActive = location.pathname === item.path || (item.path !== '/admin' && location.pathname.startsWith(`${item.path}/`));
               
               return (
                 <Link

@@ -71,6 +71,13 @@
       "when": 1788000000000,
       "tag": "0009_comercial_preco_comissao_email",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1788667200000,
+      "tag": "0010_clientes_ficha_documentos_historico",
+      "breakpoints": true
     }
   ]
 }

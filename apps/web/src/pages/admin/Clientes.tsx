@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../../contexts/AuthContext';
 import { Card, CardContent, Button, Input } from '@ui/index';
-import { Plus, X, Pencil, Power, Search } from 'lucide-react';
+import { Download, Eye, Plus, X, Pencil, Power, Search } from 'lucide-react';
 
 interface Usuario {
   id: string;
@@ -42,11 +43,12 @@ const FORM_VAZIO = {
 };
 
 export default function Clientes() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [filtroTipo, setFiltroTipo] = useState<string>('');
+  const [filtroTipo, setFiltroTipo] = useState<string>('cliente');
   const [busca, setBusca] = useState('');
 
   const [mostrarForm, setMostrarForm] = useState(false);
@@ -118,6 +120,24 @@ export default function Clientes() {
     setFormErro(null);
   };
 
+  useEffect(() => {
+    const editarId = searchParams.get('editar');
+    if (!editarId || isLoading || mostrarForm) return;
+    const usuario = usuarios.find((item) => item.id === editarId);
+    if (!usuario) return;
+    abrirEdicao(usuario);
+    const proximos = new URLSearchParams(searchParams);
+    proximos.delete('editar');
+    setSearchParams(proximos, { replace: true });
+  }, [isLoading, mostrarForm, searchParams, setSearchParams, usuarios]);
+
+  const exportarClientes = () => {
+    const params = new URLSearchParams();
+    if (busca.trim()) params.set('busca', busca.trim());
+    const sufixo = params.toString() ? `?${params.toString()}` : '';
+    window.open(`/api/admin/clientes/exportar${sufixo}`, '_blank', 'noopener,noreferrer');
+  };
+
   const handleSalvar = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormErro(null);
@@ -177,12 +197,21 @@ export default function Clientes() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">Clientes & Usuários</h1>
-        <Button onClick={mostrarForm ? fecharForm : abrirNovo} className="flex items-center gap-2">
-          {mostrarForm ? <X size={16} /> : <Plus size={16} />}
-          {mostrarForm ? 'Cancelar' : 'Novo Cadastro'}
-        </Button>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-wide text-primary">Relacionamento e cadastro</p>
+          <h1 className="text-3xl font-bold text-gray-900">Clientes</h1>
+          <p className="mt-1 max-w-3xl text-sm text-gray-600">Central de fichas, dados cadastrais, reservas, contratos, pagamentos, documentos e histórico de atendimento.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" onClick={exportarClientes} className="flex items-center gap-2">
+            <Download size={16} /> Exportar clientes
+          </Button>
+          <Button onClick={mostrarForm ? fecharForm : abrirNovo} className="flex items-center gap-2">
+            {mostrarForm ? <X size={16} /> : <Plus size={16} />}
+            {mostrarForm ? 'Cancelar' : 'Novo cadastro'}
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">
@@ -201,8 +230,8 @@ export default function Clientes() {
           onChange={(e) => setFiltroTipo(e.target.value)}
           className="flex h-10 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
         >
-          <option value="">Todos os tipos</option>
           <option value="cliente">Clientes</option>
+          <option value="">Todos os tipos</option>
           <option value="vendedor">Vendedores</option>
           <option value="admin">Administradores</option>
         </select>
@@ -352,7 +381,17 @@ export default function Clientes() {
                         {usuario.ativo ? 'Ativo' : 'Inativo'}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-right space-x-2">
+                    <td className="px-6 py-4 text-right space-x-2 whitespace-nowrap">
+                      {usuario.tipo === 'cliente' && (
+                        <Link
+                          to={`/admin/clientes/${usuario.id}`}
+                          className="inline-flex p-1 text-gray-500 transition-colors hover:text-primary"
+                          title="Abrir ficha completa"
+                          aria-label={`Abrir ficha de ${usuario.nome}`}
+                        >
+                          <Eye size={18} />
+                        </Link>
+                      )}
                       <button
                         onClick={() => abrirEdicao(usuario)}
                         className="text-gray-500 hover:text-primary transition-colors p-1"
