@@ -44,10 +44,10 @@ export default function LeadCapture() {
 
   if (sucesso) {
     return (
-      <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-8 text-center shadow-sm">
-        <CheckCircle2 className="mx-auto text-emerald-600" size={42} />
-        <h3 className="mt-4 text-2xl font-black text-slate-900">Seu interesse foi registrado.</h3>
-        <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-600">
+      <div className="rounded-[2rem] border border-[#365B41]/20 bg-[#EEF5F0] p-8 text-center shadow-sm">
+        <CheckCircle2 className="mx-auto text-[#365B41]" size={42} />
+        <h3 className="font-editorial mt-4 text-3xl font-bold text-[#182D3B]">Seu interesse foi registrado.</h3>
+        <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-[#182D3B]/65">
           Agora abra a conversa para receber as informações da excursão e confirmar a disponibilidade da modalidade escolhida.
         </p>
         <WhatsAppCTA
@@ -61,25 +61,25 @@ export default function LeadCapture() {
   }
 
   return (
-    <div className="grid overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl shadow-slate-950/10 lg:grid-cols-[0.9fr_1.1fr]">
-      <div className="bg-gradient-to-br from-slate-950 via-[#4a1017] to-primary p-8 text-white sm:p-10">
-        <MessageCircle size={34} className="text-[#ff9fa6]" />
-        <p className="mt-6 text-xs font-bold uppercase tracking-[0.18em] text-[#ffb0b5]">Atendimento personalizado</p>
-        <h3 className="mt-3 text-3xl font-black leading-tight">Receba o roteiro completo pelo WhatsApp.</h3>
-        <p className="mt-5 text-sm leading-6 text-slate-200">
+    <div className="grid overflow-hidden rounded-[2rem] border border-[#182D3B]/10 bg-white shadow-[0_22px_60px_rgba(24,45,59,0.10)] lg:grid-cols-[0.9fr_1.1fr]">
+      <div className="bg-[#182D3B] p-8 text-white sm:p-10">
+        <MessageCircle size={34} className="text-[#E3AAB4]" />
+        <p className="mt-6 text-xs font-bold uppercase tracking-[0.18em] text-[#D6A6AE]">Atendimento personalizado</p>
+        <h3 className="font-editorial mt-3 text-4xl font-bold leading-tight tracking-[-0.03em]">Receba o roteiro completo pelo WhatsApp.</h3>
+        <p className="mt-5 text-sm leading-6 text-white/72">
           Deixe seu contato para a equipe apresentar datas, disponibilidade, condições de pagamento e a modalidade que melhor combina com você.
         </p>
-        <ul className="mt-7 space-y-3 text-sm text-slate-100">
-          <li className="flex gap-2"><CheckCircle2 size={18} className="shrink-0 text-[#ff9fa6]" />Informação sem compromisso</li>
-          <li className="flex gap-2"><CheckCircle2 size={18} className="shrink-0 text-[#ff9fa6]" />Atendimento humano da nossa equipe</li>
-          <li className="flex gap-2"><CheckCircle2 size={18} className="shrink-0 text-[#ff9fa6]" />Escolhas registradas para você continuar depois</li>
+        <ul className="mt-7 space-y-3 text-sm text-white/82">
+          <li className="flex gap-2"><CheckCircle2 size={18} className="shrink-0 text-[#E3AAB4]" />Informação sem compromisso</li>
+          <li className="flex gap-2"><CheckCircle2 size={18} className="shrink-0 text-[#E3AAB4]" />Atendimento humano da nossa equipe</li>
+          <li className="flex gap-2"><CheckCircle2 size={18} className="shrink-0 text-[#E3AAB4]" />Escolhas registradas para você continuar depois</li>
         </ul>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5 p-8 sm:p-10">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-primary">Quero saber mais</p>
-          <h3 className="mt-2 text-2xl font-black text-secondary">Fale com a Excursão das Comitivas</h3>
+          <h3 className="font-editorial mt-2 text-3xl font-bold text-secondary">Fale com a Excursão das Comitivas</h3>
         </div>
         {error && <div role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</div>}
         <Input label="Seu nome *" value={form.nome} onChange={(event) => setForm({ ...form, nome: event.target.value })} required autoComplete="name" />
@@ -94,7 +94,7 @@ export default function LeadCapture() {
             {OPCOES.map((opcao) => <option key={opcao.value} value={opcao.value}>{opcao.label}</option>)}
           </select>
         </div>
-        <label className="flex cursor-pointer items-start gap-3 rounded-xl bg-slate-50 p-4 text-xs leading-5 text-slate-600">
+        <label className="flex cursor-pointer items-start gap-3 rounded-xl bg-slate-50 p-4 text-xs leading-5 text-[#182D3B]/65">
           <input
             type="checkbox"
             checked={form.consentimento_whatsapp}

@@ -36,6 +36,7 @@ export default function ConfiguradorPacote() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
+  const pacoteSolicitado = searchParams.get('pacote');
   const [itensDisponiveis, setItensDisponiveis] = useState<any[]>([]);
   const [pacotes, setPacotes] = useState<PacotePublicado[]>([]);
   const [pacoteId, setPacoteId] = useState<string>('');
@@ -63,9 +64,22 @@ export default function ConfiguradorPacote() {
         setItensDisponiveis(itensResponse.data.itens || []);
         setPacotes(listaPacotes);
         const intencaoSalva = lerIntencaoCheckout();
-        if (intencaoSalva?.loteId === loteId && listaPacotes.some((pacote: PacotePublicado) => pacote.id === intencaoSalva.pacoteId)) {
-          setPacoteId(intencaoSalva.pacoteId);
-          setItensSelecionados(intencaoSalva.itensSelecionados || {});
+        const pacoteDaUrl = pacoteSolicitado
+          ? listaPacotes.find((pacote: PacotePublicado) => pacote.id === pacoteSolicitado && pacote.disponibilidade !== 'esgotado')
+          : undefined;
+        const pacoteSalvoId = intencaoSalva && intencaoSalva.loteId === loteId ? intencaoSalva.pacoteId : undefined;
+        const pacoteSalvoValido = pacoteSalvoId
+          ? listaPacotes.some((pacote: PacotePublicado) => pacote.id === pacoteSalvoId && pacote.disponibilidade !== 'esgotado')
+          : false;
+
+        if (pacoteDaUrl) {
+          setPacoteId(pacoteDaUrl.id);
+          if (intencaoSalva && intencaoSalva.loteId === loteId && intencaoSalva.pacoteId === pacoteDaUrl.id) {
+            setItensSelecionados(intencaoSalva.itensSelecionados || {});
+          }
+        } else if (pacoteSalvoValido && pacoteSalvoId) {
+          setPacoteId(pacoteSalvoId);
+          setItensSelecionados(intencaoSalva?.itensSelecionados || {});
         } else if (listaPacotes.length === 1 && listaPacotes[0].disponibilidade !== 'esgotado') {
           setPacoteId(listaPacotes[0].id);
         }
@@ -78,7 +92,7 @@ export default function ConfiguradorPacote() {
       }
     };
     carregarConfigurador();
-  }, [loteId]);
+  }, [loteId, pacoteSolicitado]);
 
   const pacoteSelecionado = useMemo(() => pacotes.find((pacote) => pacote.id === pacoteId), [pacotes, pacoteId]);
 
@@ -162,7 +176,7 @@ export default function ConfiguradorPacote() {
           lead_intent_token: leadIntentToken,
         }).catch(() => undefined);
       }
-      const retorno = `/pacote/${loteId}?retomar=1${searchParams.get('ref') ? `&ref=${encodeURIComponent(searchParams.get('ref')!)}` : ''}`;
+      const retorno = `/pacote/${loteId}?retomar=1${pacoteId ? `&pacote=${encodeURIComponent(pacoteId)}` : ''}${searchParams.get('ref') ? `&ref=${encodeURIComponent(searchParams.get('ref')!)}` : ''}`;
       navigate(`/cadastro?redirect=${encodeURIComponent(retorno)}`);
       return;
     }
@@ -192,20 +206,20 @@ export default function ConfiguradorPacote() {
     }
   };
 
-  if (isLoading) return <div className="py-16 text-center text-gray-500">Preparando sua experiência...</div>;
+  if (isLoading) return <div className="mx-auto max-w-7xl px-4 py-20 text-center text-[#182D3B]/60 sm:px-6 lg:px-8">Preparando sua experiência...</div>;
 
   return (
-    <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+    <div className="mx-auto grid max-w-7xl grid-cols-1 gap-8 px-4 py-10 sm:px-6 sm:py-14 lg:grid-cols-3 lg:px-8">
       <Helmet>
         <title>Monte seu pacote | Excursão das Comitivas</title>
         <meta name="description" content="Escolha a modalidade de hospedagem e confira as condições da sua reserva para Barretos." />
         <meta name="robots" content="noindex,follow" />
       </Helmet>
       <div className="space-y-6 lg:col-span-2">
-        <section className="rounded-2xl bg-gradient-to-r from-slate-950 to-primary p-7 text-white shadow-xl">
-          <div className="flex items-center gap-3 text-amber-300"><Sparkles size={18} /><span className="text-xs font-bold uppercase tracking-[0.18em]">Sua experiência, suas escolhas</span></div>
-          <h1 className="mt-3 text-3xl font-bold">Monte seu pacote de viagem</h1>
-          <p className="mt-2 max-w-2xl text-sm text-slate-200">Defina a hospedagem e complemente a sua reserva. O valor e o contrato serão gerados com base exatamente nas escolhas confirmadas.</p>
+        <section className="rounded-[2rem] bg-[#182D3B] p-7 text-white shadow-[0_18px_50px_rgba(24,45,59,0.18)]">
+          <div className="flex items-center gap-3 text-[#E3AAB4]"><Sparkles size={18} /><span className="text-xs font-bold uppercase tracking-[0.18em]">Sua experiência, suas escolhas</span></div>
+          <h1 className="font-editorial mt-3 text-4xl font-bold tracking-[-0.03em]">Monte seu pacote de viagem</h1>
+          <p className="mt-3 max-w-2xl text-sm leading-7 text-white/75">Defina a hospedagem e complemente a sua reserva. O valor e o contrato serão gerados com base exatamente nas escolhas confirmadas.</p>
         </section>
 
         {error && <div className="rounded-lg bg-red-50 p-4 text-red-700">{error}</div>}
@@ -257,7 +271,7 @@ export default function ConfiguradorPacote() {
       </div>
 
       <aside className="lg:col-span-1">
-        <Card className="sticky top-24 overflow-hidden shadow-xl"><CardHeader className="border-b bg-slate-950 text-white"><CardTitle>Resumo da reserva</CardTitle></CardHeader><CardContent className="space-y-4 p-6">
+        <Card className="sticky top-[104px] overflow-hidden border-[#182D3B]/10 shadow-[0_18px_45px_rgba(24,45,59,0.10)]"><CardHeader className="border-b bg-[#182D3B] text-white"><CardTitle>Resumo da reserva</CardTitle></CardHeader><CardContent className="space-y-4 p-6">
           <div className="flex justify-between text-sm"><span className="text-gray-600">Hospedagem</span><span className="max-w-40 text-right font-medium">{pacoteSelecionado?.nome || (pacotes.length ? 'Escolha uma opção' : 'Pacote base')}</span></div>
           <div className="flex justify-between text-sm"><span className="text-gray-600">Valor-base</span><span className="font-medium">{formatarMoeda(calculo?.valor_base || 0)}</span></div>
           {Object.entries(itensSelecionados).some(([, qtd]) => qtd > 0) && <div className="space-y-2 border-t pt-4"><p className="text-xs font-bold uppercase text-gray-500">Adicionais</p>{Object.entries(itensSelecionados).filter(([, qtd]) => qtd > 0).map(([id, qtd]) => { const item = itensDisponiveis.find((i) => i.id === id); return item ? <div key={id} className="flex justify-between text-sm"><span className="text-gray-600">{item.nome}</span><span>{formatarMoeda(Number(item.valor) * qtd)}</span></div> : null; })}</div>}
