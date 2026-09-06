@@ -1,6 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { lazy, Suspense } from 'react';
-import { HelmetProvider } from 'react-helmet-async';
+import { lazy, Suspense, useEffect } from 'react';
+import { Helmet, HelmetProvider } from 'react-helmet-async';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { MainLayout } from './layouts/MainLayout';
 import { AdminLayout } from './layouts/AdminLayout';
@@ -53,8 +53,26 @@ const ProtectedRoute = ({ children, roles }: { children: React.ReactNode, roles?
   return <>{children}</>;
 };
 
+function RouteEffects() {
+  const location = useLocation();
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [location.pathname]);
+
+  const indexavel = /^(?:\/$|\/(?:historia|galeria|avaliacoes|regras|eventos|privacidade|termos|cancelamento)\/?$|\/(?:excursao|excursoes)\/[^/]+\/?$)/.test(location.pathname);
+
+  return indexavel ? null : (
+    <Helmet>
+      <meta name="robots" content="noindex,nofollow" />
+    </Helmet>
+  );
+}
+
 function AppRoutes() {
   return (
+    <>
+    <RouteEffects />
     <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-[#fffaf5] text-sm font-semibold text-secondary">Carregando a experiência da comitiva...</div>}>
     <Routes>
       {/* Rotas Públicas */}
@@ -148,6 +166,7 @@ function AppRoutes() {
       </Route>
     </Routes>
     </Suspense>
+    </>
   );
 }
 

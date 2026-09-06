@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { AlertCircle, ArrowRight, Bed, Bus, Calendar, CheckCircle2, MapPin, Snowflake, TentTree, Wind } from 'lucide-react';
+import { AlertCircle, ArrowRight, BedDouble, Calendar, Check, MapPin, MessageCircle } from 'lucide-react';
 import { Button, WhatsAppCTA } from '@ui/index';
 import { api } from '../contexts/AuthContext';
 
@@ -9,8 +9,8 @@ type Modalidade = {
   id: string;
   nome: string;
   descricao?: string | null;
-  modalidade_hospedagem: 'camping' | 'quarto_ventilador' | 'quarto_ar_condicionado';
-  disponibilidade: 'disponivel' | 'ultimas_vagas' | 'esgotado';
+  modalidade_hospedagem?: string | null;
+  disponibilidade?: 'disponivel' | 'ultimas_vagas' | 'esgotado' | string | null;
   valor_total: string | number;
   itens_inclusos?: unknown;
 };
@@ -40,23 +40,34 @@ function slugify(valor: string) {
   return valor.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
 
-const modalidadeMeta = {
-  camping: { label: 'Camping', Icone: TentTree },
-  quarto_ventilador: { label: 'Quarto com ventilador', Icone: Wind },
-  quarto_ar_condicionado: { label: 'Quarto com ar-condicionado', Icone: Snowflake },
-};
+function formatarData(valor: string) {
+  const data = new Date(valor);
+  if (Number.isNaN(data.getTime())) return valor;
+  return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }).format(data);
+}
+
+function formatarMoeda(valor: string | number) {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor) || 0);
+}
+
+function itensInclusos(valor: unknown): string[] {
+  if (!Array.isArray(valor)) return [];
+  return valor.map((item) => typeof item === 'string' ? item : String((item as any)?.nome || '')).filter(Boolean);
+}
+
+function statusOferta(disponibilidade?: string | null) {
+  if (disponibilidade === 'esgotado') return { label: 'Esgotado', classe: 'bg-[#182D3B] text-white' };
+  if (disponibilidade === 'ultimas_vagas') return { label: 'Últimas vagas', classe: 'bg-[#F6E8C9] text-[#6B4D14]' };
+  return { label: 'Disponível', classe: 'bg-[#E9F1EB] text-[#365B41]' };
+}
 
 const mensagemWhatsApp = 'Olá! Quero receber as informações completas dos pacotes disponíveis da Excursão das Comitivas para Barretos.';
-
-function data(valor: string) {
-  return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(valor));
-}
 
 function Skeleton() {
   return (
     <div className="space-y-6 py-10" aria-label="Carregando excursões">
-      <div className="mx-auto h-10 w-72 animate-pulse rounded-xl bg-slate-200" />
-      {[1, 2].map((item) => <div key={item} className="h-80 animate-pulse rounded-3xl bg-slate-100" />)}
+      <div className="mx-auto h-10 w-72 animate-pulse rounded-xl bg-[#182D3B]/10" />
+      {[1, 2].map((item) => <div key={item} className="h-80 animate-pulse rounded-[2rem] bg-white" />)}
     </div>
   );
 }
@@ -85,132 +96,159 @@ export default function Eventos() {
   };
 
   useEffect(() => {
-    carregar();
+    void carregar();
   }, []);
 
+  const tituloPagina = identificadorEvento ? `${eventosExibidos[0]?.nome || 'Excursão para Barretos'} | Excursão das Comitivas` : 'Pacotes para Barretos | Excursão das Comitivas';
+  const canonical = `https://excursaodascomitivas.com.br/${identificadorEvento ? `excursao/${encodeURIComponent(eventoSlug || identificadorEvento)}` : 'eventos'}`;
+
   return (
-    <div className="min-h-screen bg-[#fffdf9]">
+    <div className="min-h-screen bg-[#F8F5EF] text-[#182D3B]">
       <Helmet>
-        <title>{identificadorEvento ? `${eventosExibidos[0]?.nome || 'Oferta para Barretos 2026'} | Excursão das Comitivas` : 'Pacotes para Barretos 2026 | Excursão das Comitivas'}</title>
-        <meta name="description" content="Compare modalidades, veja o que está incluso e continue para reservar sua experiência em Barretos." />
+        <title>{tituloPagina}</title>
+        <meta name="description" content="Compare as excursões e pacotes publicados para Barretos, consulte preços e disponibilidade e continue para montar sua reserva." />
         <meta name="robots" content="index,follow" />
-        <link rel="canonical" href={`https://excursaodascomitivas.com.br/${identificadorEvento ? `excursao/${encodeURIComponent(eventoSlug || identificadorEvento)}` : 'eventos'}`} />
+        <link rel="canonical" href={canonical} />
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="Excursão das Comitivas" />
-        <meta property="og:title" content="Pacotes para Barretos 2026 | Excursão das Comitivas" />
-        <meta property="og:description" content="Escolha sua modalidade, confira o que está incluso e fale com a equipe da Excursão das Comitivas." />
-        <meta property="og:url" content={`https://excursaodascomitivas.com.br/${identificadorEvento ? `excursao/${encodeURIComponent(eventoSlug || identificadorEvento)}` : 'eventos'}`} />
+        <meta property="og:title" content={tituloPagina} />
+        <meta property="og:description" content="Veja os pacotes publicados para Barretos e escolha sua experiência." />
+        <meta property="og:url" content={canonical} />
         <meta property="og:image" content="https://excursaodascomitivas.com.br/images/logo-compartilhamento.webp" />
         <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content="Pacotes para Barretos 2026 | Excursão das Comitivas" />
-        <meta name="twitter:description" content="Camping e quartos organizados para viver Barretos com tranquilidade." />
+        <meta name="twitter:title" content={tituloPagina} />
+        <meta name="twitter:description" content="Pacotes publicados, preços e disponibilidade para sua próxima excursão." />
         <meta name="twitter:image" content="https://excursaodascomitivas.com.br/images/logo-compartilhamento.webp" />
       </Helmet>
 
-      <section className="relative -mx-4 -mt-8 overflow-hidden bg-slate-950 px-4 py-24 text-white sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
-        <img src="/images/hero-parque-peao.jpg" alt="" className="absolute inset-0 h-full w-full object-cover opacity-45" />
-        <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/85 to-primary/55" />
-        <div className="relative mx-auto max-w-5xl text-center">
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-[#ff9fa6]">Escolha como viver Barretos</p>
-          <h1 className="mt-4 text-4xl font-black tracking-tight sm:text-6xl">Sua experiência começa pela escolha certa.</h1>
-          <p className="mx-auto mt-6 max-w-3xl text-lg leading-8 text-slate-200">Compare modalidades, veja preços e tudo o que está incluso. O cadastro só é solicitado quando você decidir continuar para a reserva.</p>
-          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-            <a href="#ofertas"><Button size="lg">Ver excursões abertas <ArrowRight size={18} className="ml-2" /></Button></a>
-            <WhatsAppCTA mensagem={mensagemWhatsApp} label="Tirar dúvidas no WhatsApp" size="lg" />
+      <section className="border-b border-[#182D3B]/10 bg-[#F8F5EF] px-4 py-16 sm:px-6 sm:py-20 lg:px-8">
+        <div className="mx-auto grid max-w-7xl items-end gap-10 lg:grid-cols-[1.05fr_0.95fr]">
+          <div>
+            <p className="text-xs font-extrabold uppercase tracking-[0.22em] text-[#851F32]">Excursões & pacotes</p>
+            <h1 className="font-editorial mt-5 max-w-4xl text-5xl font-bold leading-[0.98] tracking-[-0.045em] text-[#182D3B] sm:text-6xl">
+              Escolha a experiência que combina com a sua viagem.
+            </h1>
+            <p className="mt-6 max-w-2xl text-base leading-8 text-[#182D3B]/68 sm:text-lg">
+              A vitrine usa as ofertas publicadas pelo sistema. Preço, disponibilidade e pacote selecionado continuam sob responsabilidade do backend.
+            </p>
+          </div>
+          <div className="relative min-h-[300px] overflow-hidden rounded-[2rem] bg-[#182D3B] shadow-[0_24px_60px_rgba(24,45,59,0.18)]">
+            <img src="/images/hero-parque-peao.jpg" alt="Parque do Peão em Barretos" className="absolute inset-0 h-full w-full object-cover opacity-75" width="900" height="620" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#182D3B]/80 via-[#182D3B]/15 to-transparent" />
+            <div className="absolute inset-x-0 bottom-0 p-7 text-white">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/70">Barretos, São Paulo</p>
+              <p className="font-editorial mt-2 text-3xl font-bold">Sua próxima história começa aqui.</p>
+            </div>
           </div>
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl py-20" id="ofertas">
-        <div className="mb-10 text-center">
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-primary">Vagas e modalidades em tempo real</p>
-          <h2 className="mt-3 text-3xl font-black text-secondary sm:text-4xl">Excursões disponíveis</h2>
-          <p className="mx-auto mt-4 max-w-2xl text-slate-600">Preços e disponibilidade vêm do servidor. A condição final é congelada no contrato antes do pagamento.</p>
+      <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6 sm:py-20 lg:px-8" id="ofertas">
+        <div className="flex flex-col justify-between gap-5 border-b border-[#182D3B]/10 pb-8 md:flex-row md:items-end">
+          <div>
+            <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[#851F32]">Oferta publicada</p>
+            <h2 className="font-editorial mt-3 text-4xl font-bold tracking-[-0.035em] text-[#182D3B]">Encontre seu pacote</h2>
+          </div>
+          <p className="max-w-xl text-sm leading-6 text-[#182D3B]/60">Escolha diretamente o pacote desejado. O configurador confirmará a seleção contra a lista atual retornada pelo servidor.</p>
         </div>
 
         {isLoading && <Skeleton />}
 
         {!isLoading && error && (
-          <div className="mx-auto max-w-lg rounded-2xl border border-red-200 bg-red-50 p-6 text-center">
-            <AlertCircle className="mx-auto text-red-600" size={34} />
-            <h3 className="mt-3 font-bold text-red-950">Não conseguimos carregar as ofertas.</h3>
-            <p className="mt-1 text-sm text-red-700">{error}</p>
-            <Button variant="outline" className="mt-5" onClick={carregar}>Tentar novamente</Button>
+          <div className="mx-auto mt-10 max-w-xl rounded-[1.75rem] border border-[#851F32]/15 bg-white p-8 text-center shadow-sm">
+            <AlertCircle className="mx-auto text-[#851F32]" size={34} />
+            <h3 className="font-editorial mt-4 text-2xl font-bold text-[#182D3B]">Não conseguimos carregar as ofertas.</h3>
+            <p className="mt-2 text-sm leading-6 text-[#182D3B]/65">{error}</p>
+            <Button variant="outline" className="mt-5" onClick={() => void carregar()}>Tentar novamente</Button>
           </div>
         )}
 
         {!isLoading && !error && eventosExibidos.length === 0 && (
-          <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center">
-            <Calendar className="mx-auto text-primary" size={38} />
-            <h3 className="mt-4 text-2xl font-black text-secondary">Novas datas serão publicadas em breve.</h3>
-            <p className="mt-2 text-slate-600">Fale com a equipe para entrar na lista de interesse da próxima excursão.</p>
-            <WhatsAppCTA mensagem={mensagemWhatsApp} label="Entrar na lista pelo WhatsApp" className="mt-6" />
+          <div className="mt-10 rounded-[2rem] border border-dashed border-[#182D3B]/20 bg-white p-12 text-center">
+            <Calendar className="mx-auto text-[#851F32]" size={38} />
+            <h3 className="font-editorial mt-4 text-3xl font-bold text-[#182D3B]">Novas datas serão publicadas em breve.</h3>
+            <p className="mt-3 text-[#182D3B]/65">Fale com a equipe para acompanhar a próxima excursão.</p>
+            <WhatsAppCTA mensagem={mensagemWhatsApp} label="Falar com a equipe" className="mt-6" />
           </div>
         )}
 
-        <div className="space-y-8">
+        <div className="mt-10 space-y-10">
           {eventosExibidos.map((evento) => (
-            <article key={evento.id} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl shadow-slate-950/5">
-              <div className="grid lg:grid-cols-[0.75fr_1.25fr]">
-                <div className="relative min-h-72 overflow-hidden bg-slate-950">
-                  <img src="/images/hero-parque-peao.jpg" alt={`Parque do Peão — ${evento.nome}`} className="absolute inset-0 h-full w-full object-cover opacity-70" />
-                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent" />
+            <article key={evento.id} className="overflow-hidden rounded-[2rem] border border-[#182D3B]/10 bg-white shadow-[0_18px_50px_rgba(24,45,59,0.08)]">
+              <div className="grid lg:grid-cols-[0.36fr_0.64fr]">
+                <div className="relative min-h-[300px] overflow-hidden bg-[#182D3B] lg:min-h-full">
+                  <img src="/images/hero-parque-peao.jpg" alt="" aria-hidden="true" className="absolute inset-0 h-full w-full object-cover opacity-65" loading="lazy" width="760" height="980" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#182D3B] via-[#182D3B]/45 to-transparent" />
                   <div className="absolute inset-x-0 bottom-0 p-7 text-white">
-                    <p className="text-xs font-black uppercase tracking-[0.16em] text-[#ff9fa6]">Excursão aberta</p>
-                    <h2 className="mt-2 text-3xl font-black">{evento.nome}</h2>
-                    <div className="mt-4 space-y-2 text-sm text-slate-100">
-                      <p className="flex items-center gap-2"><MapPin size={16} className="text-[#ff9fa6]" />{evento.local}</p>
-                      <p className="flex items-center gap-2"><Calendar size={16} className="text-[#ff9fa6]" />{data(evento.data_inicio)} a {data(evento.data_fim)}</p>
+                    <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-white/70">Excursão publicada</p>
+                    <h2 className="font-editorial mt-3 text-3xl font-bold leading-tight">{evento.nome}</h2>
+                    <div className="mt-5 space-y-2 text-sm text-white/85">
+                      <p className="flex items-start gap-2"><MapPin size={16} className="mt-0.5 shrink-0 text-[#E3AAB4]" />{evento.local}</p>
+                      <p className="flex items-start gap-2"><Calendar size={16} className="mt-0.5 shrink-0 text-[#E3AAB4]" />{formatarData(evento.data_inicio)} a {formatarData(evento.data_fim)}</p>
                     </div>
                   </div>
                 </div>
 
-                <div className="p-6 sm:p-8">
-                  {evento.descricao && <p className="leading-7 text-slate-600">{evento.descricao}</p>}
-                  <div className="mt-6 space-y-5">
+                <div className="p-6 sm:p-8 lg:p-9">
+                  {evento.descricao && <p className="max-w-3xl text-sm leading-7 text-[#182D3B]/66">{evento.descricao}</p>}
+
+                  <div className={`${evento.descricao ? 'mt-7' : ''} space-y-8`}>
                     {evento.lotes.map((lote) => (
-                      <div key={lote.id} className="rounded-2xl border border-slate-200 bg-[#fffaf5] p-5">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <section key={lote.id} aria-labelledby={`lote-${lote.id}`}>
+                        <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end">
                           <div>
-                            <h3 className="text-lg font-black text-secondary">{lote.nome}</h3>
-                            <p className="mt-1 text-sm text-slate-500">{data(lote.data_inicio)} a {data(lote.data_fim)}</p>
+                            <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#851F32]">{formatarData(lote.data_inicio)} — {formatarData(lote.data_fim)}</p>
+                            <h3 id={`lote-${lote.id}`} className="font-editorial mt-1 text-2xl font-bold text-[#182D3B]">{lote.nome}</h3>
+                            {lote.descricao && <p className="mt-2 max-w-2xl text-sm leading-6 text-[#182D3B]/60">{lote.descricao}</p>}
                           </div>
-                          <span className={`self-start rounded-full px-3 py-1 text-xs font-bold ${lote.vagas_disponiveis > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-800 text-white'}`}>
-                            {lote.vagas_disponiveis > 0 ? 'Vagas disponíveis' : 'Lote esgotado'}
+                          <span className={`self-start rounded-full px-3 py-1.5 text-xs font-bold ${lote.vagas_disponiveis > 0 ? 'bg-[#E9F1EB] text-[#365B41]' : 'bg-[#182D3B] text-white'}`}>
+                            {lote.vagas_disponiveis > 0 ? 'Vagas no lote' : 'Lote esgotado'}
                           </span>
                         </div>
 
-                        <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                          {lote.modalidades.map((modalidade) => {
-                            const meta = modalidadeMeta[modalidade.modalidade_hospedagem];
-                            const Icone = meta?.Icone || Bed;
-                            const esgotado = modalidade.disponibilidade === 'esgotado';
-                            return (
-                              <div key={modalidade.id} className={`rounded-xl border bg-white p-4 ${esgotado ? 'border-slate-200 opacity-65' : modalidade.disponibilidade === 'ultimas_vagas' ? 'border-amber-300' : 'border-slate-200'}`}>
-                                <div className="flex items-center justify-between gap-2">
-                                  <Icone size={22} className="text-primary" />
-                                  {modalidade.disponibilidade !== 'disponivel' && <span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase ${esgotado ? 'bg-slate-800 text-white' : 'bg-amber-100 text-amber-800'}`}>{esgotado ? 'Esgotado' : 'Últimas vagas'}</span>}
-                                </div>
-                                <p className="mt-3 text-sm font-bold text-slate-900">{meta?.label || modalidade.nome}</p>
-                                <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{modalidade.descricao || modalidade.nome}</p>
-                                <p className="mt-3 text-lg font-black text-secondary">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(modalidade.valor_total) || 0)} <span className="text-[10px] font-semibold text-slate-500">por pessoa</span></p>
-                                {Array.isArray(modalidade.itens_inclusos) && modalidade.itens_inclusos.length > 0 && <ul className="mt-2 space-y-1 text-[11px] text-slate-500">{modalidade.itens_inclusos.slice(0, 3).map((item: unknown, index: number) => <li key={index} className="truncate">✓ {typeof item === 'string' ? item : String((item as any)?.nome || 'Item incluso')}</li>)}</ul>}
-                              </div>
-                            );
-                          })}
-                        </div>
+                        {lote.modalidades.length > 0 ? (
+                          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                            {lote.modalidades.map((modalidade) => {
+                              const status = statusOferta(modalidade.disponibilidade);
+                              const esgotado = modalidade.disponibilidade === 'esgotado';
+                              const inclusos = itensInclusos(modalidade.itens_inclusos);
+                              const pacoteLink = `/pacote/${lote.id}?pacote=${encodeURIComponent(modalidade.id)}${ref ? `&ref=${encodeURIComponent(ref)}` : ''}`;
 
-                        <div className="mt-5 flex flex-col gap-3 border-t border-slate-200 pt-5 sm:flex-row sm:items-center sm:justify-between">
-                          <p className="flex items-center gap-2 text-xs font-semibold text-slate-600"><CheckCircle2 size={16} className="text-emerald-600" />Navegação livre e cadastro apenas no final.</p>
-                          {lote.vagas_disponiveis > 0 && lote.modalidades.some((modalidade) => modalidade.disponibilidade !== 'esgotado') ? (
-                            <Link to={`/pacote/${lote.id}${ref ? `?ref=${encodeURIComponent(ref)}` : ''}`}><Button>Escolher modalidade <ArrowRight size={16} className="ml-2" /></Button></Link>
-                          ) : (
-                            <WhatsAppCTA mensagem={`Olá! Vi que ${lote.nome} está esgotado e quero saber se existe lista de espera.`} label="Entrar na lista de espera" size="sm" />
-                          )}
-                        </div>
-                      </div>
+                              return (
+                                <article key={modalidade.id} className={`flex min-h-full flex-col rounded-[1.5rem] border p-5 transition ${esgotado ? 'border-[#182D3B]/10 bg-[#F8F5EF]/55' : 'border-[#182D3B]/10 bg-white hover:-translate-y-0.5 hover:border-[#851F32]/25 hover:shadow-[0_14px_32px_rgba(24,45,59,0.08)]'}`}>
+                                  <div className="flex items-start justify-between gap-3">
+                                    <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[#F4EAEC] text-[#851F32]"><BedDouble size={20} /></span>
+                                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wide ${status.classe}`}>{status.label}</span>
+                                  </div>
+                                  <h4 className="font-editorial mt-5 text-xl font-bold leading-tight text-[#182D3B]">{modalidade.nome}</h4>
+                                  {modalidade.descricao && <p className="mt-2 line-clamp-3 text-sm leading-6 text-[#182D3B]/60">{modalidade.descricao}</p>}
+                                  {inclusos.length > 0 && (
+                                    <ul className="mt-4 space-y-2 text-xs text-[#182D3B]/68">
+                                      {inclusos.slice(0, 3).map((item) => <li key={item} className="flex gap-2"><Check size={14} className="mt-0.5 shrink-0 text-[#851F32]" /><span>{item}</span></li>)}
+                                    </ul>
+                                  )}
+                                  <div className="mt-auto pt-6">
+                                    <p className="text-[11px] font-bold uppercase tracking-[0.13em] text-[#182D3B]/45">Valor publicado</p>
+                                    <p className="mt-1 text-2xl font-extrabold text-[#182D3B]">{formatarMoeda(modalidade.valor_total)} <span className="text-xs font-semibold text-[#182D3B]/50">por pessoa</span></p>
+                                    {esgotado ? (
+                                      <WhatsAppCTA mensagem={`Olá! Quero saber sobre lista de espera para ${modalidade.nome} — ${lote.nome}.`} label="Consultar lista de espera" size="sm" className="mt-4 w-full" />
+                                    ) : (
+                                      <Link to={pacoteLink} className="mt-4 inline-flex min-h-[46px] w-full items-center justify-center gap-2 rounded-full bg-[#851F32] px-4 text-sm font-extrabold text-white transition hover:bg-[#6f1929]">
+                                        Quero este pacote <ArrowRight size={16} />
+                                      </Link>
+                                    )}
+                                  </div>
+                                </article>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="mt-5 rounded-2xl border border-dashed border-[#182D3B]/15 bg-[#F8F5EF] p-6 text-center text-sm text-[#182D3B]/55">Os pacotes deste lote ainda serão publicados.</div>
+                        )}
+                      </section>
                     ))}
-                    {evento.lotes.length === 0 && <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">Os lotes desta excursão ainda serão publicados.</div>}
+
+                    {evento.lotes.length === 0 && <div className="rounded-2xl border border-dashed border-[#182D3B]/15 bg-[#F8F5EF] p-7 text-center text-sm text-[#182D3B]/55">Os lotes desta excursão ainda serão publicados.</div>}
                   </div>
                 </div>
               </div>
@@ -219,11 +257,13 @@ export default function Eventos() {
         </div>
       </section>
 
-      <section className="rounded-3xl bg-secondary px-6 py-12 text-center text-white sm:px-10">
-        <Bus className="mx-auto text-[#ff9fa6]" size={36} />
-        <h2 className="mt-4 text-3xl font-black">Ainda está em dúvida entre as modalidades?</h2>
-        <p className="mx-auto mt-3 max-w-2xl text-slate-300">Conte para a equipe como você gosta de viajar. A gente ajuda a comparar Camping, Ventilador e Ar-condicionado sem compromisso.</p>
-        <WhatsAppCTA mensagem={mensagemWhatsApp} label="Conversar com um consultor" size="lg" className="mt-7" />
+      <section className="border-t border-[#182D3B]/10 bg-white px-4 py-16 sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-5xl flex-col items-center text-center">
+          <MessageCircle className="text-[#851F32]" size={30} />
+          <h2 className="font-editorial mt-4 text-3xl font-bold text-[#182D3B] sm:text-4xl">Quer comparar antes de decidir?</h2>
+          <p className="mt-4 max-w-2xl text-sm leading-7 text-[#182D3B]/62">A equipe pode explicar as diferenças entre os pacotes publicados e ajudar você a escolher sem alterar as condições apresentadas no sistema.</p>
+          <WhatsAppCTA mensagem={mensagemWhatsApp} label="Conversar com a equipe" size="lg" className="mt-7" />
+        </div>
       </section>
     </div>
   );

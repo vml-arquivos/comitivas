@@ -10,7 +10,7 @@
     "apps/web"
   ],
   "scripts": {
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:web\"",
+    "dev": "node scripts/dev.mjs",
     "dev:server": "tsx watch server/index.ts",
     "dev:web": "cd apps/web && npm run dev",
     "build": "npm run build:server && npm run build:seed && npm run build:web",
