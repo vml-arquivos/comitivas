@@ -2,6 +2,7 @@ import { CONTRATADA_DADOS } from "./letterhead.js";
 import { COMITIVA_CONTRACT_WATERMARK_B64 } from "./logo_constants.js";
 
 export type ContratoModeloSnapshot = {
+  modelo_oficial?: "hospedagem" | "transporte";
   evento?: { nome?: string; local?: string; data_inicio?: string | null; data_fim?: string | null };
   lote?: { nome?: string; descricao?: string | null };
   pacote?: { nome?: string; descricao?: string | null };

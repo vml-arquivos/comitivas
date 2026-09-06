@@ -102,6 +102,7 @@ export interface CondicaoPagamentoCalculada {
 type ItemContrato = { id?: string; codigo?: string; nome: string; tipo?: string; transporte_rodoviario?: boolean; quantidade: number; valor: Decimal };
 
 type SnapshotVenda = {
+  modelo_oficial: "hospedagem" | "transporte";
   cliente: Record<string, unknown>;
   evento: Record<string, unknown>;
   lote: Record<string, unknown>;
@@ -361,6 +362,7 @@ export class ContratoService {
     if (rodoviario) servicos.unshift("Transporte rodoviário de ida e volta, conforme programação previamente divulgada pela CONTRATADA");
     const cronograma = cronogramaPagamento(total, dataValida(dataLimite), parcelas);
     return {
+      modelo_oficial: rodoviario ? "transporte" : "hospedagem",
       cliente: { id: usuario.id, nome: textoOpcional(clienteForm.nome, usuario.nome), cpf: textoOpcional(clienteForm.cpf, usuario.cpf), rg: textoOpcional(clienteForm.rg, usuario.rg), nacionalidade: textoOpcional(clienteForm.nacionalidade, usuario.nacionalidade || "Brasileira"), estado_civil: textoOpcional(clienteForm.estado_civil, usuario.estado_civil), profissao: textoOpcional(clienteForm.profissao, usuario.profissao), nascimento: dataISOouNulo(clienteForm.nascimento) || formatarDataISO(usuario.data_nascimento), endereco: textoOpcional(clienteForm.endereco, usuario.endereco), telefone: textoOpcional(clienteForm.telefone, usuario.telefone), email: textoOpcional(clienteForm.email, usuario.email) },
       evento: { id: evento.id, nome: evento.nome, local: evento.local, data_inicio: formatarDataISO(evento.data_inicio), data_fim: formatarDataISO(evento.data_fim) },
       lote: { id: lote.id, nome: lote.nome, descricao: lote.descricao },

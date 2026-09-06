@@ -213,6 +213,8 @@ export default function Home() {
     const valor = Number(modalidade.valor_total);
     if (Number.isFinite(valor) && !precosPorModalidade.has(modalidade.modalidade_hospedagem)) precosPorModalidade.set(modalidade.modalidade_hospedagem, valor);
   }));
+  const primeiraModalidade = (eventoAtivo?.lotes || []).flatMap((lote: any) => lote.modalidades || [])[0];
+  const pacoteDestaque = PACOTES_HOSPEDAGEM.find((pacote) => pacote.id === primeiraModalidade?.modalidade_hospedagem) || PACOTES_HOSPEDAGEM[0];
   const formatarMoeda = (valor: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
   const exibirNumero = (valor: number | null, sufixo = '') => valor === null ? '—' : `${valor.toLocaleString('pt-BR')}${sufixo}`;
 
@@ -290,13 +292,12 @@ export default function Home() {
             </div>
 
             <aside className="rounded-2xl border border-white/20 bg-white/10 p-6 text-white shadow-2xl backdrop-blur-md">
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#ffb0b5]">Reserva digital</p>
-              <h2 className="mt-3 text-2xl font-bold">Você escolhe como quer viver a viagem.</h2>
-              <ul className="mt-5 space-y-4 text-sm text-slate-100">
-                <li className="flex gap-3"><span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/25 text-[#ff9fa6]">1</span><span>Escolha a excursão e a hospedagem.</span></li>
-                <li className="flex gap-3"><span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/25 text-[#ff9fa6]">2</span><span>Preencha seus dados contratuais.</span></li>
-                <li className="flex gap-3"><span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/25 text-[#ff9fa6]">3</span><span>Receba seu contrato digital com as escolhas registradas.</span></li>
-              </ul>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#ffb0b5]">Oferta em destaque</p>
+              <h2 className="mt-3 text-2xl font-black">{eventoAtivo?.nome || 'Escolha sua excursão'}</h2>
+              <p className="mt-2 text-base font-semibold text-white/90">{pacoteDestaque.titulo}</p>
+              {primeiraModalidade && <p className="mt-4 text-2xl font-black text-[#ffd1d4]">{formatarMoeda(Number(primeiraModalidade.valor_total) || 0)} <span className="text-xs font-semibold text-white/70">por pessoa</span></p>}
+              <p className="mt-3 text-sm leading-relaxed text-slate-100">{pacoteDestaque.bullets.slice(0, 2).join(' · ')}</p>
+              <Link to="/eventos" className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3 text-sm font-black text-white transition hover:bg-primary/90">Escolher pacote <ArrowRight size={16} /></Link>
             </aside>
           </div>
         </div>
@@ -307,6 +308,32 @@ export default function Home() {
           <div className="py-8 text-center"><div className="text-3xl font-black text-secondary">{exibirNumero(stats.edicoes)}</div><div className="mt-1 text-sm font-medium text-slate-500">Excursões concluídas</div></div>
           <div className="py-8 text-center"><div className="text-3xl font-black text-secondary">{exibirNumero(stats.clientes)}</div><div className="mt-1 text-sm font-medium text-slate-500">Clientes confirmados</div></div>
           <div className="py-8 text-center"><div className="flex items-center justify-center gap-1 text-3xl font-black text-secondary">{stats.nota === null ? '—' : <>{stats.nota.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}<Star size={24} className="fill-primary text-primary" /></>}</div><div className="mt-1 text-sm font-medium text-slate-500">Média de avaliações aprovadas</div></div>
+        </div>
+      </section>
+
+      <section id="hospedagem" className="scroll-mt-20 bg-[#fffaf5] py-20">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
+            <div>
+              <p className="text-sm font-bold uppercase tracking-[0.16em] text-primary">Escolha sua experiência</p>
+              <h2 className="mt-2 text-3xl font-black tracking-tight text-secondary sm:text-4xl">Escolha seu pacote</h2>
+              <p className="mt-3 max-w-2xl text-base leading-relaxed text-slate-600">Veja hospedagem, preço inicial e disponibilidade antes de continuar para a contratação.</p>
+            </div>
+            <Link to="/eventos" className="inline-flex items-center gap-2 text-sm font-bold text-primary hover:text-secondary">Ver todos os pacotes <ArrowRight size={16} /></Link>
+          </div>
+
+          <div className="mt-10 grid gap-5 lg:grid-cols-3">
+            {PACOTES_HOSPEDAGEM.map(({ id, titulo, Icone, destaque, bullets, mensagemWhatsApp }) => (
+              <article key={id} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/5">
+                <div className="flex items-start justify-between gap-3"><div className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary"><Icone size={22} /></div><span className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-700">Disponibilidade no configurador</span></div>
+                <p className="mt-5 text-xs font-bold uppercase tracking-wide text-primary">{destaque}</p>
+                <h3 className="mt-1 text-xl font-bold text-secondary">{titulo}</h3>
+                <ul className="mt-4 flex-1 space-y-2">{bullets.slice(0, 3).map((bullet) => <li key={bullet} className="flex items-start gap-2 text-sm text-slate-600"><Check size={16} className="mt-0.5 shrink-0 text-primary" /><span>{bullet}</span></li>)}</ul>
+                {precosPorModalidade.has(id) ? <p className="mt-6 text-lg font-black text-secondary">A partir de {formatarMoeda(precosPorModalidade.get(id) || 0)} <span className="text-xs font-semibold text-slate-500">por pessoa</span></p> : <p className="mt-6 text-xs font-semibold uppercase tracking-wide text-slate-400">Preço atualizado no configurador</p>}
+                <div className="mt-4 flex flex-col gap-2"><Link to="/eventos" className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-black text-white transition hover:bg-primary/90">Escolher pacote <ArrowRight size={16} /></Link><WhatsAppCTA mensagem={mensagemWhatsApp} label="Falar no WhatsApp" size="sm" className="w-full" /></div>
+              </article>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -418,41 +445,6 @@ export default function Home() {
           </div>
         </section>
       )}
-
-      <section id="hospedagem" className="scroll-mt-20 bg-[#fffaf5] py-24">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="mx-auto max-w-3xl text-center">
-            <p className="text-sm font-bold uppercase tracking-[0.16em] text-primary">Conforto e organização</p>
-            <h2 className="mt-3 text-3xl font-black tracking-tight text-secondary sm:text-4xl">Nossos pacotes</h2>
-            <p className="mt-5 text-lg leading-relaxed text-slate-600">Três formas de viver a mesma experiência. Escolha a modalidade de hospedagem que combina com você — valores e parcelamento sob consulta.</p>
-          </div>
-
-          <div className="mt-14 grid gap-6 lg:grid-cols-3">
-            {PACOTES_HOSPEDAGEM.map(({ id, titulo, Icone, destaque, bullets, mensagemWhatsApp }) => (
-              <article key={id} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-7 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/5">
-                <div className="mb-4 inline-flex h-12 w-12 items-center justify-center self-start rounded-xl bg-primary/10 text-primary"><Icone size={24} /></div>
-                <p className="text-xs font-bold uppercase tracking-wide text-primary">{destaque}</p>
-                <h3 className="mt-1 text-xl font-bold text-secondary">{titulo}</h3>
-                <ul className="mt-4 flex-1 space-y-2">
-                  {bullets.map((bullet) => (
-                    <li key={bullet} className="flex items-start gap-2 text-sm text-slate-600">
-                      <Check size={16} className="mt-0.5 shrink-0 text-primary" />
-                      <span>{bullet}</span>
-                    </li>
-                  ))}
-                </ul>
-                {precosPorModalidade.has(id) ? <p className="mt-6 text-lg font-black text-secondary">A partir de {formatarMoeda(precosPorModalidade.get(id) || 0)} <span className="text-xs font-semibold text-slate-500">por pessoa</span></p> : <p className="mt-6 text-xs font-semibold uppercase tracking-wide text-slate-400">Preço atualizado no configurador</p>}
-                <div className="mt-3 flex flex-col gap-2">
-                  <WhatsAppCTA mensagem={mensagemWhatsApp} label="Falar no WhatsApp" size="sm" className="w-full" />
-                  <Link to="/eventos" className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-full border border-slate-300 text-xs font-bold text-slate-700 transition hover:border-primary hover:text-primary">
-                    Ver disponibilidade <ArrowRight size={14} />
-                  </Link>
-                </div>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
 
       <section id="atendimento" className="scroll-mt-20 bg-white py-24">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
