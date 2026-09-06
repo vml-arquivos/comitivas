@@ -22,6 +22,8 @@ interface ContratoLinha {
   contrato_gerado: boolean;
 }
 
+type ModeloContrato = { id: string; nome: string; versao: string; status: string; fonte: string; descricao: string };
+
 type FormularioContrato = {
   contratante: {
     nome: string;
@@ -73,6 +75,7 @@ function formularioInicial(contrato: ContratoLinha): FormularioContrato {
 export default function Contratos() {
   const [searchParams] = useSearchParams();
   const [contratos, setContratos] = useState<ContratoLinha[]>([]);
+  const [modelos, setModelos] = useState<ModeloContrato[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filtro, setFiltro] = useState<'' | 'gerados' | 'pendentes'>('');
@@ -94,8 +97,9 @@ export default function Contratos() {
     try {
       const params: Record<string, string> = {};
       if (filtro) params.status = filtro;
-      const response = await api.get('/admin/contratos', { params });
+      const [response, modelosResponse] = await Promise.all([api.get('/admin/contratos', { params }), api.get('/admin/contratos/modelos')]);
       setContratos(response.data.contratos || []);
+      setModelos(modelosResponse.data.modelos || []);
     } catch (err: any) {
       setError(err.response?.data?.erro || 'Erro ao carregar contratos.');
     } finally {
@@ -204,9 +208,11 @@ export default function Contratos() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div><h1 className="text-2xl font-bold text-gray-900">Contratos</h1><p className="text-sm text-gray-500">Modelo oficial 2026.1 com formulário de campos editáveis e preview antes da geração.</p></div>
+        <div><h1 className="text-2xl font-bold text-gray-900">Contratos</h1><p className="text-sm text-gray-500">Catálogo oficial, geração assistida, preview, validação eletrônica e download por reserva.</p></div>
         <Button type="button" variant="outline" onClick={() => void carregar()} className="flex items-center gap-2"><RefreshCw size={16} /> Atualizar</Button>
       </div>
+
+      {modelos.length > 0 && <Card><CardContent className="p-6"><div className="mb-4 flex items-center gap-2"><FileText size={19} className="text-primary" /><h2 className="font-semibold text-gray-900">Modelos oficiais disponíveis</h2></div><div className="grid grid-cols-1 gap-3 md:grid-cols-2">{modelos.map((modelo) => <div key={modelo.id} className="rounded-lg border border-gray-200 bg-gray-50 p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-gray-900">{modelo.nome}</p><p className="mt-1 text-xs text-gray-500">Versão {modelo.versao} · {modelo.fonte}</p></div><span className="rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-800">{modelo.status}</span></div><p className="mt-2 text-sm text-gray-600">{modelo.descricao}</p></div>)}</div></CardContent></Card>}
 
       <div className="flex flex-col gap-3 sm:flex-row"><Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por cliente, e-mail, CPF, evento ou reserva" className="flex-1" /><select value={filtro} onChange={(e) => setFiltro(e.target.value as typeof filtro)} className={inputClass}><option value="">Todos os status</option><option value="gerados">Contrato gerado</option><option value="pendentes">Sem contrato</option></select></div>
       {error && <div className="rounded-lg bg-red-50 p-4 text-red-700">{error}</div>}

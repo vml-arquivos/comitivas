@@ -5,10 +5,12 @@ import { EmailService } from "../services/emailService.js";
 import { AuthService } from "../services/authService.js";
 import { ContratoService } from "../services/contratoService.js";
 import { ConfiguracaoService } from "../services/configuracaoService.js";
+import { PacoteService, ConfiguracaoPacote } from "../services/pacoteService.js";
 import { db } from "../db/index.js";
-import { reservas, eventos, lotes, usuarios, leads_origem, descontosAdministrativos, pagamentos, videosEvento, fotos_evento, comissaoRegras, comissoes } from "../db/schema.js";
+import { reservas, eventos, lotes, pacotes, usuarios, leads_origem, descontosAdministrativos, pagamentos, contratosDocumentos, videosEvento, fotos_evento, comissaoRegras, comissoes } from "../db/schema.js";
 import { eq, and, inArray, or, sql, desc } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
+import { createId } from "@paralleldrive/cuid2";
 import Decimal from "decimal.js";
 
 const router = Router();
@@ -111,11 +113,261 @@ router.get("/dashboard", requireRole("admin", "vendedor"), async (req: Request, 
   }
 });
 
-// Vendedores podem consultar somente suas reservas atribuídas; as demais
-// operações administrativas continuam exclusivas do administrador.
+// Vendedores podem consultar reservas atribuídas e operar somente o módulo
+// interno de vendas. As demais operações administrativas continuam exclusivas
+// do administrador.
 router.use((req: Request, res: Response, next) => {
-  if (req.usuario?.tipo === "vendedor" && req.method === "GET" && req.path === "/reservas") return next();
+  if (req.usuario?.tipo === "vendedor" && (
+    (req.method === "GET" && req.path === "/reservas") ||
+    req.path.startsWith("/vendas") ||
+    req.path.startsWith("/contratos")
+  )) return next();
   return requireRole("admin")(req, res, next);
+});
+
+function clientePodeSerOperado(req: Request, usuarioId: string): boolean {
+  return Boolean(req.usuario && usuarioId && req.usuario.tipo !== "cliente");
+}
+
+async function resolverOrigemVenda(req: Request, usuarioId: string, vendedorSolicitado?: string, leadSolicitado?: string) {
+  if (!req.usuario || !clientePodeSerOperado(req, usuarioId)) throw new Error("Cliente inválido para venda interna");
+
+  const vendedorId = req.usuario.tipo === "vendedor" ? req.usuario.id : (vendedorSolicitado || undefined);
+  if (vendedorId) {
+    const vendedor = (await db.select({ id: usuarios.id, tipo: usuarios.tipo }).from(usuarios).where(eq(usuarios.id, vendedorId)).limit(1))[0];
+    if (!vendedor || vendedor.tipo !== "vendedor") throw new Error("Vendedor inválido");
+  }
+
+  const condicoes = [eq(leads_origem.usuario_id, usuarioId)];
+  if (leadSolicitado) condicoes.push(eq(leads_origem.id, leadSolicitado));
+  if (vendedorId) condicoes.push(eq(leads_origem.vendedor_id, vendedorId));
+  const lead = (await db.select({ id: leads_origem.id, vendedor_id: leads_origem.vendedor_id, codigo_origem: leads_origem.codigo_origem })
+    .from(leads_origem)
+    .where(and(...condicoes))
+    .orderBy(desc(leads_origem.atualizado_em))
+    .limit(1))[0];
+
+  if (req.usuario.tipo === "vendedor" && !lead) throw new Error("O cliente não pertence à sua carteira comercial");
+  return {
+    lead_id: lead?.id,
+    vendedor_id: lead?.vendedor_id || vendedorId,
+    codigo_origem: lead?.codigo_origem || (vendedorId ? `interno-${vendedorId}` : undefined),
+  };
+}
+
+function vendedorPodeOperarReserva(req: Request, reserva: { usuario_id: string; vendedor_id: string | null }): boolean {
+  return Boolean(req.usuario && (req.usuario.tipo === "admin" || reserva.usuario_id === req.usuario.id || (req.usuario.tipo === "vendedor" && reserva.vendedor_id === req.usuario.id)));
+}
+
+router.get("/vendas/clientes", async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const busca = String(req.query.busca || "").trim();
+    const pagina = Math.max(1, Number(req.query.pagina || 1));
+    const limite = Math.min(50, Math.max(1, Number(req.query.limite || 20)));
+    const condicoes = [eq(usuarios.tipo, "cliente" as const), eq(usuarios.ativo, true)];
+
+    if (req.usuario.tipo === "vendedor") {
+      const leads = await db.select({ usuario_id: leads_origem.usuario_id }).from(leads_origem).where(and(eq(leads_origem.vendedor_id, req.usuario.id), sql`${leads_origem.usuario_id} IS NOT NULL`));
+      const ids = Array.from(new Set(leads.map((lead) => lead.usuario_id).filter((id): id is string => Boolean(id))));
+      if (ids.length === 0) return res.json({ total: 0, pagina, limite, clientes: [] });
+      condicoes.push(inArray(usuarios.id, ids));
+    }
+    if (busca) {
+      const termo = `%${busca}%`;
+      const digitos = somenteDigitos(busca);
+      condicoes.push(or(sql`${usuarios.nome} ILIKE ${termo}`, sql`${usuarios.email} ILIKE ${termo}`, digitos ? sql`regexp_replace(COALESCE(${usuarios.cpf}, ''), '\\D', '', 'g') LIKE ${`%${digitos}%`}` : sql`false`)!);
+    }
+
+    const clientes = await db.select({ id: usuarios.id, nome: usuarios.nome, email: usuarios.email, cpf: usuarios.cpf, telefone: usuarios.telefone, criado_em: usuarios.criado_em })
+      .from(usuarios)
+      .where(and(...condicoes))
+      .orderBy(desc(usuarios.criado_em))
+      .limit(limite)
+      .offset((pagina - 1) * limite);
+    return res.json({ total: clientes.length, pagina, limite, clientes });
+  } catch (error: any) {
+    console.error("[ADMIN/VENDAS] Erro ao buscar clientes:", error);
+    return res.status(500).json({ erro: "Erro ao buscar clientes para venda" });
+  }
+});
+
+router.post("/vendas/clientes", async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const nome = String(req.body?.nome || "").trim();
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    const cpf = somenteDigitos(req.body?.cpf);
+    if (!nome || !email || !cpf) return res.status(400).json({ erro: "Nome, e-mail e CPF são obrigatórios" });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ erro: "Informe um e-mail válido" });
+    if (!cpfValido(cpf)) return res.status(400).json({ erro: "Informe um CPF válido" });
+
+    const senhaTemporaria = String(req.body?.senha || "").trim() || gerarSenhaTemporaria();
+    if (senhaTemporaria.length < 8) return res.status(400).json({ erro: "Senha deve ter no mínimo 8 caracteres" });
+    const vendedorId = req.usuario.tipo === "vendedor" ? req.usuario.id : String(req.body?.vendedor_id || "").trim() || undefined;
+    if (vendedorId) {
+      const vendedor = (await db.select({ id: usuarios.id, tipo: usuarios.tipo }).from(usuarios).where(eq(usuarios.id, vendedorId)).limit(1))[0];
+      if (!vendedor || vendedor.tipo !== "vendedor") return res.status(400).json({ erro: "Vendedor inválido" });
+    }
+
+    const criado = await db.transaction(async (tx) => {
+      const usuario = (await tx.insert(usuarios).values({
+        nome,
+        email,
+        cpf,
+        telefone: somenteDigitos(req.body?.telefone) || null,
+        rg: String(req.body?.rg || "").trim() || null,
+        endereco: String(req.body?.endereco || "").trim() || null,
+        nacionalidade: String(req.body?.nacionalidade || "Brasileira").trim(),
+        tipo: "cliente",
+        senha_hash: await AuthService.hashPassword(senhaTemporaria),
+        email_confirmado: true,
+      }).returning(CAMPOS_PUBLICOS_USUARIO))[0];
+      if (!usuario) throw new Error("Não foi possível criar o cliente");
+
+      let lead = null;
+      if (vendedorId) {
+        lead = (await tx.insert(leads_origem).values({
+          id: createId(),
+          codigo_origem: `interno-${vendedorId}`,
+          vendedor_id: vendedorId,
+          usuario_id: usuario.id,
+          nome,
+          email,
+          whatsapp: somenteDigitos(req.body?.telefone) || null,
+          origem: "venda_interna",
+          status: "cadastrado",
+          atualizado_em: new Date(),
+          criado_em: new Date(),
+        }).returning({ id: leads_origem.id }))[0] || null;
+      }
+      return { usuario, lead };
+    });
+    return res.status(201).json({ ...criado, senha_gerada: req.body?.senha ? undefined : senhaTemporaria });
+  } catch (error: any) {
+    if (erroDeUnicidade(error)) return res.status(409).json({ erro: "E-mail ou CPF já cadastrado" });
+    console.error("[ADMIN/VENDAS] Erro ao criar cliente:", error);
+    return res.status(400).json({ erro: error.message || "Não foi possível criar o cliente" });
+  }
+});
+
+router.post("/vendas/calcular", async (req: Request, res: Response) => {
+  try {
+    const usuarioId = String(req.body?.usuario_id || "").trim();
+    const cliente = (await db.select({ id: usuarios.id, ativo: usuarios.ativo }).from(usuarios).where(and(eq(usuarios.id, usuarioId), eq(usuarios.tipo, "cliente"))).limit(1))[0];
+    if (!cliente || !cliente.ativo) return res.status(404).json({ erro: "Cliente ativo não encontrado" });
+    const origem = await resolverOrigemVenda(req, usuarioId, req.body?.vendedor_id, req.body?.lead_id);
+    const config: ConfiguracaoPacote = { ...req.body, usuario_id: usuarioId, vendedor_id: origem.vendedor_id };
+    return res.json(await PacoteService.calcularValorPacote(config));
+  } catch (error: any) {
+    console.error("[ADMIN/VENDAS] Erro ao calcular:", error);
+    return res.status(400).json({ erro: error.message || "Não foi possível calcular a venda" });
+  }
+});
+
+router.post("/vendas/reservar", async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const usuarioId = String(req.body?.usuario_id || "").trim();
+    const cliente = (await db.select().from(usuarios).where(and(eq(usuarios.id, usuarioId), eq(usuarios.tipo, "cliente"), eq(usuarios.ativo, true))).limit(1))[0];
+    if (!cliente) return res.status(404).json({ erro: "Cliente ativo não encontrado" });
+    const origem = await resolverOrigemVenda(req, usuarioId, req.body?.vendedor_id, req.body?.lead_id);
+    let origemFinal = origem;
+    if (req.usuario.tipo === "admin" && req.body?.vendedor_id && !origem.lead_id) {
+      const lead = (await db.insert(leads_origem).values({
+        id: createId(),
+        codigo_origem: `interno-${req.body.vendedor_id}`,
+        vendedor_id: origem.vendedor_id || null,
+        usuario_id: usuarioId,
+        nome: cliente.nome,
+        email: cliente.email,
+        whatsapp: cliente.telefone,
+        origem: "venda_interna",
+        status: "checkout_iniciado",
+        atualizado_em: new Date(),
+        criado_em: new Date(),
+      }).returning({ id: leads_origem.id }))[0];
+      origemFinal = { ...origem, lead_id: lead?.id };
+    }
+    const config: ConfiguracaoPacote = { ...req.body, usuario_id: usuarioId, vendedor_id: origemFinal.vendedor_id };
+    const resultado = await PacoteService.reservarPacote(usuarioId, String(req.body?.lote_id || ""), config, req.ip || req.socket.remoteAddress || "desconhecido", origemFinal);
+    return res.status(201).json({ mensagem: "Venda interna registrada e vaga reservada", reserva_id: resultado.reserva.id, status: resultado.reserva.status, calculo: resultado.calculo, aguardando_cliente: true });
+  } catch (error: any) {
+    console.error("[ADMIN/VENDAS] Erro ao reservar:", error);
+    return res.status(400).json({ erro: error.message || "Não foi possível registrar a venda" });
+  }
+});
+
+router.get("/vendas/reservas", async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const condicoes = [];
+    if (req.usuario.tipo === "vendedor") condicoes.push(eq(reservas.vendedor_id, req.usuario.id));
+    if (req.query.status) condicoes.push(eq(reservas.status, String(req.query.status) as any));
+    if (req.query.usuario_id) condicoes.push(eq(reservas.usuario_id, String(req.query.usuario_id)));
+    if (req.query.busca) {
+      const termo = `%${String(req.query.busca).trim()}%`;
+      condicoes.push(or(sql`${usuarios.nome} ILIKE ${termo}`, sql`${usuarios.email} ILIKE ${termo}`, sql`${eventos.nome} ILIKE ${termo}`)!);
+    }
+    const linhas = await db.select({
+      id: reservas.id,
+      status: reservas.status,
+      checkout_estado: reservas.checkout_estado,
+      valor_total: reservas.valor_total,
+      forma_pagamento: reservas.forma_pagamento,
+      desconto_pagamento: reservas.desconto_pagamento,
+      criado_em: reservas.criado_em,
+      atualizado_em: reservas.atualizado_em,
+      vendedor_id: reservas.vendedor_id,
+      cliente_id: usuarios.id,
+      cliente_nome: usuarios.nome,
+      cliente_email: usuarios.email,
+      cliente_telefone: usuarios.telefone,
+      evento_id: eventos.id,
+      evento_nome: eventos.nome,
+      lote_id: lotes.id,
+      lote_nome: lotes.nome,
+      pacote_id: pacotes.id,
+      pacote_nome: pacotes.nome,
+      modalidade_hospedagem: pacotes.modalidade_hospedagem,
+    }).from(reservas)
+      .innerJoin(usuarios, eq(reservas.usuario_id, usuarios.id))
+      .innerJoin(lotes, eq(reservas.lote_id, lotes.id))
+      .innerJoin(eventos, eq(lotes.evento_id, eventos.id))
+      .leftJoin(pacotes, eq(reservas.pacote_id, pacotes.id))
+      .where(condicoes.length ? and(...condicoes) : undefined)
+      .orderBy(desc(reservas.criado_em))
+      .limit(100);
+
+    const ids = linhas.map((linha) => linha.id);
+    const pagamentosRecentes = ids.length ? await db.select({ reserva_id: pagamentos.reserva_id, status: pagamentos.status, status_reconciliado: pagamentos.status_reconciliado, metodo: pagamentos.metodo, valor_centavos: pagamentos.valor_centavos, valor_pago_centavos: pagamentos.valor_pago_centavos, atualizado_em: pagamentos.atualizado_em }).from(pagamentos).where(inArray(pagamentos.reserva_id, ids)).orderBy(desc(pagamentos.atualizado_em)) : [];
+    const documentos = ids.length ? await db.select({ reserva_id: contratosDocumentos.reserva_id, versao: contratosDocumentos.versao, status: contratosDocumentos.status, snapshot_sha256: contratosDocumentos.snapshot_sha256, pdf_sha256: contratosDocumentos.pdf_sha256, criado_em: contratosDocumentos.criado_em }).from(contratosDocumentos).where(inArray(contratosDocumentos.reserva_id, ids)).orderBy(desc(contratosDocumentos.versao)) : [];
+    const pagamentoMap = new Map<string, typeof pagamentosRecentes[number]>();
+    for (const pagamento of pagamentosRecentes) if (!pagamentoMap.has(pagamento.reserva_id)) pagamentoMap.set(pagamento.reserva_id, pagamento);
+    const documentoMap = new Map<string, typeof documentos[number]>();
+    for (const documento of documentos) if (!documentoMap.has(documento.reserva_id)) documentoMap.set(documento.reserva_id, documento);
+    return res.json({ total: linhas.length, reservas: linhas.map((linha) => ({ ...linha, pagamento: pagamentoMap.get(linha.id) || null, contrato: documentoMap.get(linha.id) || null })) });
+  } catch (error) {
+    console.error("[ADMIN/VENDAS] Erro ao listar vendas:", error);
+    return res.status(500).json({ erro: "Erro ao listar vendas internas" });
+  }
+});
+
+router.get("/vendas/reservas/:reserva_id", async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const reserva = (await db.select({ id: reservas.id, usuario_id: reservas.usuario_id, vendedor_id: reservas.vendedor_id, status: reservas.status, checkout_estado: reservas.checkout_estado, valor_total: reservas.valor_total, forma_pagamento: reservas.forma_pagamento, quantidade_parcelas: reservas.quantidade_parcelas, valor_parcela: reservas.valor_parcela, criado_em: reservas.criado_em, cliente_nome: usuarios.nome, cliente_email: usuarios.email, cliente_cpf: usuarios.cpf, cliente_telefone: usuarios.telefone, evento_nome: eventos.nome, lote_nome: lotes.nome, pacote_nome: pacotes.nome }).from(reservas).innerJoin(usuarios, eq(reservas.usuario_id, usuarios.id)).innerJoin(lotes, eq(reservas.lote_id, lotes.id)).innerJoin(eventos, eq(lotes.evento_id, eventos.id)).leftJoin(pacotes, eq(reservas.pacote_id, pacotes.id)).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
+    if (!reserva) return res.status(404).json({ erro: "Venda não encontrada" });
+    if (req.usuario.tipo === "vendedor" && reserva.vendedor_id !== req.usuario.id) return res.status(403).json({ erro: "Venda fora da sua carteira" });
+    const [pagamentosDaReserva, contratosDaReserva] = await Promise.all([
+      db.select({ id: pagamentos.id, status: pagamentos.status, status_reconciliado: pagamentos.status_reconciliado, metodo: pagamentos.metodo, valor: pagamentos.valor, valor_pago_centavos: pagamentos.valor_pago_centavos, gateway_id: pagamentos.gateway_id, atualizado_em: pagamentos.atualizado_em }).from(pagamentos).where(eq(pagamentos.reserva_id, reserva.id)).orderBy(desc(pagamentos.atualizado_em)),
+      db.select({ id: contratosDocumentos.id, versao: contratosDocumentos.versao, status: contratosDocumentos.status, snapshot_sha256: contratosDocumentos.snapshot_sha256, pdf_sha256: contratosDocumentos.pdf_sha256, criado_em: contratosDocumentos.criado_em }).from(contratosDocumentos).where(eq(contratosDocumentos.reserva_id, reserva.id)).orderBy(desc(contratosDocumentos.versao)),
+    ]);
+    return res.json({ reserva, pagamentos: pagamentosDaReserva, contratos: contratosDaReserva });
+  } catch (error) {
+    console.error("[ADMIN/VENDAS] Erro ao detalhar venda:", error);
+    return res.status(500).json({ erro: "Erro ao detalhar venda" });
+  }
 });
 
 // Listar reservas com filtros
@@ -753,8 +1005,9 @@ router.post("/reservas/:reserva_id/desconto", requireRole("admin"), async (req: 
 
 router.post("/contratos/preview/:reserva_id", async (req: Request, res: Response) => {
   try {
-    const reserva = (await db.select({ id: reservas.id }).from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
+    const reserva = (await db.select({ id: reservas.id, usuario_id: reservas.usuario_id, vendedor_id: reservas.vendedor_id }).from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
+    if (!vendedorPodeOperarReserva(req, reserva)) return res.status(403).json({ erro: "Reserva fora da sua carteira" });
     const snapshot = await ContratoService.gerarSnapshot({ reserva_id: reserva.id, formulario: req.body?.formulario });
     const html = await ContratoService.gerarContratoHTML({ reserva_id: reserva.id, snapshot });
     return res.json({ snapshot, html, template: "2026.1-oficial", editavel: ["contratante", "hospedagem", "transporte", "bagagem", "seguro", "uso_imagem", "observacoes_especificas"] });
@@ -770,7 +1023,7 @@ router.get("/contratos", async (req: Request, res: Response) => {
   try {
     const { status } = req.query; // "gerados" | "pendentes" | (vazio = todos)
 
-    const linhas = await db
+    const query = db
       .select({
         reserva_id: reservas.id,
         status_reserva: reservas.status,
@@ -791,7 +1044,10 @@ router.get("/contratos", async (req: Request, res: Response) => {
       .innerJoin(usuarios, eq(reservas.usuario_id, usuarios.id))
       .innerJoin(lotes, eq(reservas.lote_id, lotes.id))
       .innerJoin(eventos, eq(lotes.evento_id, eventos.id))
-      .orderBy(desc(reservas.criado_em));
+      .$dynamic();
+
+    if (req.usuario?.tipo === "vendedor") query.where(eq(reservas.vendedor_id, req.usuario.id));
+    const linhas = await query.orderBy(desc(reservas.criado_em));
 
     const filtradas = status === "gerados"
       ? linhas.filter((linha) => Boolean(linha.contrato_pdf_url))
@@ -823,6 +1079,7 @@ router.post("/contratos/gerar/:reserva_id", async (req: Request, res: Response) 
       return res.status(404).json({ erro: "Reserva não encontrada" });
     }
     const reserva = reservaResult[0];
+    if (!vendedorPodeOperarReserva(req, reserva)) return res.status(403).json({ erro: "Reserva fora da sua carteira" });
 
     const metodoPagamento = req.body?.metodo_pagamento ?? reserva.forma_pagamento;
     const quantidadeParcelas = req.body?.quantidade_parcelas ?? reserva.quantidade_parcelas;
@@ -887,6 +1144,70 @@ router.post("/contratos/gerar/:reserva_id", async (req: Request, res: Response) 
   } catch (error: any) {
     console.error("[ADMIN] Erro ao gerar contrato:", error);
     res.status(500).json({ erro: error.message || "Erro ao gerar contrato" });
+  }
+});
+
+router.get("/contratos/modelos", async (_req: Request, res: Response) => {
+  return res.json({
+    modelos: [
+      {
+        id: "hospedagem-2026",
+        nome: "Contrato de pacote — hospedagem",
+        versao: "2026",
+        status: "oficial",
+        fonte: "Contrato HOSPEDAGEM EXCMTV 2026 - papel timbrado.docx",
+        descricao: "Fonte oficial enviada para hospedagem, serviços inclusos, pagamento e regras da excursão.",
+      },
+      {
+        id: "transporte-2026",
+        nome: "Contrato de pacote — transporte",
+        versao: "2026",
+        status: "oficial",
+        fonte: "TRANSPORTE EXCMTV 2026 - papel timbrado.docx",
+        descricao: "Fonte oficial enviada para transporte e cláusulas operacionais do pacote.",
+      },
+    ],
+    regra: "O sistema gera o documento a partir do snapshot da venda e não altera o conteúdo jurídico sem nova fonte versionada.",
+  });
+});
+
+router.get("/pagamentos", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const condicoes = [];
+    if (req.query.status) condicoes.push(eq(pagamentos.status, String(req.query.status) as any));
+    if (req.query.reconciliado) condicoes.push(eq(pagamentos.status_reconciliado, String(req.query.reconciliado)));
+    if (req.query.busca) {
+      const termo = `%${String(req.query.busca).trim()}%`;
+      condicoes.push(or(sql`${usuarios.nome} ILIKE ${termo}`, sql`${usuarios.email} ILIKE ${termo}`, sql`${eventos.nome} ILIKE ${termo}`)!);
+    }
+    const linhas = await db.select({
+      id: pagamentos.id,
+      reserva_id: pagamentos.reserva_id,
+      status: pagamentos.status,
+      status_reconciliado: pagamentos.status_reconciliado,
+      metodo: pagamentos.metodo,
+      valor: pagamentos.valor,
+      valor_centavos: pagamentos.valor_centavos,
+      valor_pago_centavos: pagamentos.valor_pago_centavos,
+      gateway_id: pagamentos.gateway_id,
+      criado_em: pagamentos.criado_em,
+      atualizado_em: pagamentos.atualizado_em,
+      cliente_nome: usuarios.nome,
+      cliente_email: usuarios.email,
+      evento_nome: eventos.nome,
+      lote_nome: lotes.nome,
+    }).from(pagamentos)
+      .innerJoin(reservas, eq(pagamentos.reserva_id, reservas.id))
+      .innerJoin(usuarios, eq(reservas.usuario_id, usuarios.id))
+      .innerJoin(lotes, eq(reservas.lote_id, lotes.id))
+      .innerJoin(eventos, eq(lotes.evento_id, eventos.id))
+      .where(condicoes.length ? and(...condicoes) : undefined)
+      .orderBy(desc(pagamentos.atualizado_em))
+      .limit(200);
+    return res.json({ total: linhas.length, pagamentos: linhas });
+  } catch (error) {
+    console.error("[ADMIN] Erro ao listar pagamentos:", error);
+    return res.status(500).json({ erro: "Erro ao carregar pagamentos" });
   }
 });
 

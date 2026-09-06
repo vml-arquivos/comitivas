@@ -13,7 +13,9 @@ import {
   ArrowLeft,
   PartyPopper,
   BarChart3,
-  Percent
+  Percent,
+  ShoppingCart,
+  CreditCard
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import iconUrl from '../assets/brand/icon.svg';
@@ -30,9 +32,11 @@ export function AdminLayout() {
 
   const navItems = [
     { name: 'Dashboard', path: '/admin', icon: LayoutDashboard, roles: ['admin', 'vendedor'] },
+    { name: 'Vendas internas', path: '/admin/vendas', icon: ShoppingCart, roles: ['admin', 'vendedor'] },
     { name: 'Eventos & Lotes', path: '/admin/eventos', icon: PartyPopper, roles: ['admin'] },
     { name: 'Reservas', path: '/admin/reservas', icon: CalendarDays, roles: ['admin', 'vendedor'] },
-    { name: 'Contratos', path: '/admin/contratos', icon: FileText, roles: ['admin'] },
+    { name: 'Contratos', path: '/admin/contratos', icon: FileText, roles: ['admin', 'vendedor'] },
+    { name: 'Pagamentos', path: '/admin/pagamentos', icon: CreditCard, roles: ['admin'] },
     { name: 'Clientes & Usuários', path: '/admin/clientes', icon: UserCog, roles: ['admin'] },
     { name: 'Jornada (CRM)', path: '/admin/jornada', icon: Users, roles: ['admin', 'vendedor'] },
     { name: 'Cupons', path: '/admin/cupons', icon: Ticket, roles: ['admin'] },

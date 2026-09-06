@@ -22,9 +22,11 @@ const Confirmacao = lazy(() => import('./pages/cliente/Confirmacao'));
 const MinhasReservas = lazy(() => import('./pages/cliente/MinhasReservas'));
 const DadosCadastrais = lazy(() => import('./pages/cliente/DadosCadastrais'));
 const Dashboard = lazy(() => import('./pages/admin/Dashboard'));
+const Vendas = lazy(() => import('./pages/admin/Vendas'));
 const Reservas = lazy(() => import('./pages/admin/Reservas'));
 const Clientes = lazy(() => import('./pages/admin/Clientes'));
 const Contratos = lazy(() => import('./pages/admin/Contratos'));
+const Pagamentos = lazy(() => import('./pages/admin/Pagamentos'));
 const Configuracoes = lazy(() => import('./pages/admin/Configuracoes'));
 const Cupons = lazy(() => import('./pages/admin/Cupons'));
 const Jornada = lazy(() => import('./pages/admin/Jornada'));
@@ -104,12 +106,14 @@ function AppRoutes() {
         </ProtectedRoute>
       }>
         <Route index element={<Dashboard />} />
+        <Route path="vendas" element={<ProtectedRoute roles={['admin', 'vendedor']}><Vendas /></ProtectedRoute>} />
         <Route path="reservas" element={<ProtectedRoute roles={['admin', 'vendedor']}><Reservas /></ProtectedRoute>} />
         <Route path="contratos" element={
-          <ProtectedRoute roles={['admin']}>
+          <ProtectedRoute roles={['admin', 'vendedor']}>
             <Contratos />
           </ProtectedRoute>
         } />
+        <Route path="pagamentos" element={<ProtectedRoute roles={['admin']}><Pagamentos /></ProtectedRoute>} />
         <Route path="clientes" element={
           <ProtectedRoute roles={['admin']}>
             <Clientes />

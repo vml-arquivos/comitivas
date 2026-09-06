@@ -12,6 +12,13 @@ import { OtpService } from "../services/otpService.js";
 
 const router = Router();
 
+function podeAcessarReserva(req: Request, reserva: { usuario_id: string; vendedor_id: string | null }, somenteCliente = false): boolean {
+  if (!req.usuario) return false;
+  if (req.usuario.tipo === "admin") return true;
+  if (reserva.usuario_id === req.usuario.id) return true;
+  return !somenteCliente && req.usuario.tipo === "vendedor" && reserva.vendedor_id === req.usuario.id;
+}
+
 function escaparHtml(valor: unknown): string {
   return String(valor ?? "")
     .replace(/&/g, "&amp;")
@@ -47,7 +54,7 @@ router.post("/preparar/:reserva_id", authMiddleware, async (req: Request, res: R
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
-    if (reserva.usuario_id !== req.usuario.id && req.usuario.tipo !== "admin") return res.status(403).json({ erro: "Acesso negado" });
+    if (!podeAcessarReserva(req, reserva)) return res.status(403).json({ erro: "Acesso negado" });
     const documento = await ContratoService.prepararContrato(req.params.reserva_id);
     return res.json({ documento });
   } catch (error: any) {
@@ -99,7 +106,7 @@ router.get("/estado/:reserva_id", authMiddleware, async (req: Request, res: Resp
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
-    if (reserva.usuario_id !== req.usuario.id && req.usuario.tipo !== "admin") return res.status(403).json({ erro: "Acesso negado" });
+    if (!podeAcessarReserva(req, reserva)) return res.status(403).json({ erro: "Acesso negado" });
     const documento = (await db.select({ id: contratosDocumentos.id, versao: contratosDocumentos.versao, status: contratosDocumentos.status, snapshot_sha256: contratosDocumentos.snapshot_sha256, pdf_sha256: contratosDocumentos.pdf_sha256, arquivo: contratosDocumentos.arquivo }).from(contratosDocumentos).where(eq(contratosDocumentos.reserva_id, reserva.id)).orderBy(desc(contratosDocumentos.versao)).limit(1))[0] || null;
     const pagamento = (await db.select().from(pagamentos).where(eq(pagamentos.reserva_id, reserva.id)).orderBy(desc(pagamentos.criado_em)).limit(1))[0] || null;
     const checkoutEstado = reserva.checkout_estado || (reserva.status === "cliente_confirmado" ? "primeira_parcela_confirmada" : reserva.status === "aguardando_pagamento" ? "aguardando_pagamento" : reserva.status === "contrato_gerado" ? "contrato_validado" : reserva.status);
@@ -115,7 +122,7 @@ router.get("/validacao/:reserva_id", authMiddleware, async (req: Request, res: R
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
-    if (reserva.usuario_id !== req.usuario.id && req.usuario.tipo !== "admin") return res.status(403).json({ erro: "Acesso negado" });
+    if (!podeAcessarReserva(req, reserva)) return res.status(403).json({ erro: "Acesso negado" });
     const validacao = (await db.select().from(contratoValidacoes).where(eq(contratoValidacoes.reserva_id, req.params.reserva_id)).orderBy(desc(contratoValidacoes.confirmado_em)).limit(1))[0];
     if (!validacao) return res.status(404).json({ erro: "Validação ainda não registrada" });
     return res.json({ validacao });
@@ -252,8 +259,7 @@ router.get("/download/:reserva_id", authMiddleware, async (req: Request, res: Re
 
     const reserva = reservaResult[0];
 
-    // Verificar se é do usuário ou admin
-    if (reserva.usuario_id !== req.usuario.id && req.usuario.tipo !== "admin") {
+    if (!podeAcessarReserva(req, reserva)) {
       return res.status(403).json({ erro: "Acesso negado" });
     }
 
@@ -283,9 +289,9 @@ router.get("/download/:reserva_id", authMiddleware, async (req: Request, res: Re
 router.get("/evidencias/:reserva_id", authMiddleware, async (req: Request, res: Response) => {
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
-    const reserva = (await db.select({ id: reservas.id, usuario_id: reservas.usuario_id }).from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
+    const reserva = (await db.select({ id: reservas.id, usuario_id: reservas.usuario_id, vendedor_id: reservas.vendedor_id }).from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
-    if (reserva.usuario_id !== req.usuario.id && req.usuario.tipo !== "admin") return res.status(403).json({ erro: "Acesso negado" });
+    if (!podeAcessarReserva(req, reserva)) return res.status(403).json({ erro: "Acesso negado" });
     const validacao = (await db.select().from(contratoValidacoes).where(eq(contratoValidacoes.reserva_id, reserva.id)).orderBy(desc(contratoValidacoes.confirmado_em)).limit(1))[0];
     if (!validacao) return res.status(404).json({ erro: "Relatório de evidências não disponível" });
     return res.json({ protocolo: validacao.protocolo, contrato_id: validacao.contrato_id, reserva_id: validacao.reserva_id, versao: validacao.versao, snapshot_sha256: validacao.snapshot_sha256, pdf_sha256: validacao.pdf_sha256, aceite_contrato: validacao.aceite_contrato, aceite_regras: validacao.aceite_regras, aceite_contrato_texto: validacao.aceite_contrato_texto, aceite_regras_texto: validacao.aceite_regras_texto, regras_versao: validacao.regras_versao, aviso_privacidade_versao: validacao.aviso_privacidade_versao, canal: validacao.canal, destinatario_mascarado: validacao.destinatario_mascarado, confirmado_em: validacao.confirmado_em, servidor_utc: validacao.servidor_utc, navegador: validacao.navegador, sistema_operacional: validacao.sistema_operacional, idioma: validacao.idioma, timezone: validacao.timezone, geolocalizacao_consentida: validacao.geolocalizacao_consentida });
