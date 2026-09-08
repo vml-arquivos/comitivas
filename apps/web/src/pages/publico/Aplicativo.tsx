@@ -6,11 +6,9 @@ import {
   Download,
   FileText,
   Plus,
-  ReceiptText,
   Share2,
   ShieldCheck,
   Smartphone,
-  TicketCheck,
   WifiOff,
 } from 'lucide-react';
 
@@ -96,9 +94,9 @@ export default function Aplicativo() {
         : 'Instalar aplicativo';
 
   const recursos = [
-    { icon: TicketCheck, titulo: 'Excursões e pacotes', texto: 'Consulte opções, detalhes da viagem e disponibilidade.' },
+    { icon: FileText, titulo: 'Excursões e pacotes', texto: 'Consulte opções, detalhes da viagem e disponibilidade.' },
     { icon: FileText, titulo: 'Contratos', texto: 'Gere, valide, visualize e acompanhe seus documentos.' },
-    { icon: ReceiptText, titulo: 'Pagamentos', texto: 'Acompanhe boletos, parcelas, pagamentos e comprovantes.' },
+    { icon: FileText, titulo: 'Pagamentos', texto: 'Acompanhe boletos, parcelas, pagamentos e comprovantes.' },
     { icon: ShieldCheck, titulo: 'Sua conta', texto: 'Acesse histórico, dados, reservas e atendimento em um só lugar.' },
   ];
 
