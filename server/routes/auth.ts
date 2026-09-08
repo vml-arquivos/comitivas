@@ -251,6 +251,19 @@ router.post("/reenviar-confirmacao", async (req: Request, res: Response) => {
     const email = String(req.body?.email || "").trim().toLowerCase();
     const usuario = (await db.select({ id: usuarios.id, email: usuarios.email, nome: usuarios.nome, email_confirmado: usuarios.email_confirmado }).from(usuarios).where(eq(usuarios.email, email)).limit(1))[0];
     if (!usuario || usuario.email_confirmado) return res.json(respostaNeutra);
+
+    // Evita disparos repetidos para o mesmo endereço sem bloquear login/cadastro.
+    // A resposta continua neutra para não revelar o estado da conta.
+    const envioRecente = (await db.select({ id: verificacoesEmail.id })
+      .from(verificacoesEmail)
+      .where(and(
+        eq(verificacoesEmail.usuario_id, usuario.id),
+        isNull(verificacoesEmail.usado_em),
+        sql`${verificacoesEmail.criado_em} > CURRENT_TIMESTAMP - INTERVAL '60 seconds'`,
+      ))
+      .limit(1))[0];
+    if (envioRecente) return res.json(respostaNeutra);
+
     const codigo = gerarCodigoEmail();
     const agora = new Date();
     await db.update(verificacoesEmail).set({ usado_em: agora }).where(and(eq(verificacoesEmail.usuario_id, usuario.id), isNull(verificacoesEmail.usado_em)));
@@ -365,6 +378,19 @@ router.post("/esqueci-senha", async (req: Request, res: Response) => {
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.json(respostaNeutra);
     const usuario = (await db.select({ id: usuarios.id, nome: usuarios.nome, email: usuarios.email }).from(usuarios).where(eq(usuarios.email, email)).limit(1))[0];
     if (!usuario || !usuario.email) return res.json(respostaNeutra);
+
+    // Cooldown por conta: evita bombardeio de e-mail sem compartilhar o mesmo
+    // contador de login/cadastro. Solicitações dentro de 60 s não reenviam.
+    const tokenRecente = (await db.select({ id: passwordResetTokens.id })
+      .from(passwordResetTokens)
+      .where(and(
+        eq(passwordResetTokens.usuario_id, usuario.id),
+        isNull(passwordResetTokens.usado_em),
+        sql`${passwordResetTokens.criado_em} > CURRENT_TIMESTAMP - INTERVAL '60 seconds'`,
+      ))
+      .limit(1))[0];
+    if (tokenRecente) return res.json(respostaNeutra);
+
     const token = randomBytes(32).toString("hex");
     const tokenHash = createHash("sha256").update(token).digest("hex");
     const agora = new Date();

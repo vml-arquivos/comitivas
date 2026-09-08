@@ -31,12 +31,46 @@ const trustedProxyIps = new Set((process.env.TRUSTED_PROXY_IPS || "127.0.0.1,::1
 app.set("trust proxy", (ip: string) => trustedProxyIps.has(ip));
 const limiteOtp = rateLimit({ windowMs: 15 * 60 * 1000, max: process.env.NODE_ENV === "production" ? 10 : 1_000, standardHeaders: "draft-7", legacyHeaders: false, message: { erro: "Muitas tentativas de validação. Aguarde alguns minutos." } });
 const limiteWebhook = rateLimit({ windowMs: 60 * 1000, max: process.env.NODE_ENV === "production" ? 120 : 1_000, standardHeaders: "draft-7", legacyHeaders: false, message: { erro: "Muitos eventos recebidos. Tente novamente." } });
-const limiteAutenticacao = rateLimit({
+
+// Autenticação usa limites independentes por ação.
+// IMPORTANTE: não aplicar um único rate limiter em /api/auth, porque isso faz
+// login, cadastro, recuperação, confirmação, perfil e refresh consumirem o
+// mesmo contador e pode bloquear usuários legítimos depois de navegação normal.
+const limiteLogin = rateLimit({
   windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === "production" ? 50 : 1_000,
+  skipSuccessfulRequests: true,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { erro: "Muitas tentativas de login. Aguarde alguns minutos e tente novamente." },
+});
+const limiteCadastro = rateLimit({
+  windowMs: 60 * 60 * 1000,
   max: process.env.NODE_ENV === "production" ? 20 : 1_000,
   standardHeaders: "draft-7",
   legacyHeaders: false,
-  message: { erro: "Muitas tentativas. Aguarde alguns minutos antes de tentar novamente." },
+  message: { erro: "Muitas tentativas de cadastro. Aguarde alguns minutos e tente novamente." },
+});
+const limiteRecuperacaoSenha = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === "production" ? 30 : 1_000,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { erro: "Muitas solicitações de recuperação. Aguarde alguns minutos e tente novamente." },
+});
+const limiteConfirmacaoEmail = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === "production" ? 30 : 1_000,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { erro: "Muitas tentativas de confirmação. Aguarde alguns minutos e tente novamente." },
+});
+const limiteConvite = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === "production" ? 30 : 1_000,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { erro: "Muitas tentativas com convite. Aguarde alguns minutos e tente novamente." },
 });
 const limiteIntencaoLead = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -90,7 +124,17 @@ const webDistPath = path.join(process.cwd(), "apps", "web", "dist");
 app.use(express.static(webDistPath));
 
 // Rotas públicas
-app.use("/api/auth", limiteAutenticacao, authRoutes);
+// Cada operação de autenticação possui seu próprio contador para evitar
+// bloqueio cruzado entre login, cadastro e recuperação de senha. Rotas como
+// perfil, logout e refresh não consomem esses contadores.
+app.use("/api/auth/login", limiteLogin);
+app.use("/api/auth/cadastro", limiteCadastro);
+app.use("/api/auth/esqueci-senha", limiteRecuperacaoSenha);
+app.use("/api/auth/redefinir-senha", limiteRecuperacaoSenha);
+app.use("/api/auth/confirmar-email", limiteConfirmacaoEmail);
+app.use("/api/auth/reenviar-confirmacao", limiteConfirmacaoEmail);
+app.use("/api/auth/convite", limiteConvite);
+app.use("/api/auth", authRoutes);
 app.use("/api/publico/leads/:lead_id/intencao", limiteIntencaoLead);
 app.use("/api/publico", publicoRoutes);
 
