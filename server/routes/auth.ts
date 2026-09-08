@@ -433,6 +433,10 @@ router.post("/redefinir-senha", async (req: Request, res: Response) => {
       return atualizado[0];
     });
     if (!resultado) return res.status(400).json({ erro: "Token inválido, expirado ou já utilizado" });
+
+    // A troca de senha invalida todas as sessões por session_version. Limpa
+    // também o cookie atual para que o próximo acesso comece em estado limpo.
+    limparCookieAuth(res);
     return res.json({ mensagem: "Senha redefinida com sucesso" });
   } catch (error) {
     console.error("[AUTH] Erro ao redefinir senha:", error);

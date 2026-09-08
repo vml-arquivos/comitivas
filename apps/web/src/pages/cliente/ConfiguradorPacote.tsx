@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { api, useAuth } from '../../contexts/AuthContext';
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@ui/index';
-import { Check, Info, TentTree, Wind, Snowflake, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, CheckCircle2, Info, TentTree, Wind, Snowflake, Sparkles } from 'lucide-react';
 import {
   lerIntencaoCheckout,
   lerLeadId,
@@ -209,16 +209,22 @@ export default function ConfiguradorPacote() {
   if (isLoading) return <div className="mx-auto max-w-7xl px-4 py-20 text-center text-[#182D3B]/60 sm:px-6 lg:px-8">Preparando sua experiência...</div>;
 
   return (
-    <div className="mx-auto grid max-w-7xl grid-cols-1 gap-8 px-4 py-10 sm:px-6 sm:py-14 lg:grid-cols-3 lg:px-8">
+    <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-4 py-7 pb-28 sm:px-6 sm:py-12 lg:grid-cols-3 lg:gap-8 lg:px-8 lg:pb-14">
       <Helmet>
         <title>Monte seu pacote | Excursão das Comitivas</title>
         <meta name="description" content="Escolha a modalidade de hospedagem e confira as condições da sua reserva para Barretos." />
         <meta name="robots" content="noindex,follow" />
       </Helmet>
       <div className="space-y-6 lg:col-span-2">
-        <section className="rounded-[2rem] bg-[#182D3B] p-7 text-white shadow-[0_18px_50px_rgba(24,45,59,0.18)]">
+        <div className="flex flex-col gap-4 rounded-2xl border border-[#182D3B]/10 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+          <button type="button" onClick={() => navigate('/eventos')} className="inline-flex items-center gap-2 text-sm font-extrabold text-[#851F32] hover:underline"><ArrowLeft size={16}/>Voltar e comparar pacotes</button>
+          <div className="flex items-center gap-2 overflow-x-auto text-[11px] font-black uppercase tracking-[.1em] text-slate-400">
+            <span className="rounded-full bg-[#851F32] px-3 py-1.5 text-white">1 · Pacote</span><ArrowRight size={13}/><span>2 · Adicionais</span><ArrowRight size={13}/><span>3 · Checkout</span>
+          </div>
+        </div>
+        <section className="rounded-[1.6rem] bg-[#182D3B] p-5 text-white shadow-[0_18px_50px_rgba(24,45,59,0.18)] sm:rounded-[2rem] sm:p-7">
           <div className="flex items-center gap-3 text-[#E3AAB4]"><Sparkles size={18} /><span className="text-xs font-bold uppercase tracking-[0.18em]">Sua experiência, suas escolhas</span></div>
-          <h1 className="font-editorial mt-3 text-4xl font-bold tracking-[-0.03em]">Monte seu pacote de viagem</h1>
+          <h1 className="font-editorial mt-3 text-2xl font-bold tracking-[-0.025em] sm:text-4xl">Monte seu pacote de viagem</h1>
           <p className="mt-3 max-w-2xl text-sm leading-7 text-white/75">Defina a hospedagem e complemente a sua reserva. O valor e o contrato serão gerados com base exatamente nas escolhas confirmadas.</p>
         </section>
 
@@ -227,13 +233,13 @@ export default function ConfiguradorPacote() {
         {pacotes.length > 0 && (
           <section>
             <div className="mb-3"><h2 className="text-xl font-bold text-slate-900">Escolha sua hospedagem</h2><p className="text-sm text-gray-500">A modalidade selecionada será registrada na sua reserva e no contrato.</p></div>
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {pacotes.map((pacote) => {
                 const meta = modalidadeMeta[pacote.modalidade_hospedagem];
                 const Icon = meta?.icon || TentTree;
                 const selecionado = pacote.id === pacoteId;
                 const esgotado = pacote.disponibilidade === 'esgotado';
-                return <button key={pacote.id} type="button" aria-pressed={selecionado} disabled={esgotado} onClick={() => selecionarPacote(pacote.id)} className={`relative rounded-2xl border p-5 text-left transition-all disabled:cursor-not-allowed disabled:opacity-60 ${selecionado ? 'border-primary bg-primary/5 shadow-lg ring-2 ring-primary/20' : 'border-gray-200 bg-white hover:border-primary/40 hover:shadow-md'}`}>
+                return <button key={pacote.id} type="button" aria-pressed={selecionado} disabled={esgotado} onClick={() => selecionarPacote(pacote.id)} className={`relative rounded-2xl border p-4 text-left transition-all sm:p-5 disabled:cursor-not-allowed disabled:opacity-60 ${selecionado ? 'border-primary bg-primary/5 shadow-lg ring-2 ring-primary/20' : 'border-gray-200 bg-white hover:border-primary/40 hover:shadow-md'}`}>
                   {selecionado && <span className="absolute left-3 top-3 rounded-full bg-primary p-1 text-white"><Check size={14} /></span>}
                   {pacote.disponibilidade !== 'disponivel' && <span className={`absolute right-3 top-3 rounded-full px-2 py-1 text-[10px] font-black uppercase ${esgotado ? 'bg-slate-800 text-white' : 'bg-amber-100 text-amber-800'}`}>{esgotado ? 'Esgotado' : 'Últimas vagas'}</span>}
                   <div className="mb-4 inline-flex rounded-xl bg-slate-100 p-3 text-primary"><Icon size={24} /></div>
@@ -244,6 +250,7 @@ export default function ConfiguradorPacote() {
                 </button>;
               })}
             </div>
+            {pacoteSelecionado && <div className="mt-3 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"><CheckCircle2 size={17} className="mt-0.5 shrink-0"/><p><strong>{pacoteSelecionado.nome}</strong> selecionado. Você pode adicionar extras abaixo ou seguir direto para o checkout.</p></div>}
           </section>
         )}
 
@@ -282,6 +289,16 @@ export default function ConfiguradorPacote() {
           <div className="flex gap-2 rounded-md bg-blue-50 p-3 text-xs text-blue-700"><Info size={16} className="shrink-0" /><p>{user ? 'Os valores são calculados no servidor. Seu contrato refletirá exatamente as escolhas confirmadas.' : 'Você só precisará criar sua conta na próxima etapa. Sua escolha ficará salva para continuar sem recomeçar.'}</p></div>
         </CardContent></Card>
       </aside>
+
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[#182D3B]/10 bg-white/95 p-3 shadow-[0_-12px_34px_rgba(24,45,59,.12)] backdrop-blur lg:hidden">
+        <div className="mx-auto flex max-w-2xl items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs font-bold text-slate-500">{pacoteSelecionado?.nome || 'Escolha um pacote'}</p>
+            <p className="text-lg font-black text-[#182D3B]">{isCalculating ? 'Calculando…' : formatarMoeda(calculo?.valor_total || pacoteSelecionado?.valor_total || 0)}</p>
+          </div>
+          <Button onClick={handleReservar} isLoading={isReserving} disabled={isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado'}>Continuar <ArrowRight size={16}/></Button>
+        </div>
+      </div>
     </div>
   );
 }

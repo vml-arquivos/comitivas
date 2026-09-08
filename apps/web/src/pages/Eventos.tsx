@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { AlertCircle, ArrowRight, BedDouble, Calendar, Check, MapPin, MessageCircle } from 'lucide-react';
+import { AlertCircle, ArrowRight, BedDouble, Calendar, Check, Filter, MapPin, MessageCircle } from 'lucide-react';
 import { Button, WhatsAppCTA } from '@ui/index';
 import { api } from '../contexts/AuthContext';
 
@@ -78,6 +78,8 @@ export default function Eventos() {
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [filtroModalidade, setFiltroModalidade] = useState('todas');
+  const [somenteDisponiveis, setSomenteDisponiveis] = useState(false);
   const identificadorEvento = eventoId || eventoSlug;
   const eventosExibidos = identificadorEvento ? eventos.filter((evento) => evento.id === identificadorEvento || slugify(evento.nome) === identificadorEvento) : eventos;
   const ref = searchParams.get('ref');
@@ -121,11 +123,11 @@ export default function Eventos() {
         <meta name="twitter:image" content="https://excursaodascomitivas.com.br/images/logo-compartilhamento.webp" />
       </Helmet>
 
-      <section className="border-b border-[#182D3B]/10 bg-[#F8F5EF] px-4 py-16 sm:px-6 sm:py-20 lg:px-8">
+      <section className="border-b border-[#182D3B]/10 bg-[#F8F5EF] px-4 py-10 sm:px-6 sm:py-16 lg:px-8">
         <div className="mx-auto grid max-w-7xl items-end gap-10 lg:grid-cols-[1.05fr_0.95fr]">
           <div>
             <p className="text-xs font-extrabold uppercase tracking-[0.22em] text-[#851F32]">Excursões & pacotes</p>
-            <h1 className="font-editorial mt-5 max-w-4xl text-5xl font-bold leading-[0.98] tracking-[-0.045em] text-[#182D3B] sm:text-6xl">
+            <h1 className="font-editorial mt-4 max-w-4xl text-3xl font-bold leading-[1.04] tracking-[-0.035em] text-[#182D3B] sm:mt-5 sm:text-5xl lg:text-6xl">
               Escolha a experiência que combina com a sua viagem.
             </h1>
             <p className="mt-6 max-w-2xl text-base leading-8 text-[#182D3B]/68 sm:text-lg">
@@ -150,6 +152,14 @@ export default function Eventos() {
             <h2 className="font-editorial mt-3 text-4xl font-bold tracking-[-0.035em] text-[#182D3B]">Encontre seu pacote</h2>
           </div>
           <p className="max-w-xl text-sm leading-6 text-[#182D3B]/60">Escolha diretamente o pacote desejado. O configurador confirmará a seleção contra a lista atual retornada pelo servidor.</p>
+        </div>
+
+        <div className="sticky top-[120px] z-30 -mx-4 border-b border-[#182D3B]/8 bg-[#F8F5EF]/95 px-4 py-4 backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:py-5">
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible">
+            <span className="mr-1 inline-flex shrink-0 items-center gap-1.5 text-xs font-black uppercase tracking-[.12em] text-[#182D3B]/45"><Filter size={14}/>Filtrar</span>
+            {[['todas','Todos'],['camping','Camping'],['quarto_ventilador','Ventilador'],['quarto_ar_condicionado','Ar-condicionado']].map(([valor,label])=><button key={valor} type="button" onClick={()=>setFiltroModalidade(valor)} className={`shrink-0 rounded-full border px-3.5 py-2 text-xs font-extrabold transition ${filtroModalidade===valor?'border-[#851F32] bg-[#851F32] text-white':'border-[#182D3B]/12 bg-white text-[#182D3B] hover:border-[#851F32]/30'}`}>{label}</button>)}
+            <button type="button" onClick={()=>setSomenteDisponiveis(v=>!v)} className={`shrink-0 rounded-full border px-3.5 py-2 text-xs font-extrabold transition ${somenteDisponiveis?'border-[#365B41] bg-[#365B41] text-white':'border-[#182D3B]/12 bg-white text-[#182D3B] hover:border-[#365B41]/30'}`}>Somente disponíveis</button>
+          </div>
         </div>
 
         {isLoading && <Skeleton />}
@@ -206,9 +216,9 @@ export default function Eventos() {
                           </span>
                         </div>
 
-                        {lote.modalidades.length > 0 ? (
+                        {lote.modalidades.filter((m) => (filtroModalidade === 'todas' || m.modalidade_hospedagem === filtroModalidade) && (!somenteDisponiveis || m.disponibilidade !== 'esgotado')).length > 0 ? (
                           <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                            {lote.modalidades.map((modalidade) => {
+                            {lote.modalidades.filter((m) => (filtroModalidade === 'todas' || m.modalidade_hospedagem === filtroModalidade) && (!somenteDisponiveis || m.disponibilidade !== 'esgotado')).map((modalidade) => {
                               const status = statusOferta(modalidade.disponibilidade);
                               const esgotado = modalidade.disponibilidade === 'esgotado';
                               const inclusos = itensInclusos(modalidade.itens_inclusos);
@@ -234,7 +244,7 @@ export default function Eventos() {
                                       <WhatsAppCTA mensagem={`Olá! Quero saber sobre lista de espera para ${modalidade.nome} — ${lote.nome}.`} label="Consultar lista de espera" size="sm" className="mt-4 w-full" />
                                     ) : (
                                       <Link to={pacoteLink} className="mt-4 inline-flex min-h-[46px] w-full items-center justify-center gap-2 rounded-full bg-[#851F32] px-4 text-sm font-extrabold text-white transition hover:bg-[#6f1929]">
-                                        Quero este pacote <ArrowRight size={16} />
+                                        Ver detalhes e escolher <ArrowRight size={16} />
                                       </Link>
                                     )}
                                   </div>
@@ -243,7 +253,7 @@ export default function Eventos() {
                             })}
                           </div>
                         ) : (
-                          <div className="mt-5 rounded-2xl border border-dashed border-[#182D3B]/15 bg-[#F8F5EF] p-6 text-center text-sm text-[#182D3B]/55">Os pacotes deste lote ainda serão publicados.</div>
+                          <div className="mt-5 rounded-2xl border border-dashed border-[#182D3B]/15 bg-[#F8F5EF] p-6 text-center text-sm text-[#182D3B]/55">Nenhum pacote deste lote corresponde aos filtros selecionados.</div>
                         )}
                       </section>
                     ))}

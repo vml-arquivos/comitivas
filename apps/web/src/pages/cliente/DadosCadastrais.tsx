@@ -24,7 +24,7 @@ export default function DadosCadastrais() {
   const [error, setError] = useState('');
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const redirect = destinoSeguro(searchParams.get('redirect'), '/minhas-reservas');
+  const redirect = destinoSeguro(searchParams.get('redirect'), '/minha-conta');
 
   useEffect(() => {
     api.get('/auth/perfil')

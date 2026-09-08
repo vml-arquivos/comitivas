@@ -20,6 +20,7 @@ import emailsRoutes from "./routes/emails.js";
 import cupomsRoutes from "./routes/cupons.js";
 import jornadadRoutes from "./routes/jornada.js";
 import adminRoutes from "./routes/admin.js";
+import clienteRoutes from "./routes/cliente.js";
 
 dotenv.config();
 AuthService.validarConfiguracaoSegura();
@@ -142,6 +143,9 @@ app.use("/api/publico", publicoRoutes);
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
+
+// Área do cliente 360º (autenticada e sempre limitada ao próprio usuário)
+app.use("/api/cliente", clienteRoutes);
 
 // Rotas de eventos (público para listar, admin para criar/editar)
 app.use("/api/eventos", eventosRoutes);

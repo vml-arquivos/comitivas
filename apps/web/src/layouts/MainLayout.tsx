@@ -17,7 +17,7 @@ function WhatsAppFloatButton() {
       href={link}
       target="_blank"
       rel="noopener noreferrer"
-      className="fixed bottom-5 right-5 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-[#128C4A] text-white shadow-[0_14px_34px_rgba(18,140,74,0.28)] transition hover:-translate-y-0.5 hover:bg-[#0f7b40] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#128C4A] focus-visible:ring-offset-4"
+      className="fixed bottom-20 right-5 z-50 flex h-14 w-14 lg:bottom-5 items-center justify-center rounded-full bg-[#128C4A] text-white shadow-[0_14px_34px_rgba(18,140,74,0.28)] transition hover:-translate-y-0.5 hover:bg-[#0f7b40] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#128C4A] focus-visible:ring-offset-4"
       aria-label="Fale conosco no WhatsApp"
     >
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="27" height="27" fill="currentColor" aria-hidden="true">
@@ -51,15 +51,15 @@ export function MainLayout() {
 
       <header className="sticky top-0 z-50 border-b border-[#182D3B]/10 bg-[#F8F5EF]/95 backdrop-blur-xl">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex h-[88px] items-center justify-between gap-4">
+          <div className="flex h-[80px] items-center justify-between gap-2.5 sm:h-[88px] sm:gap-4">
             <Link to="/" className="flex min-w-0 items-center gap-3" onClick={fecharMenu} aria-label="Excursão das Comitivas — início">
-              <div className="shrink-0 rounded-full border border-[#182D3B]/10 bg-white p-1.5 shadow-sm">
+              <div className="shrink-0 rounded-full border border-[#182D3B]/10 bg-white p-1 shadow-sm sm:p-1.5">
                 <picture>
                   <source srcSet={logoWebp} type="image/webp" />
-                  <img src={logoUrl} alt="" aria-hidden="true" className="h-9 w-9 object-contain" width="36" height="36" />
+                  <img src={logoUrl} alt="" aria-hidden="true" className="h-[52px] w-[52px] object-contain sm:h-10 sm:w-10" width="52" height="52" />
                 </picture>
               </div>
-              <span className="hidden truncate font-editorial text-[1.08rem] font-bold tracking-[-0.02em] text-[#182D3B] sm:block lg:text-xl">
+              <span className="hidden max-w-[150px] truncate font-editorial text-[0.95rem] font-bold tracking-[-0.015em] text-[#182D3B] min-[430px]:block sm:max-w-none sm:text-[1.08rem] lg:text-xl">
                 Excursão das Comitivas
               </span>
             </Link>
@@ -76,7 +76,7 @@ export function MainLayout() {
             <nav className="hidden items-center gap-3 lg:flex" aria-label="Conta">
               {user ? (
                 <>
-                  <Link to="/minhas-reservas" className="text-sm font-bold text-[#182D3B] transition hover:text-[#851F32]">Minha conta</Link>
+                  <Link to="/minha-conta" className="text-sm font-bold text-[#182D3B] transition hover:text-[#851F32]">Minha conta</Link>
                   {(['admin', 'dev', 'vendedor'].includes(user.tipo)) && (
                     <Link to="/admin" className="rounded-full border border-[#182D3B]/15 px-4 py-2 text-sm font-bold text-[#182D3B] transition hover:border-[#851F32]/30 hover:text-[#851F32]">
                       {user.tipo === 'dev' ? 'Painel DEV' : user.tipo === 'admin' ? 'Painel' : 'Meu painel'}
@@ -98,16 +98,26 @@ export function MainLayout() {
               )}
             </nav>
 
-            <button
-              type="button"
-              className="shrink-0 rounded-full border border-[#182D3B]/10 bg-white p-2.5 text-[#182D3B] shadow-sm transition hover:border-[#851F32]/25 hover:text-[#851F32] lg:hidden"
-              onClick={() => setMenuAberto((aberto) => !aberto)}
-              aria-expanded={menuAberto}
-              aria-controls="navegacao-publica-mobile"
-              aria-label={menuAberto ? 'Fechar menu' : 'Abrir menu'}
-            >
-              {menuAberto ? <X size={22} /> : <Menu size={22} />}
-            </button>
+            <div className="flex shrink-0 items-center gap-2 lg:hidden">
+              <Link
+                to="/aplicativo"
+                onClick={fecharMenu}
+                className="inline-flex min-h-10 items-center gap-1.5 rounded-full border border-[#851F32]/15 bg-white px-3 text-xs font-extrabold text-[#851F32] shadow-sm transition hover:bg-[#fff8f8]"
+                aria-label="Instalar aplicativo"
+              >
+                <Download size={15} /> Instalar app
+              </Link>
+              <button
+                type="button"
+                className="rounded-full border border-[#182D3B]/10 bg-white p-2.5 text-[#182D3B] shadow-sm transition hover:border-[#851F32]/25 hover:text-[#851F32]"
+                onClick={() => setMenuAberto((aberto) => !aberto)}
+                aria-expanded={menuAberto}
+                aria-controls="navegacao-publica-mobile"
+                aria-label={menuAberto ? 'Fechar menu' : 'Abrir menu'}
+              >
+                {menuAberto ? <X size={22} /> : <Menu size={22} />}
+              </button>
+            </div>
           </div>
 
           {menuAberto && (
@@ -120,7 +130,7 @@ export function MainLayout() {
               <Link to="/aplicativo" onClick={fecharMenu} className="flex items-center gap-2 rounded-xl px-3 py-2.5 font-bold text-[#851F32] hover:bg-white"><Download size={16} />Instalar aplicativo</Link>
               {user ? (
                 <>
-                  <Link to="/minhas-reservas" onClick={fecharMenu} className="block rounded-xl px-3 py-2.5 font-semibold hover:bg-white">Minha conta</Link>
+                  <Link to="/minha-conta" onClick={fecharMenu} className="block rounded-xl px-3 py-2.5 font-semibold hover:bg-white">Minha conta</Link>
                   {(['admin', 'dev', 'vendedor'].includes(user.tipo)) && <Link to="/admin" onClick={fecharMenu} className="block rounded-xl px-3 py-2.5 font-bold text-[#851F32] hover:bg-white">Painel administrativo</Link>}
                   <button onClick={handleLogout} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left font-semibold hover:bg-white"><LogOut size={16} />Sair</button>
                 </>
@@ -133,6 +143,9 @@ export function MainLayout() {
             </nav>
           )}
         </div>
+        <Link to="/aplicativo" onClick={fecharMenu} className="flex min-h-10 items-center justify-center gap-2 border-t border-[#182D3B]/8 bg-white/75 px-4 text-center text-xs font-bold text-[#851F32] lg:hidden">
+          <Download size={15} /> Instale o aplicativo no celular e tenha acesso rápido à sua conta
+        </Link>
       </header>
 
       <main id="conteudo-principal" className="flex-1" tabIndex={-1}>
@@ -162,7 +175,7 @@ export function MainLayout() {
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#D6A6AE]">Fale com a equipe</p>
             <div className="mt-5 grid gap-3 text-sm text-white/75">
               <a href="https://wa.me/5561994459086" target="_blank" rel="noopener noreferrer" className="transition hover:text-white">WhatsApp: (61) 99445-9086</a>
-              <a href="mailto:excursaodascomitivas@gmail.com" className="break-all transition hover:text-white">excursaodascomitivas@gmail.com</a>
+              <a href="mailto:atendimento@excursaodascomitivas.com.br" className="break-all transition hover:text-white">atendimento@excursaodascomitivas.com.br</a>
               <a href="https://instagram.com/excurssaodascomitivas" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 transition hover:text-white"><Instagram size={17} /> @excurssaodascomitivas</a>
             </div>
           </div>

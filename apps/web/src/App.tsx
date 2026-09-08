@@ -21,7 +21,7 @@ const Legal = lazy(() => import('./pages/publico/Legal'));
 const ConfiguradorPacote = lazy(() => import('./pages/cliente/ConfiguradorPacote'));
 const Checkout = lazy(() => import('./pages/cliente/Checkout'));
 const Confirmacao = lazy(() => import('./pages/cliente/Confirmacao'));
-const MinhasReservas = lazy(() => import('./pages/cliente/MinhasReservas'));
+const MinhaConta = lazy(() => import('./pages/cliente/MinhaConta'));
 const DadosCadastrais = lazy(() => import('./pages/cliente/DadosCadastrais'));
 const Dashboard = lazy(() => import('./pages/admin/Dashboard'));
 const Vendas = lazy(() => import('./pages/admin/Vendas'));
@@ -113,9 +113,14 @@ function AppRoutes() {
             <Confirmacao />
           </ProtectedRoute>
         } />
+        <Route path="/minha-conta" element={
+          <ProtectedRoute>
+            <MinhaConta />
+          </ProtectedRoute>
+        } />
         <Route path="/minhas-reservas" element={
           <ProtectedRoute>
-            <MinhasReservas />
+            <Navigate to="/minha-conta" replace />
           </ProtectedRoute>
         } />
         <Route path="/meus-dados" element={

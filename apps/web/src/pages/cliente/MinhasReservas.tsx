@@ -6,6 +6,9 @@ import { Button, Card, CardContent, CardHeader, CardTitle } from '@ui/index';
 import { api } from '../../contexts/AuthContext';
 
 const STATUS: Record<string, { classes: string; label: string; descricao: string }> = {
+  cancelado_cliente: { classes: 'bg-red-100 text-red-800', label: 'Cancelada', descricao: 'Esta configuração foi cancelada pelo cliente e permanece disponível apenas para histórico.' },
+  troca_pacote_cliente: { classes: 'bg-purple-100 text-purple-800', label: 'Pacote alterado', descricao: 'A configuração anterior foi encerrada para que um novo pacote pudesse ser escolhido.' },
+  reiniciado_cliente: { classes: 'bg-slate-100 text-slate-700', label: 'Contratação reiniciada', descricao: 'A configuração anterior foi preservada no histórico e uma nova contratação pode ser iniciada.' },
   aguardando_aprovacao_boleto: { classes: 'bg-amber-100 text-amber-800', label: 'Cadastro em análise', descricao: 'Contrato validado. A equipe está conferindo seu cadastro antes de liberar os boletos.' },
   boletos_em_preparacao: { classes: 'bg-indigo-100 text-indigo-800', label: 'Boletos em preparação', descricao: 'Cadastro e contrato aprovados. A equipe está preparando e anexando os boletos.' },
   boletos_enviados: { classes: 'bg-blue-100 text-blue-800', label: 'Boletos enviados', descricao: 'As parcelas foram enviadas pela equipe. Acompanhe os vencimentos e as confirmações.' },

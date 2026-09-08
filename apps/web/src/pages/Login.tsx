@@ -17,9 +17,10 @@ export default function Login() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirect = destinoSeguro(searchParams.get('redirect'), '');
+  const senhaRedefinida = searchParams.get('senha_redefinida') === '1';
 
   const destinoPorPapel = (usuario: { tipo: string }) =>
-    ['admin', 'dev', 'vendedor'].includes(usuario.tipo) ? '/admin' : '/minhas-reservas';
+    ['admin', 'dev', 'vendedor'].includes(usuario.tipo) ? '/admin' : '/minha-conta';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,6 +74,7 @@ export default function Login() {
           <CardTitle className="text-center text-2xl text-secondary">Entrar na Comitiva</CardTitle>
         </CardHeader>
         <CardContent>
+          {senhaRedefinida && <div className="mb-4 rounded-md bg-green-50 p-3 text-sm font-medium text-green-700">Senha redefinida com sucesso. Entre com sua nova senha.</div>}
           {error && <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-600">{error}</div>}
           {recuperacaoMensagem && <div className="mb-4 rounded-md bg-blue-50 p-3 text-sm text-blue-700">{recuperacaoMensagem}</div>}
 

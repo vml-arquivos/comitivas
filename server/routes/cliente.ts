@@ -1,0 +1,484 @@
+import { Router, Request, Response } from "express";
+import path from "node:path";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { createId } from "@paralleldrive/cuid2";
+import { authMiddleware } from "../middleware/authMiddleware.js";
+import { db } from "../db/index.js";
+import {
+  clienteDocumentos,
+  clienteHistorico,
+  contratoValidacoes,
+  contratosDocumentos,
+  emails_enviados,
+  eventos,
+  lotes,
+  pacotes,
+  pagamentoParcelas,
+  pagamentos,
+  reservas,
+  usuarios,
+} from "../db/schema.js";
+import { EmailService } from "../services/emailService.js";
+import { InventoryService } from "../services/inventoryService.js";
+
+const router = Router();
+router.use(authMiddleware);
+
+const TIPOS_HISTORICO_CLIENTE = [
+  "cliente_cancelamento",
+  "cliente_troca_pacote",
+  "cliente_reinicio",
+  "cliente_atendimento",
+];
+
+function escaparHtml(valor: unknown): string {
+  return String(valor ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+async function obterReservaDoCliente(reservaId: string, usuarioId: string) {
+  return (await db.select({
+    id: reservas.id,
+    usuario_id: reservas.usuario_id,
+    lote_id: reservas.lote_id,
+    pacote_id: reservas.pacote_id,
+    status: reservas.status,
+    checkout_estado: reservas.checkout_estado,
+    valor_total: reservas.valor_total,
+    forma_pagamento: reservas.forma_pagamento,
+    inventario_hold_id: reservas.inventario_hold_id,
+  }).from(reservas).where(and(eq(reservas.id, reservaId), eq(reservas.usuario_id, usuarioId))).limit(1))[0];
+}
+
+async function estadoProtegidoDaReserva(reservaId: string) {
+  const contratos = await db.select({
+    id: contratosDocumentos.id,
+    status: contratosDocumentos.status,
+    validado_em: contratosDocumentos.validado_em,
+  }).from(contratosDocumentos).where(eq(contratosDocumentos.reserva_id, reservaId));
+
+  const pagamentosLista = await db.select({
+    id: pagamentos.id,
+    status: pagamentos.status,
+    status_reconciliado: pagamentos.status_reconciliado,
+    valor_pago_centavos: pagamentos.valor_pago_centavos,
+  }).from(pagamentos).where(eq(pagamentos.reserva_id, reservaId));
+
+  const contratoValidado = contratos.some((item) => Boolean(item.validado_em) || ["validado", "aprovado"].includes(String(item.status || "").toLowerCase()));
+  const pagamentoConfirmado = pagamentosLista.some((item) =>
+    item.status === "aprovado"
+    || Number(item.valor_pago_centavos || 0) > 0
+    || ["parcial", "quitado"].includes(String(item.status_reconciliado || "").toLowerCase()),
+  );
+
+  return { contratoValidado, pagamentoConfirmado };
+}
+
+async function registrarSolicitacao(params: {
+  usuarioId: string;
+  reservaId?: string | null;
+  tipo: string;
+  titulo: string;
+  descricao?: string | null;
+  metadados?: Record<string, unknown>;
+}) {
+  const criado = (await db.insert(clienteHistorico).values({
+    id: createId(),
+    usuario_id: params.usuarioId,
+    tipo: params.tipo,
+    titulo: params.titulo,
+    descricao: params.descricao || null,
+    metadados: { reserva_id: params.reservaId || null, ...(params.metadados || {}) },
+    criado_por: params.usuarioId,
+    criado_em: new Date(),
+  }).returning({ id: clienteHistorico.id, criado_em: clienteHistorico.criado_em }))[0];
+  return criado;
+}
+
+async function avisarEquipe(params: { assunto: string; clienteNome: string; clienteEmail: string; mensagem: string }) {
+  const inbox = process.env.EMAIL_SUPPORT_INBOX?.trim() || "excursaodascomitivas@gmail.com";
+  const html = `<!doctype html><html lang="pt-BR"><body style="font-family:Arial,sans-serif;color:#182D3B;padding:24px"><div style="max-width:680px;margin:auto"><h1 style="color:#851F32;font-size:22px">${escaparHtml(params.assunto)}</h1><p><strong>Cliente:</strong> ${escaparHtml(params.clienteNome)} (${escaparHtml(params.clienteEmail)})</p><div style="white-space:pre-wrap;background:#F8F5EF;border:1px solid #eadfd8;border-radius:12px;padding:16px">${escaparHtml(params.mensagem)}</div><p style="font-size:12px;color:#64748b">Solicitação registrada automaticamente na Ficha 360º do cliente.</p></div></body></html>`;
+  return EmailService.enviarEmail({
+    destinatario: inbox,
+    assunto: params.assunto,
+    corpo_html: html,
+    remetente: "support",
+  }).catch(() => false);
+}
+
+router.get("/portal", async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const usuarioId = req.usuario.id;
+
+    const usuario = (await db.select({
+      id: usuarios.id,
+      nome: usuarios.nome,
+      email: usuarios.email,
+      cpf: usuarios.cpf,
+      rg: usuarios.rg,
+      telefone: usuarios.telefone,
+      data_nascimento: usuarios.data_nascimento,
+      estado_civil: usuarios.estado_civil,
+      profissao: usuarios.profissao,
+      endereco: usuarios.endereco,
+      nacionalidade: usuarios.nacionalidade,
+      cadastro_status: usuarios.cadastro_status,
+      criado_em: usuarios.criado_em,
+      atualizado_em: usuarios.atualizado_em,
+    }).from(usuarios).where(eq(usuarios.id, usuarioId)).limit(1))[0];
+    if (!usuario) return res.status(404).json({ erro: "Cliente não encontrado" });
+
+    const reservasLista = await db.select({
+      id: reservas.id,
+      lote_id: reservas.lote_id,
+      pacote_id: reservas.pacote_id,
+      status: reservas.status,
+      checkout_estado: reservas.checkout_estado,
+      valor_total: reservas.valor_total,
+      valor_total_centavos: reservas.valor_total_centavos,
+      forma_pagamento: reservas.forma_pagamento,
+      quantidade_parcelas: reservas.quantidade_parcelas,
+      valor_parcela: reservas.valor_parcela,
+      desconto_aplicado: reservas.desconto_aplicado,
+      desconto_pagamento: reservas.desconto_pagamento,
+      criado_em: reservas.criado_em,
+      atualizado_em: reservas.atualizado_em,
+      evento_id: eventos.id,
+      evento_nome: eventos.nome,
+      evento_local: eventos.local,
+      evento_data_inicio: eventos.data_inicio,
+      evento_data_fim: eventos.data_fim,
+      lote_nome: lotes.nome,
+      lote_data_embarque: lotes.data_embarque,
+      lote_data_retorno: lotes.data_retorno,
+      lote_local_embarque: lotes.local_embarque,
+      lote_ativo: lotes.ativo,
+      pacote_nome: pacotes.nome,
+      pacote_descricao: pacotes.descricao,
+      modalidade_hospedagem: pacotes.modalidade_hospedagem,
+    }).from(reservas)
+      .innerJoin(lotes, eq(reservas.lote_id, lotes.id))
+      .innerJoin(eventos, eq(lotes.evento_id, eventos.id))
+      .leftJoin(pacotes, eq(reservas.pacote_id, pacotes.id))
+      .where(eq(reservas.usuario_id, usuarioId))
+      .orderBy(desc(reservas.criado_em));
+
+    const reservaIds = reservasLista.map((item) => item.id);
+    const pagamentosLista = reservaIds.length ? await db.select({
+      id: pagamentos.id,
+      reserva_id: pagamentos.reserva_id,
+      status: pagamentos.status,
+      status_reconciliado: pagamentos.status_reconciliado,
+      metodo: pagamentos.metodo,
+      valor: pagamentos.valor,
+      valor_centavos: pagamentos.valor_centavos,
+      valor_pago_centavos: pagamentos.valor_pago_centavos,
+      criado_em: pagamentos.criado_em,
+      atualizado_em: pagamentos.atualizado_em,
+    }).from(pagamentos).where(inArray(pagamentos.reserva_id, reservaIds)).orderBy(desc(pagamentos.atualizado_em)) : [];
+
+    const parcelasLista = reservaIds.length ? await db.select({
+      id: pagamentoParcelas.id,
+      pagamento_id: pagamentoParcelas.pagamento_id,
+      reserva_id: pagamentoParcelas.reserva_id,
+      sequencia: pagamentoParcelas.sequencia,
+      valor: pagamentoParcelas.valor,
+      vencimento: pagamentoParcelas.vencimento,
+      status: pagamentoParcelas.status,
+      valor_pago_centavos: pagamentoParcelas.valor_pago_centavos,
+      boleto_documento_id: pagamentoParcelas.boleto_documento_id,
+      comprovante_documento_id: pagamentoParcelas.comprovante_documento_id,
+      enviado_email_em: pagamentoParcelas.enviado_email_em,
+      enviado_whatsapp_em: pagamentoParcelas.enviado_whatsapp_em,
+      pago_confirmado_em: pagamentoParcelas.pago_confirmado_em,
+      criado_em: pagamentoParcelas.criado_em,
+      atualizado_em: pagamentoParcelas.atualizado_em,
+    }).from(pagamentoParcelas).where(inArray(pagamentoParcelas.reserva_id, reservaIds)).orderBy(pagamentoParcelas.reserva_id, pagamentoParcelas.sequencia) : [];
+
+    const contratosLista = reservaIds.length ? await db.select({
+      id: contratosDocumentos.id,
+      reserva_id: contratosDocumentos.reserva_id,
+      versao: contratosDocumentos.versao,
+      status: contratosDocumentos.status,
+      snapshot_sha256: contratosDocumentos.snapshot_sha256,
+      pdf_sha256: contratosDocumentos.pdf_sha256,
+      visualizado_em: contratosDocumentos.visualizado_em,
+      criado_em: contratosDocumentos.criado_em,
+      validado_em: contratosDocumentos.validado_em,
+      aprovado_admin_em: contratosDocumentos.aprovado_admin_em,
+      invalidado_em: contratosDocumentos.invalidado_em,
+    }).from(contratosDocumentos).where(inArray(contratosDocumentos.reserva_id, reservaIds)).orderBy(desc(contratosDocumentos.criado_em)) : [];
+
+    const validacoesLista = reservaIds.length ? await db.select({
+      id: contratoValidacoes.id,
+      contrato_id: contratoValidacoes.contrato_id,
+      reserva_id: contratoValidacoes.reserva_id,
+      protocolo: contratoValidacoes.protocolo,
+      canal: contratoValidacoes.canal,
+      confirmado_em: contratoValidacoes.confirmado_em,
+    }).from(contratoValidacoes).where(inArray(contratoValidacoes.reserva_id, reservaIds)).orderBy(desc(contratoValidacoes.confirmado_em)) : [];
+
+    const documentosLista = await db.select({
+      id: clienteDocumentos.id,
+      reserva_id: clienteDocumentos.reserva_id,
+      categoria: clienteDocumentos.categoria,
+      nome: clienteDocumentos.nome,
+      nome_original: clienteDocumentos.nome_original,
+      mime_type: clienteDocumentos.mime_type,
+      tamanho_bytes: clienteDocumentos.tamanho_bytes,
+      sha256: clienteDocumentos.sha256,
+      observacoes: clienteDocumentos.observacoes,
+      criado_em: clienteDocumentos.criado_em,
+    }).from(clienteDocumentos)
+      .where(and(eq(clienteDocumentos.usuario_id, usuarioId), isNull(clienteDocumentos.removido_em)))
+      .orderBy(desc(clienteDocumentos.criado_em));
+
+    const historicoCliente = await db.select({
+      id: clienteHistorico.id,
+      tipo: clienteHistorico.tipo,
+      titulo: clienteHistorico.titulo,
+      descricao: clienteHistorico.descricao,
+      metadados: clienteHistorico.metadados,
+      criado_em: clienteHistorico.criado_em,
+    }).from(clienteHistorico)
+      .where(and(eq(clienteHistorico.usuario_id, usuarioId), inArray(clienteHistorico.tipo, TIPOS_HISTORICO_CLIENTE)))
+      .orderBy(desc(clienteHistorico.criado_em));
+
+    const emailsLista = reservaIds.length ? await db.select({
+      id: emails_enviados.id,
+      reserva_id: emails_enviados.reserva_id,
+      tipo: emails_enviados.tipo,
+      assunto: emails_enviados.assunto,
+      enviado_em: emails_enviados.enviado_em,
+      erro: emails_enviados.erro,
+      criado_em: emails_enviados.criado_em,
+    }).from(emails_enviados).where(inArray(emails_enviados.reserva_id, reservaIds)).orderBy(desc(emails_enviados.criado_em)) : [];
+
+    const reservasEnriquecidas = reservasLista.map((reserva) => {
+      const pagamentosDaReserva = pagamentosLista.filter((item) => item.reserva_id === reserva.id);
+      const contratosDaReserva = contratosLista.filter((item) => item.reserva_id === reserva.id);
+      const contratoValidado = contratosDaReserva.some((item) => Boolean(item.validado_em) || ["validado", "aprovado"].includes(String(item.status || "").toLowerCase()));
+      const pagamentoConfirmado = pagamentosDaReserva.some((item) => item.status === "aprovado" || Number(item.valor_pago_centavos || 0) > 0 || ["parcial", "quitado"].includes(String(item.status_reconciliado || "").toLowerCase()));
+      return {
+        ...reserva,
+        contrato_validado: contratoValidado,
+        pagamento_confirmado: pagamentoConfirmado,
+        cancelamento_imediato_permitido: !contratoValidado && !pagamentoConfirmado && reserva.status !== "abandonado",
+      };
+    });
+
+    const linhaTempo = [
+      { id: `cadastro-${usuario.id}`, tipo: "cadastro", titulo: "Conta criada", descricao: usuario.email, criado_em: usuario.criado_em },
+      ...reservasLista.map((item) => ({ id: `reserva-${item.id}`, tipo: "reserva", titulo: item.checkout_estado === "cancelado_cliente" ? "Reserva cancelada" : `Reserva · ${item.status || "criada"}`, descricao: `${item.evento_nome}${item.pacote_nome ? ` · ${item.pacote_nome}` : ""}`, criado_em: item.atualizado_em || item.criado_em, reserva_id: item.id })),
+      ...contratosLista.map((item) => ({ id: `contrato-${item.id}`, tipo: "contrato", titulo: `Contrato v${item.versao} · ${item.status}`, descricao: item.validado_em ? "Contrato validado eletronicamente" : "Documento contratual gerado", criado_em: item.validado_em || item.criado_em, reserva_id: item.reserva_id })),
+      ...pagamentosLista.map((item) => ({ id: `pagamento-${item.id}`, tipo: "pagamento", titulo: `Pagamento · ${item.status_reconciliado || item.status}`, descricao: `${String(item.metodo || "").toUpperCase()} · R$ ${Number(item.valor || 0).toFixed(2)}`, criado_em: item.atualizado_em || item.criado_em, reserva_id: item.reserva_id })),
+      ...emailsLista.map((item) => ({ id: `email-${item.id}`, tipo: "comunicacao", titulo: item.erro ? "Falha no envio de e-mail" : `E-mail · ${item.tipo}`, descricao: item.assunto, criado_em: item.enviado_em || item.criado_em, reserva_id: item.reserva_id })),
+      ...historicoCliente,
+    ].sort((a, b) => new Date(String(b.criado_em)).getTime() - new Date(String(a.criado_em)).getTime()).slice(0, 300);
+
+    const valorContratado = reservasLista.reduce((total, item) => total + Number(item.valor_total || 0), 0);
+    const valorPagoCentavos = pagamentosLista.reduce((total, item) => total + Number(item.valor_pago_centavos || 0), 0);
+    const parcelasPendentes = parcelasLista.filter((item) => !["aprovado", "pago", "cancelado"].includes(String(item.status || "").toLowerCase())).length;
+
+    return res.json({
+      usuario,
+      resumo: {
+        reservas: reservasLista.length,
+        viagens_confirmadas: reservasLista.filter((item) => item.status === "cliente_confirmado").length,
+        contratos_validos: contratosLista.filter((item) => Boolean(item.validado_em)).length,
+        parcelas_pendentes: parcelasPendentes,
+        documentos: documentosLista.length,
+        valor_contratado: valorContratado,
+        valor_pago: valorPagoCentavos / 100,
+        ultima_interacao_em: linhaTempo[0]?.criado_em || usuario.atualizado_em,
+      },
+      reservas: reservasEnriquecidas,
+      pagamentos: pagamentosLista,
+      parcelas: parcelasLista,
+      contratos: contratosLista,
+      validacoes: validacoesLista,
+      documentos: documentosLista,
+      historico: linhaTempo,
+    });
+  } catch (error) {
+    console.error("[CLIENTE] Erro ao montar portal:", error);
+    return res.status(500).json({ erro: "Não foi possível carregar sua área do cliente" });
+  }
+});
+
+router.get("/documentos/:documentoId", async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const documento = (await db.select({
+      id: clienteDocumentos.id,
+      arquivo: clienteDocumentos.arquivo,
+      nome_original: clienteDocumentos.nome_original,
+      mime_type: clienteDocumentos.mime_type,
+    }).from(clienteDocumentos).where(and(
+      eq(clienteDocumentos.id, req.params.documentoId),
+      eq(clienteDocumentos.usuario_id, req.usuario.id),
+      isNull(clienteDocumentos.removido_em),
+    )).limit(1))[0];
+    if (!documento) return res.status(404).json({ erro: "Documento não encontrado" });
+
+    const arquivo = path.resolve(documento.arquivo);
+    const inline = req.query.inline === "1";
+    res.setHeader("Content-Type", documento.mime_type || "application/octet-stream");
+    res.setHeader("Content-Disposition", `${inline ? "inline" : "attachment"}; filename="${encodeURIComponent(documento.nome_original)}"`);
+    return res.sendFile(arquivo);
+  } catch (error) {
+    console.error("[CLIENTE] Erro ao abrir documento:", error);
+    return res.status(500).json({ erro: "Não foi possível abrir o documento" });
+  }
+});
+
+router.post("/reservas/:reservaId/cancelar", async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const reserva = await obterReservaDoCliente(req.params.reservaId, req.usuario.id);
+    if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
+    if (reserva.checkout_estado === "cancelado_cliente" || reserva.status === "abandonado") return res.status(409).json({ erro: "Esta reserva já está encerrada" });
+
+    const motivo = String(req.body?.motivo || "").trim().slice(0, 2000);
+    const protegido = await estadoProtegidoDaReserva(reserva.id);
+    const agora = new Date();
+
+    if (!protegido.contratoValidado && !protegido.pagamentoConfirmado) {
+      await InventoryService.liberarReserva(reserva.id, "Cancelamento solicitado pelo cliente");
+      await db.update(contratosDocumentos).set({
+        status: "invalidado",
+        invalidado_em: agora,
+        motivo_invalidacao: "Cancelamento solicitado pelo cliente antes da validação",
+      }).where(and(eq(contratosDocumentos.reserva_id, reserva.id), isNull(contratosDocumentos.validado_em), isNull(contratosDocumentos.invalidado_em)));
+      await db.update(reservas).set({
+        status: "abandonado",
+        checkout_estado: "cancelado_cliente",
+        atualizado_em: agora,
+      }).where(and(eq(reservas.id, reserva.id), eq(reservas.usuario_id, req.usuario.id)));
+      await registrarSolicitacao({
+        usuarioId: req.usuario.id,
+        reservaId: reserva.id,
+        tipo: "cliente_cancelamento",
+        titulo: "Reserva cancelada pelo cliente",
+        descricao: motivo || "Cancelamento realizado antes da validação contratual/pagamento.",
+        metadados: { status: "efetivado", contrato_validado: false, pagamento_confirmado: false },
+      });
+      return res.json({ efetivado: true, mensagem: "Reserva cancelada. O histórico foi preservado e nenhuma contratação validada foi apagada." });
+    }
+
+    await registrarSolicitacao({
+      usuarioId: req.usuario.id,
+      reservaId: reserva.id,
+      tipo: "cliente_cancelamento",
+      titulo: "Solicitação de cancelamento enviada",
+      descricao: motivo || "Cliente solicitou cancelamento.",
+      metadados: { status: "pendente", contrato_validado: protegido.contratoValidado, pagamento_confirmado: protegido.pagamentoConfirmado },
+    });
+
+    const usuario = (await db.select({ nome: usuarios.nome, email: usuarios.email }).from(usuarios).where(eq(usuarios.id, req.usuario.id)).limit(1))[0];
+    if (usuario) void avisarEquipe({
+      assunto: `Cancelamento solicitado · reserva ${reserva.id}`,
+      clienteNome: usuario.nome,
+      clienteEmail: usuario.email,
+      mensagem: `O cliente solicitou cancelamento da reserva ${reserva.id}.\nMotivo: ${motivo || "não informado"}\nContrato validado: ${protegido.contratoValidado ? "sim" : "não"}\nPagamento confirmado: ${protegido.pagamentoConfirmado ? "sim" : "não"}`,
+    });
+
+    return res.json({ efetivado: false, pendente: true, mensagem: "Solicitação registrada. Como já existe contrato validado e/ou pagamento, a equipe fará a análise sem apagar o histórico." });
+  } catch (error) {
+    console.error("[CLIENTE] Erro ao cancelar reserva:", error);
+    return res.status(500).json({ erro: "Não foi possível processar o cancelamento" });
+  }
+});
+
+router.post("/reservas/:reservaId/reconfigurar", async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const reserva = await obterReservaDoCliente(req.params.reservaId, req.usuario.id);
+    if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
+    const acao = req.body?.acao === "reinicio" ? "reinicio" : "troca_pacote";
+    const protegido = await estadoProtegidoDaReserva(reserva.id);
+    const agora = new Date();
+
+    if (!protegido.contratoValidado && !protegido.pagamentoConfirmado) {
+      await InventoryService.liberarReserva(reserva.id, acao === "reinicio" ? "Contratação reiniciada pelo cliente" : "Troca de pacote iniciada pelo cliente");
+      await db.update(contratosDocumentos).set({ status: "invalidado", invalidado_em: agora, motivo_invalidacao: acao === "reinicio" ? "Contratação reiniciada pelo cliente antes da validação" : "Troca de pacote iniciada pelo cliente antes da validação" })
+        .where(and(eq(contratosDocumentos.reserva_id, reserva.id), isNull(contratosDocumentos.validado_em), isNull(contratosDocumentos.invalidado_em)));
+      await db.update(reservas).set({ status: "abandonado", checkout_estado: acao === "reinicio" ? "reiniciado_cliente" : "troca_pacote_cliente", atualizado_em: agora })
+        .where(and(eq(reservas.id, reserva.id), eq(reservas.usuario_id, req.usuario.id)));
+      await registrarSolicitacao({
+        usuarioId: req.usuario.id,
+        reservaId: reserva.id,
+        tipo: acao === "reinicio" ? "cliente_reinicio" : "cliente_troca_pacote",
+        titulo: acao === "reinicio" ? "Contratação reiniciada" : "Alteração de pacote iniciada",
+        descricao: "A reserva anterior foi encerrada sem apagar o histórico. O cliente poderá montar uma nova configuração.",
+        metadados: { status: "efetivado", lote_id: reserva.lote_id },
+      });
+      return res.json({ efetivado: true, redirect: `/pacote/${encodeURIComponent(reserva.lote_id)}`, mensagem: "A configuração anterior foi preservada no histórico. Escolha agora seu novo pacote." });
+    }
+
+    await registrarSolicitacao({
+      usuarioId: req.usuario.id,
+      reservaId: reserva.id,
+      tipo: acao === "reinicio" ? "cliente_reinicio" : "cliente_troca_pacote",
+      titulo: acao === "reinicio" ? "Solicitação para reiniciar contratação" : "Solicitação de troca de pacote",
+      descricao: String(req.body?.motivo || "").trim().slice(0, 2000) || "Solicitação enviada pelo cliente.",
+      metadados: { status: "pendente", lote_id: reserva.lote_id, contrato_validado: protegido.contratoValidado, pagamento_confirmado: protegido.pagamentoConfirmado },
+    });
+
+    const usuario = (await db.select({ nome: usuarios.nome, email: usuarios.email }).from(usuarios).where(eq(usuarios.id, req.usuario.id)).limit(1))[0];
+    if (usuario) void avisarEquipe({
+      assunto: `${acao === "reinicio" ? "Reinício" : "Troca de pacote"} solicitado · reserva ${reserva.id}`,
+      clienteNome: usuario.nome,
+      clienteEmail: usuario.email,
+      mensagem: `Reserva ${reserva.id}. Solicitação exige análise porque já há contrato validado e/ou pagamento confirmado.`,
+    });
+
+    return res.json({ efetivado: false, pendente: true, mensagem: "Solicitação registrada para análise da equipe. O contrato e os pagamentos atuais permanecem preservados até a conclusão." });
+  } catch (error) {
+    console.error("[CLIENTE] Erro ao reconfigurar reserva:", error);
+    return res.status(500).json({ erro: "Não foi possível iniciar a alteração da contratação" });
+  }
+});
+
+router.post("/atendimento", async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const assunto = String(req.body?.assunto || "Atendimento").trim().slice(0, 180);
+    const mensagem = String(req.body?.mensagem || "").trim().slice(0, 4000);
+    const reservaId = req.body?.reserva_id ? String(req.body.reserva_id) : null;
+    if (mensagem.length < 5) return res.status(400).json({ erro: "Escreva uma mensagem para a equipe" });
+    if (reservaId) {
+      const reserva = await obterReservaDoCliente(reservaId, req.usuario.id);
+      if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
+    }
+
+    await registrarSolicitacao({
+      usuarioId: req.usuario.id,
+      reservaId,
+      tipo: "cliente_atendimento",
+      titulo: assunto,
+      descricao: mensagem,
+      metadados: { status: "enviado" },
+    });
+
+    const usuario = (await db.select({ nome: usuarios.nome, email: usuarios.email }).from(usuarios).where(eq(usuarios.id, req.usuario.id)).limit(1))[0];
+    if (usuario) void avisarEquipe({
+      assunto: `Atendimento · ${assunto}${reservaId ? ` · reserva ${reservaId}` : ""}`,
+      clienteNome: usuario.nome,
+      clienteEmail: usuario.email,
+      mensagem,
+    });
+
+    return res.status(201).json({ mensagem: "Mensagem registrada e encaminhada para a equipe." });
+  } catch (error) {
+    console.error("[CLIENTE] Erro no atendimento:", error);
+    return res.status(500).json({ erro: "Não foi possível enviar sua mensagem" });
+  }
+});
+
+export default router;

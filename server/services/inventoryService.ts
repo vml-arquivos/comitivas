@@ -24,6 +24,27 @@ export class InventoryService {
     if (!hold || new Date(hold.expira_em).getTime() <= Date.now()) throw new Error("A reserva de inventário expirou; monte o pacote novamente");
   }
 
+  static async liberarReserva(reservaId: string, motivo = "Liberado manualmente"): Promise<boolean> {
+    const agora = new Date();
+    return db.transaction(async (tx) => {
+      const rows = await tx.execute(sql`
+        SELECT h.id, h.reserva_id, h.lote_id, h.quantidade, r.cupom_id
+        FROM inventario_holds h
+        INNER JOIN reservas r ON r.id = h.reserva_id
+        WHERE h.reserva_id = ${reservaId} AND h.status = 'ativo'
+        FOR UPDATE OF h, r
+      `);
+      const row = rows.rows[0] as { id: string; reserva_id: string; lote_id: string; quantidade: number; cupom_id: string | null } | undefined;
+      if (!row) return false;
+      const alterado = await tx.update(inventarioHolds).set({ status: "liberado", liberado_em: agora, motivo_liberacao: motivo }).where(and(eq(inventarioHolds.id, row.id), eq(inventarioHolds.status, "ativo"))).returning({ id: inventarioHolds.id });
+      if (!alterado[0]) return false;
+      await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = LEAST("vagas_totais", "vagas_disponíveis" + ${Number(row.quantidade)}), atualizado_em = ${agora} WHERE id = ${row.lote_id}`);
+      if (row.cupom_id) await tx.execute(sql`UPDATE cupons SET uso_atual = GREATEST(0, COALESCE(uso_atual, 0) - 1) WHERE id = ${row.cupom_id}`);
+      await tx.update(reservas).set({ inventario_hold_id: null, atualizado_em: agora }).where(eq(reservas.id, reservaId));
+      return true;
+    });
+  }
+
   static async liberarExpirados(): Promise<number> {
     const agora = new Date();
     return db.transaction(async (tx) => {
