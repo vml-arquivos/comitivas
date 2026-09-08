@@ -217,7 +217,7 @@ export class OtpService {
           template: "contrato-validado-2026.1",
           versao: "2026.1",
           destinatario_mascarado: maskDestination("email", base.usuario.email),
-          payload: { usuario_id: base.usuario.id, assunto: `Contrato validado — reserva ${input.reserva_id}`, corpo_html: `<p>Olá, ${String(base.usuario.nome).replace(/[<>]/g, "")}. Sua contratação foi validada com o protocolo ${validacao.protocolo}.</p><p>O contrato e o certificado de evidências seguem anexos.</p>` },
+          payload: { usuario_id: base.usuario.id, assunto: `Contrato validado — reserva ${input.reserva_id}`, corpo_html: `<p>Olá, ${String(base.usuario.nome).replace(/[<>]/g, "")}. Sua contratação foi validada com o protocolo ${validacao.protocolo}.</p><p>O contrato validado segue anexo. O protocolo e as evidências da validação ficam registrados no sistema.</p>`, email_sender: "contracts" },
           anexos: [{ nome: `contrato-${input.reserva_id}-${validacao.protocolo}.pdf`, caminho: arquivoCriado }],
           status: "pendente",
           proxima_tentativa: agora,

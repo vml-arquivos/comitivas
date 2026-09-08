@@ -3,6 +3,7 @@ import { db } from "../db/index.js";
 import { emails_enviados, reservas, usuarios } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import fs from "fs/promises";
+import { obterRemetente, obterReplyTo, type EmailSenderKind } from "./emailSenderConfig.js";
 
 export interface EmailPayload {
   destinatario: string;
@@ -12,6 +13,8 @@ export interface EmailPayload {
     nome: string;
     caminho: string;
   }>;
+  remetente?: EmailSenderKind;
+  replyTo?: string;
 }
 
 export class EmailService {
@@ -57,7 +60,8 @@ export class EmailService {
 
       // Enviar e-mail
       const info = await transporter.sendMail({
-        from: process.env.SMTP_FROM || "noreply@comitiva.com.br",
+        from: obterRemetente(payload.remetente || "system"),
+        replyTo: payload.replyTo || obterReplyTo(),
         to: payload.destinatario,
         subject: payload.assunto,
         html: payload.corpo_html,
@@ -138,7 +142,7 @@ export class EmailService {
         <li>Valor Total: R$ ${reserva.valor_total}</li>
         <li>Status: Confirmado</li>
       </ul>
-      <p>Em anexo você encontra o contrato em duas vias e o comprovante de pagamento.</p>
+      <p>Quando disponível, o contrato validado segue anexo. O registro do pagamento permanece disponível na sua reserva.</p>
       <p>Para dúvidas ou suporte, entre em contato conosco através do e-mail de resposta.</p>
       <p>Obrigado por escolher a Comitiva!</p>
     </div>
@@ -156,6 +160,7 @@ export class EmailService {
         assunto: `Pagamento Confirmado - Reserva ${reserva_id}`,
         corpo_html,
         anexos,
+        remetente: "finance",
       });
 
       // Registrar no banco
@@ -191,7 +196,7 @@ export class EmailService {
 
   static async enviarBoletoManual(params: { reserva_id: string; parcela: number; vencimento: string; valor: string; arquivo: string; nomeArquivo: string; destinatario: string; clienteNome: string }): Promise<boolean> {
     const corpo_html = `<!DOCTYPE html><html lang="pt-BR"><body style="font-family:Arial,sans-serif;color:#182D3B;background:#F8F5EF;padding:24px"><div style="max-width:620px;margin:auto;background:white;border-radius:16px;padding:28px;border:1px solid #eadfd8"><p style="color:#851F32;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Excursão das Comitivas</p><h1 style="font-size:24px">Boleto da sua excursão</h1><p>Olá, <strong>${params.clienteNome.replace(/[<>]/g, "")}</strong>.</p><p>Segue em anexo o boleto da parcela <strong>${params.parcela}</strong> da reserva <strong>${params.reserva_id}</strong>.</p><ul><li>Valor: R$ ${params.valor}</li><li>Vencimento: ${params.vencimento}</li></ul><p>O contrato desta reserva já foi validado eletronicamente. Em caso de dúvida, fale com a equipe antes do vencimento.</p><p style="font-size:12px;color:#64748b">Guarde este e-mail e confirme os dados do beneficiário antes do pagamento.</p></div></body></html>`;
-    const enviado = await this.enviarEmail({ destinatario: params.destinatario, assunto: `Boleto parcela ${params.parcela} — reserva ${params.reserva_id}`, corpo_html, anexos: [{ nome: params.nomeArquivo, caminho: params.arquivo }] });
+    const enviado = await this.enviarEmail({ destinatario: params.destinatario, assunto: `Boleto parcela ${params.parcela} — reserva ${params.reserva_id}`, corpo_html, anexos: [{ nome: params.nomeArquivo, caminho: params.arquivo }], remetente: "finance" });
     await db.insert(emails_enviados).values({ reserva_id: params.reserva_id, tipo: "boleto", destinatario: params.destinatario, assunto: `Boleto parcela ${params.parcela} — reserva ${params.reserva_id}`, corpo: corpo_html, anexos: [{ nome: params.nomeArquivo }], enviado_em: enviado ? new Date() : null, erro: enviado ? null : "Falha ao enviar boleto" });
     return enviado;
   }
@@ -266,6 +271,7 @@ export class EmailService {
         destinatario: usuario.email,
         assunto: `Reenvio de Contrato - Reserva ${reserva_id}`,
         corpo_html,
+        remetente: "contracts",
         anexos: [
           {
             nome: `contrato-${reserva_id}.pdf`,

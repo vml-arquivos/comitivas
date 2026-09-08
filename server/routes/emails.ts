@@ -4,6 +4,7 @@ import { EmailService } from "../services/emailService.js";
 import { db } from "../db/index.js";
 import { emails_enviados, reservas } from "../db/schema.js";
 import { eq } from "drizzle-orm";
+import { remetenteParaTipoHistorico } from "../services/emailSenderConfig.js";
 
 const router = Router();
 
@@ -92,6 +93,7 @@ router.post("/reenviar-manual/:email_id", authMiddleware, requireRole("admin"), 
       destinatario: email.destinatario,
       assunto: email.assunto,
       corpo_html: email.corpo || "",
+      remetente: remetenteParaTipoHistorico(email.tipo),
     });
 
     if (enviado) {

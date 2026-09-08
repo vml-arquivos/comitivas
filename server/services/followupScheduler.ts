@@ -147,6 +147,7 @@ export class FollowupScheduler {
         destinatario: usuario.email,
         assunto: config.assunto,
         corpo_html: corpoEmail,
+        remetente: 'system',
       });
 
       console.log(`[FOLLOWUP] Follow-up ${filaId ? 'enfileirado' : 'já existente'} para reserva ${reserva.id}`);

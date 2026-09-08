@@ -1,7 +1,8 @@
 import { and, eq, lte, or, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { notificacoesOutbox, reservas, usuarios } from "../db/schema.js";
+import { emails_enviados, notificacoesOutbox, reservas, usuarios } from "../db/schema.js";
 import { EmailService } from "./emailService.js";
+import type { EmailSenderKind } from "./emailSenderConfig.js";
 
 function destinatarioMascarado(email: string): string {
   const [local, dominio] = email.split("@");
@@ -10,7 +11,7 @@ function destinatarioMascarado(email: string): string {
 }
 
 export class NotificationOutboxService {
-  static async enfileirarEmail(input: { reserva_id?: string; usuario_id?: string; tipo: string; chave_idempotente: string; template: string; versao?: string; destinatario: string; assunto: string; corpo_html: string; anexos?: Array<{ nome: string; caminho: string }> }) {
+  static async enfileirarEmail(input: { reserva_id?: string; usuario_id?: string; tipo: string; chave_idempotente: string; template: string; versao?: string; destinatario: string; assunto: string; corpo_html: string; anexos?: Array<{ nome: string; caminho: string }>; remetente?: EmailSenderKind }) {
     const resultado = await db.insert(notificacoesOutbox).values({
       reserva_id: input.reserva_id || null,
       tipo: input.tipo,
@@ -18,7 +19,7 @@ export class NotificationOutboxService {
       template: input.template,
       versao: input.versao || "2026.1",
       destinatario_mascarado: destinatarioMascarado(input.destinatario),
-      payload: { usuario_id: input.usuario_id || null, assunto: input.assunto, corpo_html: input.corpo_html },
+      payload: { usuario_id: input.usuario_id || null, assunto: input.assunto, corpo_html: input.corpo_html, email_sender: input.remetente || "system" },
       anexos: input.anexos || [],
       status: "pendente",
       proxima_tentativa: new Date(),
@@ -42,9 +43,21 @@ export class NotificationOutboxService {
           destinatario = reserva?.email || "";
         }
         if (!destinatario) throw new Error("Destinatário não encontrado");
-        const enviado = await EmailService.enviarEmail({ destinatario, assunto: String(payload.assunto || item.template), corpo_html: String(payload.corpo_html || ""), anexos: (item.anexos as any[]) || [] });
+        const enviado = await EmailService.enviarEmail({ destinatario, assunto: String(payload.assunto || item.template), corpo_html: String(payload.corpo_html || ""), anexos: (item.anexos as any[]) || [], remetente: (payload.email_sender || "system") as EmailSenderKind });
         if (!enviado) throw new Error("SMTP não confirmou o envio");
-        await db.update(notificacoesOutbox).set({ status: "enviado", enviado_em: new Date(), ultimo_erro: null }).where(eq(notificacoesOutbox.id, item.id));
+        const enviadoEm = new Date();
+        await db.update(notificacoesOutbox).set({ status: "enviado", enviado_em: enviadoEm, ultimo_erro: null }).where(eq(notificacoesOutbox.id, item.id));
+        if (item.reserva_id) {
+          await db.insert(emails_enviados).values({
+            reserva_id: item.reserva_id,
+            tipo: item.tipo,
+            destinatario,
+            assunto: String(payload.assunto || item.template),
+            corpo: String(payload.corpo_html || ""),
+            anexos: (item.anexos as any[]) || [],
+            enviado_em: enviadoEm,
+          }).catch((error) => console.warn("[OUTBOX] E-mail enviado, mas não foi possível registrar no histórico:", error));
+        }
         processados += 1;
       } catch (error: any) {
         const tentativas = Number(reclamado.tentativas || 1);

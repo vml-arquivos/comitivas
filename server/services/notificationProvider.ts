@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import axios from "axios";
+import { obterRemetente, obterReplyTo } from "./emailSenderConfig.js";
 
 export type NotificationChannel = "email" | "whatsapp";
 
@@ -22,7 +23,8 @@ export class EmailProvider implements NotificationProvider {
     if (!host || !user || !pass) return { sent: false, reason: "SMTP não configurado" };
     const transporter = nodemailer.createTransport({ host, port: Number(process.env.SMTP_PORT || 587), secure: process.env.SMTP_SECURE === "true", auth: { user, pass } });
     const info = await transporter.sendMail({
-      from: process.env.SMTP_FROM?.trim() || `Excursão das Comitivas <${user}>`,
+      from: obterRemetente("system", user),
+      replyTo: obterReplyTo(),
       to: destination,
       subject: "Confirme seu e-mail — Excursão das Comitivas",
       text: `Olá, ${nome}. Seu código de confirmação é ${code}. Ele expira em 30 minutos.`,
@@ -38,7 +40,8 @@ export class EmailProvider implements NotificationProvider {
     if (!host || !user || !pass) return { sent: false, reason: "SMTP não configurado" };
     const transporter = nodemailer.createTransport({ host, port: Number(process.env.SMTP_PORT || 587), secure: process.env.SMTP_SECURE === "true", auth: { user, pass } });
     const info = await transporter.sendMail({
-      from: process.env.SMTP_FROM?.trim() || `Excursão das Comitivas <${user}>`,
+      from: obterRemetente("system", user),
+      replyTo: obterReplyTo(),
       to: destination,
       subject: "Redefinição de senha — Excursão das Comitivas",
       text: `Olá, ${nome}. Acesse o link para redefinir sua senha: ${resetUrl}. O link expira em 30 minutos e só pode ser usado uma vez.`,
@@ -58,9 +61,9 @@ export class EmailProvider implements NotificationProvider {
       secure: process.env.SMTP_SECURE === "true",
       auth: { user, pass },
     });
-    const from = process.env.SMTP_FROM?.trim() || `Excursão das Comitivas <${user}>`;
     const info = await transporter.sendMail({
-      from,
+      from: obterRemetente("contracts", user),
+      replyTo: obterReplyTo(),
       to: destination,
       subject: "Seu código de validação — Excursão das Comitivas",
       text: `Olá, ${context.nome}. Seu código para validar o contrato ${context.protocolo} é válido por aproximadamente 10 minutos. Não compartilhe este código.`,
