@@ -3,15 +3,19 @@ export default {
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
-    "../../../packages/ui/**/*.{js,ts,jsx,tsx}"
+    "../web/src/**/*.{js,ts,jsx,tsx}",
+    "../../packages/ui/**/*.{js,ts,jsx,tsx}"
   ],
   theme: {
     extend: {
       colors: {
-        primary: "#E63946",
-        secondary: "#1D3557",
-        accent: "#F1FAEE",
-      }
+        primary: "#851F32",
+        secondary: "#182D3B",
+        accent: "#F8F5EF",
+      },
+      fontFamily: {
+        editorial: ['Georgia', 'Times New Roman', 'serif'],
+      },
     },
   },
   plugins: [],

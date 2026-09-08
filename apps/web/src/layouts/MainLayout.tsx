@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Outlet, Link, useNavigate } from 'react-router-dom';
-import { Instagram, LogOut, Menu, User as UserIcon, X } from 'lucide-react';
+import { Download, Instagram, LogOut, Menu, User as UserIcon, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import logoUrl from '../assets/brand/logo.png';
 import logoWebp from '../assets/brand/logo.webp';
@@ -70,6 +70,7 @@ export function MainLayout() {
               <Link to="/galeria" className="transition hover:text-[#851F32]">Galeria</Link>
               <Link to="/avaliacoes" className="transition hover:text-[#851F32]">Avaliações</Link>
               <Link to="/regras" className="transition hover:text-[#851F32]">Regras</Link>
+              <Link to="/aplicativo" className="inline-flex items-center gap-1.5 transition hover:text-[#851F32]"><Download size={15} /> Aplicativo</Link>
             </nav>
 
             <nav className="hidden items-center gap-3 lg:flex" aria-label="Conta">
@@ -116,6 +117,7 @@ export function MainLayout() {
               <Link to="/galeria" onClick={fecharMenu} className="block rounded-xl px-3 py-2.5 font-semibold hover:bg-white">Galeria</Link>
               <Link to="/avaliacoes" onClick={fecharMenu} className="block rounded-xl px-3 py-2.5 font-semibold hover:bg-white">Avaliações</Link>
               <Link to="/regras" onClick={fecharMenu} className="block rounded-xl px-3 py-2.5 font-semibold hover:bg-white">Regras de convivência</Link>
+              <Link to="/aplicativo" onClick={fecharMenu} className="flex items-center gap-2 rounded-xl px-3 py-2.5 font-bold text-[#851F32] hover:bg-white"><Download size={16} />Instalar aplicativo</Link>
               {user ? (
                 <>
                   <Link to="/minhas-reservas" onClick={fecharMenu} className="block rounded-xl px-3 py-2.5 font-semibold hover:bg-white">Minha conta</Link>
@@ -153,6 +155,7 @@ export function MainLayout() {
               <Link to="/privacidade" className="transition hover:text-white">Privacidade</Link>
               <Link to="/termos" className="transition hover:text-white">Termos de contratação</Link>
               <Link to="/cancelamento" className="transition hover:text-white">Cancelamento</Link>
+              <Link to="/aplicativo" className="inline-flex items-center gap-2 font-semibold text-white transition hover:text-[#D6A6AE]"><Download size={16} /> Instalar aplicativo</Link>
             </div>
           </div>
           <div>

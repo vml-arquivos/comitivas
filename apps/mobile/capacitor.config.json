@@ -1,7 +1,10 @@
 {
-  "appId": "com.comitiva.app",
-  "appName": "Comitiva",
+  "appId": "br.com.excursaodascomitivas.app",
+  "appName": "Excursão das Comitivas",
   "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
   "plugins": {
     "SplashScreen": {
       "launchShowDuration": 0

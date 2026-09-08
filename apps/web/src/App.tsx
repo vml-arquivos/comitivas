@@ -16,6 +16,7 @@ const Historia = lazy(() => import('./pages/publico/Historia'));
 const AvaliacoesPublicas = lazy(() => import('./pages/publico/AvaliacoesPublicas'));
 const Regras = lazy(() => import('./pages/publico/Regras'));
 const Galeria = lazy(() => import('./pages/publico/Galeria'));
+const Aplicativo = lazy(() => import('./pages/publico/Aplicativo'));
 const Legal = lazy(() => import('./pages/publico/Legal'));
 const ConfiguradorPacote = lazy(() => import('./pages/cliente/ConfiguradorPacote'));
 const Checkout = lazy(() => import('./pages/cliente/Checkout'));
@@ -65,7 +66,7 @@ function RouteEffects() {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   }, [location.pathname]);
 
-  const indexavel = /^(?:\/$|\/(?:historia|galeria|avaliacoes|regras|eventos|privacidade|termos|cancelamento)\/?$|\/(?:excursao|excursoes)\/[^/]+\/?$)/.test(location.pathname);
+  const indexavel = /^(?:\/$|\/(?:historia|galeria|avaliacoes|regras|eventos|aplicativo|privacidade|termos|cancelamento)\/?$|\/(?:excursao|excursoes)\/[^/]+\/?$)/.test(location.pathname);
 
   return indexavel ? null : (
     <Helmet>
@@ -88,6 +89,7 @@ function AppRoutes() {
         <Route path="/avaliacoes" element={<AvaliacoesPublicas />} />
         <Route path="/regras" element={<Regras />} />
         <Route path="/eventos" element={<Eventos />} />
+        <Route path="/aplicativo" element={<Aplicativo />} />
         <Route path="/excursoes/:eventoId" element={<Eventos />} />
         <Route path="/excursao/:eventoSlug" element={<Eventos />} />
         <Route path="/privacidade" element={<Legal />} />
