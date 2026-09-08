@@ -1,4 +1,5 @@
 import axios from "axios";
+import nodemailer from "nodemailer";
 import { obterRemetente, obterReplyTo } from "./emailSenderConfig.js";
 import { enviarEmailTransacional } from "./emailDeliveryService.js";
 

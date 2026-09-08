@@ -925,7 +925,7 @@ router.post("/usuarios", requireRole("admin"), async (req: Request, res: Respons
     const cpfNormalizado = somenteDigitos(cpf);
     const telefoneNormalizado = somenteDigitos(telefone);
     const tiposCriaveis = req.usuario?.tipo === "dev" ? ["cliente", "vendedor", "admin", "dev"] : ["cliente", "vendedor"];
-    const tipoNormalizado = tiposCriaveis.includes(String(tipo)) ? String(tipo) : "cliente";
+    const tipoNormalizado: "cliente" | "vendedor" | "admin" | "dev" = tiposCriaveis.includes(String(tipo)) ? String(tipo) as "cliente" | "vendedor" | "admin" | "dev" : "cliente";
     if ((tipo === "admin" || tipo === "dev") && req.usuario?.tipo !== "dev") return res.status(403).json({ erro: "Somente DEV pode criar administradores ou outro DEV" });
 
     if (!nomeNormalizado || !emailNormalizado) {

@@ -28,7 +28,7 @@ type Papel = 'cliente' | 'vendedor' | 'admin' | 'dev';
 type NavItem = {
   name: string;
   path: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
+  icon: React.ComponentType<any>;
   roles: Papel[];
 };
 

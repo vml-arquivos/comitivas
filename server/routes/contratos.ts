@@ -50,7 +50,9 @@ function formatarDataHora(valor: Date): string {
 
 async function cadastroAprovado(reservaId: string): Promise<boolean> {
   const registro = (await db.select({ cadastro_status: usuarios.cadastro_status, aprovado_em: usuarios.aprovado_em }).from(reservas).innerJoin(usuarios, eq(reservas.usuario_id, usuarios.id)).where(eq(reservas.id, reservaId)).limit(1))[0];
-  return Boolean(registro?.cadastro_status === "aprovado" && registro.aprovado_em);
+  // Clientes legados recebem status aprovado na migration de governança e
+  // podem não ter timestamp histórico; o status é a fonte de verdade.
+  return Boolean(registro?.cadastro_status === "aprovado");
 }
 
 // Preparar a versão contratual que será exibida e validada pelo cliente.

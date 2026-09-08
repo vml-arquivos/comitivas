@@ -6,6 +6,7 @@ interface User {
   email: string;
   nome: string;
   tipo: 'cliente' | 'vendedor' | 'admin' | 'dev';
+  cadastro_status?: 'pendente' | 'aprovado' | 'rejeitado' | 'revisao_necessaria' | string;
 }
 
 interface AuthContextType {
