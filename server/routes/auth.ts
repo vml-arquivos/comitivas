@@ -210,7 +210,11 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
     const agora = new Date();
     await db.update(verificacoesEmail).set({ usado_em: agora }).where(and(eq(verificacoesEmail.usuario_id, novoUsuario[0].id), isNull(verificacoesEmail.usado_em)));
     await db.insert(verificacoesEmail).values({ id: createId(), usuario_id: novoUsuario[0].id, codigo_hash: hashCodigo(codigo), expira_em: new Date(agora.getTime() + 30 * 60 * 1000), enviado_em: agora });
-    const envio = await new EmailProvider().sendEmailVerification(novoUsuario[0].email, novoUsuario[0].nome, codigo).catch(() => ({ sent: false }));
+    const envio = await new EmailProvider().sendEmailVerification(novoUsuario[0].email, novoUsuario[0].nome, codigo).catch((error: any) => ({ sent: false, reason: error?.message || "falha no provedor" }));
+    if (!envio.sent) {
+      await db.update(verificacoesEmail).set({ usado_em: new Date() }).where(and(eq(verificacoesEmail.usuario_id, novoUsuario[0].id), isNull(verificacoesEmail.usado_em)));
+      console.error(`[AUTH] Confirmação de e-mail não enviada: ${envio.reason || "provedor não confirmou o envio"}`);
+    }
     res.status(201).json({ usuario: novoUsuario[0], email_confirmacao_necessaria: true, envio_email: envio.sent ? "enviado" : "pendente" });
   } catch (error) {
     console.error("[AUTH] Erro no cadastro:", error);
@@ -268,7 +272,11 @@ router.post("/reenviar-confirmacao", async (req: Request, res: Response) => {
     const agora = new Date();
     await db.update(verificacoesEmail).set({ usado_em: agora }).where(and(eq(verificacoesEmail.usuario_id, usuario.id), isNull(verificacoesEmail.usado_em)));
     await db.insert(verificacoesEmail).values({ id: createId(), usuario_id: usuario.id, codigo_hash: hashCodigo(codigo), expira_em: new Date(agora.getTime() + 30 * 60 * 1000), enviado_em: agora });
-    await new EmailProvider().sendEmailVerification(usuario.email, usuario.nome, codigo).catch(() => undefined);
+    const envio = await new EmailProvider().sendEmailVerification(usuario.email, usuario.nome, codigo).catch((error: any) => ({ sent: false, reason: error?.message || "falha no provedor" }));
+    if (!envio?.sent) {
+      await db.update(verificacoesEmail).set({ usado_em: new Date() }).where(and(eq(verificacoesEmail.usuario_id, usuario.id), isNull(verificacoesEmail.usado_em)));
+      console.error(`[AUTH] Reenvio de confirmação não enviado: ${envio?.reason || "provedor não confirmou o envio"}`);
+    }
     return res.json(respostaNeutra);
   } catch (error) {
     console.error("[AUTH] Erro no reenvio de confirmação:", error);
@@ -398,7 +406,11 @@ router.post("/esqueci-senha", async (req: Request, res: Response) => {
     await db.insert(passwordResetTokens).values({ usuario_id: usuario.id, token_hash: tokenHash, expira_em: new Date(agora.getTime() + 30 * 60 * 1000) });
     const baseUrl = process.env.WEB_URL?.trim() || "http://localhost:5173";
     const envio = await new EmailProvider().sendPasswordReset(usuario.email, usuario.nome, `${baseUrl}/redefinir-senha?token=${token}`);
-    if (!envio.sent) console.warn("[AUTH] Recuperação de senha não enviada: SMTP não configurado");
+    if (!envio.sent) {
+      // Não deixa um token inválido em cooldown quando o provedor de e-mail falha.
+      await db.update(passwordResetTokens).set({ usado_em: new Date(), expira_em: new Date() }).where(eq(passwordResetTokens.token_hash, tokenHash));
+      console.error(`[AUTH] Recuperação de senha não enviada: ${envio.reason || "provedor de e-mail não confirmou o envio"}`);
+    }
     return res.json(respostaNeutra);
   } catch (error) {
     console.error("[AUTH] Erro na solicitação de recuperação:", error);

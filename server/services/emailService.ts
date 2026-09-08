@@ -1,9 +1,8 @@
-import nodemailer from "nodemailer";
 import { db } from "../db/index.js";
 import { emails_enviados, reservas, usuarios } from "../db/schema.js";
 import { eq } from "drizzle-orm";
-import fs from "fs/promises";
 import { obterRemetente, obterReplyTo, type EmailSenderKind } from "./emailSenderConfig.js";
+import { enviarEmailTransacional } from "./emailDeliveryService.js";
 
 export interface EmailPayload {
   destinatario: string;
@@ -18,62 +17,23 @@ export interface EmailPayload {
 }
 
 export class EmailService {
-  private static transporter: nodemailer.Transporter | null = null;
-
-  static getTransporter(): nodemailer.Transporter {
-    if (this.transporter) {
-      return this.transporter;
-    }
-
-    this.transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT || "587"),
-      secure: process.env.SMTP_PORT === "465",
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
+  static async enviarEmail(payload: EmailPayload): Promise<boolean> {
+    const resultado = await enviarEmailTransacional({
+      remetente: obterRemetente(payload.remetente || "system"),
+      replyTo: payload.replyTo || obterReplyTo(),
+      destinatario: payload.destinatario,
+      assunto: payload.assunto,
+      corpo_html: payload.corpo_html,
+      anexos: payload.anexos,
     });
 
-    return this.transporter;
-  }
-
-  static async enviarEmail(payload: EmailPayload): Promise<boolean> {
-    try {
-      const transporter = this.getTransporter();
-
-      // Preparar anexos
-      const attachments = [];
-      if (payload.anexos && payload.anexos.length > 0) {
-        for (const anexo of payload.anexos) {
-          try {
-            const conteudo = await fs.readFile(anexo.caminho);
-            attachments.push({
-              filename: anexo.nome,
-              content: conteudo,
-            });
-          } catch (error) {
-            console.error(`[EmailService] Erro ao ler anexo ${anexo.nome}:`, error);
-          }
-        }
-      }
-
-      // Enviar e-mail
-      const info = await transporter.sendMail({
-        from: obterRemetente(payload.remetente || "system"),
-        replyTo: payload.replyTo || obterReplyTo(),
-        to: payload.destinatario,
-        subject: payload.assunto,
-        html: payload.corpo_html,
-        attachments,
-      });
-
-      console.log(`[EmailService] E-mail enviado: ${info.messageId}`);
+    if (resultado.sent) {
+      console.log(`[EmailService] E-mail enviado via ${resultado.provider || "provedor"}: ${resultado.messageId || "sem messageId"}`);
       return true;
-    } catch (error) {
-      console.error("[EmailService] Erro ao enviar e-mail:", error);
-      return false;
     }
+
+    console.error(`[EmailService] Falha ao enviar e-mail via ${resultado.provider || "provedor"}: ${resultado.reason || "erro desconhecido"}`);
+    return false;
   }
 
   static async enviarConfirmacaoPagamento(reserva_id: string): Promise<boolean> {

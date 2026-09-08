@@ -1,6 +1,6 @@
-import nodemailer from "nodemailer";
 import axios from "axios";
 import { obterRemetente, obterReplyTo } from "./emailSenderConfig.js";
+import { enviarEmailTransacional } from "./emailDeliveryService.js";
 
 export type NotificationChannel = "email" | "whatsapp";
 
@@ -15,61 +15,50 @@ export interface NotificationProvider {
   sendOtp(destination: string, code: string, context: { nome: string; protocolo: string }): Promise<NotificationResult>;
 }
 
+function mapEmailResult(resultado: Awaited<ReturnType<typeof enviarEmailTransacional>>): NotificationResult {
+  return {
+    sent: resultado.sent,
+    messageId: resultado.messageId,
+    sentAt: resultado.sent ? new Date() : undefined,
+    reason: resultado.reason,
+  };
+}
+
 export class EmailProvider implements NotificationProvider {
   async sendEmailVerification(destination: string, nome: string, code: string): Promise<NotificationResult> {
-    const host = process.env.SMTP_HOST?.trim();
-    const user = process.env.SMTP_USER?.trim();
-    const pass = process.env.SMTP_PASS;
-    if (!host || !user || !pass) return { sent: false, reason: "SMTP não configurado" };
-    const transporter = nodemailer.createTransport({ host, port: Number(process.env.SMTP_PORT || 587), secure: process.env.SMTP_SECURE === "true", auth: { user, pass } });
-    const info = await transporter.sendMail({
-      from: obterRemetente("system", user),
+    const resultado = await enviarEmailTransacional({
+      remetente: obterRemetente("system"),
       replyTo: obterReplyTo(),
-      to: destination,
-      subject: "Confirme seu e-mail — Excursão das Comitivas",
-      text: `Olá, ${nome}. Seu código de confirmação é ${code}. Ele expira em 30 minutos.`,
-      html: `<div style="font-family:Arial,sans-serif;color:#2b1718;padding:24px"><h1 style="color:#540c16">Confirme seu e-mail</h1><p>Olá, ${nome.replace(/[<>]/g, "")}. Use este código para ativar sua conta:</p><div style="font-size:32px;letter-spacing:.24em;font-weight:800;color:#7f1d1d;text-align:center;padding:18px;background:#fff7ed;border-radius:8px">${code}</div><p>O código expira em 30 minutos e só pode ser usado uma vez.</p></div>`,
+      destinatario: destination,
+      assunto: "Confirme seu e-mail — Excursão das Comitivas",
+      corpo_texto: `Olá, ${nome}. Seu código de confirmação é ${code}. Ele expira em 30 minutos.`,
+      corpo_html: `<div style="font-family:Arial,sans-serif;color:#2b1718;padding:24px"><h1 style="color:#540c16">Confirme seu e-mail</h1><p>Olá, ${nome.replace(/[<>]/g, "")}. Use este código para ativar sua conta:</p><div style="font-size:32px;letter-spacing:.24em;font-weight:800;color:#7f1d1d;text-align:center;padding:18px;background:#fff7ed;border-radius:8px">${code}</div><p>O código expira em 30 minutos e só pode ser usado uma vez.</p></div>`,
     });
-    return { sent: true, messageId: info.messageId, sentAt: new Date() };
+    return mapEmailResult(resultado);
   }
 
   async sendPasswordReset(destination: string, nome: string, resetUrl: string): Promise<NotificationResult> {
-    const host = process.env.SMTP_HOST?.trim();
-    const user = process.env.SMTP_USER?.trim();
-    const pass = process.env.SMTP_PASS;
-    if (!host || !user || !pass) return { sent: false, reason: "SMTP não configurado" };
-    const transporter = nodemailer.createTransport({ host, port: Number(process.env.SMTP_PORT || 587), secure: process.env.SMTP_SECURE === "true", auth: { user, pass } });
-    const info = await transporter.sendMail({
-      from: obterRemetente("system", user),
+    const resultado = await enviarEmailTransacional({
+      remetente: obterRemetente("system"),
       replyTo: obterReplyTo(),
-      to: destination,
-      subject: "Redefinição de senha — Excursão das Comitivas",
-      text: `Olá, ${nome}. Acesse o link para redefinir sua senha: ${resetUrl}. O link expira em 30 minutos e só pode ser usado uma vez.`,
-      html: `<div style="font-family:Arial,sans-serif;color:#2b1718;padding:24px"><h1 style="color:#540c16">Redefinição de senha</h1><p>Olá, ${nome.replace(/[<>]/g, "")}. Recebemos uma solicitação para redefinir sua senha.</p><p><a href="${resetUrl.replace(/\"/g, "&quot;")}" style="display:inline-block;background:#7f1d1d;color:#fff;padding:12px 18px;border-radius:6px;text-decoration:none">Criar nova senha</a></p><p>O link expira em 30 minutos e só pode ser usado uma vez.</p></div>`,
+      destinatario: destination,
+      assunto: "Redefinição de senha — Excursão das Comitivas",
+      corpo_texto: `Olá, ${nome}. Acesse o link para redefinir sua senha: ${resetUrl}. O link expira em 30 minutos e só pode ser usado uma vez.`,
+      corpo_html: `<div style="font-family:Arial,sans-serif;color:#2b1718;padding:24px"><h1 style="color:#540c16">Redefinição de senha</h1><p>Olá, ${nome.replace(/[<>]/g, "")}. Recebemos uma solicitação para redefinir sua senha.</p><p><a href="${resetUrl.replace(/\"/g, "&quot;")}" style="display:inline-block;background:#7f1d1d;color:#fff;padding:12px 18px;border-radius:6px;text-decoration:none">Criar nova senha</a></p><p>O link expira em 30 minutos e só pode ser usado uma vez.</p></div>`,
     });
-    return { sent: true, messageId: info.messageId, sentAt: new Date() };
+    return mapEmailResult(resultado);
   }
 
   async sendOtp(destination: string, code: string, context: { nome: string; protocolo: string }): Promise<NotificationResult> {
-    const host = process.env.SMTP_HOST?.trim();
-    const user = process.env.SMTP_USER?.trim();
-    const pass = process.env.SMTP_PASS;
-    if (!host || !user || !pass) return { sent: false, reason: "SMTP não configurado" };
-    const transporter = nodemailer.createTransport({
-      host,
-      port: Number(process.env.SMTP_PORT || 587),
-      secure: process.env.SMTP_SECURE === "true",
-      auth: { user, pass },
-    });
-    const info = await transporter.sendMail({
-      from: obterRemetente("contracts", user),
+    const resultado = await enviarEmailTransacional({
+      remetente: obterRemetente("contracts"),
       replyTo: obterReplyTo(),
-      to: destination,
-      subject: "Seu código de validação — Excursão das Comitivas",
-      text: `Olá, ${context.nome}. Seu código para validar o contrato ${context.protocolo} é válido por aproximadamente 10 minutos. Não compartilhe este código.`,
-      html: `<!doctype html><html lang="pt-BR"><body style="font-family:Arial,sans-serif;background:#fffaf5;color:#2b1718;padding:24px"><div style="max-width:560px;margin:auto;background:#fff;border:1px solid #ead8c5;border-radius:12px;padding:28px"><p style="color:#7f1d1d;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Excursão das Comitivas</p><h1 style="color:#540c16">Validação eletrônica</h1><p>Olá, ${context.nome.replace(/[<>]/g, "")}. Use o código abaixo para validar o contrato da sua reserva.</p><div style="font-size:32px;letter-spacing:.24em;font-weight:800;color:#7f1d1d;text-align:center;padding:18px;background:#fff7ed;border-radius:8px">${code}</div><p>O código expira em aproximadamente 10 minutos e só pode ser usado uma vez. Protocolo: ${context.protocolo}.</p><p style="font-size:12px;color:#64748b">Se você não solicitou esta validação, ignore esta mensagem.</p></div></body></html>`,
+      destinatario: destination,
+      assunto: "Seu código de validação — Excursão das Comitivas",
+      corpo_texto: `Olá, ${context.nome}. Seu código para validar o contrato ${context.protocolo} é válido por aproximadamente 10 minutos. Não compartilhe este código.`,
+      corpo_html: `<!doctype html><html lang="pt-BR"><body style="font-family:Arial,sans-serif;background:#fffaf5;color:#2b1718;padding:24px"><div style="max-width:560px;margin:auto;background:#fff;border:1px solid #ead8c5;border-radius:12px;padding:28px"><p style="color:#7f1d1d;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Excursão das Comitivas</p><h1 style="color:#540c16">Validação eletrônica</h1><p>Olá, ${context.nome.replace(/[<>]/g, "")}. Use o código abaixo para validar o contrato da sua reserva.</p><div style="font-size:32px;letter-spacing:.24em;font-weight:800;color:#7f1d1d;text-align:center;padding:18px;background:#fff7ed;border-radius:8px">${code}</div><p>O código expira em aproximadamente 10 minutos e só pode ser usado uma vez. Protocolo: ${context.protocolo}.</p><p style="font-size:12px;color:#64748b">Se você não solicitou esta validação, ignore esta mensagem.</p></div></body></html>`,
     });
-    return { sent: true, messageId: info.messageId, sentAt: new Date() };
+    return mapEmailResult(resultado);
   }
 }
 
