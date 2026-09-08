@@ -100,7 +100,7 @@ app.use(helmet({
   },
   crossOriginEmbedderPolicy: false,
 }));
-app.use(express.json({ limit: "1mb", verify: (req, _res, buffer) => { (req as any).rawBody = Buffer.from(buffer); } }));
+app.use(express.json({ limit: "12mb", verify: (req, _res, buffer) => { (req as any).rawBody = Buffer.from(buffer); } }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 const configuredWebOrigins = (process.env.WEB_URL || "")
   .split(",")

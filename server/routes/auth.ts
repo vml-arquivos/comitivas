@@ -230,7 +230,7 @@ router.post("/confirmar-email", async (req: Request, res: Response) => {
     const email = String(req.body?.email || "").trim().toLowerCase();
     const codigo = String(req.body?.codigo || "").trim();
     if (!email || !/^\d{6}$/.test(codigo)) return res.status(400).json({ erro: "Informe o e-mail e o código de 6 dígitos" });
-    const usuario = (await db.select({ id: usuarios.id, email: usuarios.email, nome: usuarios.nome, tipo: usuarios.tipo, session_version: usuarios.session_version, email_confirmado: usuarios.email_confirmado }).from(usuarios).where(eq(usuarios.email, email)).limit(1))[0];
+    const usuario = (await db.select({ id: usuarios.id, email: usuarios.email, nome: usuarios.nome, tipo: usuarios.tipo, session_version: usuarios.session_version, email_confirmado: usuarios.email_confirmado, cadastro_status: usuarios.cadastro_status }).from(usuarios).where(eq(usuarios.email, email)).limit(1))[0];
     if (!usuario || usuario.email_confirmado) return res.status(400).json({ erro: "Código inválido ou conta já confirmada" });
     const agora = new Date();
     const confirmado = await db.transaction(async (tx) => {
@@ -240,9 +240,12 @@ router.post("/confirmar-email", async (req: Request, res: Response) => {
       return true;
     });
     if (!confirmado) return res.status(400).json({ erro: "Código inválido, expirado ou já utilizado" });
-    const token = AuthService.generateToken({ id: usuario.id, email: usuario.email, tipo: usuario.tipo || "cliente", session_version: Number(usuario.session_version || 1) });
-    definirCookieAuth(res, token);
-    return res.json({ mensagem: "E-mail confirmado com sucesso", usuario: { id: usuario.id, email: usuario.email, nome: usuario.nome, tipo: usuario.tipo } });
+    const aprovadoParaSessao = usuario.tipo !== "cliente" || (usuario.cadastro_status === "aprovado");
+    if (aprovadoParaSessao) {
+      const token = AuthService.generateToken({ id: usuario.id, email: usuario.email, tipo: usuario.tipo || "cliente", session_version: Number(usuario.session_version || 1) });
+      definirCookieAuth(res, token);
+    }
+    return res.json({ mensagem: "E-mail confirmado com sucesso", cadastro_aprovacao_necessaria: !aprovadoParaSessao, cadastro_status: usuario.cadastro_status, usuario: { id: usuario.id, email: usuario.email, nome: usuario.nome, tipo: usuario.tipo } });
   } catch (error) {
     console.error("[AUTH] Erro na confirmação de e-mail:", error);
     return res.status(400).json({ erro: "Não foi possível confirmar o e-mail" });
@@ -301,6 +304,7 @@ router.get("/perfil", authMiddleware, async (req: Request, res: Response) => {
       endereco: usuarios.endereco,
       nacionalidade: usuarios.nacionalidade,
       tipo: usuarios.tipo,
+      cadastro_status: usuarios.cadastro_status,
     }).from(usuarios).where(eq(usuarios.id, req.usuario.id)).limit(1);
 
     if (!resultado[0]) return res.status(404).json({ erro: "Usuário não encontrado" });
@@ -520,6 +524,7 @@ router.post("/login", async (req: Request<{}, {}, LoginRequest>, res: Response) 
         senha_hash: usuarios.senha_hash,
         session_version: usuarios.session_version,
         email_confirmado: usuarios.email_confirmado,
+        cadastro_status: usuarios.cadastro_status,
       })
       .from(usuarios)
       .where(eq(usuarios.email, emailNormalizado))
@@ -544,6 +549,9 @@ router.post("/login", async (req: Request<{}, {}, LoginRequest>, res: Response) 
     if (!usuario.email_confirmado) {
       return res.status(403).json({ erro: "Confirme seu e-mail antes de entrar", email_confirmacao_necessaria: true });
     }
+    if (usuario.tipo === "cliente" && ["pendente", "rejeitado", "revisao_necessaria"].includes(String(usuario.cadastro_status || "pendente"))) {
+      return res.status(403).json({ erro: usuario.cadastro_status === "rejeitado" ? "Seu cadastro foi rejeitado. Consulte a equipe." : "Seu cadastro aguarda aprovação administrativa.", cadastro_aprovacao_necessaria: true, cadastro_status: usuario.cadastro_status });
+    }
 
     // Gerar token
     const token = AuthService.generateToken({
@@ -560,6 +568,7 @@ router.post("/login", async (req: Request<{}, {}, LoginRequest>, res: Response) 
         email: usuario.email,
         nome: usuario.nome,
         tipo: usuario.tipo,
+        cadastro_status: usuario.cadastro_status,
       },
     });
   } catch (error) {

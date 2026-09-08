@@ -173,7 +173,7 @@ export class OtpService {
         await fs.writeFile(arquivoCriado, pdf, { mode: 0o600 });
         const userAgent = userAgentData(input.userAgent);
 
-        const documentoAtualizado = await tx.update(contratosDocumentos).set({ status: "validado", arquivo: arquivoCriado, pdf_sha256: pdfHash, validado_em: agora }).where(and(eq(contratosDocumentos.id, documento.id), sql`status IN ('aguardando_validacao', 'preparado')`)).returning({ id: contratosDocumentos.id });
+        const documentoAtualizado = await tx.update(contratosDocumentos).set({ status: "aguardando_aprovacao_admin", arquivo: arquivoCriado, pdf_sha256: pdfHash, validado_em: agora }).where(and(eq(contratosDocumentos.id, documento.id), sql`status IN ('aguardando_validacao', 'preparado')`)).returning({ id: contratosDocumentos.id });
         if (!documentoAtualizado[0]) throw new Error("Contrato já validado por outra requisição");
         await tx.update(otpDesafios).set({ usado_em: agora }).where(and(eq(otpDesafios.id, String(desafio.id)), isNull(otpDesafios.usado_em)));
         await tx.update(reservas).set({ status: "contrato_gerado", checkout_estado: "contrato_validado", contrato_pdf_url: arquivoCriado, aceite_timestamp: agora, aceite_ip: input.ip || "desconhecido", atualizado_em: agora }).where(eq(reservas.id, input.reserva_id));

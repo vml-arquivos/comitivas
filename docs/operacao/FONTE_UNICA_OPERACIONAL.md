@@ -4,7 +4,7 @@ Este documento é a referência atual para operação, deploy e validação da p
 
 ## Estado funcional
 
-A aplicação atual é um monólito Node.js com API Express, frontend React/Vite, PostgreSQL com Drizzle e geração de contratos em PDF. A cadeia existente preservada é: usuário, origem comercial, evento, lote, pacote, adicionais, cupom, reserva, contrato versionado, OTP, pagamento Cora, webhook, voucher e notificações. O catálogo e os contratos usam snapshots e valores em centavos quando o fluxo já os fornece.
+A aplicação atual é um monólito Node.js com API Express, frontend React/Vite, PostgreSQL com Drizzle e geração de contratos em PDF. A cadeia operacional é: cadastro do cliente, confirmação de e-mail, aprovação/rejeição administrativa auditada, origem comercial, evento, lote, pacote, adicionais, cupom, reserva, contrato versionado, OTP, aprovação administrativa do contrato, boleto manual ou pagamento Cora, webhook, voucher e notificações. O catálogo, contratos, parcelas e valores usam snapshots e centavos quando o fluxo já os fornece.
 
 As correções desta versão reforçam o isolamento de carteira do vendedor, a posse do lead antes de alterações públicas, a revogação de sessões após mudanças administrativas, a proteção contra administrador de teste em produção, o bloqueio seguro quando a configuração financeira não pode ser lida, a fila idempotente de follow-up, a aceitação de `PAID_OUT` da Cora, a paridade entre decimal e centavos no contrato administrativo, e o build do app mobile.
 
@@ -45,6 +45,7 @@ Os valores secretos devem existir somente no ambiente seguro do Coolify ou do am
 | `STORAGE_PATH` | Volume persistente dos PDFs e arquivos operacionais. |
 | `CORA_HTTP_TIMEOUT_MS`, `CORA_CARNE_TIMEOUT_MS` | Limites de espera das chamadas Cora. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Entrega de e-mails e processamento da outbox. |
+| `SMTP_FINANCEIRO_FROM` | Remetente opcional da central financeira; não altera documentos contratuais. |
 | `ENABLE_TEST_ADMIN` | Deve estar ausente ou `false` em produção. O código bloqueia `true` em produção. |
 
 As variáveis `MERCADOPAGO_*`, `ASAAS_*`, `PAGSEGURO_*`, `STRIPE_*` e `ALLOW_MOCK_PAYMENT_IN_PROD` são históricas e não fazem parte do fluxo produtivo atual.
@@ -71,6 +72,8 @@ No Coolify, confirme `NODE_ENV=production`, as credenciais Cora mTLS, o HMAC do 
 ## Segurança operacional
 
 O vendedor só pode acessar leads, clientes, reservas e jornadas da própria carteira. A API aplica essa regra no banco, e não apenas na interface. Alterações de papel, senha e status revogam tokens anteriores por `session_version`.
+
+Clientes seguem os estados `pendente`, `aprovado`, `rejeitado` e `revisao_necessaria`. O contrato só é preparado/validado após aprovação do cadastro; depois da validação do cliente, um administrador deve aprovar a versão antes da cobrança. PDFs de boleto são anexos manuais, armazenados sob `STORAGE_PATH`, vinculados à parcela por hash SHA-256 e enviados por e-mail somente por ação explícita do financeiro. O registro de WhatsApp é manual e auditável; não há disparo automático.
 
 A atualização pública de intenção exige `lead_intent_token` assinado e expirável. O token não substitui autenticação para operações financeiras ou contratuais. A criação de cobrança permanece limitada ao usuário da reserva ou ao administrador autorizado.
 

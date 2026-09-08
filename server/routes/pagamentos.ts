@@ -6,7 +6,7 @@ import { ConfiguracaoService } from "../services/configuracaoService.js";
 import { GatewayConfigService } from "../services/gatewayConfigService.js";
 import { InventoryService } from "../services/inventoryService.js";
 import { db } from "../db/index.js";
-import { comissoes, inventarioHolds, leads_origem, pagamentoParcelas, pagamentos, reservas, webhookEventos } from "../db/schema.js";
+import { comissoes, contratosDocumentos, inventarioHolds, leads_origem, pagamentoIdempotencias, pagamentoParcelas, pagamentos, reservas, usuarios, webhookEventos } from "../db/schema.js";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 
@@ -97,7 +97,12 @@ router.post("/criar", authMiddleware, async (req: Request, res: Response) => {
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, reserva_id)).limit(1))[0];
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
     if (reserva.usuario_id !== req.usuario.id) return res.status(403).json({ erro: "Acesso negado" });
-    if (!["contrato_gerado", "cliente_confirmado"].includes(String(reserva.status)) && !["contrato_validado", "cobranca_pendente", "aguardando_pagamento", "pagamento_parcial", "primeira_parcela_confirmada"].includes(String(reserva.checkout_estado))) return res.status(400).json({ erro: "Valide o contrato antes de criar a cobrança" });
+    const cliente = (await db.select({ cadastro_status: usuarios.cadastro_status, aprovado_em: usuarios.aprovado_em, ativo: usuarios.ativo }).from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0];
+    if (!cliente?.ativo || cliente.cadastro_status !== "aprovado" || !cliente.aprovado_em) return res.status(409).json({ erro: "Cobrança bloqueada: cadastro do cliente ainda não foi aprovado administrativamente" });
+    const contrato = (await db.select({ status: contratosDocumentos.status, validado_em: contratosDocumentos.validado_em, aprovado_admin_em: contratosDocumentos.aprovado_admin_em }).from(contratosDocumentos).where(eq(contratosDocumentos.reserva_id, reserva.id)).orderBy(desc(contratosDocumentos.versao)).limit(1))[0];
+    if (!contrato?.validado_em) return res.status(409).json({ erro: "Cobrança bloqueada: contrato ainda não foi validado pelo cliente" });
+    if (!contrato.aprovado_admin_em || contrato.status !== "aprovado_admin") return res.status(409).json({ erro: "Cobrança bloqueada: contrato ainda não foi aprovado administrativamente" });
+    if (!["contrato_gerado", "cliente_confirmado"].includes(String(reserva.status)) && !["contrato_validado", "contrato_aprovado_admin", "cobranca_pendente", "aguardando_pagamento", "pagamento_parcial", "primeira_parcela_confirmada"].includes(String(reserva.checkout_estado))) return res.status(400).json({ erro: "A reserva ainda não está liberada para cobrança" });
     if (reserva.forma_pagamento && reserva.forma_pagamento !== metodo) return res.status(400).json({ erro: "O método diverge da condição aceita no contrato" });
 
     const parcelas = metodo === "boleto" ? Math.max(1, Number(reserva.quantidade_parcelas || 1)) : 1;
@@ -130,6 +135,32 @@ router.post("/criar", authMiddleware, async (req: Request, res: Response) => {
     const idempotencyKey = stableUuid(recebido);
     await InventoryService.exigirHoldAtivo(reserva_id);
     const cronograma = Array.isArray(reserva.cronograma_pagamento) ? reserva.cronograma_pagamento as Array<{ vencimento?: string }> : [];
+
+    if (metodo === "boleto") {
+      const existente = (await db.select({ pagamento_id: pagamentoIdempotencias.pagamento_id, resposta: pagamentoIdempotencias.resposta }).from(pagamentoIdempotencias).where(eq(pagamentoIdempotencias.chave, idempotencyKey)).limit(1))[0];
+      if (existente?.pagamento_id) return res.json({ ...(existente.resposta as Record<string, unknown> || {}), idempotency_key: idempotencyKey, duplicado: true });
+      const totalCentavos = centavos(reserva.valor_total);
+      const quantidade = Math.max(1, Number(reserva.quantidade_parcelas || 1));
+      const baseCentavos = Math.floor(totalCentavos / quantidade);
+      const pagamento = await db.transaction(async (tx) => {
+        const hold = reserva.inventario_hold_id ? (await tx.select({ id: inventarioHolds.id, expira_em: inventarioHolds.expira_em, status: inventarioHolds.status }).from(inventarioHolds).where(eq(inventarioHolds.id, reserva.inventario_hold_id)).for("update").limit(1))[0] : undefined;
+        if (!hold || hold.status !== "ativo" || new Date(hold.expira_em).getTime() <= Date.now()) throw new Error("A reserva de inventário expirou antes da emissão manual");
+        await tx.update(inventarioHolds).set({ status: "convertido", convertido_em: new Date() }).where(and(eq(inventarioHolds.id, hold.id), eq(inventarioHolds.status, "ativo")));
+        const criado = (await tx.insert(pagamentos).values({ id: createId(), reserva_id, status: "pendente", valor: (totalCentavos / 100).toFixed(2), metodo: "boleto", idempotency_key: idempotencyKey, valor_centavos: totalCentavos, valor_pago_centavos: 0, status_reconciliado: "pendente", criado_em: new Date(), atualizado_em: new Date() }).returning())[0];
+        if (!criado) throw new Error("Não foi possível criar o controle do boleto");
+        const parcelas = Array.from({ length: quantidade }, (_, indice) => {
+          const parcelaCentavos = baseCentavos + (indice < totalCentavos % quantidade ? 1 : 0);
+          const vencimento = cronograma[indice]?.vencimento || new Date(Date.now() + (indice + 1) * 30 * 86400000).toISOString().slice(0, 10);
+          return { id: createId(), pagamento_id: criado.id, reserva_id, sequencia: indice + 1, valor: (parcelaCentavos / 100).toFixed(2), vencimento, valor_centavos: parcelaCentavos, valor_pago_centavos: 0, status: "pendente" };
+        });
+        await tx.insert(pagamentoParcelas).values(parcelas).onConflictDoNothing();
+        const resposta = { pagamento_id: criado.id, status: "pendente", metodo: "boleto", valor: (totalCentavos / 100).toFixed(2), quantidade_parcelas: quantidade, valor_parcela: (baseCentavos / 100).toFixed(2), parcelas, central_boleto: "liberada" };
+        await tx.insert(pagamentoIdempotencias).values({ id: createId(), chave: idempotencyKey, operacao: "criar_boleto_manual", reserva_id, pagamento_id: criado.id, resposta });
+        await tx.update(reservas).set({ checkout_estado: "boletos_liberados", status: "aguardando_pagamento", atualizado_em: new Date() }).where(eq(reservas.id, reserva_id));
+        return resposta;
+      });
+      return res.status(201).json({ ...pagamento, idempotency_key: idempotencyKey, mensagem: "Central de boletos liberada; os PDFs serão anexados pela equipe financeira." });
+    }
 
     const pagamentoGateway = await PaymentGatewayAdapter.criarPagamento({
       reserva_id,

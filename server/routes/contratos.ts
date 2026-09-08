@@ -48,6 +48,11 @@ function formatarDataHora(valor: Date): string {
   }).format(valor);
 }
 
+async function cadastroAprovado(reservaId: string): Promise<boolean> {
+  const registro = (await db.select({ cadastro_status: usuarios.cadastro_status, aprovado_em: usuarios.aprovado_em }).from(reservas).innerJoin(usuarios, eq(reservas.usuario_id, usuarios.id)).where(eq(reservas.id, reservaId)).limit(1))[0];
+  return Boolean(registro?.cadastro_status === "aprovado" && registro.aprovado_em);
+}
+
 // Preparar a versão contratual que será exibida e validada pelo cliente.
 router.post("/preparar/:reserva_id", authMiddleware, async (req: Request, res: Response) => {
   try {
@@ -55,6 +60,7 @@ router.post("/preparar/:reserva_id", authMiddleware, async (req: Request, res: R
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
     if (!podeAcessarReserva(req, reserva)) return res.status(403).json({ erro: "Acesso negado" });
+    if (!(await cadastroAprovado(reserva.id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes de preparar o contrato" });
     const documento = await ContratoService.prepararContrato(req.params.reserva_id);
     return res.json({ documento });
   } catch (error: any) {
@@ -70,6 +76,7 @@ router.get("/regras-convivencia", (_req: Request, res: Response) => {
 router.post("/otp/solicitar/:reserva_id", authMiddleware, async (req: Request, res: Response) => {
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    if (!(await cadastroAprovado(req.params.reserva_id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes da validação contratual" });
     const resultado = await OtpService.solicitar({ usuario_id: req.usuario.id, reserva_id: req.params.reserva_id, contrato_id: req.body?.contrato_id, canal: req.body?.canal });
     if (!resultado.enviado) return res.status(503).json({ erro: resultado.motivo || "Canal de validação não configurado", ...resultado });
     return res.json(resultado);
@@ -82,6 +89,7 @@ router.post("/otp/solicitar/:reserva_id", authMiddleware, async (req: Request, r
 router.post("/otp/confirmar/:reserva_id", authMiddleware, async (req: Request, res: Response) => {
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    if (!(await cadastroAprovado(req.params.reserva_id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes da validação contratual" });
     const resultado = await OtpService.confirmar({
       usuario_id: req.usuario.id,
       reserva_id: req.params.reserva_id,
@@ -158,6 +166,7 @@ router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Re
     if (reserva.usuario_id !== req.usuario.id) {
       return res.status(403).json({ erro: "Acesso negado" });
     }
+    if (!(await cadastroAprovado(reserva.id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes de aceitar o contrato" });
 
     // Verificar status
     if (reserva.status !== "pacote_montado" && reserva.status !== "checkout_iniciado") {
