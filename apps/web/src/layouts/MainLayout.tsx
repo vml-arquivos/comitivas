@@ -49,31 +49,29 @@ export function MainLayout() {
         Pular para o conteúdo
       </a>
 
-      <header className="sticky top-0 z-50 border-b border-[#182D3B]/10 bg-[#F8F5EF]/95 backdrop-blur-xl">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex h-[70px] items-center justify-between gap-2 sm:h-[86px] sm:gap-4">
-            <Link to="/" className="flex min-w-0 items-center gap-2.5 sm:gap-3.5" onClick={fecharMenu} aria-label="Excursão das Comitivas — início">
-              <div className="shrink-0 rounded-full border border-[#182D3B]/10 bg-white p-1 shadow-[0_8px_24px_rgba(24,45,59,.08)] sm:p-1.5">
+      <header className="sticky top-0 z-50 border-b border-[#182D3B]/10 bg-[#F8F5EF]/95 shadow-[0_4px_20px_rgba(24,45,59,.035)] backdrop-blur-xl">
+        <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-10">
+          <div className="grid min-h-[96px] grid-cols-[94px_1fr_auto] items-center gap-3 sm:min-h-[108px] sm:grid-cols-[116px_1fr_auto] sm:gap-6">
+            <Link to="/" className="group flex w-[94px] flex-col items-center justify-center gap-0.5 sm:w-[116px]" onClick={fecharMenu} aria-label="Excursão das Comitivas — início">
+              <div className="shrink-0 rounded-full border border-[#182D3B]/10 bg-white p-1 shadow-[0_10px_26px_rgba(24,45,59,.1)] transition group-hover:-translate-y-0.5 group-hover:shadow-[0_14px_32px_rgba(24,45,59,.14)] sm:p-1.5">
                 <picture>
                   <source srcSet={logoWebp} type="image/webp" />
-                  <img src={logoUrl} alt="" aria-hidden="true" className="h-11 w-11 object-contain sm:h-14 sm:w-14 lg:h-16 lg:w-16" width="64" height="64" />
+                  <img src={logoUrl} alt="" aria-hidden="true" className="h-14 w-14 object-contain sm:h-[76px] sm:w-[76px] lg:h-20 lg:w-20" width="80" height="80" />
                 </picture>
               </div>
-              <span className="block max-w-[118px] truncate font-editorial text-[0.84rem] font-bold leading-tight tracking-[-0.015em] text-[#182D3B] min-[390px]:max-w-[150px] min-[390px]:text-[0.95rem] sm:max-w-none sm:text-[1.2rem] lg:text-[1.35rem]">
-                Excursão das Comitivas
-              </span>
+              <span className="max-w-[112px] text-center font-editorial text-[0.58rem] font-bold leading-[1.05] tracking-[0.01em] text-[#182D3B] sm:max-w-[132px] sm:text-[0.68rem]">Excursão das Comitivas</span>
             </Link>
 
-            <nav className="hidden items-center gap-6 text-sm font-semibold text-[#182D3B]/80 lg:flex" aria-label="Navegação principal">
-              <Link to="/eventos" className="transition hover:text-[#851F32]">Excursões</Link>
-              <Link to="/historia" className="transition hover:text-[#851F32]">Nossa História</Link>
-              <Link to="/galeria" className="transition hover:text-[#851F32]">Galeria</Link>
-              <Link to="/avaliacoes" className="transition hover:text-[#851F32]">Avaliações</Link>
-              <Link to="/regras" className="transition hover:text-[#851F32]">Regras</Link>
-              <Link to="/aplicativo" className="inline-flex items-center gap-1.5 transition hover:text-[#851F32]"><Download size={15} /> Aplicativo</Link>
+            <nav className="hidden items-center justify-self-center gap-5 text-[0.83rem] font-semibold text-[#182D3B]/80 xl:gap-7 xl:text-sm lg:flex" aria-label="Navegação principal">
+              <Link to="/eventos" className="whitespace-nowrap transition hover:text-[#851F32]">Excursões</Link>
+              <Link to="/historia" className="whitespace-nowrap transition hover:text-[#851F32]">Nossa História</Link>
+              <Link to="/galeria" className="whitespace-nowrap transition hover:text-[#851F32]">Galeria</Link>
+              <Link to="/avaliacoes" className="whitespace-nowrap transition hover:text-[#851F32]">Avaliações</Link>
+              <Link to="/regras" className="whitespace-nowrap transition hover:text-[#851F32]">Regras</Link>
+              <Link to="/aplicativo" className="inline-flex items-center gap-1.5 whitespace-nowrap transition hover:text-[#851F32]"><Download size={15} /> Aplicativo</Link>
             </nav>
 
-            <nav className="hidden items-center gap-3 lg:flex" aria-label="Conta">
+            <nav className="hidden items-center justify-self-end gap-3 lg:flex" aria-label="Conta">
               {user ? (
                 <>
                   <Link to="/minha-conta" className="text-sm font-bold text-[#182D3B] transition hover:text-[#851F32]">Minha conta</Link>
@@ -98,11 +96,11 @@ export function MainLayout() {
               )}
             </nav>
 
-            <div className="flex shrink-0 items-center gap-2 lg:hidden">
+            <div className="flex shrink-0 items-center justify-self-end gap-2 lg:hidden">
               <Link
                 to="/aplicativo"
                 onClick={fecharMenu}
-                className="hidden min-h-10 items-center gap-1.5 rounded-full border border-[#851F32]/15 bg-white px-3 text-xs font-extrabold text-[#851F32] shadow-sm transition hover:bg-[#fff8f8] min-[375px]:inline-flex"
+                className="hidden min-h-10 items-center gap-1.5 rounded-full border border-[#851F32]/15 bg-white px-3 text-xs font-extrabold text-[#851F32] shadow-sm transition hover:bg-[#fff8f8] min-[520px]:inline-flex"
                 aria-label="Instalar aplicativo"
               >
                 <Download size={15} /> Instalar app
@@ -122,12 +120,14 @@ export function MainLayout() {
 
           {menuAberto && (
             <nav id="navegacao-publica-mobile" className="space-y-1 border-t border-[#182D3B]/10 py-4 text-sm text-[#182D3B] lg:hidden" aria-label="Navegação móvel">
-              <Link to="/eventos" onClick={fecharMenu} className="block rounded-xl px-3 py-2.5 font-semibold hover:bg-white">Excursões</Link>
-              <Link to="/historia" onClick={fecharMenu} className="block rounded-xl px-3 py-2.5 font-semibold hover:bg-white">Nossa História</Link>
-              <Link to="/galeria" onClick={fecharMenu} className="block rounded-xl px-3 py-2.5 font-semibold hover:bg-white">Galeria</Link>
-              <Link to="/avaliacoes" onClick={fecharMenu} className="block rounded-xl px-3 py-2.5 font-semibold hover:bg-white">Avaliações</Link>
-              <Link to="/regras" onClick={fecharMenu} className="block rounded-xl px-3 py-2.5 font-semibold hover:bg-white">Regras de convivência</Link>
-              <Link to="/aplicativo" onClick={fecharMenu} className="flex items-center gap-2 rounded-xl px-3 py-2.5 font-bold text-[#851F32] hover:bg-white"><Download size={16} />Instalar aplicativo</Link>
+              <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
+                <Link to="/eventos" onClick={fecharMenu} className="rounded-xl px-3 py-2.5 font-semibold hover:bg-white">Excursões</Link>
+                <Link to="/historia" onClick={fecharMenu} className="rounded-xl px-3 py-2.5 font-semibold hover:bg-white">Nossa História</Link>
+                <Link to="/galeria" onClick={fecharMenu} className="rounded-xl px-3 py-2.5 font-semibold hover:bg-white">Galeria</Link>
+                <Link to="/avaliacoes" onClick={fecharMenu} className="rounded-xl px-3 py-2.5 font-semibold hover:bg-white">Avaliações</Link>
+                <Link to="/regras" onClick={fecharMenu} className="rounded-xl px-3 py-2.5 font-semibold hover:bg-white">Regras de convivência</Link>
+                <Link to="/aplicativo" onClick={fecharMenu} className="flex items-center gap-2 rounded-xl px-3 py-2.5 font-bold text-[#851F32] hover:bg-white"><Download size={16} />Instalar aplicativo</Link>
+              </div>
               {user ? (
                 <>
                   <Link to="/minha-conta" onClick={fecharMenu} className="block rounded-xl px-3 py-2.5 font-semibold hover:bg-white">Minha conta</Link>
@@ -143,9 +143,6 @@ export function MainLayout() {
             </nav>
           )}
         </div>
-        <Link to="/aplicativo" onClick={fecharMenu} className="flex min-h-10 items-center justify-center gap-2 border-t border-[#182D3B]/8 bg-white/75 px-4 text-center text-xs font-bold text-[#851F32] lg:hidden">
-          <Download size={15} /> Instale o aplicativo no celular e tenha acesso rápido à sua conta
-        </Link>
       </header>
 
       <main id="conteudo-principal" className="flex-1" tabIndex={-1}>
