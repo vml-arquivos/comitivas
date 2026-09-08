@@ -37,6 +37,7 @@ interface Pacote {
   valor_total: string;
   modalidade_hospedagem: 'camping' | 'quarto_ventilador' | 'quarto_ar_condicionado';
   disponibilidade: 'disponivel' | 'ultimas_vagas' | 'esgotado';
+  contrato_modelo: 'auto' | 'hospedagem' | 'transporte';
   ativo: boolean;
 }
 
@@ -93,6 +94,7 @@ export default function EventosAdmin() {
     valorTotal: '',
     modalidade: 'quarto_ventilador' as Pacote['modalidade_hospedagem'],
     disponibilidade: 'disponivel' as Pacote['disponibilidade'],
+    contratoModelo: 'auto' as Pacote['contrato_modelo'],
   });
   const [kitForm, setKitForm] = useState({
     camping: { valor: '1900', disponibilidade: 'disponivel' as Pacote['disponibilidade'] },
@@ -270,9 +272,10 @@ export default function EventosAdmin() {
         itens_selecionados: [],
         modalidade_hospedagem: pacoteForm.modalidade,
         disponibilidade: pacoteForm.disponibilidade,
+        contrato_modelo: pacoteForm.contratoModelo,
       });
       await carregarPacotes(loteId);
-      setPacoteForm({ nome: '', descricao: '', valorTotal: '', modalidade: 'quarto_ventilador', disponibilidade: 'disponivel' });
+      setPacoteForm({ nome: '', descricao: '', valorTotal: '', modalidade: 'quarto_ventilador', disponibilidade: 'disponivel', contratoModelo: 'auto' });
       setMostrarFormPacote(null);
     } catch (err: any) {
       setErroForm(err.response?.data?.erro || 'Erro ao publicar pacote.');
@@ -302,6 +305,7 @@ export default function EventosAdmin() {
           itens_selecionados: [],
           modalidade_hospedagem: modalidade,
           disponibilidade: dados.disponibilidade,
+          contrato_modelo: existente?.contrato_modelo || 'auto',
           ativo: true,
         };
         if (existente) {
@@ -315,6 +319,15 @@ export default function EventosAdmin() {
       setErroForm(err.response?.data?.erro || 'Erro ao sincronizar as três modalidades.');
     } finally {
       setSalvando(false);
+    }
+  };
+
+  const atualizarModeloContrato = async (loteId: string, pacoteId: string, contratoModelo: Pacote['contrato_modelo']) => {
+    try {
+      await api.put(`/pacotes/${pacoteId}`, { contrato_modelo: contratoModelo });
+      await carregarPacotes(loteId);
+    } catch (err: any) {
+      setError(err.response?.data?.erro || 'Erro ao atualizar o modelo de contrato.');
     }
   };
 
@@ -503,6 +516,14 @@ export default function EventosAdmin() {
                                     <option value="disponivel">Disponível</option><option value="ultimas_vagas">Últimas vagas</option><option value="esgotado">Esgotado</option>
                                   </select>
                                 </div>
+                                <div>
+                                  <label className="mb-1 block text-sm font-medium text-gray-700">Modelo do contrato</label>
+                                  <select value={pacoteForm.contratoModelo} onChange={(e) => setPacoteForm({ ...pacoteForm, contratoModelo: e.target.value as Pacote['contrato_modelo'] })} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                                    <option value="auto">Automático conforme serviços</option>
+                                    <option value="hospedagem">Hospedagem</option>
+                                    <option value="transporte">Transporte + hospedagem</option>
+                                  </select>
+                                </div>
                                 <div className="flex items-end"><Button type="submit" disabled={salvando} className="w-full">{salvando ? 'Publicando...' : 'Publicar pacote'}</Button></div>
                               </div>
                               <textarea value={pacoteForm.descricao} onChange={(e) => setPacoteForm({ ...pacoteForm, descricao: e.target.value })} rows={2} className="mt-3 w-full rounded-md border border-gray-300 p-2 text-sm" placeholder="Descrição comercial desta modalidade (opcional)." />
@@ -512,6 +533,7 @@ export default function EventosAdmin() {
                                 <article key={pacote.id} className="rounded-lg border border-gray-200 bg-white p-4">
                                   <div className="flex items-start justify-between gap-2"><div><p className="font-semibold text-gray-900">{pacote.nome}</p><p className="text-xs font-medium text-primary">{modalidades[pacote.modalidade_hospedagem]?.titulo || pacote.modalidade_hospedagem}</p><span className={`mt-2 inline-block rounded-full px-2 py-1 text-[10px] font-bold uppercase ${pacote.disponibilidade === 'esgotado' ? 'bg-slate-800 text-white' : pacote.disponibilidade === 'ultimas_vagas' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{pacote.disponibilidade === 'esgotado' ? 'Esgotado' : pacote.disponibilidade === 'ultimas_vagas' ? 'Últimas vagas' : 'Disponível'}</span></div><button onClick={() => despublicarPacote(lote.id, pacote.id)} className="text-gray-400 hover:text-red-600" title="Despublicar"><Trash2 size={16} /></button></div>
                                   <p className="mt-2 text-sm text-gray-500">{pacote.descricao}</p><p className="mt-3 text-lg font-bold text-slate-900">{moeda.format(Number(pacote.valor_total))}</p>
+                                  <div className="mt-3"><label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-gray-500">Contrato</label><select value={pacote.contrato_modelo || 'auto'} onChange={(e) => void atualizarModeloContrato(lote.id, pacote.id, e.target.value as Pacote['contrato_modelo'])} className="w-full rounded-md border border-gray-300 bg-white px-2 py-2 text-xs"><option value="auto">Automático</option><option value="hospedagem">Hospedagem</option><option value="transporte">Transporte + hospedagem</option></select></div>
                                 </article>
                               ))}
                               {(pacotesPorLote[lote.id] || []).length === 0 && <p className="col-span-full py-4 text-center text-sm text-gray-500">Nenhum pacote publicado neste lote. Crie as modalidades Camping, Ventilador e Ar-condicionado.</p>}

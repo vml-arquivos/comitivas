@@ -22,17 +22,22 @@ const expectedTables = [
   "inventario_holds",
   "notificacoes_outbox",
   "sessoes",
+  "cliente_documentos",
+  "cliente_historico",
+  "convites_acesso",
+  "auditoria_admin",
+  "gateway_credenciais",
 ];
 
 const expectedColumns = {
-  usuarios: ["rg", "data_nascimento", "estado_civil", "profissao", "endereco", "nacionalidade", "session_version"],
-  reservas: ["checkout_estado", "inventario_hold_id", "valor_total_centavos", "preco_versao", "cronograma_pagamento"],
-  pacotes: ["modalidade_hospedagem", "disponibilidade"],
+  usuarios: ["rg", "data_nascimento", "estado_civil", "profissao", "endereco", "nacionalidade", "session_version", "cadastro_status", "aprovado_em", "aprovado_por"],
+  reservas: ["checkout_estado", "inventario_hold_id", "valor_total_centavos", "preco_versao", "cronograma_pagamento", "boleto_liberado_em", "boleto_liberado_por"],
+  pacotes: ["modalidade_hospedagem", "disponibilidade", "contrato_modelo"],
   pagamentos: ["idempotency_key", "valor_centavos", "valor_pago_centavos", "status_reconciliado"],
   fotos_evento: ["alt_text", "categoria", "destaque", "capa", "formato"],
   contratos_documentos: [
     "id", "reserva_id", "versao", "versao_template", "snapshot", "snapshot_sha256",
-    "pdf_sha256", "arquivo", "status", "criado_em", "validado_em", "invalidado_em",
+    "pdf_sha256", "arquivo", "status", "criado_em", "validado_em", "aprovado_admin_em", "aprovado_admin_por", "invalidado_em",
     "conteudo_canonico", "regras_versao", "regras_sha256", "aviso_privacidade_versao", "visualizado_em", "motivo_invalidacao",
   ],
   regras_convivencia_versoes: ["id", "versao", "titulo", "conteudo", "conteudo_sha256", "ativo", "criado_em"],
@@ -53,7 +58,8 @@ const expectedColumns = {
   pagamento_parcelas: [
     "id", "pagamento_id", "reserva_id", "sequencia", "valor", "vencimento", "cora_id", "status",
     "boleto_url", "pix_copia_e_cola", "codigo_barras", "linha_digitavel", "criado_em", "atualizado_em",
-    "valor_centavos", "valor_pago_centavos",
+    "valor_centavos", "valor_pago_centavos", "boleto_documento_id", "enviado_email_em", "enviado_whatsapp_em",
+    "pago_confirmado_em", "pago_confirmado_por", "comprovante_documento_id",
   ],
   webhook_eventos: ["id", "provedor", "evento_id", "tipo", "recurso_id", "payload", "processado_em", "criado_em"],
   descontos_administrativos: [
@@ -67,6 +73,11 @@ const expectedColumns = {
   inventario_holds: ["id", "reserva_id", "lote_id", "modalidade", "quantidade", "status", "expira_em", "criado_em", "convertido_em", "liberado_em", "motivo_liberacao"],
   notificacoes_outbox: ["id", "reserva_id", "tipo", "chave_idempotente", "template", "versao", "destinatario_mascarado", "payload", "anexos", "status", "tentativas", "proxima_tentativa", "message_id", "ultimo_erro", "criado_em", "enviado_em"],
   sessoes: ["id", "usuario_id", "versao", "criado_em", "expira_em", "revogada_em", "ip", "user_agent"],
+  cliente_documentos: ["id", "usuario_id", "reserva_id", "categoria", "nome", "nome_original", "mime_type", "tamanho_bytes", "sha256", "arquivo", "observacoes", "criado_por", "criado_em", "atualizado_em", "removido_em", "removido_por"],
+  cliente_historico: ["id", "usuario_id", "tipo", "titulo", "descricao", "metadados", "criado_por", "criado_em"],
+  convites_acesso: ["id", "token_hash", "papel", "email_destino", "criado_por", "expira_em", "usado_em", "usado_por", "revogado_em", "criado_em"],
+  auditoria_admin: ["id", "ator_id", "ator_tipo", "acao", "entidade", "entidade_id", "antes", "depois", "ip", "user_agent", "criado_em"],
+  gateway_credenciais: ["id", "provedor", "ambiente", "ativo", "client_id_enc", "certificate_enc", "private_key_enc", "webhook_secret_enc", "token_url", "api_base", "installments_api_base", "webhook_public_url", "http_timeout_ms", "carne_timeout_ms", "ultimo_teste_em", "ultimo_teste_status", "ultimo_teste_mensagem", "atualizado_por", "atualizado_em"],
 };
 
 const expectedIndexes = [
@@ -91,6 +102,17 @@ const expectedIndexes = [
   "webhook_eventos_reprocessamento_idx",
   "notificacoes_outbox_fila_idx",
   "sessoes_usuario_ativas_idx",
+  "cliente_documentos_usuario_idx",
+  "cliente_documentos_reserva_idx",
+  "cliente_documentos_hash_idx",
+  "cliente_historico_usuario_idx",
+  "cliente_historico_tipo_idx",
+  "usuarios_cadastro_status_idx",
+  "convites_acesso_token_idx",
+  "convites_acesso_status_idx",
+  "auditoria_admin_ator_idx",
+  "auditoria_admin_entidade_idx",
+  "gateway_credenciais_provedor_idx",
 ];
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -137,7 +159,7 @@ try {
     `SELECT COUNT(*)::int AS count FROM drizzle.__drizzle_migrations`,
   );
   const migrationCount = Number(migrationCountResult.rows[0]?.count || 0);
-  if (migrationCount < 9) throw new Error(`Histórico Drizzle incompleto: ${migrationCount}/9 migrations`);
+  if (migrationCount < 12) throw new Error(`Histórico Drizzle incompleto: ${migrationCount}/12 migrations`);
 
   const rulesResult = await pool.query(
     `SELECT conteudo, conteudo_sha256 FROM regras_convivencia_versoes WHERE versao = $1 LIMIT 1`,
@@ -151,7 +173,7 @@ try {
   console.log(JSON.stringify({
     connection: "ok",
     validation: "ok",
-    migration: "0008",
+    migration: "0011",
     migrationHistory: migrationCount,
     tables: expectedTables.length,
     columns: Object.values(expectedColumns).reduce((total, columns) => total + columns.length, 0),

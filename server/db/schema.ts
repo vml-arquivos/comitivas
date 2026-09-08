@@ -26,7 +26,8 @@ export const pagamentoStatusEnum = pgEnum("pagamento_status", [
 export const usuarioTipoEnum = pgEnum("usuario_tipo", [
   "cliente",
   "vendedor",
-  "admin"
+  "admin",
+  "dev"
 ]);
 
 // Tabelas
@@ -50,6 +51,9 @@ export const usuarios = pgTable("usuarios", {
   session_version: integer("session_version").notNull().default(1),
   email_confirmado: boolean("email_confirmado").notNull().default(true),
   email_confirmado_em: timestamp("email_confirmado_em"),
+  cadastro_status: varchar("cadastro_status", { length: 30 }).notNull().default("aprovado"),
+  aprovado_em: timestamp("aprovado_em"),
+  aprovado_por: text("aprovado_por"),
   criado_em: timestamp("criado_em").defaultNow().notNull(),
   atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
 }, (table) => ({
@@ -103,6 +107,7 @@ export const pacotes = pgTable("pacotes", {
   // no contrato gerado: "camping" | "quarto_ventilador" | "quarto_ar_condicionado"
   modalidade_hospedagem: varchar("modalidade_hospedagem", { length: 30 }).default("quarto_ventilador"),
   disponibilidade: varchar("disponibilidade", { length: 30 }).default("disponivel"),
+  contrato_modelo: varchar("contrato_modelo", { length: 30 }).notNull().default("auto"),
   ativo: boolean("ativo").default(true),
   criado_em: timestamp("criado_em").defaultNow().notNull(),
   atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
@@ -173,6 +178,8 @@ export const reservas = pgTable("reservas", {
   contrato_pdf_url: varchar("contrato_pdf_url", { length: 500 }),
   aceite_timestamp: timestamp("aceite_timestamp"),
   aceite_ip: varchar("aceite_ip", { length: 45 }),
+  boleto_liberado_em: timestamp("boleto_liberado_em"),
+  boleto_liberado_por: text("boleto_liberado_por"),
   criado_em: timestamp("criado_em").defaultNow().notNull(),
   atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
 }, (table) => ({
@@ -244,13 +251,14 @@ export const leads_origem = pgTable("leads_origem", {
 
 // Configurações de pagamento editáveis pelo admin (regras de negócio, não
 // segredos). Tabela singleton: sempre existe apenas a linha id='default'.
-// Credenciais do gateway Cora permanecem exclusivamente em variáveis de ambiente —
-// são credenciais sensíveis geridas pelo Coolify, não pelo painel.
+// Regras comerciais ficam aqui; as credenciais bancárias são mantidas em cofre
+// criptografado próprio, acessível somente pelo perfil DEV.
 export const configuracoesPagamento = pgTable("configuracoes_pagamento", {
   id: text("id").primaryKey().default("default"),
   pix_desconto_percentual: decimal("pix_desconto_percentual", { precision: 5, scale: 2 }).notNull().default("5"),
   credito_parcelas_maximo: integer("credito_parcelas_maximo").notNull().default(10),
   boleto_meses_maximo_antecedencia: integer("boleto_meses_maximo_antecedencia").notNull().default(20),
+  boleto_modo: varchar("boleto_modo", { length: 20 }).notNull().default("manual"),
   atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
   atualizado_por: text("atualizado_por"),
 });
@@ -273,6 +281,8 @@ export const contratosDocumentos = pgTable("contratos_documentos", {
   motivo_invalidacao: text("motivo_invalidacao"),
   criado_em: timestamp("criado_em").defaultNow().notNull(),
   validado_em: timestamp("validado_em"),
+  aprovado_admin_em: timestamp("aprovado_admin_em"),
+  aprovado_admin_por: text("aprovado_admin_por").references(() => usuarios.id),
   invalidado_em: timestamp("invalidado_em"),
 }, (table) => ({
   reservaVersaoIdx: index("contratos_documentos_reserva_versao_idx").on(table.reserva_id, table.versao),
@@ -466,6 +476,12 @@ export const pagamentoParcelas = pgTable("pagamento_parcelas", {
   pix_copia_e_cola: text("pix_copia_e_cola"),
   codigo_barras: varchar("codigo_barras", { length: 255 }),
   linha_digitavel: varchar("linha_digitavel", { length: 255 }),
+  boleto_documento_id: text("boleto_documento_id"),
+  enviado_email_em: timestamp("enviado_email_em"),
+  enviado_whatsapp_em: timestamp("enviado_whatsapp_em"),
+  pago_confirmado_em: timestamp("pago_confirmado_em"),
+  pago_confirmado_por: text("pago_confirmado_por"),
+  comprovante_documento_id: text("comprovante_documento_id"),
   criado_em: timestamp("criado_em").defaultNow().notNull(),
   atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
 }, (table) => ({ reservaSequenciaIdx: index("pagamento_parcelas_reserva_sequencia_idx").on(table.reserva_id, table.sequencia) }));
@@ -572,6 +588,7 @@ export const clienteDocumentos = pgTable("cliente_documentos", {
   criado_em: timestamp("criado_em").defaultNow().notNull(),
   atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
   removido_em: timestamp("removido_em"),
+  removido_por: text("removido_por").references(() => usuarios.id),
 }, (table) => ({
   usuarioIdx: index("cliente_documentos_usuario_idx").on(table.usuario_id, table.removido_em, table.criado_em),
   reservaIdx: index("cliente_documentos_reserva_idx").on(table.reserva_id),
@@ -590,6 +607,63 @@ export const clienteHistorico = pgTable("cliente_historico", {
 }, (table) => ({
   usuarioIdx: index("cliente_historico_usuario_idx").on(table.usuario_id, table.criado_em),
   tipoIdx: index("cliente_historico_tipo_idx").on(table.usuario_id, table.tipo, table.criado_em),
+}));
+
+export const convitesAcesso = pgTable("convites_acesso", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  token_hash: varchar("token_hash", { length: 64 }).notNull().unique(),
+  papel: varchar("papel", { length: 20 }).notNull(),
+  email_destino: varchar("email_destino", { length: 255 }),
+  criado_por: text("criado_por").notNull().references(() => usuarios.id),
+  expira_em: timestamp("expira_em").notNull(),
+  usado_em: timestamp("usado_em"),
+  usado_por: text("usado_por").references(() => usuarios.id),
+  revogado_em: timestamp("revogado_em"),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+}, (table) => ({
+  tokenIdx: index("convites_acesso_token_idx").on(table.token_hash),
+  statusIdx: index("convites_acesso_status_idx").on(table.expira_em, table.usado_em, table.revogado_em),
+}));
+
+export const auditoriaAdmin = pgTable("auditoria_admin", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  ator_id: text("ator_id").references(() => usuarios.id),
+  ator_tipo: varchar("ator_tipo", { length: 20 }).notNull(),
+  acao: varchar("acao", { length: 120 }).notNull(),
+  entidade: varchar("entidade", { length: 80 }).notNull(),
+  entidade_id: text("entidade_id"),
+  antes: jsonb("antes"),
+  depois: jsonb("depois"),
+  ip: varchar("ip", { length: 45 }),
+  user_agent: text("user_agent"),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+}, (table) => ({
+  atorIdx: index("auditoria_admin_ator_idx").on(table.ator_id, table.criado_em),
+  entidadeIdx: index("auditoria_admin_entidade_idx").on(table.entidade, table.entidade_id, table.criado_em),
+}));
+
+export const gatewayCredenciais = pgTable("gateway_credenciais", {
+  id: text("id").primaryKey().default("cora"),
+  provedor: varchar("provedor", { length: 30 }).notNull().default("cora"),
+  ambiente: varchar("ambiente", { length: 20 }).notNull().default("stage"),
+  ativo: boolean("ativo").notNull().default(false),
+  client_id_enc: text("client_id_enc"),
+  certificate_enc: text("certificate_enc"),
+  private_key_enc: text("private_key_enc"),
+  webhook_secret_enc: text("webhook_secret_enc"),
+  token_url: varchar("token_url", { length: 500 }),
+  api_base: varchar("api_base", { length: 500 }),
+  installments_api_base: varchar("installments_api_base", { length: 500 }),
+  webhook_public_url: varchar("webhook_public_url", { length: 500 }),
+  http_timeout_ms: integer("http_timeout_ms"),
+  carne_timeout_ms: integer("carne_timeout_ms"),
+  ultimo_teste_em: timestamp("ultimo_teste_em"),
+  ultimo_teste_status: varchar("ultimo_teste_status", { length: 30 }),
+  ultimo_teste_mensagem: text("ultimo_teste_mensagem"),
+  atualizado_por: text("atualizado_por").references(() => usuarios.id),
+  atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
+}, (table) => ({
+  provedorIdx: index("gateway_credenciais_provedor_idx").on(table.provedor),
 }));
 
 // Relations

@@ -354,6 +354,12 @@ export class ContratoService {
     const transporteForm = formulario.transporte || {};
     const seguroForm = formulario.seguro || {};
     const rodoviario = transporteForm.rodoviario_incluido === undefined ? transporteFoiContratado(adicionais) : transporteForm.rodoviario_incluido === true;
+    const modeloConfigurado = String(pacote?.contrato_modelo || "auto");
+    const modeloOficial: "hospedagem" | "transporte" = modeloConfigurado === "transporte"
+      ? "transporte"
+      : modeloConfigurado === "hospedagem"
+        ? "hospedagem"
+        : rodoviario ? "transporte" : "hospedagem";
     const localHospedagem = textoOpcional(hospedagemForm.local, lote.local_hospedagem || "Chácara Recanto Novo Encantado ou Santa Thereza") || "Chácara Recanto Novo Encantado ou Santa Thereza";
     const modalidadeHospedagem = textoOpcional(hospedagemForm.modalidade, pacote?.modalidade_hospedagem || null);
     const regrasHash = sha256(REGRAS_CONVIVENCIA_OFICIAIS);
@@ -362,7 +368,7 @@ export class ContratoService {
     if (rodoviario) servicos.unshift("Transporte rodoviário de ida e volta, conforme programação previamente divulgada pela CONTRATADA");
     const cronograma = cronogramaPagamento(total, dataValida(dataLimite), parcelas);
     return {
-      modelo_oficial: rodoviario ? "transporte" : "hospedagem",
+      modelo_oficial: modeloOficial,
       cliente: { id: usuario.id, nome: textoOpcional(clienteForm.nome, usuario.nome), cpf: textoOpcional(clienteForm.cpf, usuario.cpf), rg: textoOpcional(clienteForm.rg, usuario.rg), nacionalidade: textoOpcional(clienteForm.nacionalidade, usuario.nacionalidade || "Brasileira"), estado_civil: textoOpcional(clienteForm.estado_civil, usuario.estado_civil), profissao: textoOpcional(clienteForm.profissao, usuario.profissao), nascimento: dataISOouNulo(clienteForm.nascimento) || formatarDataISO(usuario.data_nascimento), endereco: textoOpcional(clienteForm.endereco, usuario.endereco), telefone: textoOpcional(clienteForm.telefone, usuario.telefone), email: textoOpcional(clienteForm.email, usuario.email) },
       evento: { id: evento.id, nome: evento.nome, local: evento.local, data_inicio: formatarDataISO(evento.data_inicio), data_fim: formatarDataISO(evento.data_fim) },
       lote: { id: lote.id, nome: lote.nome, descricao: lote.descricao },

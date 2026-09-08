@@ -189,6 +189,13 @@ export class EmailService {
     }
   }
 
+  static async enviarBoletoManual(params: { reserva_id: string; parcela: number; vencimento: string; valor: string; arquivo: string; nomeArquivo: string; destinatario: string; clienteNome: string }): Promise<boolean> {
+    const corpo_html = `<!DOCTYPE html><html lang="pt-BR"><body style="font-family:Arial,sans-serif;color:#182D3B;background:#F8F5EF;padding:24px"><div style="max-width:620px;margin:auto;background:white;border-radius:16px;padding:28px;border:1px solid #eadfd8"><p style="color:#851F32;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Excursão das Comitivas</p><h1 style="font-size:24px">Boleto da sua excursão</h1><p>Olá, <strong>${params.clienteNome.replace(/[<>]/g, "")}</strong>.</p><p>Segue em anexo o boleto da parcela <strong>${params.parcela}</strong> da reserva <strong>${params.reserva_id}</strong>.</p><ul><li>Valor: R$ ${params.valor}</li><li>Vencimento: ${params.vencimento}</li></ul><p>O contrato desta reserva já foi validado eletronicamente. Em caso de dúvida, fale com a equipe antes do vencimento.</p><p style="font-size:12px;color:#64748b">Guarde este e-mail e confirme os dados do beneficiário antes do pagamento.</p></div></body></html>`;
+    const enviado = await this.enviarEmail({ destinatario: params.destinatario, assunto: `Boleto parcela ${params.parcela} — reserva ${params.reserva_id}`, corpo_html, anexos: [{ nome: params.nomeArquivo, caminho: params.arquivo }] });
+    await db.insert(emails_enviados).values({ reserva_id: params.reserva_id, tipo: "boleto", destinatario: params.destinatario, assunto: `Boleto parcela ${params.parcela} — reserva ${params.reserva_id}`, corpo: corpo_html, anexos: [{ nome: params.nomeArquivo }], enviado_em: enviado ? new Date() : null, erro: enviado ? null : "Falha ao enviar boleto" });
+    return enviado;
+  }
+
   static async reenviarContrato(reserva_id: string): Promise<boolean> {
     try {
       // Buscar dados da reserva

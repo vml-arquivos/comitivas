@@ -280,4 +280,8 @@ export class CoraPaymentProvider {
     if (!id?.trim()) throw new Error("ID da cobrança Cora é obrigatório");
     return this.request<any>("DELETE", `/v2/invoices/${encodeURIComponent(id)}`, undefined, randomUUID());
   }
+
+  static async testarConexao(): Promise<void> {
+    await this.accessToken(true);
+  }
 }

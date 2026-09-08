@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { createHash, randomBytes } from "node:crypto";
 import { db } from "../db/index.js";
-import { leads_origem, usuarios, passwordResetTokens, verificacoesEmail } from "../db/schema.js";
+import { leads_origem, usuarios, passwordResetTokens, verificacoesEmail, convitesAcesso, auditoriaAdmin } from "../db/schema.js";
 import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { AuthService } from "../services/authService.js";
@@ -142,6 +142,7 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
           senha_hash: senhaHash,
           tipo: "cliente",
           email_confirmado: false,
+          cadastro_status: "pendente",
         })
         .returning({ id: usuarios.id, email: usuarios.email, nome: usuarios.nome, tipo: usuarios.tipo, session_version: usuarios.session_version });
 
@@ -398,6 +399,62 @@ router.post("/redefinir-senha", async (req: Request, res: Response) => {
   } catch (error) {
     console.error("[AUTH] Erro ao redefinir senha:", error);
     return res.status(400).json({ erro: "Não foi possível redefinir a senha" });
+  }
+});
+
+
+router.get("/convite/:token", async (req: Request, res: Response) => {
+  try {
+    const tokenHash = hashCodigo(String(req.params.token || ""));
+    const convite = (await db.select({ id: convitesAcesso.id, papel: convitesAcesso.papel, email_destino: convitesAcesso.email_destino, expira_em: convitesAcesso.expira_em, usado_em: convitesAcesso.usado_em, revogado_em: convitesAcesso.revogado_em }).from(convitesAcesso).where(eq(convitesAcesso.token_hash, tokenHash)).limit(1))[0];
+    if (!convite || convite.usado_em || convite.revogado_em || convite.expira_em.getTime() <= Date.now()) return res.status(404).json({ erro: "Convite inválido, expirado ou já utilizado" });
+    return res.json({ convite: { papel: convite.papel, email_destino: convite.email_destino, expira_em: convite.expira_em } });
+  } catch (error) {
+    console.error("[AUTH] Erro ao consultar convite:", error);
+    return res.status(400).json({ erro: "Não foi possível validar o convite" });
+  }
+});
+
+router.post("/convite/:token", async (req: Request, res: Response) => {
+  try {
+    const tokenHash = hashCodigo(String(req.params.token || ""));
+    const nome = String(req.body?.nome || "").trim();
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    const cpf = somenteDigitos(req.body?.cpf);
+    const telefone = somenteDigitos(req.body?.telefone);
+    const senha = String(req.body?.senha || "");
+    if (!nome || !email || !cpf || senha.length < 8) return res.status(400).json({ erro: "Nome, e-mail, CPF e senha de pelo menos 8 caracteres são obrigatórios" });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !cpfValido(cpf)) return res.status(400).json({ erro: "E-mail ou CPF inválido" });
+    const agora = new Date();
+    const resultado = await db.transaction(async (tx) => {
+      // Serializa tentativas sobre o mesmo convite para preservar uso único até
+      // sob requisições concorrentes. O token bruto nunca entra no lock nem no banco.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${tokenHash}))`);
+      const convite = (await tx.select().from(convitesAcesso).where(and(eq(convitesAcesso.token_hash, tokenHash), isNull(convitesAcesso.usado_em), isNull(convitesAcesso.revogado_em), sql`${convitesAcesso.expira_em} > CURRENT_TIMESTAMP`)).limit(1))[0];
+      if (!convite || !["admin", "vendedor"].includes(convite.papel)) return null;
+      if (convite.email_destino && convite.email_destino.toLowerCase() !== email) throw new Error("Este convite foi emitido para outro e-mail");
+      const existente = (await tx.select({ id: usuarios.id }).from(usuarios).where(or(eq(usuarios.email, email), sql`regexp_replace(COALESCE(${usuarios.cpf}, ''), '\\D', '', 'g') = ${cpf}`)).limit(1))[0];
+      if (existente) throw new Error("E-mail ou CPF já cadastrado");
+      const senhaHash = await AuthService.hashPassword(senha);
+      const usuario = (await tx.insert(usuarios).values({
+        id: createId(), nome, email, cpf, telefone: telefone || null, senha_hash: senhaHash, tipo: convite.papel as "admin" | "vendedor",
+        rg: String(req.body?.rg || "").trim() || null, data_nascimento: req.body?.data_nascimento ? new Date(req.body.data_nascimento) : null,
+        estado_civil: String(req.body?.estado_civil || "").trim() || null, profissao: String(req.body?.profissao || "").trim() || null,
+        endereco: String(req.body?.endereco || "").trim() || null, nacionalidade: String(req.body?.nacionalidade || "").trim() || "Brasileira",
+        email_confirmado: true, email_confirmado_em: agora, cadastro_status: "aprovado", aprovado_em: agora, aprovado_por: convite.criado_por, ativo: true, criado_em: agora, atualizado_em: agora,
+      }).returning({ id: usuarios.id, nome: usuarios.nome, email: usuarios.email, tipo: usuarios.tipo, session_version: usuarios.session_version }))[0];
+      if (!usuario) throw new Error("Não foi possível criar a conta");
+      await tx.update(convitesAcesso).set({ usado_em: agora, usado_por: usuario.id }).where(eq(convitesAcesso.id, convite.id));
+      await tx.insert(auditoriaAdmin).values({ id: createId(), ator_id: usuario.id, ator_tipo: String(usuario.tipo || convite.papel), acao: "convite_aceito", entidade: "usuario", entidade_id: usuario.id, depois: { papel: usuario.tipo, convite_id: convite.id }, ip: req.ip || null, user_agent: req.get("user-agent") || null, criado_em: agora });
+      return usuario;
+    });
+    if (!resultado) return res.status(400).json({ erro: "Convite inválido, expirado ou já utilizado" });
+    const token = AuthService.generateToken({ id: resultado.id, email: resultado.email, tipo: (resultado.tipo || "vendedor") as any, session_version: Number(resultado.session_version || 1) });
+    definirCookieAuth(res, token);
+    return res.status(201).json({ usuario: { id: resultado.id, nome: resultado.nome, email: resultado.email, tipo: resultado.tipo }, mensagem: "Conta criada pelo convite" });
+  } catch (error: any) {
+    console.error("[AUTH] Erro ao aceitar convite:", error);
+    return res.status(400).json({ erro: error.message || "Não foi possível concluir o cadastro pelo convite" });
   }
 });
 

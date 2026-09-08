@@ -15,7 +15,10 @@ import {
   BarChart3,
   Percent,
   ShoppingCart,
-  CreditCard
+  CreditCard,
+  WalletCards,
+  KeyRound,
+  ShieldCheck
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import iconUrl from '../assets/brand/icon.svg';
@@ -30,19 +33,24 @@ export function AdminLayout() {
     navigate('/login');
   };
 
+  const papelLabel = user?.tipo === 'dev' ? 'DEV' : user?.tipo === 'admin' ? 'Admin' : 'Vendedor';
+
   const navItems = [
-    { name: 'Dashboard', path: '/admin', icon: LayoutDashboard, roles: ['admin', 'vendedor'] },
-    { name: 'Vendas internas', path: '/admin/vendas', icon: ShoppingCart, roles: ['admin', 'vendedor'] },
-    { name: 'Eventos & Lotes', path: '/admin/eventos', icon: PartyPopper, roles: ['admin'] },
-    { name: 'Reservas', path: '/admin/reservas', icon: CalendarDays, roles: ['admin', 'vendedor'] },
-    { name: 'Contratos', path: '/admin/contratos', icon: FileText, roles: ['admin', 'vendedor'] },
-    { name: 'Pagamentos', path: '/admin/pagamentos', icon: CreditCard, roles: ['admin'] },
-    { name: 'Clientes', path: '/admin/clientes', icon: UserCog, roles: ['admin'] },
-    { name: 'Jornada (CRM)', path: '/admin/jornada', icon: Users, roles: ['admin', 'vendedor'] },
-    { name: 'Cupons', path: '/admin/cupons', icon: Ticket, roles: ['admin'] },
-    { name: 'Configurações', path: '/admin/configuracoes', icon: Settings, roles: ['admin'] },
-    { name: 'Relatórios', path: '/admin/relatorios', icon: BarChart3, roles: ['admin'] },
-    { name: 'Comissões', path: '/admin/comissoes', icon: Percent, roles: ['admin'] },
+    { name: 'Dashboard', path: '/admin', icon: LayoutDashboard, roles: ['admin', 'dev', 'vendedor'] },
+    { name: 'Vendas internas', path: '/admin/vendas', icon: ShoppingCart, roles: ['admin', 'dev', 'vendedor'] },
+    { name: 'Eventos & Lotes', path: '/admin/eventos', icon: PartyPopper, roles: ['admin', 'dev'] },
+    { name: 'Reservas', path: '/admin/reservas', icon: CalendarDays, roles: ['admin', 'dev', 'vendedor'] },
+    { name: 'Contratos', path: '/admin/contratos', icon: FileText, roles: ['admin', 'dev', 'vendedor'] },
+    { name: 'Pagamentos', path: '/admin/pagamentos', icon: CreditCard, roles: ['admin', 'dev'] },
+    { name: 'Boletos bancários', path: '/admin/boletos', icon: WalletCards, roles: ['admin', 'dev'] },
+    { name: 'Clientes', path: '/admin/clientes', icon: UserCog, roles: ['admin', 'dev'] },
+    { name: 'Jornada (CRM)', path: '/admin/jornada', icon: Users, roles: ['admin', 'dev', 'vendedor'] },
+    { name: 'Cupons', path: '/admin/cupons', icon: Ticket, roles: ['admin', 'dev'] },
+    { name: 'Configurações', path: '/admin/configuracoes', icon: Settings, roles: ['admin', 'dev'] },
+    { name: 'Relatórios', path: '/admin/relatorios', icon: BarChart3, roles: ['admin', 'dev'] },
+    { name: 'Comissões', path: '/admin/comissoes', icon: Percent, roles: ['admin', 'dev'] },
+    { name: 'Equipe & Acessos', path: '/admin/equipe', icon: ShieldCheck, roles: ['dev'] },
+    { name: 'Gateway', path: '/admin/gateway', icon: KeyRound, roles: ['dev'] },
   ];
 
   return (
@@ -54,7 +62,7 @@ export function AdminLayout() {
             <div className="bg-white rounded-full p-1">
               <img src={iconUrl} alt="Comitiva" className="h-6 w-6" />
             </div>
-            <span className="font-bold text-lg">Painel {user?.tipo === 'admin' ? 'Admin' : 'Vendedor'}</span>
+            <span className="font-bold text-lg">Painel {papelLabel}</span>
           </Link>
         </div>
         
@@ -108,7 +116,7 @@ export function AdminLayout() {
       {/* Main Content */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
         <header className="flex h-16 items-center justify-between border-b border-gray-200 bg-white px-6 md:hidden">
-          <span className="font-bold text-lg text-secondary">Painel {user?.tipo === 'admin' ? 'Admin' : 'Vendedor'}</span>
+          <span className="font-bold text-lg text-secondary">Painel {papelLabel}</span>
           <div className="flex items-center gap-3 text-sm"><span className="max-w-32 truncate text-gray-500">{user?.nome}</span><button onClick={handleLogout} className="rounded-md p-2 text-gray-600 hover:bg-gray-100" aria-label="Sair"><LogOut size={18} /></button></div>
         </header>
         

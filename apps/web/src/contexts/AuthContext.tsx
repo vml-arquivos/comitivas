@@ -5,7 +5,7 @@ interface User {
   id: string;
   email: string;
   nome: string;
-  tipo: 'cliente' | 'vendedor' | 'admin';
+  tipo: 'cliente' | 'vendedor' | 'admin' | 'dev';
 }
 
 interface AuthContextType {

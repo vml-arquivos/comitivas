@@ -1,15 +1,18 @@
 import { Router, Request, Response, NextFunction, raw } from "express";
-import { authMiddleware, requireRole } from "../middleware/authMiddleware.js";
+import { authMiddleware, requireRole, isAdminOrDev } from "../middleware/authMiddleware.js";
 import { RelatorioService } from "../services/relatorioService.js";
 import { EmailService } from "../services/emailService.js";
 import { AuthService } from "../services/authService.js";
 import { ContratoService } from "../services/contratoService.js";
 import { ConfiguracaoService } from "../services/configuracaoService.js";
+import { GatewayConfigService } from "../services/gatewayConfigService.js";
+import { AuditService } from "../services/auditService.js";
+import { CoraPaymentProvider } from "../services/coraPaymentProvider.js";
 import { PacoteService, ConfiguracaoPacote } from "../services/pacoteService.js";
 import { db } from "../db/index.js";
-import { reservas, eventos, lotes, pacotes, usuarios, leads_origem, descontosAdministrativos, pagamentos, contratosDocumentos, contratoValidacoes, pagamentoParcelas, emails_enviados, clienteDocumentos, clienteHistorico, videosEvento, fotos_evento, comissaoRegras, comissoes } from "../db/schema.js";
-import { eq, and, inArray, or, sql, desc, isNull } from "drizzle-orm";
-import { createHash, randomUUID } from "node:crypto";
+import { reservas, eventos, lotes, pacotes, usuarios, leads_origem, descontosAdministrativos, pagamentos, contratosDocumentos, contratoValidacoes, pagamentoParcelas, emails_enviados, clienteDocumentos, clienteHistorico, videosEvento, fotos_evento, comissaoRegras, comissoes, convitesAcesso, auditoriaAdmin, inventarioHolds } from "../db/schema.js";
+import { eq, and, inArray, or, sql, desc, isNull, ne } from "drizzle-orm";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import nodePath from "node:path";
 import { createId } from "@paralleldrive/cuid2";
@@ -105,6 +108,8 @@ async function obterFichaCliente(usuarioId: string) {
     valor_parcela: reservas.valor_parcela,
     desconto_aplicado: reservas.desconto_aplicado,
     desconto_pagamento: reservas.desconto_pagamento,
+    boleto_liberado_em: reservas.boleto_liberado_em,
+    boleto_liberado_por: reservas.boleto_liberado_por,
     contrato_pdf_url: reservas.contrato_pdf_url,
     aceite_timestamp: reservas.aceite_timestamp,
     criado_em: reservas.criado_em,
@@ -153,6 +158,12 @@ async function obterFichaCliente(usuarioId: string) {
     vencimento: pagamentoParcelas.vencimento,
     status: pagamentoParcelas.status,
     valor_pago_centavos: pagamentoParcelas.valor_pago_centavos,
+    boleto_documento_id: pagamentoParcelas.boleto_documento_id,
+    enviado_email_em: pagamentoParcelas.enviado_email_em,
+    enviado_whatsapp_em: pagamentoParcelas.enviado_whatsapp_em,
+    pago_confirmado_em: pagamentoParcelas.pago_confirmado_em,
+    pago_confirmado_por: pagamentoParcelas.pago_confirmado_por,
+    comprovante_documento_id: pagamentoParcelas.comprovante_documento_id,
     criado_em: pagamentoParcelas.criado_em,
     atualizado_em: pagamentoParcelas.atualizado_em,
   }).from(pagamentoParcelas).where(inArray(pagamentoParcelas.reserva_id, reservaIds)).orderBy(desc(pagamentoParcelas.vencimento)) : [];
@@ -169,6 +180,8 @@ async function obterFichaCliente(usuarioId: string) {
     visualizado_em: contratosDocumentos.visualizado_em,
     criado_em: contratosDocumentos.criado_em,
     validado_em: contratosDocumentos.validado_em,
+    aprovado_admin_em: contratosDocumentos.aprovado_admin_em,
+    aprovado_admin_por: contratosDocumentos.aprovado_admin_por,
     invalidado_em: contratosDocumentos.invalidado_em,
   }).from(contratosDocumentos).where(inArray(contratosDocumentos.reserva_id, reservaIds)).orderBy(desc(contratosDocumentos.criado_em)) : [];
 
@@ -291,7 +304,7 @@ router.get("/dashboard", requireRole("admin", "vendedor"), async (req: Request, 
 
     // Admin vê a operação inteira. Vendedor vê apenas contatos atribuídos a
     // ele e as reservas desses clientes, evitando exposição entre carteiras.
-    const totalLeads = req.usuario.tipo === "admin"
+    const totalLeads = isAdminOrDev(req.usuario.tipo)
       ? await db.select().from(leads_origem)
       : await db.select().from(leads_origem)
         .where(eq(leads_origem.vendedor_id, req.usuario.id));
@@ -299,10 +312,10 @@ router.get("/dashboard", requireRole("admin", "vendedor"), async (req: Request, 
       totalLeads.flatMap((lead) => lead.usuario_id ? [lead.usuario_id] : []),
     ));
 
-    const totalClientes = req.usuario.tipo === "admin"
+    const totalClientes = isAdminOrDev(req.usuario.tipo)
       ? await db.select({ id: usuarios.id }).from(usuarios).where(eq(usuarios.tipo, "cliente"))
       : clienteIds.map((id) => ({ id }));
-    const totalReservas = req.usuario.tipo === "admin"
+    const totalReservas = isAdminOrDev(req.usuario.tipo)
       ? await db.select().from(reservas)
       : clienteIds.length > 0
         ? await db.select().from(reservas).where(inArray(reservas.usuario_id, clienteIds))
@@ -382,7 +395,7 @@ async function resolverOrigemVenda(req: Request, usuarioId: string, vendedorSoli
 }
 
 function vendedorPodeOperarReserva(req: Request, reserva: { usuario_id: string; vendedor_id: string | null }): boolean {
-  return Boolean(req.usuario && (req.usuario.tipo === "admin" || reserva.usuario_id === req.usuario.id || (req.usuario.tipo === "vendedor" && reserva.vendedor_id === req.usuario.id)));
+  return Boolean(req.usuario && (isAdminOrDev(req.usuario.tipo) || reserva.usuario_id === req.usuario.id || (req.usuario.tipo === "vendedor" && reserva.vendedor_id === req.usuario.id)));
 }
 
 router.get("/vendas/clientes", async (req: Request, res: Response) => {
@@ -448,6 +461,7 @@ router.post("/vendas/clientes", async (req: Request, res: Response) => {
         tipo: "cliente",
         senha_hash: await AuthService.hashPassword(senhaTemporaria),
         email_confirmado: true,
+        cadastro_status: "pendente",
       }).returning(CAMPOS_PUBLICOS_USUARIO))[0];
       if (!usuario) throw new Error("Não foi possível criar o cliente");
 
@@ -500,7 +514,7 @@ router.post("/vendas/reservar", async (req: Request, res: Response) => {
     if (!cliente) return res.status(404).json({ erro: "Cliente ativo não encontrado" });
     const origem = await resolverOrigemVenda(req, usuarioId, req.body?.vendedor_id, req.body?.lead_id);
     let origemFinal = origem;
-    if (req.usuario.tipo === "admin" && req.body?.vendedor_id && !origem.lead_id) {
+    if (isAdminOrDev(req.usuario.tipo) && req.body?.vendedor_id && !origem.lead_id) {
       const lead = (await db.insert(leads_origem).values({
         id: createId(),
         codigo_origem: `interno-${req.body.vendedor_id}`,
@@ -818,6 +832,9 @@ const CAMPOS_PUBLICOS_USUARIO = {
   endereco: usuarios.endereco,
   nacionalidade: usuarios.nacionalidade,
   ativo: usuarios.ativo,
+  cadastro_status: usuarios.cadastro_status,
+  aprovado_em: usuarios.aprovado_em,
+  aprovado_por: usuarios.aprovado_por,
   criado_em: usuarios.criado_em,
   atualizado_em: usuarios.atualizado_em,
 };
@@ -827,8 +844,11 @@ router.get("/usuarios", requireRole("admin"), async (req: Request, res: Response
     const { tipo, busca, pagina = "1", limite = "20" } = req.query;
 
     const condicoes = [];
-    if (tipo && ["cliente", "vendedor", "admin"].includes(tipo as string)) {
-      condicoes.push(eq(usuarios.tipo, tipo as "cliente" | "vendedor" | "admin"));
+    const solicitanteDev = req.usuario?.tipo === "dev";
+    if (!solicitanteDev) condicoes.push(ne(usuarios.tipo, "dev"));
+    const tiposPermitidos = solicitanteDev ? ["cliente", "vendedor", "admin", "dev"] : ["cliente", "vendedor", "admin"];
+    if (tipo && tiposPermitidos.includes(String(tipo))) {
+      condicoes.push(eq(usuarios.tipo, String(tipo) as any));
     }
     if (busca) {
       const termo = `%${String(busca).trim()}%`;
@@ -875,7 +895,7 @@ router.get("/usuarios/:id", requireRole("admin"), async (req: Request, res: Resp
       .where(eq(usuarios.id, id))
       .limit(1);
 
-    if (usuarioResult.length === 0) {
+    if (usuarioResult.length === 0 || (usuarioResult[0]?.tipo === "dev" && req.usuario?.tipo !== "dev")) {
       return res.status(404).json({ erro: "Usuário não encontrado" });
     }
 
@@ -904,7 +924,9 @@ router.post("/usuarios", requireRole("admin"), async (req: Request, res: Respons
     const emailNormalizado = String(email || "").trim().toLowerCase();
     const cpfNormalizado = somenteDigitos(cpf);
     const telefoneNormalizado = somenteDigitos(telefone);
-    const tipoNormalizado = ["cliente", "vendedor", "admin"].includes(tipo) ? tipo : "cliente";
+    const tiposCriaveis = req.usuario?.tipo === "dev" ? ["cliente", "vendedor", "admin", "dev"] : ["cliente", "vendedor"];
+    const tipoNormalizado = tiposCriaveis.includes(String(tipo)) ? String(tipo) : "cliente";
+    if ((tipo === "admin" || tipo === "dev") && req.usuario?.tipo !== "dev") return res.status(403).json({ erro: "Somente DEV pode criar administradores ou outro DEV" });
 
     if (!nomeNormalizado || !emailNormalizado) {
       return res.status(400).json({ erro: "Nome e e-mail são obrigatórios" });
@@ -946,6 +968,9 @@ router.post("/usuarios", requireRole("admin"), async (req: Request, res: Respons
           endereco: String(endereco || "").trim() || null,
           nacionalidade: String(nacionalidade || "").trim() || "Brasileira",
           senha_hash: senhaHash,
+          cadastro_status: tipoNormalizado === "cliente" ? "pendente" : "aprovado",
+          aprovado_em: tipoNormalizado === "cliente" ? null : new Date(),
+          aprovado_por: tipoNormalizado === "cliente" ? null : (req.usuario?.id || null),
         })
         .returning(CAMPOS_PUBLICOS_USUARIO);
 
@@ -978,7 +1003,7 @@ router.put("/usuarios/:id", requireRole("admin"), async (req: Request, res: Resp
     } = req.body ?? {};
 
     const existente = await db.select().from(usuarios).where(eq(usuarios.id, id)).limit(1);
-    if (existente.length === 0) {
+    if (existente.length === 0 || (existente[0]?.tipo === "dev" && req.usuario?.tipo !== "dev")) {
       return res.status(404).json({ erro: "Usuário não encontrado" });
     }
 
@@ -1006,8 +1031,10 @@ router.put("/usuarios/:id", requireRole("admin"), async (req: Request, res: Resp
     }
     if (rg !== undefined) atualizacoes.rg = String(rg).trim() || null;
     if (telefone !== undefined) atualizacoes.telefone = somenteDigitos(telefone) || null;
-    if (tipo !== undefined && ["cliente", "vendedor", "admin"].includes(tipo)) {
-      atualizacoes.tipo = tipo;
+    if (tipo !== undefined) {
+      const permitido = req.usuario?.tipo === "dev" ? ["cliente", "vendedor", "admin", "dev"].includes(String(tipo)) : ["cliente", "vendedor"].includes(String(tipo));
+      if (!permitido) return res.status(403).json({ erro: "Você não pode atribuir este nível de acesso" });
+      atualizacoes.tipo = String(tipo) as any;
       revogarSessoes = tipo !== existente[0].tipo;
     }
     if (data_nascimento !== undefined) {
@@ -1063,6 +1090,8 @@ router.patch("/usuarios/:id/status", requireRole("admin"), async (req: Request, 
     if (typeof ativo !== "boolean") {
       return res.status(400).json({ erro: "Informe o campo 'ativo' (true/false)" });
     }
+    const alvo = (await db.select({ tipo: usuarios.tipo }).from(usuarios).where(eq(usuarios.id, id)).limit(1))[0];
+    if (!alvo || (alvo.tipo === "dev" && req.usuario?.tipo !== "dev")) return res.status(404).json({ erro: "Usuário não encontrado" });
 
     const atualizado = await db
       .update(usuarios)
@@ -1391,18 +1420,21 @@ router.delete("/fotos/:id", requireRole("admin"), async (req: Request, res: Resp
 router.get("/configuracoes/pagamento", async (_req: Request, res: Response) => {
   try {
     const configuracoes = await ConfiguracaoService.obterConfiguracoesPagamento();
-    const gateway = process.env.PAYMENT_GATEWAY === "mock" && process.env.NODE_ENV !== "production" ? "mock" : "cora";
-    const gatewayConfigurado = gateway === "mock"
+    const gatewayRuntime = process.env.PAYMENT_GATEWAY === "mock" && process.env.NODE_ENV !== "production" ? "mock" : "cora";
+    const gatewayPainel = gatewayRuntime === "cora" ? await GatewayConfigService.obterMascara().catch(() => null) : null;
+    const gatewayConfiguradoPorAmbiente = gatewayRuntime === "mock"
       ? true
       : Boolean(process.env.CORA_CLIENT_ID?.trim() && process.env.CORA_CERT_PATH?.trim() && process.env.CORA_PRIVATE_KEY_PATH?.trim());
 
     res.json({
       configuracoes,
       gateway: {
-        ativo: gateway,
-        nome: gateway === "cora" ? "Banco Cora" : "Mock de testes locais",
-        ambiente: process.env.CORA_ENV === "production" ? "production" : "stage",
-        configurado: gatewayConfigurado,
+        ativo: gatewayRuntime,
+        nome: gatewayRuntime === "cora" ? "Banco Cora" : "Mock de testes locais",
+        ambiente: gatewayPainel?.ambiente || (process.env.CORA_ENV === "production" ? "production" : "stage"),
+        configurado: Boolean(gatewayPainel?.configurado || gatewayConfiguradoPorAmbiente),
+        painel_configurado: Boolean(gatewayPainel?.configurado),
+        painel_ativo: Boolean(gatewayPainel?.ativo),
         metodos: ["pix", "boleto", "boleto_pix", "carne"],
       },
     });
@@ -1416,11 +1448,12 @@ router.put("/configuracoes/pagamento", async (req: Request, res: Response) => {
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
 
-    const { pix_desconto_percentual, credito_parcelas_maximo, boleto_meses_maximo_antecedencia } = req.body ?? {};
-    const dados: Record<string, number> = {};
+    const { pix_desconto_percentual, credito_parcelas_maximo, boleto_meses_maximo_antecedencia, boleto_modo } = req.body ?? {};
+    const dados: Record<string, number | string> = {};
     if (pix_desconto_percentual !== undefined) dados.pix_desconto_percentual = Number(pix_desconto_percentual);
     if (credito_parcelas_maximo !== undefined) dados.credito_parcelas_maximo = Number(credito_parcelas_maximo);
     if (boleto_meses_maximo_antecedencia !== undefined) dados.boleto_meses_maximo_antecedencia = Number(boleto_meses_maximo_antecedencia);
+    if (boleto_modo !== undefined) dados.boleto_modo = String(boleto_modo);
 
     if (Object.keys(dados).length === 0) {
       return res.status(400).json({ erro: "Informe ao menos um campo para atualizar" });
@@ -1716,6 +1749,442 @@ router.get("/comissoes", authMiddleware, requireRole("admin"), async (req: Reque
     console.error("[ADMIN] Erro ao listar comissões:", error);
     return res.status(500).json({ erro: "Erro ao listar comissões" });
   }
+});
+
+
+// ==========================================================================
+// Governança DEV, convites, gateway administrável e boleto manual
+// ==========================================================================
+
+function hashConvite(token: string): string {
+  return createHash("sha256").update(token, "utf8").digest("hex");
+}
+
+async function garantirInventarioBoletoManual(reserva: typeof reservas.$inferSelect): Promise<void> {
+  const agora = new Date();
+  await db.transaction(async (tx) => {
+    // Um hold por reserva é UNIQUE. Trava a linha existente para impedir dupla
+    // liberação concorrente e nunca cria um segundo hold para a mesma reserva.
+    const holdQuery = await tx.execute(sql`
+      SELECT id, status, expira_em, quantidade
+      FROM inventario_holds
+      WHERE reserva_id = ${reserva.id}
+      FOR UPDATE
+    `);
+    const hold = holdQuery.rows[0] as { id: string; status: string; expira_em: Date | string; quantidade: number } | undefined;
+
+    if (hold?.status === "convertido") {
+      if (reserva.inventario_hold_id !== hold.id) await tx.update(reservas).set({ inventario_hold_id: hold.id, atualizado_em: agora }).where(eq(reservas.id, reserva.id));
+      return;
+    }
+
+    if (hold?.status === "ativo") {
+      // A vaga já foi debitada quando o hold foi criado. Mesmo se o relógio do
+      // hold venceu, enquanto o scheduler ainda não o liberou não se debita
+      // novamente; a validação contratual + aprovação administrativa converte
+      // o hold existente e preserva exatamente uma vaga.
+      await tx.update(inventarioHolds).set({ status: "convertido", convertido_em: agora }).where(eq(inventarioHolds.id, hold.id));
+      await tx.update(reservas).set({ inventario_hold_id: hold.id, atualizado_em: agora }).where(eq(reservas.id, reserva.id));
+      return;
+    }
+
+    // Hold liberado (ou inexistente): a vaga já está disponível novamente e
+    // precisa ser debitada uma única vez antes de converter/recriar o vínculo.
+    const vaga = await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = "vagas_disponíveis" - 1, atualizado_em = ${agora} WHERE id = ${reserva.lote_id} AND "vagas_disponíveis" > 0 RETURNING id`);
+    if (!vaga.rows.length) throw new Error("Não há vaga disponível para liberar o boleto desta reserva");
+
+    if (hold) {
+      await tx.update(inventarioHolds).set({ status: "convertido", convertido_em: agora, liberado_em: null, motivo_liberacao: null, expira_em: agora }).where(eq(inventarioHolds.id, hold.id));
+      await tx.update(reservas).set({ inventario_hold_id: hold.id, atualizado_em: agora }).where(eq(reservas.id, reserva.id));
+      return;
+    }
+
+    const novoId = createId();
+    await tx.insert(inventarioHolds).values({ id: novoId, reserva_id: reserva.id, lote_id: reserva.lote_id, modalidade: null, quantidade: 1, status: "convertido", expira_em: agora, criado_em: agora, convertido_em: agora });
+    await tx.update(reservas).set({ inventario_hold_id: novoId, atualizado_em: agora }).where(eq(reservas.id, reserva.id));
+  });
+}
+
+async function atualizarEstadoEnvioBoletos(reservaId: string): Promise<void> {
+  const parcelas = await db.select({
+    id: pagamentoParcelas.id,
+    boleto_documento_id: pagamentoParcelas.boleto_documento_id,
+    enviado_email_em: pagamentoParcelas.enviado_email_em,
+    enviado_whatsapp_em: pagamentoParcelas.enviado_whatsapp_em,
+  }).from(pagamentoParcelas).where(eq(pagamentoParcelas.reserva_id, reservaId));
+  if (!parcelas.length) return;
+  const todasProntas = parcelas.every((item) => Boolean(item.boleto_documento_id));
+  const todasEnviadas = todasProntas && parcelas.every((item) => Boolean(item.enviado_email_em || item.enviado_whatsapp_em));
+  if (todasEnviadas) {
+    await db.update(reservas).set({ checkout_estado: "boletos_enviados", atualizado_em: new Date() }).where(eq(reservas.id, reservaId));
+  }
+}
+
+async function reconciliarPagamentoManual(pagamentoId: string): Promise<{ quitado: boolean; pagoCentavos: number }> {
+  return db.transaction(async (tx) => {
+    const pagamento = (await tx.select().from(pagamentos).where(eq(pagamentos.id, pagamentoId)).limit(1))[0];
+    if (!pagamento) throw new Error("Pagamento não encontrado");
+    const reserva = (await tx.select().from(reservas).where(eq(reservas.id, pagamento.reserva_id)).limit(1))[0];
+    if (!reserva) throw new Error("Reserva não encontrada");
+    const parcelas = await tx.select().from(pagamentoParcelas).where(eq(pagamentoParcelas.pagamento_id, pagamento.id));
+    const totalCentavos = Number(pagamento.valor_centavos || Math.round(Number(pagamento.valor) * 100));
+    const pagoCentavos = parcelas.filter((item) => item.status === "aprovado").reduce((total, item) => total + Number(item.valor_pago_centavos || item.valor_centavos || Math.round(Number(item.valor) * 100)), 0);
+    const quitado = totalCentavos > 0 && pagoCentavos >= totalCentavos;
+    const parcial = pagoCentavos > 0;
+    await tx.update(pagamentos).set({ status: parcial ? "aprovado" : "pendente", status_reconciliado: quitado ? "quitado" : parcial ? "parcial" : "pendente", valor_pago_centavos: pagoCentavos, atualizado_em: new Date() }).where(eq(pagamentos.id, pagamento.id));
+    await tx.update(reservas).set({ status: quitado ? "cliente_confirmado" : "aguardando_pagamento", checkout_estado: quitado ? "quitado" : parcial ? "primeira_parcela_confirmada" : "boletos_enviados", atualizado_em: new Date() }).where(eq(reservas.id, reserva.id));
+    await tx.update(leads_origem).set({ status: quitado ? "cliente_confirmado" : parcial ? "pagamento_parcial" : "cobranca_pendente", atualizado_em: new Date() }).where(eq(leads_origem.usuario_id, reserva.usuario_id));
+    if (quitado) await tx.update(comissoes).set({ status: "elegivel", atualizado_em: new Date() }).where(eq(comissoes.reserva_id, reserva.id));
+    return { quitado, pagoCentavos };
+  });
+}
+
+router.post("/dev/bootstrap", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario || req.usuario.tipo !== "admin") return res.status(403).json({ erro: "Bootstrap disponível apenas para um administrador existente" });
+    const resultado = await db.transaction(async (tx) => {
+      // Serializa o primeiro bootstrap no PostgreSQL. Dois administradores
+      // clicando ao mesmo tempo não conseguem criar dois super acessos DEV.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('comitivas-dev-bootstrap'))`);
+      const existente = (await tx.select({ id: usuarios.id }).from(usuarios).where(eq(usuarios.tipo, "dev")).limit(1))[0];
+      if (existente) return { jaExiste: true as const };
+      const promovido = (await tx.update(usuarios).set({ tipo: "dev", session_version: sql`COALESCE(${usuarios.session_version}, 1) + 1`, atualizado_em: new Date() }).where(and(eq(usuarios.id, req.usuario!.id), eq(usuarios.tipo, "admin"))).returning({ id: usuarios.id }))[0];
+      if (!promovido) throw new Error("Administrador não está mais elegível para o bootstrap");
+      return { jaExiste: false as const };
+    });
+    if (resultado.jaExiste) return res.status(409).json({ erro: "O super acesso DEV já foi inicializado" });
+    await AuditService.registrar(req, "dev_bootstrap", "usuario", req.usuario.id, { tipo: "admin" }, { tipo: "dev" });
+    return res.json({ mensagem: "Super acesso DEV ativado. Entre novamente para atualizar a sessão.", relogin: true });
+  } catch (error: any) {
+    console.error("[DEV] Erro no bootstrap:", error);
+    return res.status(400).json({ erro: error.message || "Não foi possível ativar o DEV" });
+  }
+});
+
+router.get("/dev/equipe", requireRole("dev"), async (_req: Request, res: Response) => {
+  const equipe = await db.select(CAMPOS_PUBLICOS_USUARIO).from(usuarios).where(inArray(usuarios.tipo, ["dev", "admin", "vendedor"] as any)).orderBy(desc(usuarios.criado_em));
+  const convites = await db.select().from(convitesAcesso).orderBy(desc(convitesAcesso.criado_em)).limit(200);
+  return res.json({ equipe, convites });
+});
+
+router.post("/dev/convites", requireRole("dev"), async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const papel = String(req.body?.papel || "").trim();
+    const email = String(req.body?.email || "").trim().toLowerCase() || null;
+    const horas = Math.min(168, Math.max(1, Number(req.body?.horas_validade || 72)));
+    if (!["admin", "vendedor"].includes(papel)) return res.status(400).json({ erro: "Convites podem criar administrador ou vendedor" });
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ erro: "E-mail do convite inválido" });
+    const token = randomBytes(32).toString("base64url");
+    const convite = (await db.insert(convitesAcesso).values({ id: createId(), token_hash: hashConvite(token), papel, email_destino: email, criado_por: req.usuario.id, expira_em: new Date(Date.now() + horas * 3600_000), criado_em: new Date() }).returning())[0];
+    await AuditService.registrar(req, "convite_criado", "convite_acesso", convite.id, undefined, { papel, email_destino: email, expira_em: convite.expira_em });
+    const base = String(process.env.WEB_URL || "https://excursaodascomitivas.com.br").split(",")[0].replace(/\/$/, "");
+    return res.status(201).json({ convite: { id: convite.id, papel, email_destino: email, expira_em: convite.expira_em, link: `${base}/convite/${token}` } });
+  } catch (error: any) {
+    console.error("[DEV] Erro ao criar convite:", error);
+    return res.status(400).json({ erro: error.message || "Não foi possível criar convite" });
+  }
+});
+
+router.patch("/dev/convites/:id/revogar", requireRole("dev"), async (req: Request, res: Response) => {
+  const convite = (await db.update(convitesAcesso).set({ revogado_em: new Date() }).where(and(eq(convitesAcesso.id, req.params.id), isNull(convitesAcesso.usado_em))).returning())[0];
+  if (!convite) return res.status(404).json({ erro: "Convite não encontrado ou já utilizado" });
+  await AuditService.registrar(req, "convite_revogado", "convite_acesso", convite.id);
+  return res.json({ convite });
+});
+
+router.get("/dev/auditoria", requireRole("dev"), async (_req: Request, res: Response) => {
+  const registros = await db.select().from(auditoriaAdmin).orderBy(desc(auditoriaAdmin.criado_em)).limit(500);
+  return res.json({ registros });
+});
+
+router.get("/dev/gateway/cora", requireRole("dev"), async (_req: Request, res: Response) => {
+  try { return res.json({ gateway: await GatewayConfigService.obterMascara() }); }
+  catch (error: any) { return res.status(400).json({ erro: error.message || "Não foi possível ler o gateway" }); }
+});
+
+router.put("/dev/gateway/cora", requireRole("dev"), async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const antes = await GatewayConfigService.obterMascara();
+    const gateway = await GatewayConfigService.salvar({
+      ambiente: req.body?.ambiente,
+      ativo: req.body?.ativo,
+      client_id: req.body?.client_id,
+      certificate_pem: req.body?.certificate_pem,
+      private_key_pem: req.body?.private_key_pem,
+      webhook_secret: req.body?.webhook_secret,
+      token_url: req.body?.token_url,
+      api_base: req.body?.api_base,
+      installments_api_base: req.body?.installments_api_base,
+      webhook_public_url: req.body?.webhook_public_url,
+      http_timeout_ms: req.body?.http_timeout_ms,
+      carne_timeout_ms: req.body?.carne_timeout_ms,
+    }, req.usuario.id);
+    if (req.body?.ativo === true && !gateway.configurado) {
+      await GatewayConfigService.salvar({ ativo: false }, req.usuario.id);
+      return res.status(400).json({ erro: "Cadastre Client ID, certificado e chave privada antes de ativar o gateway" });
+    }
+    await AuditService.registrar(req, "gateway_atualizado", "gateway", "cora", antes, gateway);
+    return res.json({ gateway });
+  } catch (error: any) {
+    console.error("[DEV] Erro ao salvar gateway:", error);
+    return res.status(400).json({ erro: error.message || "Não foi possível salvar o gateway" });
+  }
+});
+
+router.post("/dev/gateway/cora/testar", requireRole("dev"), async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const aplicado = await GatewayConfigService.aplicarRuntime();
+    if (!aplicado) throw new Error("Gateway desativado ou credenciais incompletas");
+    await CoraPaymentProvider.testarConexao();
+    await GatewayConfigService.registrarTeste("ok", "Autenticação mTLS concluída com sucesso", req.usuario.id);
+    await AuditService.registrar(req, "gateway_testado", "gateway", "cora", undefined, { status: "ok" });
+    return res.json({ status: "ok", mensagem: "Conexão com a Cora validada" });
+  } catch (error: any) {
+    if (req.usuario) await GatewayConfigService.registrarTeste("erro", error.message || "Falha de conexão", req.usuario.id).catch(() => undefined);
+    return res.status(400).json({ erro: error.message || "Falha ao testar gateway" });
+  }
+});
+
+router.patch("/clientes/:id/aprovacao", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const status = String(req.body?.status || "").trim();
+    if (!["aprovado", "pendente", "rejeitado"].includes(status)) return res.status(400).json({ erro: "Status de aprovação inválido" });
+    const cliente = (await db.select().from(usuarios).where(and(eq(usuarios.id, req.params.id), eq(usuarios.tipo, "cliente"))).limit(1))[0];
+    if (!cliente) return res.status(404).json({ erro: "Cliente não encontrado" });
+    const atualizado = (await db.update(usuarios).set({ cadastro_status: status, aprovado_em: status === "aprovado" ? new Date() : null, aprovado_por: status === "aprovado" ? req.usuario.id : null, atualizado_em: new Date() }).where(eq(usuarios.id, cliente.id)).returning(CAMPOS_PUBLICOS_USUARIO))[0];
+    await registrarHistoricoCliente(cliente.id, "aprovacao_cadastro", status === "aprovado" ? "Cadastro aprovado" : status === "rejeitado" ? "Cadastro rejeitado" : "Cadastro retornado para análise", String(req.body?.observacao || "").trim() || null, req.usuario.id, { status });
+    await AuditService.registrar(req, "cliente_aprovacao", "usuario", cliente.id, { cadastro_status: cliente.cadastro_status }, { cadastro_status: status });
+    return res.json({ usuario: atualizado });
+  } catch (error: any) { return res.status(400).json({ erro: error.message || "Não foi possível atualizar a aprovação" }); }
+});
+
+router.get("/boletos", requireRole("admin"), async (_req: Request, res: Response) => {
+  try {
+    const linhas = await db.select({
+      reserva_id: reservas.id, usuario_id: usuarios.id, cliente_nome: usuarios.nome, cliente_email: usuarios.email, cliente_telefone: usuarios.telefone, cadastro_status: usuarios.cadastro_status,
+      evento_nome: eventos.nome, lote_nome: lotes.nome, forma_pagamento: reservas.forma_pagamento, quantidade_parcelas: reservas.quantidade_parcelas, valor_total: reservas.valor_total, checkout_estado: reservas.checkout_estado, status_reserva: reservas.status, boleto_liberado_em: reservas.boleto_liberado_em,
+    }).from(reservas).innerJoin(usuarios, eq(reservas.usuario_id, usuarios.id)).innerJoin(lotes, eq(reservas.lote_id, lotes.id)).innerJoin(eventos, eq(lotes.evento_id, eventos.id)).where(eq(reservas.forma_pagamento, "boleto")).orderBy(desc(reservas.criado_em));
+    const reservaIds = linhas.map((item) => item.reserva_id);
+    const parcelas = reservaIds.length ? await db.select().from(pagamentoParcelas).where(inArray(pagamentoParcelas.reserva_id, reservaIds)).orderBy(pagamentoParcelas.reserva_id, pagamentoParcelas.sequencia) : [];
+    const contratosValidados = reservaIds.length ? await db.select({ id: contratosDocumentos.id, reserva_id: contratosDocumentos.reserva_id, versao: contratosDocumentos.versao, aprovado_admin_em: contratosDocumentos.aprovado_admin_em, aprovado_admin_por: contratosDocumentos.aprovado_admin_por }).from(contratosDocumentos).where(and(inArray(contratosDocumentos.reserva_id, reservaIds), eq(contratosDocumentos.status, "validado"))).orderBy(desc(contratosDocumentos.versao)) : [];
+    const validacoes = reservaIds.length ? await db.select({ reserva_id: contratoValidacoes.reserva_id, contrato_id: contratoValidacoes.contrato_id, protocolo: contratoValidacoes.protocolo, confirmado_em: contratoValidacoes.confirmado_em, aceite_contrato: contratoValidacoes.aceite_contrato, aceite_regras: contratoValidacoes.aceite_regras }).from(contratoValidacoes).where(inArray(contratoValidacoes.reserva_id, reservaIds)).orderBy(desc(contratoValidacoes.confirmado_em)) : [];
+    const pagamentosLista = reservaIds.length ? await db.select({ id: pagamentos.id, reserva_id: pagamentos.reserva_id, status_reconciliado: pagamentos.status_reconciliado, valor_pago_centavos: pagamentos.valor_pago_centavos }).from(pagamentos).where(inArray(pagamentos.reserva_id, reservaIds)) : [];
+    return res.json({ boletos: linhas.map((item) => {
+      const contrato = contratosValidados.find((c) => c.reserva_id === item.reserva_id);
+      const validacao = contrato ? validacoes.find((v) => v.reserva_id === item.reserva_id && v.contrato_id === contrato.id && v.aceite_contrato && v.aceite_regras) : undefined;
+      return { ...item, contrato_validado: Boolean(contrato && validacao), contrato_aprovado_admin: Boolean(contrato?.aprovado_admin_em), contrato_aprovado_admin_em: contrato?.aprovado_admin_em || null, protocolo: validacao?.protocolo || null, pagamento: pagamentosLista.find((p) => p.reserva_id === item.reserva_id) || null, parcelas: parcelas.filter((p) => p.reserva_id === item.reserva_id) };
+    }) });
+  } catch (error: any) {
+    console.error("[BOLETOS] Erro ao listar:", error);
+    return res.status(500).json({ erro: "Não foi possível carregar os boletos" });
+  }
+});
+
+router.post("/boletos/:reservaId/validar-contrato", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reservaId)).limit(1))[0];
+    if (!reserva || reserva.forma_pagamento !== "boleto") return res.status(404).json({ erro: "Reserva por boleto não encontrada" });
+    const contrato = (await db.select().from(contratosDocumentos).where(and(eq(contratosDocumentos.reserva_id, reserva.id), eq(contratosDocumentos.status, "validado"))).orderBy(desc(contratosDocumentos.versao)).limit(1))[0];
+    const validacao = contrato ? (await db.select().from(contratoValidacoes).where(and(eq(contratoValidacoes.reserva_id, reserva.id), eq(contratoValidacoes.contrato_id, contrato.id))).orderBy(desc(contratoValidacoes.confirmado_em)).limit(1))[0] : null;
+    if (!contrato || !validacao?.aceite_contrato || !validacao.aceite_regras) return res.status(409).json({ erro: "O cliente precisa concluir a validação eletrônica do contrato antes da conferência administrativa" });
+    if (!contrato.aprovado_admin_em) {
+      const agora = new Date();
+      await db.update(contratosDocumentos).set({ aprovado_admin_em: agora, aprovado_admin_por: req.usuario.id }).where(eq(contratosDocumentos.id, contrato.id));
+      await registrarHistoricoCliente(reserva.usuario_id, "contrato_aprovado_admin", "Contrato conferido pela administração", `Versão ${contrato.versao} validada para o financeiro sob protocolo ${validacao.protocolo}.`, req.usuario.id, { reserva_id: reserva.id, contrato_id: contrato.id, protocolo: validacao.protocolo });
+      await AuditService.registrar(req, "contrato_aprovado_admin", "contrato", contrato.id, undefined, { reserva_id: reserva.id, versao: contrato.versao, protocolo: validacao.protocolo });
+    }
+    return res.json({ mensagem: "Contrato conferido e aprovado pela administração para o fluxo financeiro", contrato_id: contrato.id, protocolo: validacao.protocolo });
+  } catch (error: any) {
+    console.error("[BOLETOS] Erro ao validar contrato administrativamente:", error);
+    return res.status(400).json({ erro: error.message || "Não foi possível validar o contrato" });
+  }
+});
+
+router.post("/boletos/:reservaId/liberar", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reservaId)).limit(1))[0];
+    if (!reserva || reserva.forma_pagamento !== "boleto") return res.status(404).json({ erro: "Reserva por boleto não encontrada" });
+    const cliente = (await db.select().from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0];
+    if (!cliente || cliente.cadastro_status !== "aprovado") return res.status(409).json({ erro: "Aprove o cadastro do cliente antes de liberar os boletos" });
+    const contrato = (await db.select().from(contratosDocumentos).where(and(eq(contratosDocumentos.reserva_id, reserva.id), eq(contratosDocumentos.status, "validado"))).orderBy(desc(contratosDocumentos.versao)).limit(1))[0];
+    const validacao = contrato ? (await db.select().from(contratoValidacoes).where(and(eq(contratoValidacoes.reserva_id, reserva.id), eq(contratoValidacoes.contrato_id, contrato.id))).orderBy(desc(contratoValidacoes.confirmado_em)).limit(1))[0] : null;
+    if (!contrato || !validacao?.aceite_contrato || !validacao.aceite_regras) return res.status(409).json({ erro: "O contrato precisa estar validado eletronicamente antes da liberação financeira" });
+    if (!contrato.aprovado_admin_em) return res.status(409).json({ erro: "A administração precisa conferir e aprovar a versão validada do contrato antes de liberar os boletos" });
+    await garantirInventarioBoletoManual(reserva);
+    let pagamento = (await db.select().from(pagamentos).where(and(eq(pagamentos.reserva_id, reserva.id), eq(pagamentos.metodo, "boleto"))).orderBy(desc(pagamentos.criado_em)).limit(1))[0];
+    if (!pagamento) {
+      pagamento = (await db.insert(pagamentos).values({ id: createId(), reserva_id: reserva.id, status: "pendente", valor: reserva.valor_total, metodo: "boleto", gateway_id: null, gateway_resposta: { modo: "manual", contrato_protocolo: validacao.protocolo }, idempotency_key: `boleto-manual:${reserva.id}`, valor_centavos: Number(reserva.valor_total_centavos || Math.round(Number(reserva.valor_total) * 100)), valor_pago_centavos: 0, status_reconciliado: "pendente", criado_em: new Date(), atualizado_em: new Date() }).returning())[0];
+    }
+    const existentes = await db.select().from(pagamentoParcelas).where(eq(pagamentoParcelas.pagamento_id, pagamento.id));
+    if (!existentes.length) {
+      const cronograma = Array.isArray(reserva.cronograma_pagamento) ? reserva.cronograma_pagamento as Array<any> : [];
+      const qtd = Math.max(1, Number(reserva.quantidade_parcelas || cronograma.length || 1));
+      const totalCentavos = Number(reserva.valor_total_centavos || Math.round(Number(reserva.valor_total) * 100));
+      const base = Math.floor(totalCentavos / qtd);
+      const resto = totalCentavos - base * qtd;
+      const inicio = new Date();
+      await db.insert(pagamentoParcelas).values(Array.from({ length: qtd }, (_, index) => {
+        const item = cronograma[index] || {};
+        const venc = item.vencimento || new Date(inicio.getFullYear(), inicio.getMonth() + index + 1, Math.min(28, inicio.getDate())).toISOString().slice(0, 10);
+        const valorCentavos = Number(item.valor_centavos || (base + (index === qtd - 1 ? resto : 0)));
+        return { id: createId(), pagamento_id: pagamento!.id, reserva_id: reserva.id, sequencia: index + 1, valor: (valorCentavos / 100).toFixed(2), vencimento: venc, valor_centavos: valorCentavos, valor_pago_centavos: 0, status: "pendente", criado_em: new Date(), atualizado_em: new Date() };
+      }));
+    }
+    await db.update(reservas).set({ boleto_liberado_em: new Date(), boleto_liberado_por: req.usuario.id, checkout_estado: "boletos_em_preparacao", status: "aguardando_pagamento", atualizado_em: new Date() }).where(eq(reservas.id, reserva.id));
+    await registrarHistoricoCliente(reserva.usuario_id, "boleto_liberado", "Boleto liberado para emissão manual", `Contrato validado sob protocolo ${validacao.protocolo}. Parcelas liberadas para anexação e envio pela administração.`, req.usuario.id, { reserva_id: reserva.id, pagamento_id: pagamento.id });
+    await AuditService.registrar(req, "boleto_liberado", "reserva", reserva.id, undefined, { pagamento_id: pagamento.id, protocolo: validacao.protocolo });
+    return res.json({ mensagem: "Financeiro por boleto liberado", pagamento_id: pagamento.id, parcelas: await db.select().from(pagamentoParcelas).where(eq(pagamentoParcelas.pagamento_id, pagamento.id)).orderBy(pagamentoParcelas.sequencia) });
+  } catch (error: any) {
+    console.error("[BOLETOS] Erro ao liberar:", error);
+    return res.status(400).json({ erro: error.message || "Não foi possível liberar os boletos" });
+  }
+});
+
+router.post("/boletos/:reservaId/parcelas/:parcelaId/arquivo", requireRole("admin"), uploadDocumentoCliente, async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) return res.status(400).json({ erro: "Arquivo PDF não recebido" });
+    const parcela = (await db.select().from(pagamentoParcelas).where(and(eq(pagamentoParcelas.id, req.params.parcelaId), eq(pagamentoParcelas.reserva_id, req.params.reservaId))).limit(1))[0];
+    const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reservaId)).limit(1))[0];
+    if (!parcela || !reserva || reserva.forma_pagamento !== "boleto" || !reserva.boleto_liberado_em) return res.status(404).json({ erro: "Parcela de boleto não liberada" });
+    const nomeOriginal = decodeURIComponent(String(req.get("x-file-name") || `boleto-parcela-${parcela.sequencia}.pdf`));
+    const extensao = nodePath.extname(nomeOriginal).toLowerCase();
+    if (extensao !== ".pdf" || detectarMimeDocumento(req.body, extensao) !== "application/pdf") return res.status(415).json({ erro: "Envie o boleto em PDF válido" });
+    const hash = createHash("sha256").update(req.body).digest("hex");
+    const duplicado = (await db.select({ id: clienteDocumentos.id }).from(clienteDocumentos).where(and(eq(clienteDocumentos.usuario_id, reserva.usuario_id), eq(clienteDocumentos.sha256, hash), isNull(clienteDocumentos.removido_em))).limit(1))[0];
+    if (duplicado) return res.status(409).json({ erro: "Este boleto já consta na ficha do cliente" });
+    const base = nodePath.resolve(process.env.STORAGE_PATH || "./uploads");
+    const pasta = nodePath.resolve(base, "clientes", reserva.usuario_id, "boletos");
+    await fs.mkdir(pasta, { recursive: true });
+    const docId = createId();
+    const arquivo = nodePath.join(pasta, `${Date.now()}-${docId}.pdf`);
+    await fs.writeFile(arquivo, req.body, { mode: 0o600 });
+    const documento = (await db.insert(clienteDocumentos).values({ id: docId, usuario_id: reserva.usuario_id, reserva_id: reserva.id, categoria: "boleto", nome: `Boleto parcela ${parcela.sequencia}`, nome_original: nomeOriginal.slice(0, 255), mime_type: "application/pdf", tamanho_bytes: req.body.length, sha256: hash, arquivo, observacoes: `Vencimento ${parcela.vencimento} · Valor R$ ${parcela.valor}`, criado_por: req.usuario.id, criado_em: new Date(), atualizado_em: new Date() }).returning())[0];
+    const boletoAnterior = parcela.boleto_documento_id;
+    await db.update(pagamentoParcelas).set({ boleto_documento_id: documento.id, boleto_url: null, enviado_email_em: null, enviado_whatsapp_em: null, atualizado_em: new Date() }).where(eq(pagamentoParcelas.id, parcela.id));
+    if (boletoAnterior && boletoAnterior !== documento.id) {
+      await db.update(clienteDocumentos).set({ removido_em: new Date(), removido_por: req.usuario.id, atualizado_em: new Date() }).where(eq(clienteDocumentos.id, boletoAnterior));
+    }
+    await registrarHistoricoCliente(reserva.usuario_id, "boleto_anexado", `Boleto da parcela ${parcela.sequencia} anexado`, `Vencimento ${parcela.vencimento} · R$ ${parcela.valor}`, req.usuario.id, { reserva_id: reserva.id, parcela_id: parcela.id, documento_id: documento.id });
+    await AuditService.registrar(req, "boleto_anexado", "pagamento_parcela", parcela.id, undefined, { documento_id: documento.id, sha256: hash });
+    return res.status(201).json({ documento: { id: documento.id, nome: documento.nome, sha256: documento.sha256 } });
+  } catch (error: any) { return res.status(400).json({ erro: error.message || "Não foi possível anexar o boleto" }); }
+});
+
+router.post("/boletos/:reservaId/parcelas/:parcelaId/email", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const parcela = (await db.select().from(pagamentoParcelas).where(and(eq(pagamentoParcelas.id, req.params.parcelaId), eq(pagamentoParcelas.reserva_id, req.params.reservaId))).limit(1))[0];
+    if (!parcela?.boleto_documento_id) return res.status(409).json({ erro: "Anexe o PDF do boleto antes de enviar" });
+    const documento = (await db.select().from(clienteDocumentos).where(eq(clienteDocumentos.id, parcela.boleto_documento_id)).limit(1))[0];
+    const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reservaId)).limit(1))[0];
+    const cliente = reserva ? (await db.select().from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0] : null;
+    if (!documento || !reserva || !cliente) return res.status(404).json({ erro: "Dados do boleto não encontrados" });
+    const enviado = await EmailService.enviarBoletoManual({ reserva_id: reserva.id, parcela: parcela.sequencia, vencimento: String(parcela.vencimento), valor: String(parcela.valor), arquivo: documento.arquivo, nomeArquivo: documento.nome_original, destinatario: cliente.email, clienteNome: cliente.nome });
+    if (!enviado) return res.status(503).json({ erro: "O SMTP não confirmou o envio do boleto" });
+    await db.update(pagamentoParcelas).set({ enviado_email_em: new Date(), atualizado_em: new Date() }).where(eq(pagamentoParcelas.id, parcela.id));
+    await atualizarEstadoEnvioBoletos(reserva.id);
+    await registrarHistoricoCliente(cliente.id, "boleto_enviado_email", `Boleto da parcela ${parcela.sequencia} enviado por e-mail`, cliente.email, req.usuario.id, { reserva_id: reserva.id, parcela_id: parcela.id });
+    await AuditService.registrar(req, "boleto_email", "pagamento_parcela", parcela.id);
+    return res.json({ mensagem: "Boleto enviado por e-mail" });
+  } catch (error: any) { return res.status(400).json({ erro: error.message || "Não foi possível enviar o boleto" }); }
+});
+
+router.post("/boletos/:reservaId/parcelas/:parcelaId/whatsapp", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const parcela = (await db.select().from(pagamentoParcelas).where(and(eq(pagamentoParcelas.id, req.params.parcelaId), eq(pagamentoParcelas.reserva_id, req.params.reservaId))).limit(1))[0];
+    if (!parcela?.boleto_documento_id) return res.status(409).json({ erro: "Anexe o PDF do boleto antes do envio pelo WhatsApp" });
+    const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reservaId)).limit(1))[0];
+    const cliente = reserva ? (await db.select().from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0] : null;
+    if (!cliente?.telefone) return res.status(409).json({ erro: "Cliente sem WhatsApp cadastrado" });
+    const telefone = String(cliente.telefone).replace(/\D/g, "");
+    const mensagem = `Olá, ${cliente.nome}. Segue o boleto da parcela ${parcela.sequencia} da sua reserva ${reserva!.id}, no valor de R$ ${parcela.valor}, com vencimento em ${parcela.vencimento}. O PDF está disponível com a equipe da Excursão das Comitivas.`;
+    const url = `https://wa.me/${telefone}?text=${encodeURIComponent(mensagem)}`;
+    if (req.body?.confirmado !== true) {
+      return res.json({ url, confirmado: false, mensagem: "Conversa preparada. Anexe o PDF e envie; depois confirme o envio no painel para registrar a evidência operacional." });
+    }
+    const agora = new Date();
+    await db.update(pagamentoParcelas).set({ enviado_whatsapp_em: agora, atualizado_em: agora }).where(eq(pagamentoParcelas.id, parcela.id));
+    await atualizarEstadoEnvioBoletos(reserva!.id);
+    await registrarHistoricoCliente(cliente.id, "boleto_enviado_whatsapp", `Envio do boleto da parcela ${parcela.sequencia} confirmado no WhatsApp`, telefone, req.usuario.id, { reserva_id: reserva!.id, parcela_id: parcela.id });
+    await AuditService.registrar(req, "boleto_whatsapp_confirmado", "pagamento_parcela", parcela.id);
+    return res.json({ url, confirmado: true, mensagem: "Envio por WhatsApp confirmado e registrado." });
+  } catch (error: any) { return res.status(400).json({ erro: error.message || "Não foi possível preparar o WhatsApp" }); }
+});
+
+router.post("/boletos/:reservaId/parcelas/:parcelaId/comprovante", requireRole("admin"), uploadDocumentoCliente, async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) return res.status(400).json({ erro: "Arquivo de comprovante não recebido" });
+    const parcela = (await db.select().from(pagamentoParcelas).where(and(eq(pagamentoParcelas.id, req.params.parcelaId), eq(pagamentoParcelas.reserva_id, req.params.reservaId))).limit(1))[0];
+    const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reservaId)).limit(1))[0];
+    if (!parcela || !reserva || reserva.forma_pagamento !== "boleto") return res.status(404).json({ erro: "Parcela de boleto não encontrada" });
+    const nomeOriginal = decodeURIComponent(String(req.get("x-file-name") || `comprovante-parcela-${parcela.sequencia}.pdf`));
+    const extensao = nodePath.extname(nomeOriginal).toLowerCase();
+    if (![".pdf", ".jpg", ".jpeg", ".png", ".webp"].includes(extensao)) return res.status(415).json({ erro: "Envie comprovante em PDF, JPG, PNG ou WEBP" });
+    const mimeType = detectarMimeDocumento(req.body, extensao);
+    if (!mimeType) return res.status(415).json({ erro: "O conteúdo do arquivo não corresponde a um formato permitido" });
+    const hash = createHash("sha256").update(req.body).digest("hex");
+    const duplicado = (await db.select({ id: clienteDocumentos.id }).from(clienteDocumentos).where(and(eq(clienteDocumentos.usuario_id, reserva.usuario_id), eq(clienteDocumentos.sha256, hash), isNull(clienteDocumentos.removido_em))).limit(1))[0];
+    if (duplicado) return res.status(409).json({ erro: "Este comprovante já consta na ficha do cliente" });
+    const base = nodePath.resolve(process.env.STORAGE_PATH || "./uploads");
+    const pasta = nodePath.resolve(base, "clientes", reserva.usuario_id, "comprovantes");
+    await fs.mkdir(pasta, { recursive: true });
+    const docId = createId();
+    const arquivo = nodePath.join(pasta, `${Date.now()}-${docId}${extensao}`);
+    await fs.writeFile(arquivo, req.body, { mode: 0o600 });
+    const documento = (await db.insert(clienteDocumentos).values({
+      id: docId,
+      usuario_id: reserva.usuario_id,
+      reserva_id: reserva.id,
+      categoria: "comprovante_pagamento",
+      nome: `Comprovante de pagamento — parcela ${parcela.sequencia}`,
+      nome_original: nomeOriginal.slice(0, 255),
+      mime_type: mimeType,
+      tamanho_bytes: req.body.length,
+      sha256: hash,
+      arquivo,
+      observacoes: `Parcela ${parcela.sequencia} · Vencimento ${parcela.vencimento} · Valor R$ ${parcela.valor}`,
+      criado_por: req.usuario.id,
+      criado_em: new Date(),
+      atualizado_em: new Date(),
+    }).returning())[0];
+    const anterior = parcela.comprovante_documento_id;
+    await db.update(pagamentoParcelas).set({ comprovante_documento_id: documento.id, atualizado_em: new Date() }).where(eq(pagamentoParcelas.id, parcela.id));
+    if (anterior && anterior !== documento.id) {
+      await db.update(clienteDocumentos).set({ removido_em: new Date(), removido_por: req.usuario.id, atualizado_em: new Date() }).where(eq(clienteDocumentos.id, anterior));
+    }
+    await registrarHistoricoCliente(reserva.usuario_id, "comprovante_pagamento", `Comprovante da parcela ${parcela.sequencia} anexado`, `R$ ${parcela.valor} · vencimento ${parcela.vencimento}`, req.usuario.id, { reserva_id: reserva.id, parcela_id: parcela.id, documento_id: documento.id });
+    await AuditService.registrar(req, "comprovante_pagamento_anexado", "pagamento_parcela", parcela.id, anterior ? { documento_id: anterior } : undefined, { documento_id: documento.id, sha256: hash });
+    return res.status(201).json({ documento: { id: documento.id, nome: documento.nome, sha256: documento.sha256 } });
+  } catch (error: any) {
+    console.error("[BOLETOS] Erro ao anexar comprovante:", error);
+    return res.status(400).json({ erro: error.message || "Não foi possível anexar o comprovante" });
+  }
+});
+
+router.patch("/boletos/:reservaId/parcelas/:parcelaId/pagamento", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const pago = req.body?.pago !== false;
+    const parcela = (await db.select().from(pagamentoParcelas).where(and(eq(pagamentoParcelas.id, req.params.parcelaId), eq(pagamentoParcelas.reserva_id, req.params.reservaId))).limit(1))[0];
+    if (!parcela) return res.status(404).json({ erro: "Parcela não encontrada" });
+    const valorPago = pago ? Number(req.body?.valor_pago_centavos || parcela.valor_centavos || Math.round(Number(parcela.valor) * 100)) : 0;
+    await db.update(pagamentoParcelas).set({ status: pago ? "aprovado" : "pendente", valor_pago_centavos: valorPago, pago_confirmado_em: pago ? new Date() : null, pago_confirmado_por: pago ? req.usuario.id : null, atualizado_em: new Date() }).where(eq(pagamentoParcelas.id, parcela.id));
+    const reconciliado = await reconciliarPagamentoManual(parcela.pagamento_id);
+    const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reservaId)).limit(1))[0];
+    if (reserva) await registrarHistoricoCliente(reserva.usuario_id, pago ? "pagamento_confirmado" : "pagamento_reaberto", `${pago ? "Pagamento confirmado" : "Pagamento reaberto"} — parcela ${parcela.sequencia}`, `R$ ${(valorPago / 100).toFixed(2)}`, req.usuario.id, { reserva_id: reserva.id, parcela_id: parcela.id, quitado: reconciliado.quitado });
+    await AuditService.registrar(req, pago ? "pagamento_manual_confirmado" : "pagamento_manual_reaberto", "pagamento_parcela", parcela.id, undefined, { valor_pago_centavos: valorPago, quitado: reconciliado.quitado });
+    if (reconciliado.quitado) await EmailService.enviarConfirmacaoPagamento(req.params.reservaId).catch(() => false);
+    return res.json({ mensagem: pago ? "Pagamento confirmado" : "Parcela reaberta", reconciliado });
+  } catch (error: any) { return res.status(400).json({ erro: error.message || "Não foi possível atualizar o pagamento" }); }
 });
 
 export default router;

@@ -41,7 +41,13 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
 export function requireRole(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
-    if (!roles.includes(req.usuario.tipo)) return res.status(403).json({ erro: "Acesso negado" });
+    // DEV é o super acesso técnico: herda permissões de admin, mas o inverso nunca ocorre.
+    const permitido = roles.includes(req.usuario.tipo) || (req.usuario.tipo === "dev" && roles.includes("admin"));
+    if (!permitido) return res.status(403).json({ erro: "Acesso negado" });
     return next();
   };
+}
+
+export function isAdminOrDev(tipo: string | undefined): boolean {
+  return tipo === "admin" || tipo === "dev";
 }

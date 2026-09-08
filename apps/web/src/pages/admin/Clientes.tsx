@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { api } from '../../contexts/AuthContext';
+import { api, useAuth } from '../../contexts/AuthContext';
 import { Card, CardContent, Button, Input } from '@ui/index';
 import { Download, Eye, Plus, X, Pencil, Power, Search } from 'lucide-react';
 
@@ -11,7 +11,7 @@ interface Usuario {
   cpf: string | null;
   rg: string | null;
   telefone: string | null;
-  tipo: 'cliente' | 'vendedor' | 'admin';
+  tipo: 'cliente' | 'vendedor' | 'admin' | 'dev';
   data_nascimento: string | null;
   estado_civil: string | null;
   profissao: string | null;
@@ -25,6 +25,7 @@ const TIPO_LABEL: Record<string, string> = {
   cliente: 'Cliente',
   vendedor: 'Vendedor',
   admin: 'Administrador',
+  dev: 'DEV',
 };
 
 const FORM_VAZIO = {
@@ -33,7 +34,7 @@ const FORM_VAZIO = {
   cpf: '',
   rg: '',
   telefone: '',
-  tipo: 'cliente' as 'cliente' | 'vendedor' | 'admin',
+  tipo: 'cliente' as 'cliente' | 'vendedor' | 'admin' | 'dev',
   data_nascimento: '',
   estado_civil: '',
   profissao: '',
@@ -43,6 +44,7 @@ const FORM_VAZIO = {
 };
 
 export default function Clientes() {
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -234,6 +236,7 @@ export default function Clientes() {
           <option value="">Todos os tipos</option>
           <option value="vendedor">Vendedores</option>
           <option value="admin">Administradores</option>
+          {user?.tipo === 'dev' && <option value="dev">DEV</option>}
         </select>
       </div>
 
@@ -297,7 +300,8 @@ export default function Clientes() {
                       >
                         <option value="cliente">Cliente</option>
                         <option value="vendedor">Vendedor</option>
-                        <option value="admin">Administrador</option>
+                        {user?.tipo === 'dev' && <option value="admin">Administrador</option>}
+                        {user?.tipo === 'dev' && <option value="dev">DEV</option>}
                       </select>
                     </div>
                     <Input

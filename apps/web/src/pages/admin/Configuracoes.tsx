@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { api } from '../../contexts/AuthContext';
+import { api, useAuth } from '../../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, Button, Input } from '@ui/index';
 import { CheckCircle2, AlertTriangle } from 'lucide-react';
 
@@ -8,6 +9,8 @@ const GATEWAY_LABEL: Record<string, string> = {
 };
 
 export default function Configuracoes() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
@@ -16,6 +19,7 @@ export default function Configuracoes() {
   const [pixDesconto, setPixDesconto] = useState('5');
   const [creditoMax, setCreditoMax] = useState('10');
   const [boletoMesesMax, setBoletoMesesMax] = useState('20');
+  const [boletoModo, setBoletoModo] = useState<'manual' | 'gateway'>('manual');
   const [gateway, setGateway] = useState<{ ativo: string; configurado: boolean; nome?: string; ambiente?: string; metodos?: string[] } | null>(null);
 
   const carregar = async () => {
@@ -27,6 +31,7 @@ export default function Configuracoes() {
       setPixDesconto(String(c.pix_desconto_percentual));
       setCreditoMax(String(c.credito_parcelas_maximo));
       setBoletoMesesMax(String(c.boleto_meses_maximo_antecedencia));
+      setBoletoModo(c.boleto_modo === 'gateway' ? 'gateway' : 'manual');
       setGateway(response.data.gateway);
     } catch (err: any) {
       setErro(err.response?.data?.erro || 'Erro ao carregar configurações.');
@@ -49,17 +54,29 @@ export default function Configuracoes() {
         pix_desconto_percentual: Number(pixDesconto),
         credito_parcelas_maximo: Number(creditoMax),
         boleto_meses_maximo_antecedencia: Number(boletoMesesMax),
+        boleto_modo: boletoModo,
       });
       const c = response.data.configuracoes;
       setPixDesconto(String(c.pix_desconto_percentual));
       setCreditoMax(String(c.credito_parcelas_maximo));
       setBoletoMesesMax(String(c.boleto_meses_maximo_antecedencia));
+      setBoletoModo(c.boleto_modo === 'gateway' ? 'gateway' : 'manual');
       setMensagem('Configurações salvas. Valem a partir da próxima reserva/contrato gerado.');
     } catch (err: any) {
       setErro(err.response?.data?.erro || 'Erro ao salvar configurações.');
     } finally {
       setSalvando(false);
     }
+  };
+
+  const ativarDev = async () => {
+    if (!confirm('Ativar este administrador como o primeiro super acesso DEV? A sessão será encerrada para aplicar a nova permissão.')) return;
+    setErro(null); setMensagem(null);
+    try {
+      await api.post('/admin/dev/bootstrap');
+      logout();
+      navigate('/login', { replace: true });
+    } catch (err: any) { setErro(err.response?.data?.erro || 'Não foi possível ativar o super acesso DEV.'); }
   };
 
   if (carregando) return <div>Carregando configurações...</div>;
@@ -94,10 +111,8 @@ export default function Configuracoes() {
             </div>
           </div>
           <p className="text-xs text-gray-500 border-t pt-3">
-            O Banco Cora é o único gateway financeiro de produção. Client ID, certificado mTLS e private key
-            são configurados como segredo de ambiente no deploy — não pelo painel e nunca no frontend.
-            Ambiente atual: <strong>{gateway?.ambiente || 'stage'}</strong>. O checkout oferece Pix e boleto/carnê;
-            cartão não é exibido sem uma API Cora contratada que o suporte explicitamente.
+            O Banco Cora é o gateway preparado para automação. O super acesso DEV pode cadastrar Client ID, certificado mTLS, private key e webhook no cofre criptografado do painel.
+            Ambiente atual: <strong>{gateway?.ambiente || 'stage'}</strong>. Enquanto o boleto estiver em modo manual, nenhuma cobrança de boleto é criada na Cora: o contrato é validado, o cadastro é aprovado e os PDFs são anexados e enviados pela administração.
           </p>
         </CardContent>
       </Card>
@@ -113,7 +128,7 @@ export default function Configuracoes() {
               geração manual de contrato pelo admin. Alterações entram em vigor imediatamente,
               sem precisar de novo deploy.
             </p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Input
                 label="Desconto do PIX (%)"
                 type="number"
@@ -139,6 +154,13 @@ export default function Configuracoes() {
                 value={boletoMesesMax}
                 onChange={(e) => setBoletoMesesMax(e.target.value)}
               />
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Modo do boleto</label>
+                <select value={boletoModo} onChange={(e) => setBoletoModo(e.target.value as 'manual' | 'gateway')} className="h-10 w-full rounded-md border border-gray-300 bg-white px-3 text-sm">
+                  <option value="manual">Manual — administração anexa e envia os PDFs</option>
+                  <option value="gateway">Gateway — emissão automática quando Cora estiver ativa</option>
+                </select>
+              </div>
             </div>
             <p className="text-xs text-gray-500">
               O boleto libera 1 parcela por mês de antecedência entre a contratação e o mês da
@@ -150,6 +172,16 @@ export default function Configuracoes() {
           </form>
         </CardContent>
       </Card>
+
+      {user?.tipo === 'admin' && (
+        <Card>
+          <CardHeader><CardTitle>Inicialização do super acesso DEV</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-gray-600">Use somente uma vez, pelo proprietário técnico do sistema. Depois de existir um DEV, outros administradores não conseguem ver, editar ou administrar esse perfil.</p>
+            <Button type="button" variant="outline" onClick={() => void ativarDev()}>Ativar meu usuário como primeiro DEV</Button>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

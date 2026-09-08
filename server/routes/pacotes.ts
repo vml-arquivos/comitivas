@@ -1,12 +1,13 @@
 import { Router, Request, Response } from "express";
-import { authMiddleware, requireRole } from "../middleware/authMiddleware.js";
+import { authMiddleware, requireRole, isAdminOrDev } from "../middleware/authMiddleware.js";
 import { PacoteService, ConfiguracaoPacote } from "../services/pacoteService.js";
 import { ContratoService } from "../services/contratoService.js";
 import { ConfiguracaoService } from "../services/configuracaoService.js";
+import { GatewayConfigService } from "../services/gatewayConfigService.js";
 import { AuthService } from "../services/authService.js";
 import { db } from "../db/index.js";
-import { eventos, lotes, pacotes, itens_addon, reservas, usuarios, leads_origem, pagamentos } from "../db/schema.js";
-import { eq, and, desc, inArray, isNull, or } from "drizzle-orm";
+import { eventos, lotes, pacotes, itens_addon, reservas, usuarios, leads_origem, pagamentos, pagamentoParcelas } from "../db/schema.js";
+import { eq, and, desc, inArray, isNull, or, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 
 const router = Router();
@@ -174,12 +175,22 @@ router.get("/minhas-reservas", authMiddleware, async (req: Request, res: Respons
       : [];
     const pagamentoPorReserva = new Map<string, typeof pagamentosRecentes[number]>();
     for (const pagamento of pagamentosRecentes) if (!pagamentoPorReserva.has(pagamento.reserva_id)) pagamentoPorReserva.set(pagamento.reserva_id, pagamento);
+    const parcelasRecentes = minhasReservas.length
+      ? await db.select({
+        id: pagamentoParcelas.id, reserva_id: pagamentoParcelas.reserva_id, sequencia: pagamentoParcelas.sequencia,
+        valor: pagamentoParcelas.valor, vencimento: pagamentoParcelas.vencimento, status: pagamentoParcelas.status,
+        valor_pago_centavos: pagamentoParcelas.valor_pago_centavos,
+        boleto_disponivel: sql<boolean>`${pagamentoParcelas.boleto_documento_id} IS NOT NULL`,
+        enviado_email_em: pagamentoParcelas.enviado_email_em, enviado_whatsapp_em: pagamentoParcelas.enviado_whatsapp_em, pago_confirmado_em: pagamentoParcelas.pago_confirmado_em,
+      }).from(pagamentoParcelas).where(inArray(pagamentoParcelas.reserva_id, minhasReservas.map((reserva) => reserva.id))).orderBy(pagamentoParcelas.reserva_id, pagamentoParcelas.sequencia)
+      : [];
 
     res.json({
       total: minhasReservas.length,
       reservas: minhasReservas.map(({ contrato_pdf_url, ...reserva }) => ({
         ...reserva,
         pagamento: pagamentoPorReserva.get(reserva.id) || null,
+        parcelas: parcelasRecentes.filter((parcela) => parcela.reserva_id === reserva.id),
         contrato_disponivel: Boolean(contrato_pdf_url),
         voucher_disponivel: reserva.status === "cliente_confirmado" && pagamentoPorReserva.get(reserva.id)?.status_reconciliado === "quitado",
       })),
@@ -210,7 +221,7 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
     }
 
     // Verificar se é do usuário ou admin
-    if (reserva[0].usuario_id !== req.usuario.id && req.usuario.tipo !== "admin") {
+    if (reserva[0].usuario_id !== req.usuario.id && !isAdminOrDev(req.usuario.tipo)) {
       return res.status(403).json({ erro: "Acesso negado" });
     }
 
@@ -261,6 +272,14 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
       configPagamento.boleto_meses_maximo_antecedencia,
     );
 
+    const gatewayPainel = await GatewayConfigService.obterMascara().catch(() => null);
+    const gatewayAmbienteConfigurado = Boolean(
+      process.env.CORA_CLIENT_ID?.trim()
+      && process.env.CORA_CERT_PATH?.trim()
+      && process.env.CORA_PRIVATE_KEY_PATH?.trim(),
+    );
+    const gatewayAutomaticoDisponivel = Boolean(gatewayPainel?.ativo && gatewayPainel.configurado) || gatewayAmbienteConfigurado;
+
     res.json({
       ...reserva[0],
       pacote_nome: pacoteSelecionado[0]?.nome || null,
@@ -270,6 +289,8 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
       parcelas_boleto_maximas: parcelasBoletoMaximas,
       pix_desconto_percentual: configPagamento.pix_desconto_percentual,
       credito_parcelas_maximo: configPagamento.credito_parcelas_maximo,
+      boleto_modo: configPagamento.boleto_modo,
+      gateway_automatico_disponivel: gatewayAutomaticoDisponivel,
     });
   } catch (error) {
     console.error("[PACOTES] Erro ao buscar reserva:", error);
@@ -295,9 +316,10 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
 // Criar pacote/modalidade (admin)
 router.post("/", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
   try {
-    const { lote_id, nome, descricao, valor_total, itens_selecionados, modalidade_hospedagem, disponibilidade, ativo } = req.body;
+    const { lote_id, nome, descricao, valor_total, itens_selecionados, modalidade_hospedagem, disponibilidade, contrato_modelo, ativo } = req.body;
     const modalidadesValidas = ["camping", "quarto_ventilador", "quarto_ar_condicionado"];
     const disponibilidadesValidas = ["disponivel", "ultimas_vagas", "esgotado"];
+    const modelosContratoValidos = ["auto", "hospedagem", "transporte"];
 
     if (!lote_id || !nome || valor_total === undefined || !modalidade_hospedagem) {
       return res.status(400).json({ erro: "lote_id, nome, valor_total e modalidade_hospedagem são obrigatórios" });
@@ -307,6 +329,9 @@ router.post("/", authMiddleware, requireRole("admin"), async (req: Request, res:
     }
     if (disponibilidade && !disponibilidadesValidas.includes(disponibilidade)) {
       return res.status(400).json({ erro: "Disponibilidade inválida" });
+    }
+    if (contrato_modelo && !modelosContratoValidos.includes(contrato_modelo)) {
+      return res.status(400).json({ erro: "Modelo de contrato inválido" });
     }
 
     const lote = await db.select({ id: lotes.id }).from(lotes).where(eq(lotes.id, lote_id)).limit(1);
@@ -323,6 +348,7 @@ router.post("/", authMiddleware, requireRole("admin"), async (req: Request, res:
       itens_selecionados: itens_selecionados || [],
       modalidade_hospedagem,
       disponibilidade: disponibilidade || "disponivel",
+      contrato_modelo: contrato_modelo || "auto",
       ativo: ativo !== false,
       criado_em: new Date(),
       atualizado_em: new Date(),
@@ -338,15 +364,19 @@ router.post("/", authMiddleware, requireRole("admin"), async (req: Request, res:
 // Atualizar pacote/modalidade (admin)
 router.put("/:pacote_id", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
   try {
-    const { nome, descricao, valor_total, itens_selecionados, modalidade_hospedagem, disponibilidade, ativo } = req.body;
+    const { nome, descricao, valor_total, itens_selecionados, modalidade_hospedagem, disponibilidade, contrato_modelo, ativo } = req.body;
     const modalidadesValidas = ["camping", "quarto_ventilador", "quarto_ar_condicionado"];
     const disponibilidadesValidas = ["disponivel", "ultimas_vagas", "esgotado"];
+    const modelosContratoValidos = ["auto", "hospedagem", "transporte"];
 
     if (modalidade_hospedagem && !modalidadesValidas.includes(modalidade_hospedagem)) {
       return res.status(400).json({ erro: "Modalidade de hospedagem inválida" });
     }
     if (disponibilidade && !disponibilidadesValidas.includes(disponibilidade)) {
       return res.status(400).json({ erro: "Disponibilidade inválida" });
+    }
+    if (contrato_modelo && !modelosContratoValidos.includes(contrato_modelo)) {
+      return res.status(400).json({ erro: "Modelo de contrato inválido" });
     }
 
     const atualizado = await db.update(pacotes).set({
@@ -356,6 +386,7 @@ router.put("/:pacote_id", authMiddleware, requireRole("admin"), async (req: Requ
       itens_selecionados: itens_selecionados !== undefined ? itens_selecionados : undefined,
       modalidade_hospedagem: modalidade_hospedagem || undefined,
       disponibilidade: disponibilidade || undefined,
+      contrato_modelo: contrato_modelo || undefined,
       ativo: ativo !== undefined ? Boolean(ativo) : undefined,
       atualizado_em: new Date(),
     }).where(eq(pacotes.id, req.params.pacote_id)).returning();

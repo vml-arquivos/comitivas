@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { pagamentos, pagamentoParcelas, pagamentoIdempotencias, reservas, usuarios } from "../db/schema.js";
 import { CoraMetodo, CoraPaymentProvider } from "./coraPaymentProvider.js";
+import { GatewayConfigService } from "./gatewayConfigService.js";
 
 export interface CriarPagamentoRequest {
   reserva_id: string;
@@ -105,6 +106,7 @@ export class PaymentGatewayAdapter {
     }
 
     if (this.GATEWAY === "mock") return this.criarPagamentoTeste(request, chave);
+    await GatewayConfigService.aplicarRuntime();
     this.validarConfiguracaoSegura({ strict: true });
 
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, request.reserva_id)).limit(1))[0];
@@ -216,17 +218,20 @@ export class PaymentGatewayAdapter {
 
   static async confirmarPagamento(gateway_id: string): Promise<boolean> {
     if (this.GATEWAY === "mock") return false;
+    await GatewayConfigService.aplicarRuntime();
     const data = await CoraPaymentProvider.consultarCobranca(gateway_id);
     return ["PAID", "PAID_OUT"].includes(String(data?.status || "").toUpperCase());
   }
 
   static async consultarPagamento(gateway_id: string): Promise<any> {
     if (this.GATEWAY === "mock") return null;
+    await GatewayConfigService.aplicarRuntime();
     return CoraPaymentProvider.consultarCobranca(gateway_id);
   }
 
   static async cancelarPagamento(gateway_id: string): Promise<any> {
     if (this.GATEWAY === "mock") throw new Error("Cancelamento de mock não representa uma operação financeira");
+    await GatewayConfigService.aplicarRuntime();
     return CoraPaymentProvider.cancelarCobranca(gateway_id);
   }
 }

@@ -1,7 +1,9 @@
 import { Router, Request, Response } from "express";
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
-import { authMiddleware } from "../middleware/authMiddleware.js";
+import { authMiddleware, isAdminOrDev } from "../middleware/authMiddleware.js";
 import { PaymentGatewayAdapter } from "../services/paymentGatewayAdapter.js";
+import { ConfiguracaoService } from "../services/configuracaoService.js";
+import { GatewayConfigService } from "../services/gatewayConfigService.js";
 import { InventoryService } from "../services/inventoryService.js";
 import { db } from "../db/index.js";
 import { comissoes, inventarioHolds, leads_origem, pagamentoParcelas, pagamentos, reservas, webhookEventos } from "../db/schema.js";
@@ -99,6 +101,30 @@ router.post("/criar", authMiddleware, async (req: Request, res: Response) => {
     if (reserva.forma_pagamento && reserva.forma_pagamento !== metodo) return res.status(400).json({ erro: "O método diverge da condição aceita no contrato" });
 
     const parcelas = metodo === "boleto" ? Math.max(1, Number(reserva.quantidade_parcelas || 1)) : 1;
+    const configuracoes = await ConfiguracaoService.obterConfiguracoesPagamento();
+
+    // Boleto manual: o cliente já concluiu a assinatura eletrônica, mas nenhuma
+    // cobrança é criada no gateway. O financeiro só é liberado por Admin/DEV
+    // depois da aprovação cadastral e da conferência das evidências do contrato.
+    if (metodo === "boleto" && configuracoes.boleto_modo === "manual") {
+      await db.update(reservas).set({
+        checkout_estado: "aguardando_aprovacao_boleto",
+        status: "contrato_gerado",
+        atualizado_em: new Date(),
+      }).where(eq(reservas.id, reserva_id));
+      return res.json({
+        modo: "manual",
+        boleto_modo: "manual",
+        status: "aguardando_aprovacao",
+        metodo: "boleto",
+        quantidade_parcelas: parcelas,
+        valor: reserva.valor_total,
+        valor_parcela: reserva.valor_parcela || reserva.valor_total,
+        checkout_estado: "aguardando_aprovacao_boleto",
+        mensagem: "Contrato validado. O cadastro será conferido pela equipe; após a aprovação, os boletos serão preparados e enviados manualmente por e-mail e WhatsApp.",
+      });
+    }
+
     const recebido = String(req.body?.idempotency_key || header(req, "Idempotency-Key") || `checkout:${reserva_id}:${metodo}:${parcelas}`).trim();
     if (recebido.length < 8 || recebido.length > 255) return res.status(400).json({ erro: "Idempotency-Key inválida" });
     const idempotencyKey = stableUuid(recebido);
@@ -142,9 +168,19 @@ router.get("/status/:reserva_id", authMiddleware, async (req: Request, res: Resp
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
-    if (reserva.usuario_id !== req.usuario.id && req.usuario.tipo !== "admin") return res.status(403).json({ erro: "Acesso negado" });
+    if (reserva.usuario_id !== req.usuario.id && !isAdminOrDev(req.usuario.tipo)) return res.status(403).json({ erro: "Acesso negado" });
     const pagamento = (await db.select().from(pagamentos).where(eq(pagamentos.reserva_id, req.params.reserva_id)).orderBy(desc(pagamentos.criado_em)).limit(1))[0];
-    if (!pagamento) return res.json({ reserva_id: req.params.reserva_id, checkout_estado: reserva.checkout_estado, status: "sem_cobranca", pagamento: null });
+    if (!pagamento) {
+      const config = await ConfiguracaoService.obterConfiguracoesPagamento();
+      return res.json({
+        reserva_id: req.params.reserva_id,
+        checkout_estado: reserva.checkout_estado,
+        status: reserva.forma_pagamento === "boleto" && config.boleto_modo === "manual" ? "boleto_manual" : "sem_cobranca",
+        boleto_modo: config.boleto_modo,
+        pagamento: null,
+        parcelas: [],
+      });
+    }
 
     if (pagamento.gateway_id && pagamento.status !== "aprovado" && PaymentGatewayAdapter.GATEWAY === "cora") {
       const remoto = await PaymentGatewayAdapter.consultarPagamento(pagamento.gateway_id);
@@ -155,6 +191,18 @@ router.get("/status/:reserva_id", authMiddleware, async (req: Request, res: Resp
     }
     const atualizado = (await db.select().from(pagamentos).where(eq(pagamentos.id, pagamento.id)).limit(1))[0] || pagamento;
     const resposta = (atualizado.gateway_resposta || {}) as any;
+    const parcelasLocais = await db.select({
+      id: pagamentoParcelas.id,
+      sequencia: pagamentoParcelas.sequencia,
+      valor: pagamentoParcelas.valor,
+      vencimento: pagamentoParcelas.vencimento,
+      status: pagamentoParcelas.status,
+      valor_pago_centavos: pagamentoParcelas.valor_pago_centavos,
+      boleto_disponivel: sql<boolean>`${pagamentoParcelas.boleto_documento_id} IS NOT NULL`,
+      enviado_email_em: pagamentoParcelas.enviado_email_em,
+      enviado_whatsapp_em: pagamentoParcelas.enviado_whatsapp_em,
+      pago_confirmado_em: pagamentoParcelas.pago_confirmado_em,
+    }).from(pagamentoParcelas).where(eq(pagamentoParcelas.pagamento_id, pagamento.id)).orderBy(pagamentoParcelas.sequencia);
     return res.json({
       reserva_id: req.params.reserva_id,
       checkout_estado: (await db.select({ checkout_estado: reservas.checkout_estado }).from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0]?.checkout_estado,
@@ -168,7 +216,7 @@ router.get("/status/:reserva_id", authMiddleware, async (req: Request, res: Resp
       pix_copia_e_cola: resposta.pix_copia_e_cola,
       url_pagamento: resposta.url_pagamento,
       document_url: resposta.document_url,
-      parcelas: resposta.parcelas,
+      parcelas: parcelasLocais.length ? parcelasLocais : resposta.parcelas,
       criado_em: atualizado.criado_em,
       atualizado_em: atualizado.atualizado_em,
     });
@@ -186,6 +234,9 @@ router.post("/webhook/cora", async (req: Request, res: Response) => {
   const recursoId = header(req, "webhook-resource-id") || String(payload.resource_id || payload.resourceId || payload.invoice_id || payload.id || payload.resource?.id || "");
 
   try {
+    // Se as credenciais foram cadastradas pelo painel DEV, materializa o
+    // segredo de webhook em memória antes de validar a assinatura.
+    await GatewayConfigService.aplicarRuntime().catch(() => false);
     if (!webhookAssinado(req)) return res.status(401).json({ erro: "Assinatura do webhook inválida" });
     await db.insert(webhookEventos).values({ id: createId(), evento_id: eventoId, tipo: eventoTipo, recurso_id: recursoId || null, payload, tentativas: 0 }).onConflictDoNothing();
     const claim = await db.update(webhookEventos).set({ tentativas: sql`tentativas + 1` }).where(and(eq(webhookEventos.evento_id, eventoId), isNull(webhookEventos.processado_em))).returning({ id: webhookEventos.id });

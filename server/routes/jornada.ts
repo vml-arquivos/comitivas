@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { authMiddleware, requireRole } from "../middleware/authMiddleware.js";
+import { authMiddleware, requireRole, isAdminOrDev } from "../middleware/authMiddleware.js";
 import { db } from "../db/index.js";
 import { leads_origem, pacotes, reservas, usuarios } from "../db/schema.js";
 import { eq, and, desc, isNull } from "drizzle-orm";
@@ -51,7 +51,7 @@ router.get("/leads", authMiddleware, requireRole("admin", "vendedor"), async (re
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
 
-    const registros = req.usuario.tipo === "admin"
+    const registros = isAdminOrDev(req.usuario.tipo)
       ? await db.select().from(leads_origem).orderBy(desc(leads_origem.atualizado_em))
       : await db.select().from(leads_origem)
         .where(eq(leads_origem.vendedor_id, req.usuario.id))
@@ -73,7 +73,7 @@ router.get("/leads", authMiddleware, requireRole("admin", "vendedor"), async (re
           valor_total: reservas.valor_total,
           atualizado_em: reservas.atualizado_em,
         }).from(reservas)
-          .where(req.usuario!.tipo === "admin"
+          .where(isAdminOrDev(req.usuario!.tipo)
             ? eq(reservas.usuario_id, lead.usuario_id)
             : and(eq(reservas.usuario_id, lead.usuario_id), eq(reservas.vendedor_id, req.usuario!.id)))
           .orderBy(desc(reservas.atualizado_em))
@@ -145,7 +145,7 @@ router.patch("/leads/:lead_id", authMiddleware, requireRole("admin", "vendedor")
       }
     }
 
-    const condicao = req.usuario.tipo === "admin"
+    const condicao = isAdminOrDev(req.usuario.tipo)
       ? eq(leads_origem.id, lead_id)
       : and(eq(leads_origem.id, lead_id), eq(leads_origem.vendedor_id, req.usuario.id));
     const atualizado = await db.update(leads_origem).set({
@@ -223,7 +223,7 @@ router.get("/cliente/:usuario_id", authMiddleware, requireRole("admin", "vendedo
     // A jornada comercial só pode ser consultada pelo admin ou pelo vendedor
     // responsável pela origem vinculada ao cliente. O filtro é aplicado no
     // banco para impedir acesso por manipulação direta do endpoint.
-    const filtroOrigem = req.usuario.tipo === "admin"
+    const filtroOrigem = isAdminOrDev(req.usuario.tipo)
       ? eq(leads_origem.usuario_id, usuario_id)
       : and(
         eq(leads_origem.usuario_id, usuario_id),
@@ -236,7 +236,7 @@ router.get("/cliente/:usuario_id", authMiddleware, requireRole("admin", "vendedo
       .where(filtroOrigem)
       .limit(1);
 
-    if (req.usuario.tipo !== "admin" && leadResult.length === 0) {
+    if (!isAdminOrDev(req.usuario.tipo) && leadResult.length === 0) {
       return res.status(404).json({ erro: "Usuário não encontrado na sua carteira" });
     }
 
@@ -244,7 +244,7 @@ router.get("/cliente/:usuario_id", authMiddleware, requireRole("admin", "vendedo
     const reservasResult = await db
       .select()
       .from(reservas)
-      .where(req.usuario.tipo === "admin"
+      .where(isAdminOrDev(req.usuario.tipo)
         ? eq(reservas.usuario_id, usuario_id)
         : and(eq(reservas.usuario_id, usuario_id), eq(reservas.vendedor_id, req.usuario.id)));
 

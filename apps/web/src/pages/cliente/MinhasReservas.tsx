@@ -6,6 +6,9 @@ import { Button, Card, CardContent, CardHeader, CardTitle } from '@ui/index';
 import { api } from '../../contexts/AuthContext';
 
 const STATUS: Record<string, { classes: string; label: string; descricao: string }> = {
+  aguardando_aprovacao_boleto: { classes: 'bg-amber-100 text-amber-800', label: 'Cadastro em análise', descricao: 'Contrato validado. A equipe está conferindo seu cadastro antes de liberar os boletos.' },
+  boletos_em_preparacao: { classes: 'bg-indigo-100 text-indigo-800', label: 'Boletos em preparação', descricao: 'Cadastro e contrato aprovados. A equipe está preparando e anexando os boletos.' },
+  boletos_enviados: { classes: 'bg-blue-100 text-blue-800', label: 'Boletos enviados', descricao: 'As parcelas foram enviadas pela equipe. Acompanhe os vencimentos e as confirmações.' },
   pacote_montado: { classes: 'bg-indigo-100 text-indigo-800', label: 'Reserva iniciada', descricao: 'Revise seus dados e emita o contrato.' },
   checkout_iniciado: { classes: 'bg-purple-100 text-purple-800', label: 'Checkout iniciado', descricao: 'Falta aceitar o contrato e escolher o pagamento.' },
   contrato_gerado: { classes: 'bg-amber-100 text-amber-800', label: 'Contrato gerado', descricao: 'Seu contrato está pronto; conclua o pagamento.' },
@@ -157,10 +160,10 @@ export default function MinhasReservas() {
                   <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm">
                     <div className="flex items-center justify-between gap-3">
                       <span className="font-bold text-slate-800">Pagamento</span>
-                      <span className="font-semibold text-slate-600">{reserva.pagamento?.status_reconciliado === 'quitado' ? 'Quitado' : reserva.pagamento?.status_reconciliado === 'pagamento_parcial' ? 'Parcial' : reserva.pagamento?.status_reconciliado === 'cancelado' ? 'Cancelado' : 'Pendente'}</span>
+                      <span className="font-semibold text-slate-600">{reserva.pagamento?.status_reconciliado === 'quitado' ? 'Quitado' : reserva.pagamento?.status_reconciliado === 'parcial' ? 'Parcial' : reserva.pagamento?.status_reconciliado === 'cancelado' ? 'Cancelado' : 'Pendente'}</span>
                     </div>
                     <p className="mt-1 text-slate-500">{reserva.forma_pagamento ? `${String(reserva.forma_pagamento).toUpperCase()} · ${reserva.quantidade_parcelas || 1}x de ${moeda(reserva.valor_parcela || reserva.valor_total)}` : 'Escolha o meio de pagamento para continuar.'}</p>
-                    {Array.isArray(reserva.cronograma_pagamento) && reserva.cronograma_pagamento.length > 0 && <div className="mt-3 grid gap-2 sm:grid-cols-2">{reserva.cronograma_pagamento.map((parcela: any) => <div key={parcela.numero} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-xs"><span>Parcela {parcela.numero} · {parcela.vencimento || 'a confirmar'}</span><strong>{moeda(parcela.valor)}</strong></div>)}</div>}
+                    {Array.isArray(reserva.parcelas) && reserva.parcelas.length > 0 ? <div className="mt-3 space-y-2">{reserva.parcelas.map((parcela: any) => <div key={parcela.id} className="rounded-lg bg-slate-50 px-3 py-2 text-xs"><div className="flex items-center justify-between gap-2"><span>Parcela {parcela.sequencia} · {parcela.vencimento || 'a confirmar'}</span><strong>{moeda(parcela.valor)}</strong></div><p className="mt-1 text-[11px] text-slate-500">{parcela.status === 'aprovado' ? 'Pagamento confirmado' : parcela.boleto_disponivel ? 'Boleto preparado/enviado pela equipe' : 'Boleto em preparação'}{parcela.enviado_email_em ? ' · enviado por e-mail' : ''}{parcela.enviado_whatsapp_em ? ' · WhatsApp registrado' : ''}</p></div>)}</div> : Array.isArray(reserva.cronograma_pagamento) && reserva.cronograma_pagamento.length > 0 && <div className="mt-3 grid gap-2 sm:grid-cols-2">{reserva.cronograma_pagamento.map((parcela: any) => <div key={parcela.numero} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-xs"><span>Parcela {parcela.numero} · {parcela.vencimento || 'a confirmar'}</span><strong>{moeda(parcela.valor)}</strong></div>)}</div>}
                   </div>
 
                   <div className="flex items-start gap-3 text-sm text-slate-600">

@@ -9,6 +9,7 @@ const Login = lazy(() => import('./pages/Login'));
 const PasswordReset = lazy(() => import('./pages/PasswordReset'));
 const Cadastro = lazy(() => import('./pages/Cadastro'));
 const ConfirmarEmail = lazy(() => import('./pages/ConfirmarEmail'));
+const ConviteAcesso = lazy(() => import('./pages/ConviteAcesso'));
 const Eventos = lazy(() => import('./pages/Eventos'));
 const Home = lazy(() => import('./pages/publico/Home'));
 const Historia = lazy(() => import('./pages/publico/Historia'));
@@ -34,6 +35,9 @@ const Jornada = lazy(() => import('./pages/admin/Jornada'));
 const EventosAdmin = lazy(() => import('./pages/admin/Eventos'));
 const Relatorios = lazy(() => import('./pages/admin/Relatorios'));
 const Comissoes = lazy(() => import('./pages/admin/Comissoes'));
+const EquipeAcessos = lazy(() => import('./pages/admin/EquipeAcessos'));
+const GatewayPagamento = lazy(() => import('./pages/admin/GatewayPagamento'));
+const Boletos = lazy(() => import('./pages/admin/Boletos'));
 
 // Proteção de rotas
 const ProtectedRoute = ({ children, roles }: { children: React.ReactNode, roles?: string[] }) => {
@@ -93,6 +97,7 @@ function AppRoutes() {
         <Route path="/redefinir-senha" element={<PasswordReset />} />
         <Route path="/cadastro" element={<Cadastro />} />
         <Route path="/confirmar-email" element={<ConfirmarEmail />} />
+        <Route path="/convite/:token" element={<ConviteAcesso />} />
         
         {/* O configurador é público; a autenticação só é pedida ao reservar. */}
         <Route path="/pacote/:loteId" element={<ConfiguradorPacote />} />
@@ -120,52 +125,55 @@ function AppRoutes() {
 
       {/* Rotas Administrativas */}
       <Route path="/admin" element={
-        <ProtectedRoute roles={['admin', 'vendedor']}>
+        <ProtectedRoute roles={['admin', 'dev', 'vendedor']}>
           <AdminLayout />
         </ProtectedRoute>
       }>
         <Route index element={<Dashboard />} />
-        <Route path="vendas" element={<ProtectedRoute roles={['admin', 'vendedor']}><Vendas /></ProtectedRoute>} />
-        <Route path="reservas" element={<ProtectedRoute roles={['admin', 'vendedor']}><Reservas /></ProtectedRoute>} />
+        <Route path="vendas" element={<ProtectedRoute roles={['admin', 'dev', 'vendedor']}><Vendas /></ProtectedRoute>} />
+        <Route path="reservas" element={<ProtectedRoute roles={['admin', 'dev', 'vendedor']}><Reservas /></ProtectedRoute>} />
         <Route path="contratos" element={
-          <ProtectedRoute roles={['admin', 'vendedor']}>
+          <ProtectedRoute roles={['admin', 'dev', 'vendedor']}>
             <Contratos />
           </ProtectedRoute>
         } />
-        <Route path="pagamentos" element={<ProtectedRoute roles={['admin']}><Pagamentos /></ProtectedRoute>} />
+        <Route path="pagamentos" element={<ProtectedRoute roles={['admin', 'dev']}><Pagamentos /></ProtectedRoute>} />
+        <Route path="boletos" element={<ProtectedRoute roles={['admin', 'dev']}><Boletos /></ProtectedRoute>} />
+        <Route path="equipe" element={<ProtectedRoute roles={['dev']}><EquipeAcessos /></ProtectedRoute>} />
+        <Route path="gateway" element={<ProtectedRoute roles={['dev']}><GatewayPagamento /></ProtectedRoute>} />
         <Route path="clientes" element={
-          <ProtectedRoute roles={['admin']}>
+          <ProtectedRoute roles={['admin', 'dev']}>
             <Clientes />
           </ProtectedRoute>
         } />
         <Route path="clientes/:clienteId" element={
-          <ProtectedRoute roles={['admin']}>
+          <ProtectedRoute roles={['admin', 'dev']}>
             <ClienteFicha />
           </ProtectedRoute>
         } />
         <Route path="configuracoes" element={
-          <ProtectedRoute roles={['admin']}>
+          <ProtectedRoute roles={['admin', 'dev']}>
             <Configuracoes />
           </ProtectedRoute>
         } />
         <Route path="jornada" element={<Jornada />} />
         <Route path="eventos" element={
-          <ProtectedRoute roles={['admin']}>
+          <ProtectedRoute roles={['admin', 'dev']}>
             <EventosAdmin />
           </ProtectedRoute>
         } />
         <Route path="relatorios" element={
-          <ProtectedRoute roles={['admin']}>
+          <ProtectedRoute roles={['admin', 'dev']}>
             <Relatorios />
           </ProtectedRoute>
         } />
         <Route path="comissoes" element={
-          <ProtectedRoute roles={['admin']}>
+          <ProtectedRoute roles={['admin', 'dev']}>
             <Comissoes />
           </ProtectedRoute>
         } />
         <Route path="cupons" element={
-          <ProtectedRoute roles={['admin']}>
+          <ProtectedRoute roles={['admin', 'dev']}>
             <Cupons />
           </ProtectedRoute>
         } />

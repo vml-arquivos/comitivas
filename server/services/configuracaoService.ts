@@ -6,6 +6,7 @@ export interface ConfiguracoesPagamento {
   pix_desconto_percentual: number;
   credito_parcelas_maximo: number;
   boleto_meses_maximo_antecedencia: number;
+  boleto_modo: "manual" | "gateway";
   atualizado_em: Date;
   atualizado_por: string | null;
 }
@@ -14,6 +15,7 @@ const PADRAO: ConfiguracoesPagamento = {
   pix_desconto_percentual: 5,
   credito_parcelas_maximo: 10,
   boleto_meses_maximo_antecedencia: 20,
+  boleto_modo: "manual",
   atualizado_em: new Date(0),
   atualizado_por: null,
 };
@@ -23,6 +25,7 @@ function mapearLinha(linha: typeof configuracoesPagamento.$inferSelect): Configu
     pix_desconto_percentual: Number(linha.pix_desconto_percentual),
     credito_parcelas_maximo: linha.credito_parcelas_maximo,
     boleto_meses_maximo_antecedencia: linha.boleto_meses_maximo_antecedencia,
+    boleto_modo: linha.boleto_modo === "gateway" ? "gateway" : "manual",
     atualizado_em: linha.atualizado_em,
     atualizado_por: linha.atualizado_por,
   };
@@ -77,7 +80,7 @@ export class ConfiguracaoService {
   static async atualizarConfiguracoesPagamento(
     dados: Partial<Pick<
       ConfiguracoesPagamento,
-      "pix_desconto_percentual" | "credito_parcelas_maximo" | "boleto_meses_maximo_antecedencia"
+      "pix_desconto_percentual" | "credito_parcelas_maximo" | "boleto_meses_maximo_antecedencia" | "boleto_modo"
     >>,
     atualizadoPor: string,
   ): Promise<ConfiguracoesPagamento> {
@@ -95,6 +98,9 @@ export class ConfiguracaoService {
       if (!Number.isInteger(dados.boleto_meses_maximo_antecedencia) || dados.boleto_meses_maximo_antecedencia < 1 || dados.boleto_meses_maximo_antecedencia > 36) {
         throw new Error("Máximo de meses de antecedência do boleto deve ser um número inteiro entre 1 e 36");
       }
+    }
+    if (dados.boleto_modo !== undefined && !["manual", "gateway"].includes(dados.boleto_modo)) {
+      throw new Error("Modo de boleto inválido");
     }
 
     await db
@@ -114,6 +120,7 @@ export class ConfiguracaoService {
         ...(dados.boleto_meses_maximo_antecedencia !== undefined
           ? { boleto_meses_maximo_antecedencia: dados.boleto_meses_maximo_antecedencia }
           : {}),
+        ...(dados.boleto_modo !== undefined ? { boleto_modo: dados.boleto_modo } : {}),
         atualizado_em: new Date(),
         atualizado_por: atualizadoPor,
       })

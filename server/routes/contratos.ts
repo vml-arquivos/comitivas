@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { authMiddleware } from "../middleware/authMiddleware.js";
+import { authMiddleware, isAdminOrDev } from "../middleware/authMiddleware.js";
 import { ContratoService, REGRAS_CONVIVENCIA_OFICIAIS, REGRAS_CONVIVENCIA_VERSION } from "../services/contratoService.js";
 import { ConfiguracaoService } from "../services/configuracaoService.js";
 import { db } from "../db/index.js";
@@ -14,7 +14,7 @@ const router = Router();
 
 function podeAcessarReserva(req: Request, reserva: { usuario_id: string; vendedor_id: string | null }, somenteCliente = false): boolean {
   if (!req.usuario) return false;
-  if (req.usuario.tipo === "admin") return true;
+  if (isAdminOrDev(req.usuario.tipo)) return true;
   if (reserva.usuario_id === req.usuario.id) return true;
   return !somenteCliente && req.usuario.tipo === "vendedor" && reserva.vendedor_id === req.usuario.id;
 }
@@ -335,7 +335,7 @@ router.get("/voucher/:reserva_id", authMiddleware, async (req: Request, res: Res
 
     const voucher = dados[0];
     if (!voucher) return res.status(404).json({ erro: "Reserva não encontrada" });
-    if (voucher.usuario_id !== req.usuario.id && req.usuario.tipo !== "admin") {
+    if (voucher.usuario_id !== req.usuario.id && !isAdminOrDev(req.usuario.tipo)) {
       return res.status(403).json({ erro: "Acesso negado" });
     }
     if (voucher.status !== "cliente_confirmado") {
@@ -441,7 +441,7 @@ router.get("/visualizar/:reserva_id", authMiddleware, async (req: Request, res: 
     const reserva = reservaResult[0];
 
     // Verificar se é do usuário ou admin
-    if (reserva.usuario_id !== req.usuario.id && req.usuario.tipo !== "admin") {
+    if (reserva.usuario_id !== req.usuario.id && !isAdminOrDev(req.usuario.tipo)) {
       return res.status(403).json({ erro: "Acesso negado" });
     }
 

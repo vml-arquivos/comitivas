@@ -76,9 +76,9 @@ export function MainLayout() {
               {user ? (
                 <>
                   <Link to="/minhas-reservas" className="text-sm font-bold text-[#182D3B] transition hover:text-[#851F32]">Minha conta</Link>
-                  {(user.tipo === 'admin' || user.tipo === 'vendedor') && (
+                  {(['admin', 'dev', 'vendedor'].includes(user.tipo)) && (
                     <Link to="/admin" className="rounded-full border border-[#182D3B]/15 px-4 py-2 text-sm font-bold text-[#182D3B] transition hover:border-[#851F32]/30 hover:text-[#851F32]">
-                      {user.tipo === 'admin' ? 'Painel' : 'Meu painel'}
+                      {user.tipo === 'dev' ? 'Painel DEV' : user.tipo === 'admin' ? 'Painel' : 'Meu painel'}
                     </Link>
                   )}
                   <div className="flex items-center gap-2 border-l border-[#182D3B]/15 pl-3 text-[#182D3B]/75">
@@ -119,7 +119,7 @@ export function MainLayout() {
               {user ? (
                 <>
                   <Link to="/minhas-reservas" onClick={fecharMenu} className="block rounded-xl px-3 py-2.5 font-semibold hover:bg-white">Minha conta</Link>
-                  {(user.tipo === 'admin' || user.tipo === 'vendedor') && <Link to="/admin" onClick={fecharMenu} className="block rounded-xl px-3 py-2.5 font-bold text-[#851F32] hover:bg-white">Painel administrativo</Link>}
+                  {(['admin', 'dev', 'vendedor'].includes(user.tipo)) && <Link to="/admin" onClick={fecharMenu} className="block rounded-xl px-3 py-2.5 font-bold text-[#851F32] hover:bg-white">Painel administrativo</Link>}
                   <button onClick={handleLogout} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left font-semibold hover:bg-white"><LogOut size={16} />Sair</button>
                 </>
               ) : (

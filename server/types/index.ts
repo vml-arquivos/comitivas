@@ -1,7 +1,7 @@
 export interface UsuarioPayload {
   id: string;
   email: string;
-  tipo: "cliente" | "vendedor" | "admin";
+  tipo: "cliente" | "vendedor" | "admin" | "dev";
   session_version?: number;
 }
 
