@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Helmet } from 'react-helmet-async';
-import { CheckCircle2, Download, Share2, ShieldCheck, Smartphone, SquarePlus, WifiOff } from 'lucide-react';
+import { CheckCircle2, Download, Plus, Share2, ShieldCheck, Smartphone, WifiOff } from 'lucide-react';
 
 type InstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -141,7 +141,7 @@ export default function Aplicativo() {
               <ol className="mt-5 space-y-3 text-sm leading-6 text-[#182D3B]/72">
                 <li><strong>1.</strong> Abra esta página no Safari.</li>
                 <li><strong>2.</strong> Toque em <strong>Compartilhar</strong>.</li>
-                <li className="flex gap-2"><SquarePlus size={18} className="mt-1 shrink-0 text-[#851F32]" /><span><strong>3.</strong> Toque em <strong>Adicionar à Tela de Início</strong> e mantenha <strong>Abrir como App da Web</strong> ativado.</span></li>
+                <li className="flex gap-2"><Plus size={18} className="mt-1 shrink-0 text-[#851F32]" /><span><strong>3.</strong> Toque em <strong>Adicionar à Tela de Início</strong> e mantenha <strong>Abrir como App da Web</strong> ativado.</span></li>
               </ol>
             </article>
           </div>
