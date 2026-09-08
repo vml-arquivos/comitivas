@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, useAuth } from '../../contexts/AuthContext';
 import { Card, CardContent, Button, Input } from '@ui/index';
-import { Download, Eye, Plus, X, Pencil, Power, Search } from 'lucide-react';
+import { Download, Eye, Plus, X, Pencil, Power, Search, Trash2 } from 'lucide-react';
 
 interface Usuario {
   id: string;
@@ -194,6 +194,16 @@ export default function Clientes() {
       setUsuarios((prev) => prev.map((u) => (u.id === usuario.id ? response.data.usuario : u)));
     } catch (err: any) {
       alert(err.response?.data?.erro || `Erro ao ${acao} usuário.`);
+    }
+  };
+
+  const handleExcluir = async (usuario: Usuario) => {
+    if (!confirm(`Excluir definitivamente o cadastro de ${usuario.nome}? Esta ação não pode ser desfeita.`)) return;
+    try {
+      await api.delete(`/admin/usuarios/${usuario.id}`);
+      setUsuarios((prev) => prev.filter((u) => u.id !== usuario.id));
+    } catch (err: any) {
+      alert(err.response?.data?.erro || 'Não foi possível excluir o usuário.');
     }
   };
 
@@ -410,6 +420,15 @@ export default function Clientes() {
                       >
                         <Power size={18} />
                       </button>
+                      {usuario.tipo !== 'dev' && usuario.id !== user?.id && (usuario.tipo !== 'admin' || user?.tipo === 'dev') && (
+                        <button
+                          onClick={() => void handleExcluir(usuario)}
+                          className="p-1 text-gray-500 transition-colors hover:text-red-700"
+                          title="Excluir definitivamente"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

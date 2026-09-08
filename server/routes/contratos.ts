@@ -55,6 +55,21 @@ async function cadastroAprovado(reservaId: string): Promise<boolean> {
   return Boolean(registro?.cadastro_status === "aprovado");
 }
 
+function regrasDoPacote(pacote: typeof pacotes.$inferSelect | undefined) {
+  const configuracao = pacote?.configuracao_pagamento && typeof pacote.configuracao_pagamento === "object"
+    ? pacote.configuracao_pagamento as { formas_permitidas?: unknown; boleto_parcelas_maximo?: unknown }
+    : {};
+  const formasPermitidas = Array.isArray(configuracao.formas_permitidas)
+    ? configuracao.formas_permitidas.map(String).filter((forma) => ["pix", "boleto", "credito"].includes(forma))
+    : ["pix", "boleto"];
+  const limiteConfigurado = Number(configuracao.boleto_parcelas_maximo);
+  return {
+    formasPermitidas: formasPermitidas.length ? formasPermitidas : ["pix", "boleto"],
+    boletoParcelasMaximo: Number.isInteger(limiteConfigurado) && limiteConfigurado > 0 ? limiteConfigurado : undefined,
+    dataLimitePagamento: pacote?.data_limite_pagamento,
+  };
+}
+
 // Preparar a versão contratual que será exibida e validada pelo cliente.
 router.post("/preparar/:reserva_id", authMiddleware, async (req: Request, res: Response) => {
   try {
@@ -194,13 +209,21 @@ router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Re
         .from(lotes)
         .where(eq(lotes.id, reserva.lote_id))
         .limit(1);
-      const dataLimitePagamento = loteResult[0]?.data_embarque || loteResult[0]?.data_inicio;
+      const pacote = reserva.pacote_id
+        ? (await db.select().from(pacotes).where(eq(pacotes.id, reserva.pacote_id)).limit(1))[0]
+        : undefined;
+      const regrasPacote = regrasDoPacote(pacote);
+      if (!regrasPacote.formasPermitidas.includes(String(metodoPagamento))) {
+        throw new Error("A forma de pagamento não está disponível para este pacote");
+      }
+      const dataLimitePagamento = regrasPacote.dataLimitePagamento || loteResult[0]?.data_embarque || loteResult[0]?.data_inicio;
       const configPagamento = await ConfiguracaoService.obterConfiguracoesPagamento();
-      const parcelasMaximasBoleto = ContratoService.calcularParcelasMaximasBoleto(
+      const parcelasPorData = ContratoService.calcularParcelasMaximasBoleto(
         dataLimitePagamento,
         new Date(),
         configPagamento.boleto_meses_maximo_antecedencia,
       );
+      const parcelasMaximasBoleto = Math.min(parcelasPorData, regrasPacote.boletoParcelasMaximo || parcelasPorData);
 
       // O valor_total persistido já pode conter o desconto da condição anterior.
       // Reconstituímos a base somando apenas o desconto financeiro anterior para

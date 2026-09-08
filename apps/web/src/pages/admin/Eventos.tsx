@@ -38,6 +38,10 @@ interface Pacote {
   modalidade_hospedagem: 'camping' | 'quarto_ventilador' | 'quarto_ar_condicionado';
   disponibilidade: 'disponivel' | 'ultimas_vagas' | 'esgotado';
   contrato_modelo: 'auto' | 'hospedagem' | 'transporte';
+  forma_contratacao: 'onibus' | 'hospedagem' | 'onibus_hospedagem' | 'livre';
+  onibus_config?: Array<{ id: string; nome: string; capacidade: number; ocupadas?: number[] }>;
+  configuracao_pagamento?: { formas_permitidas?: string[]; boleto_parcelas_maximo?: number };
+  data_limite_pagamento?: string | null;
   ativo: boolean;
 }
 
@@ -95,6 +99,12 @@ export default function EventosAdmin() {
     modalidade: 'quarto_ventilador' as Pacote['modalidade_hospedagem'],
     disponibilidade: 'disponivel' as Pacote['disponibilidade'],
     contratoModelo: 'auto' as Pacote['contrato_modelo'],
+    formaContratacao: 'hospedagem' as Pacote['forma_contratacao'],
+    quantidadeOnibus: '1',
+    capacidadeOnibus: '44',
+    formasPagamento: ['pix', 'boleto'] as string[],
+    boletoParcelas: '11',
+    dataLimitePagamento: '',
   });
   const [kitForm, setKitForm] = useState({
     camping: { valor: '1900', disponibilidade: 'disponivel' as Pacote['disponibilidade'] },
@@ -273,9 +283,22 @@ export default function EventosAdmin() {
         modalidade_hospedagem: pacoteForm.modalidade,
         disponibilidade: pacoteForm.disponibilidade,
         contrato_modelo: pacoteForm.contratoModelo,
+        forma_contratacao: pacoteForm.formaContratacao,
+        onibus_config: pacoteForm.formaContratacao.includes('onibus')
+          ? Array.from({ length: Math.max(1, Number(pacoteForm.quantidadeOnibus) || 1) }, (_, indice) => ({
+            id: `onibus-${indice + 1}`,
+            nome: `Ônibus ${indice + 1}`,
+            capacidade: Math.max(1, Number(pacoteForm.capacidadeOnibus) || 1),
+          }))
+          : [],
+        configuracao_pagamento: {
+          formas_permitidas: pacoteForm.formasPagamento,
+          boleto_parcelas_maximo: Math.max(1, Number(pacoteForm.boletoParcelas) || 1),
+        },
+        data_limite_pagamento: pacoteForm.dataLimitePagamento ? dataSaoPauloIso(pacoteForm.dataLimitePagamento, true) : undefined,
       });
       await carregarPacotes(loteId);
-      setPacoteForm({ nome: '', descricao: '', valorTotal: '', modalidade: 'quarto_ventilador', disponibilidade: 'disponivel', contratoModelo: 'auto' });
+      setPacoteForm({ nome: '', descricao: '', valorTotal: '', modalidade: 'quarto_ventilador', disponibilidade: 'disponivel', contratoModelo: 'auto', formaContratacao: 'hospedagem', quantidadeOnibus: '1', capacidadeOnibus: '44', formasPagamento: ['pix', 'boleto'], boletoParcelas: '11', dataLimitePagamento: '' });
       setMostrarFormPacote(null);
     } catch (err: any) {
       setErroForm(err.response?.data?.erro || 'Erro ao publicar pacote.');
@@ -524,7 +547,26 @@ export default function EventosAdmin() {
                                     <option value="transporte">Transporte + hospedagem</option>
                                   </select>
                                 </div>
-                                <div className="flex items-end"><Button type="submit" disabled={salvando} className="w-full">{salvando ? 'Publicando...' : 'Publicar pacote'}</Button></div>
+                                <div>
+                                  <label className="mb-1 block text-sm font-medium text-gray-700">Forma de contratação</label>
+                                  <select value={pacoteForm.formaContratacao} onChange={(e) => setPacoteForm({ ...pacoteForm, formaContratacao: e.target.value as Pacote['forma_contratacao'] })} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+                                    <option value="hospedagem">Hospedagem</option><option value="onibus">Ônibus</option><option value="onibus_hospedagem">Ônibus + hospedagem</option><option value="livre">Livre / personalizado</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="mb-1 block text-sm font-medium text-gray-700">Data limite dos boletos</label>
+                                  <input type="date" value={pacoteForm.dataLimitePagamento} onChange={(e) => setPacoteForm({ ...pacoteForm, dataLimitePagamento: e.target.value })} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
+                                </div>
+                                <div>
+                                  <label className="mb-1 block text-sm font-medium text-gray-700">Máx. parcelas boleto</label>
+                                  <Input type="number" min={1} max={36} value={pacoteForm.boletoParcelas} onChange={(e) => setPacoteForm({ ...pacoteForm, boletoParcelas: e.target.value })} />
+                                </div>
+                                <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600 md:col-span-3">
+                                  <span className="font-semibold text-gray-700">Pagamento:</span>
+                                  {['pix', 'boleto', 'credito'].map((forma) => <label key={forma} className="flex items-center gap-1"><input type="checkbox" checked={pacoteForm.formasPagamento.includes(forma)} onChange={(e) => setPacoteForm({ ...pacoteForm, formasPagamento: e.target.checked ? [...pacoteForm.formasPagamento, forma] : pacoteForm.formasPagamento.filter((item) => item !== forma) })} />{forma === 'pix' ? 'PIX' : forma === 'boleto' ? 'Boleto' : 'Cartão'}</label>)}
+                                </div>
+                                {pacoteForm.formaContratacao.includes('onibus') && <div className="grid gap-3 rounded-lg border border-blue-100 bg-blue-50 p-3 md:col-span-5 md:grid-cols-2"><Input label="Quantidade de ônibus" type="number" min={1} max={50} value={pacoteForm.quantidadeOnibus} onChange={(e) => setPacoteForm({ ...pacoteForm, quantidadeOnibus: e.target.value })} /><Input label="Vagas por ônibus" type="number" min={1} max={100} value={pacoteForm.capacidadeOnibus} onChange={(e) => setPacoteForm({ ...pacoteForm, capacidadeOnibus: e.target.value })} /><p className="text-xs text-blue-800 md:col-span-2">O sistema criará o mapa de assentos de cada ônibus e controlará a capacidade no pacote.</p></div>}
+                                <div className="flex items-end"><Button type="submit" disabled={salvando || pacoteForm.formasPagamento.length === 0} className="w-full">{salvando ? 'Publicando...' : 'Publicar pacote'}</Button></div>
                               </div>
                               <textarea value={pacoteForm.descricao} onChange={(e) => setPacoteForm({ ...pacoteForm, descricao: e.target.value })} rows={2} className="mt-3 w-full rounded-md border border-gray-300 p-2 text-sm" placeholder="Descrição comercial desta modalidade (opcional)." />
                             </form>

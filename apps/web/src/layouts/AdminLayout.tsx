@@ -8,6 +8,7 @@ import {
   Users,
   UserCog,
   FileText,
+  ImagePlus,
   Settings,
   LogOut,
   ArrowLeft,
@@ -61,6 +62,7 @@ const navGroups: NavGroup[] = [
       { name: 'Eventos & Lotes', path: '/admin/eventos', icon: PartyPopper, roles: ['admin', 'dev'] },
       { name: 'Reservas', path: '/admin/reservas', icon: CalendarDays, roles: ['admin', 'dev', 'vendedor'] },
       { name: 'Contratos', path: '/admin/contratos', icon: FileText, roles: ['admin', 'dev', 'vendedor'] },
+      { name: 'Galeria e vídeos', path: '/admin/conteudo', icon: ImagePlus, roles: ['admin', 'dev'] },
     ],
   },
   {
@@ -81,7 +83,7 @@ const navGroups: NavGroup[] = [
   {
     label: 'Sistema & segurança',
     items: [
-      { name: 'Equipe & Acessos', path: '/admin/equipe', icon: ShieldCheck, roles: ['dev'] },
+      { name: 'Equipe & Acessos', path: '/admin/equipe', icon: ShieldCheck, roles: ['admin', 'dev'] },
       { name: 'Gateway', path: '/admin/gateway', icon: KeyRound, roles: ['dev'] },
     ],
   },

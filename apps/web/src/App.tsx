@@ -39,6 +39,7 @@ const Comissoes = lazy(() => import('./pages/admin/Comissoes'));
 const EquipeAcessos = lazy(() => import('./pages/admin/EquipeAcessos'));
 const GatewayPagamento = lazy(() => import('./pages/admin/GatewayPagamento'));
 const Boletos = lazy(() => import('./pages/admin/Boletos'));
+const Conteudo = lazy(() => import('./pages/admin/Conteudo'));
 
 // Proteção de rotas
 const ProtectedRoute = ({ children, roles }: { children: React.ReactNode, roles?: string[] }) => {
@@ -146,7 +147,7 @@ function AppRoutes() {
         } />
         <Route path="pagamentos" element={<ProtectedRoute roles={['admin', 'dev']}><Pagamentos /></ProtectedRoute>} />
         <Route path="boletos" element={<ProtectedRoute roles={['admin', 'dev']}><Boletos /></ProtectedRoute>} />
-        <Route path="equipe" element={<ProtectedRoute roles={['dev']}><EquipeAcessos /></ProtectedRoute>} />
+        <Route path="equipe" element={<ProtectedRoute roles={['admin', 'dev']}><EquipeAcessos /></ProtectedRoute>} />
         <Route path="gateway" element={<ProtectedRoute roles={['dev']}><GatewayPagamento /></ProtectedRoute>} />
         <Route path="clientes" element={
           <ProtectedRoute roles={['admin', 'dev']}>
@@ -169,6 +170,7 @@ function AppRoutes() {
             <EventosAdmin />
           </ProtectedRoute>
         } />
+        <Route path="conteudo" element={<ProtectedRoute roles={['admin', 'dev']}><Conteudo /></ProtectedRoute>} />
         <Route path="relatorios" element={
           <ProtectedRoute roles={['admin', 'dev']}>
             <Relatorios />

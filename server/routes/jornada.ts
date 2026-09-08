@@ -15,16 +15,19 @@ router.post("/gerar-link", authMiddleware, requireRole("vendedor", "admin"), asy
     }
 
     const { evento_id } = req.body;
+    const vendedorId = req.usuario.tipo === "vendedor" ? req.usuario.id : String(req.body?.vendedor_id || req.usuario.id);
+    const vendedor = (await db.select({ id: usuarios.id, tipo: usuarios.tipo, ativo: usuarios.ativo }).from(usuarios).where(eq(usuarios.id, vendedorId)).limit(1))[0];
+    if (!vendedor || vendedor.tipo !== "vendedor" || vendedor.ativo === false) return res.status(400).json({ erro: "Selecione um vendedor ativo para gerar o link" });
 
     // Gerar código único
-    const codigo_origem = `${req.usuario.id}-${createId()}`;
+    const codigo_origem = `${vendedorId}-${createId()}`;
 
     // Salvar lead_origem
     const lead = await db
       .insert(leads_origem)
       .values({
         codigo_origem,
-        vendedor_id: req.usuario.id,
+        vendedor_id: vendedorId,
         evento_id: evento_id || null,
         origem: "link_vendedor",
         status: "novo",

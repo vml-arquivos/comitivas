@@ -363,7 +363,7 @@ export class ContratoService {
     const localHospedagem = textoOpcional(hospedagemForm.local, lote.local_hospedagem || "Chácara Recanto Novo Encantado ou Santa Thereza") || "Chácara Recanto Novo Encantado ou Santa Thereza";
     const modalidadeHospedagem = textoOpcional(hospedagemForm.modalidade, pacote?.modalidade_hospedagem || null);
     const regrasHash = sha256(REGRAS_CONVIVENCIA_OFICIAIS);
-    const dataLimite = lote.data_embarque || lote.data_inicio;
+    const dataLimite = pacote?.data_limite_pagamento || lote.data_embarque || lote.data_inicio;
     const servicos = ["Hospedagem", "Café da manhã", "Almoço", "Open Bar das 09h às 19h", "Translado entre a chácara e o Parque do Peão"];
     if (rodoviario) servicos.unshift("Transporte rodoviário de ida e volta, conforme programação previamente divulgada pela CONTRATADA");
     const cronograma = cronogramaPagamento(total, dataValida(dataLimite), parcelas);

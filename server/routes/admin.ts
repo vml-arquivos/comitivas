@@ -1117,7 +1117,24 @@ router.patch("/usuarios/:id/status", requireRole("admin"), async (req: Request, 
   }
 });
 
-// ==========================================================================
+router.delete("/usuarios/:id", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    if (req.params.id === req.usuario.id) return res.status(400).json({ erro: "Não é permitido excluir a própria conta" });
+    const alvo = (await db.select({ id: usuarios.id, tipo: usuarios.tipo, nome: usuarios.nome }).from(usuarios).where(eq(usuarios.id, req.params.id)).limit(1))[0];
+    if (!alvo || alvo.tipo === "dev" || (alvo.tipo === "admin" && req.usuario.tipo !== "dev")) return res.status(404).json({ erro: "Usuário não encontrado ou protegido" });
+    await AuditService.registrar(req, "usuario_exclusao_solicitada", "usuario", alvo.id, { tipo: alvo.tipo, nome: alvo.nome });
+    const removido = await db.delete(usuarios).where(eq(usuarios.id, alvo.id)).returning({ id: usuarios.id });
+    if (!removido[0]) return res.status(404).json({ erro: "Usuário não encontrado" });
+    return res.json({ mensagem: "Usuário excluído definitivamente", id: alvo.id });
+  } catch (error: any) {
+    if (String(error?.code) === "23503") return res.status(409).json({ erro: "Este usuário possui vendas, reservas ou documentos vinculados. Desative o acesso para preservar o histórico." });
+    console.error("[ADMIN] Erro ao excluir usuário:", error);
+    return res.status(500).json({ erro: "Não foi possível excluir o usuário" });
+  }
+});
+
+// ===========================================================================
 // Ficha 360º de clientes: dados, histórico, documentos, contratos e relatórios
 // ==========================================================================
 
@@ -1599,13 +1616,19 @@ router.post("/contratos/gerar/:reserva_id", async (req: Request, res: Response) 
         .from(lotes)
         .where(eq(lotes.id, reserva.lote_id))
         .limit(1);
-      const dataLimitePagamento = loteResult[0]?.data_embarque || loteResult[0]?.data_inicio;
+      const pacote = reserva.pacote_id ? (await db.select({ data_limite_pagamento: pacotes.data_limite_pagamento, configuracao_pagamento: pacotes.configuracao_pagamento }).from(pacotes).where(eq(pacotes.id, reserva.pacote_id)).limit(1))[0] : undefined;
+      const regrasPacote = pacote?.configuracao_pagamento && typeof pacote.configuracao_pagamento === "object" ? pacote.configuracao_pagamento as { boleto_parcelas_maximo?: unknown; formas_permitidas?: unknown } : {};
+      const formasPermitidas = Array.isArray(regrasPacote.formas_permitidas) ? regrasPacote.formas_permitidas.map(String) : ["pix", "boleto"];
+      if (!formasPermitidas.includes(String(metodoPagamento))) throw new Error("A forma de pagamento não está disponível para este pacote");
+      const dataLimitePagamento = pacote?.data_limite_pagamento || loteResult[0]?.data_embarque || loteResult[0]?.data_inicio;
       const configPagamento = await ConfiguracaoService.obterConfiguracoesPagamento();
-      const parcelasMaximasBoleto = ContratoService.calcularParcelasMaximasBoleto(
+      const parcelasPorData = ContratoService.calcularParcelasMaximasBoleto(
         dataLimitePagamento,
         new Date(),
         configPagamento.boleto_meses_maximo_antecedencia,
       );
+      const tetoPacote = Number(regrasPacote.boleto_parcelas_maximo);
+      const parcelasMaximasBoleto = Math.min(parcelasPorData, Number.isInteger(tetoPacote) && tetoPacote > 0 ? tetoPacote : parcelasPorData);
 
       const valorBaseSemDescontoPagamento = Number(reserva.valor_total) + Number(reserva.desconto_pagamento || 0);
       condicaoPagamento = ContratoService.calcularCondicaoPagamento(
@@ -1861,19 +1884,21 @@ router.post("/dev/bootstrap", requireRole("admin"), async (req: Request, res: Re
   }
 });
 
-router.get("/dev/equipe", requireRole("dev"), async (_req: Request, res: Response) => {
-  const equipe = await db.select(CAMPOS_PUBLICOS_USUARIO).from(usuarios).where(inArray(usuarios.tipo, ["dev", "admin", "vendedor"] as any)).orderBy(desc(usuarios.criado_em));
+router.get("/dev/equipe", requireRole("admin"), async (req: Request, res: Response) => {
+  const tiposVisiveis = req.usuario?.tipo === "dev" ? ["dev", "admin", "vendedor"] : ["admin", "vendedor"];
+  const equipe = await db.select(CAMPOS_PUBLICOS_USUARIO).from(usuarios).where(inArray(usuarios.tipo, tiposVisiveis as any)).orderBy(desc(usuarios.criado_em));
   const convites = await db.select().from(convitesAcesso).orderBy(desc(convitesAcesso.criado_em)).limit(200);
   return res.json({ equipe, convites });
 });
 
-router.post("/dev/convites", requireRole("dev"), async (req: Request, res: Response) => {
+router.post("/dev/convites", requireRole("admin"), async (req: Request, res: Response) => {
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
     const papel = String(req.body?.papel || "").trim();
     const email = String(req.body?.email || "").trim().toLowerCase() || null;
     const horas = Math.min(168, Math.max(1, Number(req.body?.horas_validade || 72)));
     if (!["admin", "vendedor"].includes(papel)) return res.status(400).json({ erro: "Convites podem criar administrador ou vendedor" });
+    if (papel === "admin" && req.usuario.tipo !== "dev") return res.status(403).json({ erro: "Somente DEV pode convidar outro administrador" });
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ erro: "E-mail do convite inválido" });
     const token = randomBytes(32).toString("base64url");
     const convite = (await db.insert(convitesAcesso).values({ id: createId(), token_hash: hashConvite(token), papel, email_destino: email, criado_por: req.usuario.id, expira_em: new Date(Date.now() + horas * 3600_000), criado_em: new Date() }).returning())[0];
@@ -1886,7 +1911,7 @@ router.post("/dev/convites", requireRole("dev"), async (req: Request, res: Respo
   }
 });
 
-router.patch("/dev/convites/:id/revogar", requireRole("dev"), async (req: Request, res: Response) => {
+router.patch("/dev/convites/:id/revogar", requireRole("admin"), async (req: Request, res: Response) => {
   const convite = (await db.update(convitesAcesso).set({ revogado_em: new Date() }).where(and(eq(convitesAcesso.id, req.params.id), isNull(convitesAcesso.usado_em))).returning())[0];
   if (!convite) return res.status(404).json({ erro: "Convite não encontrado ou já utilizado" });
   await AuditService.registrar(req, "convite_revogado", "convite_acesso", convite.id);
