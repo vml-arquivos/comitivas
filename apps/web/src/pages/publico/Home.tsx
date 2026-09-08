@@ -311,12 +311,12 @@ export default function Home() {
 
       <section className="relative overflow-hidden border-b border-[#182D3B]/10 bg-[#F8F5EF]">
         <div className="pointer-events-none absolute -left-24 top-10 h-72 w-72 rounded-full bg-[#851F32]/5 blur-3xl" />
-        <div className="mx-auto grid min-h-[680px] max-w-[1380px] items-center gap-12 px-5 py-16 sm:px-8 lg:grid-cols-[0.88fr_1.12fr] lg:px-12 lg:py-20 xl:gap-20">
+        <div className="mx-auto grid min-h-[620px] max-w-[1440px] items-center gap-10 px-5 py-12 sm:px-8 sm:py-16 lg:grid-cols-[0.9fr_1.1fr] lg:px-12 lg:py-20 xl:gap-20">
           <div className="relative z-10 max-w-2xl">
             <p className="mb-6 inline-flex items-center gap-3 text-xs font-extrabold uppercase tracking-[0.24em] text-[#851F32]">
               <span className="h-px w-9 bg-[#851F32]" /> Desde 2015 em Barretos
             </p>
-            <h1 className="font-editorial text-[clamp(3.4rem,7vw,7rem)] leading-[0.88] tracking-[-0.045em] text-[#182D3B]">
+            <h1 className="font-editorial max-w-[12ch] text-[clamp(2.7rem,7vw,7rem)] leading-[0.92] tracking-[-0.045em] text-[#182D3B] sm:max-w-none">
               O destino é Barretos. <span className="text-[#851F32]">A história é sua.</span>
             </h1>
             <p className="mt-8 max-w-xl text-base leading-7 text-[#425563] sm:text-lg sm:leading-8">
@@ -336,7 +336,7 @@ export default function Home() {
             <p className="mt-5 text-xs leading-5 text-[#687882]">Preço e disponibilidade exibidos nesta página são os dados retornados pela oferta publicada no sistema.</p>
           </div>
 
-          <div className="relative mx-auto w-full max-w-[720px] pb-12 lg:pb-16">
+          <div className="relative mx-auto w-full max-w-[720px] pb-8 lg:pb-16">
             <div className="relative aspect-[1.14/1] overflow-hidden rounded-[2rem] bg-[#182D3B] shadow-[0_30px_80px_rgba(24,45,59,0.18)] sm:rounded-[2.5rem]">
               <img
                 src="/images/hero-parque-peao.jpg"
@@ -352,7 +352,7 @@ export default function Home() {
               </div>
             </div>
 
-            <aside className="relative -mt-10 ml-auto mr-3 w-[min(92%,430px)] rounded-[1.5rem] border border-[#182D3B]/10 bg-white p-5 shadow-[0_24px_55px_rgba(24,45,59,0.18)] sm:-mt-16 sm:mr-7 sm:p-6" aria-live="polite">
+            <aside className="relative -mt-8 ml-auto mr-2 w-[min(94%,430px)] rounded-[1.5rem] border border-[#182D3B]/10 bg-white p-5 shadow-[0_24px_55px_rgba(24,45,59,0.18)] sm:-mt-16 sm:mr-7 sm:p-6" aria-live="polite">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[#851F32]">Sua próxima viagem</p>
@@ -440,7 +440,7 @@ export default function Home() {
                 const status = statusOferta(oferta.pacote.disponibilidade);
                 const itens = normalizarItens(oferta.pacote.itens_inclusos);
                 return (
-                  <article key={`${oferta.lote.id}-${oferta.pacote.id}`} className="group flex min-w-0 flex-col rounded-[1.5rem] border border-[#182D3B]/10 bg-white p-6 shadow-[0_12px_35px_rgba(24,45,59,0.06)] transition hover:-translate-y-1 hover:shadow-[0_20px_45px_rgba(24,45,59,0.1)]">
+                    <article key={`${oferta.lote.id}-${oferta.pacote.id}`} className="group flex min-h-[385px] min-w-0 flex-col rounded-[1.5rem] border border-[#182D3B]/10 bg-white p-6 shadow-[0_12px_35px_rgba(24,45,59,0.06)] transition hover:-translate-y-1 hover:shadow-[0_20px_45px_rgba(24,45,59,0.1)]">
                     <div className="flex items-start justify-between gap-4"><p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#851F32]">{oferta.evento.nome}</p><span className={`shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase ${status.classe}`}>{status.label}</span></div>
                     <h3 className="font-editorial mt-4 text-2xl leading-tight text-[#182D3B]">{oferta.pacote.nome}</h3>
                     <p className="mt-2 line-clamp-2 min-h-10 text-sm leading-5 text-[#6B7C85]">{oferta.pacote.descricao || oferta.lote.descricao || 'Detalhes completos disponíveis no configurador.'}</p>

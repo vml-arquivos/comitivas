@@ -51,15 +51,15 @@ export function MainLayout() {
 
       <header className="sticky top-0 z-50 border-b border-[#182D3B]/10 bg-[#F8F5EF]/95 backdrop-blur-xl">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex h-[80px] items-center justify-between gap-2.5 sm:h-[88px] sm:gap-4">
-            <Link to="/" className="flex min-w-0 items-center gap-3" onClick={fecharMenu} aria-label="Excursão das Comitivas — início">
-              <div className="shrink-0 rounded-full border border-[#182D3B]/10 bg-white p-1 shadow-sm sm:p-1.5">
+          <div className="flex h-[70px] items-center justify-between gap-2 sm:h-[86px] sm:gap-4">
+            <Link to="/" className="flex min-w-0 items-center gap-2.5 sm:gap-3.5" onClick={fecharMenu} aria-label="Excursão das Comitivas — início">
+              <div className="shrink-0 rounded-full border border-[#182D3B]/10 bg-white p-1 shadow-[0_8px_24px_rgba(24,45,59,.08)] sm:p-1.5">
                 <picture>
                   <source srcSet={logoWebp} type="image/webp" />
-                  <img src={logoUrl} alt="" aria-hidden="true" className="h-[52px] w-[52px] object-contain sm:h-10 sm:w-10" width="52" height="52" />
+                  <img src={logoUrl} alt="" aria-hidden="true" className="h-11 w-11 object-contain sm:h-14 sm:w-14 lg:h-16 lg:w-16" width="64" height="64" />
                 </picture>
               </div>
-              <span className="hidden max-w-[150px] truncate font-editorial text-[0.95rem] font-bold tracking-[-0.015em] text-[#182D3B] min-[430px]:block sm:max-w-none sm:text-[1.08rem] lg:text-xl">
+              <span className="block max-w-[118px] truncate font-editorial text-[0.84rem] font-bold leading-tight tracking-[-0.015em] text-[#182D3B] min-[390px]:max-w-[150px] min-[390px]:text-[0.95rem] sm:max-w-none sm:text-[1.2rem] lg:text-[1.35rem]">
                 Excursão das Comitivas
               </span>
             </Link>
@@ -102,7 +102,7 @@ export function MainLayout() {
               <Link
                 to="/aplicativo"
                 onClick={fecharMenu}
-                className="inline-flex min-h-10 items-center gap-1.5 rounded-full border border-[#851F32]/15 bg-white px-3 text-xs font-extrabold text-[#851F32] shadow-sm transition hover:bg-[#fff8f8]"
+                className="hidden min-h-10 items-center gap-1.5 rounded-full border border-[#851F32]/15 bg-white px-3 text-xs font-extrabold text-[#851F32] shadow-sm transition hover:bg-[#fff8f8] min-[375px]:inline-flex"
                 aria-label="Instalar aplicativo"
               >
                 <Download size={15} /> Instalar app
@@ -152,7 +152,7 @@ export function MainLayout() {
         <Outlet />
       </main>
 
-      <footer className="bg-[#182D3B] py-14 text-white">
+      <footer className="bg-[#182D3B] py-16 text-white sm:py-20">
         <div className="mx-auto grid max-w-7xl gap-10 px-4 sm:px-6 md:grid-cols-[1.25fr_1fr_1fr] lg:px-8">
           <div>
             <picture className="inline-block">

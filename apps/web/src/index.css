@@ -3,6 +3,14 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --brand-wine: #851f32;
+    --brand-wine-dark: #6f1929;
+    --brand-navy: #182d3b;
+    --brand-cream: #f8f5ef;
+    --brand-line: rgba(24, 45, 59, 0.11);
+  }
+
   html {
     scroll-behavior: smooth;
     background: #f8f5ef;
@@ -13,6 +21,8 @@
     background: #f8f5ef;
     color: #182d3b;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
   }
@@ -22,6 +32,7 @@
   h3,
   h4 {
     text-wrap: balance;
+    letter-spacing: -0.02em;
   }
 
   a,
@@ -65,4 +76,23 @@
   .font-editorial {
     font-family: Georgia, "Times New Roman", serif;
   }
+
+  .premium-panel {
+    border-color: var(--brand-line);
+    box-shadow: 0 16px 42px rgba(24, 45, 59, 0.07);
+  }
+
+  .safe-mobile-content {
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 767px) {
+  body { overflow-x: hidden; }
+
+  button,
+  a[role="button"] { -webkit-tap-highlight-color: transparent; }
+
+  .admin-shell table { font-size: 0.8rem; }
 }

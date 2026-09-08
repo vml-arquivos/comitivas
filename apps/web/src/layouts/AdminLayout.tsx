@@ -18,7 +18,9 @@ import {
   CreditCard,
   WalletCards,
   KeyRound,
+  Menu,
   ShieldCheck,
+  X,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import iconUrl from '../assets/brand/icon.svg';
@@ -89,6 +91,7 @@ export function AdminLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [menuAberto, setMenuAberto] = React.useState(false);
 
   const handleLogout = () => {
     logout();
@@ -106,20 +109,20 @@ export function AdminLayout() {
     .filter((group) => group.items.length > 0);
 
   return (
-    <div className="min-h-screen flex bg-gray-50">
+    <div className="admin-shell flex min-h-screen bg-[#F8F5EF]">
       {/* Sidebar */}
-      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col bg-secondary text-white md:flex">
-        <div className="flex h-16 shrink-0 items-center border-b border-white/10 px-6">
+      <aside className="sticky top-0 hidden h-screen w-[280px] shrink-0 flex-col bg-[#182D3B] text-white md:flex">
+        <div className="flex h-[76px] shrink-0 items-center border-b border-white/10 px-6">
           <Link to="/" className="flex min-w-0 items-center gap-2">
-            <div className="shrink-0 rounded-full bg-white p-1">
-              <img src={iconUrl} alt="Comitiva" className="h-6 w-6" />
+            <div className="shrink-0 rounded-full bg-white p-1.5 shadow-sm">
+              <img src={iconUrl} alt="Comitiva" className="h-7 w-7" />
             </div>
-            <span className="truncate text-lg font-bold">Painel {papelLabel}</span>
+            <span className="truncate font-editorial text-xl font-bold">Painel {papelLabel}</span>
           </Link>
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-4">
-          <nav className="space-y-5" aria-label="Navegação administrativa">
+          <nav className="space-y-6" aria-label="Navegação administrativa">
             {gruposVisiveis.map((group, groupIndex) => (
               <section
                 key={group.label}
@@ -144,7 +147,7 @@ export function AdminLayout() {
                         to={item.path}
                         aria-current={isActive ? 'page' : undefined}
                         className={clsx(
-                          'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
+                          'group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
                           isActive
                             ? 'bg-white/12 font-semibold text-white shadow-sm'
                             : 'text-white/72 hover:bg-white/7 hover:text-white',
@@ -167,7 +170,7 @@ export function AdminLayout() {
           </nav>
         </div>
 
-        <div className="shrink-0 border-t border-white/10 bg-secondary p-4">
+        <div className="shrink-0 border-t border-white/10 bg-[#182D3B] p-4">
           <div className="mb-2 flex items-center gap-3 px-3 py-2">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary font-bold">
               {user?.nome.charAt(0)}
@@ -192,18 +195,40 @@ export function AdminLayout() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex h-screen min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex h-16 items-center justify-between border-b border-gray-200 bg-white px-6 md:hidden">
-          <span className="text-lg font-bold text-secondary">Painel {papelLabel}</span>
-          <div className="flex items-center gap-3 text-sm">
+      <main className="flex h-screen min-w-0 flex-1 flex-col overflow-hidden bg-[#F8F5EF]">
+        <header className="flex h-[68px] items-center justify-between border-b border-[#182D3B]/10 bg-white px-4 sm:px-6 md:hidden">
+          <span className="font-editorial text-xl font-bold text-secondary">Painel {papelLabel}</span>
+          <div className="flex items-center gap-2 text-sm">
             <span className="max-w-32 truncate text-gray-500">{user?.nome}</span>
+            <button onClick={() => setMenuAberto((aberto) => !aberto)} className="rounded-full border border-[#182D3B]/10 p-2 text-gray-600 hover:bg-gray-100" aria-expanded={menuAberto} aria-controls="admin-nav-mobile" aria-label={menuAberto ? 'Fechar menu administrativo' : 'Abrir menu administrativo'}>
+              {menuAberto ? <X size={18} /> : <Menu size={18} />}
+            </button>
             <button onClick={handleLogout} className="rounded-md p-2 text-gray-600 hover:bg-gray-100" aria-label="Sair">
               <LogOut size={18} />
             </button>
           </div>
         </header>
 
-        <div className="flex-1 overflow-auto p-6">
+        {menuAberto && (
+          <div id="admin-nav-mobile" className="border-b border-[#182D3B]/10 bg-white px-4 py-4 shadow-sm md:hidden">
+            <nav className="space-y-4" aria-label="Navegação administrativa móvel">
+              {gruposVisiveis.map((group) => (
+                <section key={group.label}>
+                  <p className="mb-1.5 px-2 text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#851F32]">{group.label}</p>
+                  <div className="grid gap-1 sm:grid-cols-2">
+                    {group.items.map((item) => {
+                      const Icon = item.icon;
+                      const isActive = location.pathname === item.path || (item.path !== '/admin' && location.pathname.startsWith(`${item.path}/`));
+                      return <Link key={item.path} to={item.path} onClick={() => setMenuAberto(false)} className={clsx('flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold', isActive ? 'bg-[#851F32] text-white' : 'text-[#182D3B] hover:bg-[#F8F5EF]')}><Icon size={17} />{item.name}</Link>;
+                    })}
+                  </div>
+                </section>
+              ))}
+            </nav>
+          </div>
+        )}
+
+        <div className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8">
           <Outlet />
         </div>
       </main>

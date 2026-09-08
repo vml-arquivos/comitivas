@@ -190,7 +190,7 @@ export default function MinhaConta() {
   const perfilPercentual = Math.round((perfilCompleto / 6) * 100);
 
   return (
-    <div className="pb-14">
+    <div className="client-portal pb-14">
       <Helmet><title>Minha conta | Excursão das Comitivas</title><meta name="robots" content="noindex,nofollow" /></Helmet>
 
       <section className="bg-gradient-to-br from-[#07111f] via-[#1d0f1a] to-[#851F32] text-white">
@@ -219,8 +219,14 @@ export default function MinhaConta() {
       </section>
 
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="-mt-1 flex gap-1 overflow-x-auto border-b border-slate-200 bg-[#F8F5EF] py-3 sticky top-[120px] z-30 sm:top-[128px] lg:top-[88px]">
-          {TABS.map(([id, label]) => <button key={id} onClick={() => setTab(id)} className={`whitespace-nowrap rounded-full px-4 py-2 text-sm font-bold transition ${tab === id ? 'bg-[#851F32] text-white' : 'text-slate-600 hover:bg-white hover:text-[#851F32]'}`}>{label}</button>)}
+        <div className="-mt-1 sticky top-[110px] z-30 border-b border-slate-200 bg-[#F8F5EF] py-3 lg:top-[86px]">
+          <label className="sr-only" htmlFor="cliente-tab-mobile">Seção da área do cliente</label>
+          <select id="cliente-tab-mobile" value={tab} onChange={(event) => setTab(event.target.value as TabId)} className="h-11 w-full rounded-xl border border-[#182D3B]/15 bg-white px-4 text-sm font-bold text-[#182D3B] md:hidden">
+            {TABS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          </select>
+          <div className="hidden gap-1 overflow-x-auto md:flex">
+            {TABS.map(([id, label]) => <button key={id} onClick={() => setTab(id)} className={`whitespace-nowrap rounded-full px-4 py-2 text-sm font-bold transition ${tab === id ? 'bg-[#851F32] text-white' : 'text-slate-600 hover:bg-white hover:text-[#851F32]'}`}>{label}</button>)}
+          </div>
         </div>
 
         {(erro || mensagem) && <div className={`mt-5 rounded-xl border p-4 text-sm ${erro ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>{erro || mensagem}</div>}
