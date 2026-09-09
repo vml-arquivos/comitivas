@@ -117,7 +117,7 @@ router.get("/saidas/:saidaId/manifesto", async (req: Request, res: Response) => 
   try {
     const manifesto = await OperacaoOnibusService.obterManifesto(req.params.saidaId);
     if (String(req.query.formato || "") !== "csv") return res.json(manifesto);
-    const cabecalho = ["Ônibus", "Identificação", "Poltrona", "Passageiro", "CPF", "Telefone", "E-mail", "Ponto de embarque", "Situação do embarque"];
+    const cabecalho = ["Transporte", "Identificação", "Lugar", "Passageiro", "CPF", "Telefone", "E-mail", "Ponto de embarque", "Situação do embarque"];
     const linhas = manifesto.passageiros.map((p: any) => [p.onibus, p.identificacao, p.poltrona, p.nome, p.cpf, p.telefone, p.email, p.ponto_embarque, p.checkin_status || "pendente"]);
     const conteudo = `\uFEFF${[cabecalho, ...linhas].map((linha) => linha.map(csv).join(";")).join("\n")}`;
     res.setHeader("Content-Type", "text/csv; charset=utf-8");

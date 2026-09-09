@@ -12,7 +12,9 @@ Data da validação: 09/09/2026
 
 ## 2. Resultado executivo
 
-O sistema existente foi preservado e recebeu alterações direcionadas para completar a operação comercial e física da excursão. A entrega inclui upload real de fotos, gestão completa da equipe, painel gerencial mais útil, informações operacionais nos contratos e áreas do cliente/admin e um novo controle normalizado de saídas, ônibus, poltronas, embarques e manifesto.
+O sistema existente foi preservado e recebeu alterações direcionadas para completar a operação comercial e física da excursão. A entrega inclui upload real de fotos, gestão completa da equipe, painel gerencial mais útil, informações operacionais nos contratos e áreas do cliente/admin e um novo controle normalizado de saídas, transportes, lugares, embarques e manifesto.
+
+Também foi aplicado o padrão visual fornecido nos mockups: fundo marfim, navegação azul-petróleo, ação principal coral, cards claros, tabelas mais leves, hierarquia tipográfica consistente e adaptação responsiva. Nenhum gráfico ou indicador fictício foi incluído; as novas apresentações consomem os dados reais já retornados pelo backend.
 
 Os fluxos já existentes de cadastro mínimo, referência assinada de vendedor, parcelamento dinâmico, contratos versionados, boletos manuais, pagamentos idempotentes, proteção do DEV, e-mail e redefinição de senha não foram reescritos. Foram inspecionados e preservados.
 
@@ -44,13 +46,13 @@ Os fluxos já existentes de cadastro mínimo, referência assinada de vendedor, 
 - Status técnicos foram traduzidos para linguagem simples nas interfaces alteradas.
 - A inconsistência “cadastro aprovado sem evidência” continua bloqueando boleto e é apresentada como necessidade de nova aprovação, sem inventar data histórica.
 
-### Ônibus, vagas e embarque
+### Transporte, lugares e embarque
 
 - Cadastro de saídas operacionais vinculadas a lotes.
-- Cadastro de vários ônibus, identificação, placa, motorista, responsável e capacidade.
-- Geração automática do mapa físico de poltronas.
-- Alocação única por reserva e por poltrona, protegida por índices parciais, transação e advisory locks.
-- Mover, liberar, bloquear e desbloquear poltrona preservando histórico.
+- Cadastro dos transportes da saída, identificação, placa, condutor, responsável e capacidade.
+- Geração automática do mapa físico de lugares.
+- Alocação única por reserva e por lugar, protegida por índices parciais, transação e advisory locks.
+- Mover, liberar, bloquear e desbloquear lugar preservando histórico.
 - Pontos e horários de embarque.
 - Check-in de passageiro.
 - Manifesto em JSON e CSV.
@@ -73,8 +75,18 @@ Os fluxos já existentes de cadastro mínimo, referência assinada de vendedor, 
 - Dashboard passou a usar documentos contratuais versionados e métricas financeiras/operacionais reais.
 - Filtro por viagem/evento.
 - Métricas de contratado, recebido, a receber, vencido, contratos por etapa, frota, ocupação, check-in e alertas.
-- Menu preserva módulos existentes e inclui `Ônibus & vagas`; nomes visuais foram simplificados.
+- Menu preserva módulos existentes e inclui `Transporte e lugares`; nomes visuais foram simplificados.
 - Tipagem de ícones permanece baseada em `LucideIcon`.
+
+### Refatoração visual baseada nos mockups
+
+- Design system administrativo centralizado em tokens e classes reutilizáveis, sem alterar a identidade pública já consolidada.
+- Sidebar mais compacta, indicação ativa coral, identificação clara do perfil e menu móvel preservado.
+- Dashboard reorganizado em indicadores financeiros, ocupação, contratos, reservas e pendências reais.
+- Viagens e pacotes, clientes, CRM, Ficha 360, contratos, equipe, financeiro e relatórios receberam a mesma hierarquia visual.
+- Checkout ganhou indicação de etapas e resumo mais claro; a área do cliente passou a usar cabeçalho leve e métricas legíveis.
+- Upload de fotos continua por seletor de arquivo do dispositivo, com estilo alinhado ao restante do painel.
+- Tabelas continuam roláveis no mobile; grids e ações empilham nos pontos de quebra existentes.
 
 ### Parcelamento e pagamentos preservados
 
@@ -96,15 +108,24 @@ Arquivo: `drizzle/0013_operacao_onibus_equipe.sql`.
 ## 5. Arquivos alterados
 
 - `apps/web/src/App.tsx`
+- `apps/web/src/index.css`
 - `apps/web/src/layouts/AdminLayout.tsx`
+- `apps/web/src/pages/admin/Boletos.tsx`
 - `apps/web/src/pages/admin/ClienteFicha.tsx`
+- `apps/web/src/pages/admin/Clientes.tsx`
+- `apps/web/src/pages/admin/Comissoes.tsx`
 - `apps/web/src/pages/admin/Conteudo.tsx`
 - `apps/web/src/pages/admin/Contratos.tsx`
 - `apps/web/src/pages/admin/Dashboard.tsx`
 - `apps/web/src/pages/admin/EquipeAcessos.tsx`
 - `apps/web/src/pages/admin/Eventos.tsx`
+- `apps/web/src/pages/admin/Jornada.tsx`
 - `apps/web/src/pages/admin/OperacaoOnibus.tsx` (novo)
+- `apps/web/src/pages/admin/Pagamentos.tsx`
+- `apps/web/src/pages/admin/Relatorios.tsx`
 - `apps/web/src/pages/admin/Reservas.tsx`
+- `apps/web/src/pages/admin/Vendas.tsx`
+- `apps/web/src/pages/cliente/Checkout.tsx`
 - `apps/web/src/pages/cliente/MinhaConta.tsx`
 - `drizzle/0013_operacao_onibus_equipe.sql` (novo)
 - `drizzle/meta/_journal.json`
@@ -139,6 +160,7 @@ Resultado final:
 - `npm test -- --run`: 8 arquivos e 49 testes aprovados.
 - `npm run build`: aprovado (`build:server`, `build:seed`, `build:web`).
 - `npm --prefix apps/mobile run build`: aprovado.
+- `npm run test:a11y`: aprovado para estrutura, foco e metadados verificáveis no build.
 - `git diff --check`: aprovado.
 - Testes cobrem autenticação segura, DEV invisível para ADMIN, IDOR entre clientes, contratos/PDF, referência assinada de vendedor, parcelamento dinâmico, configuração de gateway, mapa de 44 poltronas, limites de capacidade e caráter não destrutivo da migration.
 
@@ -160,29 +182,32 @@ No Coolify:
 1. Entrar como ADMIN e confirmar que nenhum DEV aparece em equipe, busca, ID direto ou exportação.
 2. Criar vendedor manualmente, criar convite, revogar/reemitir e testar link antigo e novo.
 3. Abrir link do vendedor em sessão limpa, cadastrar cliente, reservar e confirmar vendedor no contrato/relatório.
-4. Criar saída, cadastrar dois ônibus, pontos de embarque e comparar capacidade física com vagas do lote.
+4. Criar saída, cadastrar dois transportes, pontos de embarque e comparar capacidade física com vagas do lote.
 5. Alocar passageiro, tentar dupla alocação, mover, bloquear, confirmar check-in e baixar manifesto CSV.
-6. Gerar novo contrato após alocação e verificar ônibus/poltrona; confirmar que contrato já validado não muda.
+6. Gerar novo contrato após alocação e verificar transporte/lugar; confirmar que contrato já validado não muda.
 7. Em Viagens e pacotes, anexar JPG/PNG/WEBP pelo seletor e confirmar site público; tentar formato inválido e arquivo maior que 10 MB.
 8. Simular boleto/cartão em início, meio e fim da oferta; tentar alterar parcelas no request e confirmar rejeição do backend.
+9. Validar visualmente as telas em 320, 360, 390, 430, 768 e desktop com dados reais do ambiente de homologação.
 
 ## 9. Limitações reais
 
 - Não foi aplicada migration nem executado teste E2E contra o banco de produção, pois nenhuma credencial de produção foi usada nesta tarefa. A migration foi verificada estaticamente e toda a aplicação compilou.
 - Fotos e documentos exigem volume persistente no Coolify. Sem volume, um novo container perde arquivos locais mesmo que o banco preserve os metadados.
 - O provedor Cora atualmente integrado processa PIX/boleto. A regra comercial de cartão é calculada e validada, mas cartão não é oferecido até existir um adquirente compatível; nenhum pagamento fictício foi criado.
-- A alocação de ônibus/poltrona entra em novos contratos gerados depois da atribuição. Documentos assinados antigos não são alterados, por integridade jurídica.
+- A alocação de transporte/lugar entra em novos contratos gerados depois da atribuição. Documentos assinados antigos não são alterados, por integridade jurídica.
+- A validação visual autenticada com dados de produção deve ser repetida após o deploy; nesta entrega foram validados TypeScript, Tailwind, grids responsivos e os builds web/mobile, sem usar credenciais reais.
 
 ## 10. Commit sugerido
 
 Mensagem:
 
-`feat: concluir equipes, uploads, contratos e operação física da excursão`
+`feat: concluir operação e aplicar novo padrão visual do sistema`
 
 Resumo:
 
-- adiciona frota, assentos, embarques, check-in e manifesto;
+- adiciona transportes, lugares, embarques, check-in e manifesto;
 - completa equipe e convites sem expor DEV ou hashes;
 - troca URL de foto por upload validado;
 - integra operação a dashboard, reservas, cliente e contratos;
+- aplica o padrão visual dos mockups nas telas administrativas e do cliente;
 - preserva cadastro mínimo, vendas atribuídas, pagamentos e contratos imutáveis.
