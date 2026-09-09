@@ -2141,12 +2141,22 @@ router.patch("/clientes/:id/aprovacao", requireRole("admin"), async (req: Reques
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
     const status = String(req.body?.status || "").trim();
     if (!["aprovado", "pendente", "rejeitado"].includes(status)) return res.status(400).json({ erro: "Status de aprovação inválido" });
-    const cliente = (await db.select().from(usuarios).where(and(eq(usuarios.id, req.params.id), eq(usuarios.tipo, "cliente"))).limit(1))[0];
-    if (!cliente) return res.status(404).json({ erro: "Cliente não encontrado" });
-    const atualizado = (await db.update(usuarios).set({ cadastro_status: status, aprovado_em: status === "aprovado" ? new Date() : null, aprovado_por: status === "aprovado" ? req.usuario.id : null, atualizado_em: new Date() }).where(eq(usuarios.id, cliente.id)).returning(CAMPOS_PUBLICOS_USUARIO))[0];
-    await registrarHistoricoCliente(cliente.id, "aprovacao_cadastro", status === "aprovado" ? "Cadastro aprovado" : status === "rejeitado" ? "Cadastro rejeitado" : "Cadastro retornado para análise", String(req.body?.observacao || "").trim() || null, req.usuario.id, { status });
-    await AuditService.registrar(req, "cliente_aprovacao", "usuario", cliente.id, { cadastro_status: cliente.cadastro_status }, { cadastro_status: status });
-    return res.json({ usuario: atualizado });
+    const resultado = await db.transaction(async (tx) => {
+      const cliente = (await tx.select().from(usuarios).where(and(eq(usuarios.id, req.params.id), eq(usuarios.tipo, "cliente"))).for("update").limit(1))[0];
+      if (!cliente) return null;
+      const aprovacaoJaRegistrada = status !== "aprovado" || Boolean(cliente.aprovado_em && String(cliente.aprovado_por || "").trim());
+      if (cliente.cadastro_status === status && aprovacaoJaRegistrada) {
+        const atual = (await tx.select(CAMPOS_PUBLICOS_USUARIO).from(usuarios).where(eq(usuarios.id, cliente.id)).limit(1))[0];
+        return { cliente, atualizado: atual, alterado: false };
+      }
+      const atualizado = (await tx.update(usuarios).set({ cadastro_status: status, aprovado_em: status === "aprovado" ? new Date() : null, aprovado_por: status === "aprovado" ? req.usuario!.id : null, atualizado_em: new Date() }).where(eq(usuarios.id, cliente.id)).returning(CAMPOS_PUBLICOS_USUARIO))[0];
+      return { cliente, atualizado, alterado: true };
+    });
+    if (!resultado) return res.status(404).json({ erro: "Cliente não encontrado" });
+    if (!resultado.alterado) return res.json({ usuario: resultado.atualizado, mensagem: "O cadastro já estava com esse status." });
+    await registrarHistoricoCliente(resultado.cliente.id, "aprovacao_cadastro", status === "aprovado" ? "Cadastro aprovado" : status === "rejeitado" ? "Cadastro rejeitado" : "Cadastro retornado para análise", String(req.body?.observacao || "").trim() || null, req.usuario.id, { status });
+    await AuditService.registrar(req, "cliente_aprovacao", "usuario", resultado.cliente.id, { cadastro_status: resultado.cliente.cadastro_status }, { cadastro_status: status });
+    return res.json({ usuario: resultado.atualizado });
   } catch (error: any) { return res.status(400).json({ erro: error.message || "Não foi possível atualizar a aprovação" }); }
 });
 
@@ -2164,7 +2174,7 @@ router.get("/boletos", requireRole("admin"), async (_req: Request, res: Response
     return res.json({ boletos: linhas.map((item) => {
       const contrato = contratos.find((c) => c.reserva_id === item.reserva_id);
       const validacao = contrato ? validacoes.find((v) => v.reserva_id === item.reserva_id && v.contrato_id === contrato.id && v.aceite_contrato && v.aceite_regras && v.snapshot_sha256 === contrato.snapshot_sha256 && (!contrato.pdf_sha256 || v.pdf_sha256 === contrato.pdf_sha256)) : undefined;
-      const cadastroAprovado = cadastroAprovadoComEvidencia(item);
+      const cadastroAprovado = cadastroAprovadoComEvidencia({ ativo: item.cliente_ativo, cadastro_status: item.cadastro_status, aprovado_em: item.aprovado_em, aprovado_por: item.aprovado_por });
       const contratoValidado = Boolean(contrato?.validado_em && validacao);
       const contratoAprovadoAdmin = Boolean(contrato?.status === "aprovado_admin" && contrato.aprovado_admin_em && contrato.aprovado_admin_por);
       const bloqueioMotivo = motivoBloqueioBoleto({ clienteAtivo: Boolean(item.cliente_ativo), cadastroStatus: item.cadastro_status, cadastroAprovadoComEvidencia: cadastroAprovado, contratoExiste: Boolean(contrato), contratoValidado, contratoAprovadoAdmin, formaPagamento: item.forma_pagamento });
