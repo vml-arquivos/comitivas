@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../contexts/AuthContext';
 import { Card, CardContent, Button, Input } from '@ui/index';
-import { Plus, X, ChevronDown, ChevronUp, Trash2, PackagePlus, MapPin, CalendarDays, ImagePlus } from 'lucide-react';
+import { Plus, X, ChevronDown, ChevronUp, Trash2, PackagePlus, MapPin, CalendarDays, ImagePlus, Pencil } from 'lucide-react';
 
 interface Evento {
   id: string;
@@ -35,6 +35,7 @@ interface Pacote {
   nome: string;
   descricao: string;
   valor_total: string;
+  itens_selecionados?: unknown[];
   modalidade_hospedagem: 'camping' | 'quarto_ventilador' | 'quarto_ar_condicionado';
   disponibilidade: 'disponivel' | 'ultimas_vagas' | 'esgotado';
   contrato_modelo: 'auto' | 'hospedagem' | 'transporte';
@@ -94,10 +95,34 @@ function dataHoraSaoPauloIso(valor: string) {
   return new Date(`${valor}:00-03:00`).toISOString();
 }
 
+function partesData(valor: string) {
+  return Object.fromEntries(new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(valor)).map((parte) => [parte.type, parte.value]));
+}
+
+function paraDataInput(valor: string) {
+  const parte = partesData(valor);
+  return `${parte.year}-${parte.month}-${parte.day}`;
+}
+
+function paraDataHoraInput(valor?: string | null) {
+  if (!valor) return '';
+  const parte = partesData(valor);
+  return `${parte.year}-${parte.month}-${parte.day}T${parte.hour}:${parte.minute}`;
+}
+
 export default function EventosAdmin() {
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [mensagem, setMensagem] = useState<string | null>(null);
   const [mostrarFormEvento, setMostrarFormEvento] = useState(false);
   const [expandido, setExpandido] = useState<string | null>(null);
   const [lotesPorEvento, setLotesPorEvento] = useState<Record<string, Lote[]>>({});
@@ -105,6 +130,9 @@ export default function EventosAdmin() {
   const [fotosPorEvento, setFotosPorEvento] = useState<Record<string, FotoEvento[]>>({});
   const [mostrarFormLote, setMostrarFormLote] = useState<string | null>(null);
   const [mostrarFormPacote, setMostrarFormPacote] = useState<string | null>(null);
+  const [eventoEditando, setEventoEditando] = useState<string | null>(null);
+  const [loteEditando, setLoteEditando] = useState<string | null>(null);
+  const [pacoteEditando, setPacoteEditando] = useState<string | null>(null);
 
   const [eventoForm, setEventoForm] = useState({
     nome: '',
@@ -256,7 +284,7 @@ export default function EventosAdmin() {
     }
   };
 
-  const handleCriarEvento = async (e: React.FormEvent) => {
+  const handleSalvarEvento = async (e: React.FormEvent) => {
     e.preventDefault();
     setErroForm(null);
     if (!eventoForm.nome || !eventoForm.local || !eventoForm.dataInicio || !eventoForm.dataFim) {
@@ -265,14 +293,23 @@ export default function EventosAdmin() {
     }
     setSalvando(true);
     try {
-      const response = await api.post('/eventos', {
+      const payload = {
         nome: eventoForm.nome,
         descricao: eventoForm.descricao,
         local: eventoForm.local,
         data_inicio: dataSaoPauloIso(eventoForm.dataInicio),
         data_fim: dataSaoPauloIso(eventoForm.dataFim, true),
-      });
-      setEventos((prev) => [response.data.evento, ...prev]);
+      };
+      const response = eventoEditando
+        ? await api.put(`/eventos/${eventoEditando}`, payload)
+        : await api.post('/eventos', payload);
+      if (eventoEditando) {
+        setEventos((prev) => prev.map((evento) => evento.id === eventoEditando ? response.data.evento : evento));
+        setMensagem('Excursão atualizada com sucesso.');
+      } else {
+        setEventos((prev) => [response.data.evento, ...prev]);
+        setMensagem('Excursão criada com sucesso.');
+      }
       setEventoForm({
         nome: '',
         descricao: '',
@@ -280,15 +317,16 @@ export default function EventosAdmin() {
         dataFim: '',
         local: '',
       });
+      setEventoEditando(null);
       setMostrarFormEvento(false);
     } catch (err: any) {
-      setErroForm(err.response?.data?.erro || 'Erro ao criar evento.');
+      setErroForm(err.response?.data?.erro || 'Erro ao salvar excursão.');
     } finally {
       setSalvando(false);
     }
   };
 
-  const handleCriarLote = async (e: React.FormEvent, eventoId: string) => {
+  const handleSalvarLote = async (e: React.FormEvent, eventoId: string) => {
     e.preventDefault();
     setErroForm(null);
     if (!loteForm.nome || !loteForm.vagas || !loteForm.dataInicio || !loteForm.dataFim || !loteForm.valorBase) {
@@ -297,11 +335,20 @@ export default function EventosAdmin() {
     }
     setSalvando(true);
     try {
-      await api.post('/lotes', {
+      const existente = loteEditando
+        ? (lotesPorEvento[eventoId] || []).find((lote) => lote.id === loteEditando)
+        : null;
+      const novasVagas = Number(loteForm.vagas);
+      const ocupadas = existente ? Math.max(0, existente.vagas_totais - existente['vagas_disponíveis']) : 0;
+      if (novasVagas < ocupadas) {
+        setErroForm(`Este período já possui ${ocupadas} vaga(s) ocupada(s). Informe ao menos essa capacidade.`);
+        return;
+      }
+      const payload = {
         evento_id: eventoId,
         nome: loteForm.nome,
-        vagas_totais: Number(loteForm.vagas),
-        vagas_disponiveis: Number(loteForm.vagas),
+        vagas_totais: novasVagas,
+        vagas_disponiveis: novasVagas - ocupadas,
         data_inicio: dataSaoPauloIso(loteForm.dataInicio),
         data_fim: dataSaoPauloIso(loteForm.dataFim, true),
         data_embarque: loteForm.dataEmbarque ? dataHoraSaoPauloIso(loteForm.dataEmbarque) : undefined,
@@ -309,8 +356,11 @@ export default function EventosAdmin() {
         local_embarque: loteForm.localEmbarque,
         local_hospedagem: loteForm.localHospedagem,
         valor_base: Number(loteForm.valorBase),
-      });
+      };
+      if (loteEditando) await api.put(`/lotes/${loteEditando}`, payload);
+      else await api.post('/lotes', payload);
       await carregarLotes(eventoId);
+      setMensagem(loteEditando ? 'Período atualizado com sucesso.' : 'Período criado com sucesso.');
       setLoteForm({
         nome: '',
         vagas: '',
@@ -322,9 +372,10 @@ export default function EventosAdmin() {
         localHospedagem: 'Chácara Recanto Novo Encantado ou Santa Thereza — Barretos/SP',
         valorBase: '',
       });
+      setLoteEditando(null);
       setMostrarFormLote(null);
     } catch (err: any) {
-      setErroForm(err.response?.data?.erro || 'Erro ao criar lote.');
+      setErroForm(err.response?.data?.erro || 'Erro ao salvar período.');
     } finally {
       setSalvando(false);
     }
@@ -332,6 +383,7 @@ export default function EventosAdmin() {
 
   const abrirFormPacote = async (loteId: string) => {
     setErroForm(null);
+    setPacoteEditando(null);
     setMostrarFormPacote(mostrarFormPacote === loteId ? null : loteId);
     if (!pacotesPorLote[loteId]) {
       try {
@@ -351,12 +403,14 @@ export default function EventosAdmin() {
     }
     setSalvando(true);
     try {
-      await api.post('/pacotes', {
+      const payload = {
         lote_id: loteId,
         nome: pacoteForm.nome,
         descricao: pacoteForm.descricao || modalidades[pacoteForm.modalidade].descricao,
         valor_total: Number(pacoteForm.valorTotal),
-        itens_selecionados: [],
+        itens_selecionados: pacoteEditando
+          ? (pacotesPorLote[loteId] || []).find((pacote) => pacote.id === pacoteEditando)?.itens_selecionados || []
+          : [],
         modalidade_hospedagem: pacoteForm.modalidade,
         disponibilidade: pacoteForm.disponibilidade,
         contrato_modelo: pacoteForm.contratoModelo,
@@ -379,8 +433,11 @@ export default function EventosAdmin() {
           juros_mora_mensal_percentual: Math.max(0, Number(pacoteForm.jurosMoraMensal) || 0),
         },
         data_limite_pagamento: pacoteForm.dataLimitePagamento ? dataSaoPauloIso(pacoteForm.dataLimitePagamento, true) : undefined,
-      });
+      };
+      if (pacoteEditando) await api.put(`/pacotes/${pacoteEditando}`, payload);
+      else await api.post('/pacotes', payload);
       await carregarPacotes(loteId);
+      setMensagem(pacoteEditando ? 'Pacote atualizado com sucesso.' : 'Pacote criado com sucesso.');
       setPacoteForm({
         nome: '',
         descricao: '',
@@ -401,9 +458,10 @@ export default function EventosAdmin() {
         jurosMoraMensal: '1',
         dataLimitePagamento: '',
       });
+      setPacoteEditando(null);
       setMostrarFormPacote(null);
     } catch (err: any) {
-      setErroForm(err.response?.data?.erro || 'Erro ao publicar pacote.');
+      setErroForm(err.response?.data?.erro || 'Erro ao salvar pacote.');
     } finally {
       setSalvando(false);
     }
@@ -458,33 +516,98 @@ export default function EventosAdmin() {
     }
   };
 
-  const despublicarPacote = async (loteId: string, pacoteId: string) => {
-    if (!window.confirm('Despublicar este pacote? Reservas existentes continuarão preservadas.')) return;
+  const editarEvento = (evento: Evento) => {
+    setErroForm(null);
+    setMensagem(null);
+    setEventoEditando(evento.id);
+    setEventoForm({
+      nome: evento.nome,
+      descricao: evento.descricao || '',
+      dataInicio: paraDataInput(evento.data_inicio),
+      dataFim: paraDataInput(evento.data_fim),
+      local: evento.local,
+    });
+    setMostrarFormEvento(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const editarLote = (eventoId: string, lote: Lote) => {
+    setErroForm(null);
+    setLoteEditando(lote.id);
+    setLoteForm({
+      nome: lote.nome,
+      vagas: String(lote.vagas_totais),
+      dataInicio: paraDataInput(lote.data_inicio),
+      dataFim: paraDataInput(lote.data_fim),
+      dataEmbarque: paraDataHoraInput(lote.data_embarque),
+      dataRetorno: paraDataHoraInput(lote.data_retorno),
+      localEmbarque: lote.local_embarque || '',
+      localHospedagem: lote.local_hospedagem || '',
+      valorBase: String(lote.valor_base),
+    });
+    setMostrarFormLote(eventoId);
+  };
+
+  const editarPacote = (loteId: string, pacote: Pacote) => {
+    const pagamento = pacote.configuracao_pagamento || {};
+    setErroForm(null);
+    setPacoteEditando(pacote.id);
+    setPacoteForm({
+      nome: pacote.nome,
+      descricao: pacote.descricao || '',
+      valorTotal: String(pacote.valor_total),
+      modalidade: pacote.modalidade_hospedagem,
+      disponibilidade: pacote.disponibilidade,
+      contratoModelo: pacote.contrato_modelo || 'auto',
+      formaContratacao: pacote.forma_contratacao || 'hospedagem',
+      quantidadeOnibus: String(pacote.onibus_config?.length || 1),
+      capacidadeOnibus: String(pacote.onibus_config?.[0]?.capacidade || 44),
+      formasPagamento: pagamento.formas_permitidas || ['pix', 'boleto'],
+      boletoParcelas: String(pagamento.boleto_parcelas_maximo || 1),
+      creditoParcelas: String(pagamento.credito_parcelas_maximo || 10),
+      creditoTaxa: String(pagamento.credito_taxa_percentual || 0),
+      creditoJurosMensal: String(pagamento.credito_juros_mensal_percentual || 0),
+      prazoSegurancaDias: String(pagamento.prazo_seguranca_dias || 0),
+      multaAtraso: String(pagamento.multa_atraso_percentual || 0),
+      jurosMoraMensal: String(pagamento.juros_mora_mensal_percentual || 0),
+      dataLimitePagamento: pacote.data_limite_pagamento ? paraDataInput(pacote.data_limite_pagamento) : '',
+    });
+    setMostrarFormPacote(loteId);
+  };
+
+  const excluirPacote = async (loteId: string, pacoteId: string) => {
+    if (!window.confirm('Excluir este pacote? Se houver vendas, ele será arquivado para preservar o histórico.')) return;
     try {
-      await api.delete(`/pacotes/${pacoteId}`);
+      setError(null);
+      const response = await api.delete(`/pacotes/${pacoteId}`);
+      setMensagem(response.data.mensagem || 'Pacote removido com sucesso.');
       await carregarPacotes(loteId);
     } catch (err: any) {
-      setError(err.response?.data?.erro || 'Erro ao despublicar pacote.');
+      setError(err.response?.data?.erro || 'Erro ao excluir pacote.');
     }
   };
 
   const excluirEvento = async (eventoId: string) => {
-    if (!window.confirm('Excluir este evento? A ação só é permitida sem lotes vinculados.')) return;
+    if (!window.confirm('Excluir esta excursão? Se houver registros, ela será arquivada para preservar o histórico.')) return;
     try {
-      await api.delete(`/eventos/${eventoId}`);
+      setError(null);
+      const response = await api.delete(`/eventos/${eventoId}`);
+      setMensagem(response.data.mensagem || 'Excursão removida com sucesso.');
       setEventos((prev) => prev.filter((evento) => evento.id !== eventoId));
     } catch (err: any) {
-      setError(err.response?.data?.erro || 'Erro ao excluir evento.');
+      setError(err.response?.data?.erro || 'Erro ao excluir excursão.');
     }
   };
 
   const excluirLote = async (eventoId: string, loteId: string) => {
-    if (!window.confirm('Excluir este lote?')) return;
+    if (!window.confirm('Excluir este período? Se houver registros, ele será arquivado para preservar o histórico.')) return;
     try {
-      await api.delete(`/lotes/${loteId}`);
+      setError(null);
+      const response = await api.delete(`/lotes/${loteId}`);
+      setMensagem(response.data.mensagem || 'Período removido com sucesso.');
       await carregarLotes(eventoId);
     } catch (err: any) {
-      setError(err.response?.data?.erro || 'Erro ao excluir lote.');
+      setError(err.response?.data?.erro || 'Erro ao excluir período.');
     }
   };
 
@@ -500,6 +623,8 @@ export default function EventosAdmin() {
           <Button
             onClick={() => {
               setErroForm(null);
+              setEventoEditando(null);
+              setEventoForm({ nome: '', descricao: '', dataInicio: '', dataFim: '', local: '' });
               setMostrarFormEvento((v) => !v);
             }}
           >
@@ -510,12 +635,13 @@ export default function EventosAdmin() {
       </section>
 
       {error && <div className="rounded-lg bg-red-50 p-4 text-red-700">{error}</div>}
+      {mensagem && <div className="rounded-lg bg-emerald-50 p-4 text-emerald-800">{mensagem}</div>}
 
       {mostrarFormEvento && (
         <Card className="border-primary/20 shadow-lg">
           <CardContent className="p-6">
-            <form onSubmit={handleCriarEvento} className="space-y-4">
-              <h2 className="text-lg font-bold">Publicar nova excursão</h2>
+            <form onSubmit={handleSalvarEvento} className="space-y-4">
+              <h2 className="text-lg font-bold">{eventoEditando ? 'Editar excursão' : 'Publicar nova excursão'}</h2>
               {erroForm && <div className="rounded bg-red-50 p-3 text-sm text-red-700">{erroForm}</div>}
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <Input label="Nome da excursão" value={eventoForm.nome} onChange={(e) => setEventoForm({ ...eventoForm, nome: e.target.value })} placeholder="Ex.: Excursão das Comitivas — Barretos 2026" />
@@ -528,7 +654,7 @@ export default function EventosAdmin() {
                 <textarea value={eventoForm.descricao} onChange={(e) => setEventoForm({ ...eventoForm, descricao: e.target.value })} rows={4} className="w-full rounded-md border border-gray-300 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary" placeholder="Apresente a experiência, os benefícios e a história da excursão." />
               </div>
               <Button type="submit" disabled={salvando}>
-                {salvando ? 'Publicando...' : 'Publicar excursão'}
+                {salvando ? 'Salvando...' : eventoEditando ? 'Salvar alterações' : 'Publicar excursão'}
               </Button>
             </form>
           </CardContent>
@@ -557,6 +683,9 @@ export default function EventosAdmin() {
                 </button>
                 <div className="flex items-center gap-3">
                   <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${evento.ativo ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'}`}>{evento.ativo ? 'Publicado' : 'Rascunho'}</span>
+                  <button onClick={() => editarEvento(evento)} className="rounded p-2 text-gray-400 hover:bg-slate-100 hover:text-slate-800" title="Editar excursão">
+                    <Pencil size={17} />
+                  </button>
                   <button onClick={() => excluirEvento(evento.id)} className="rounded p-2 text-gray-400 hover:bg-red-50 hover:text-red-600" title="Excluir evento">
                     <Trash2 size={17} />
                   </button>
@@ -575,6 +704,7 @@ export default function EventosAdmin() {
                       variant="outline"
                       onClick={() => {
                         setErroForm(null);
+                        setLoteEditando(null);
                         setMostrarFormLote(mostrarFormLote === evento.id ? null : evento.id);
                       }}
                     >
@@ -584,7 +714,7 @@ export default function EventosAdmin() {
                   </div>
 
                   {mostrarFormLote === evento.id && (
-                    <form onSubmit={(e) => handleCriarLote(e, evento.id)} className="mb-5 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                    <form onSubmit={(e) => handleSalvarLote(e, evento.id)} className="mb-5 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                       {erroForm && <div className="mb-3 rounded bg-red-50 p-2 text-sm text-red-700">{erroForm}</div>}
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
                         <Input label="Nome" value={loteForm.nome} onChange={(e) => setLoteForm({ ...loteForm, nome: e.target.value })} placeholder="1º lote" />
@@ -669,7 +799,7 @@ export default function EventosAdmin() {
                         />
                       </div>
                       <Button type="submit" disabled={salvando} className="mt-4">
-                        {salvando ? 'Salvando...' : 'Criar lote'}
+                        {salvando ? 'Salvando...' : loteEditando ? 'Salvar alterações' : 'Criar lote'}
                       </Button>
                     </form>
                   )}
@@ -696,6 +826,9 @@ export default function EventosAdmin() {
                             {lote.local_embarque && <p className="mt-1 text-xs text-gray-500">Embarque: {lote.local_embarque}</p>}
                           </div>
                           <div className="flex gap-2">
+                            <button onClick={() => editarLote(evento.id, lote)} className="rounded p-2 text-gray-400 hover:bg-slate-100 hover:text-slate-800" title="Editar período">
+                              <Pencil size={17} />
+                            </button>
                             <Button variant="outline" onClick={() => abrirFormPacote(lote.id)}>
                               <PackagePlus size={15} className="mr-2" />
                               {mostrarFormPacote === lote.id ? 'Fechar pacotes' : 'Gerir pacotes'}
@@ -1023,7 +1156,7 @@ export default function EventosAdmin() {
                                 )}
                                 <div className="flex items-end">
                                   <Button type="submit" disabled={salvando || pacoteForm.formasPagamento.length === 0} className="w-full">
-                                    {salvando ? 'Publicando...' : 'Publicar pacote'}
+                                    {salvando ? 'Salvando...' : pacoteEditando ? 'Salvar alterações' : 'Publicar pacote'}
                                   </Button>
                                 </div>
                               </div>
@@ -1049,9 +1182,14 @@ export default function EventosAdmin() {
                                       <p className="text-xs font-medium text-primary">{modalidades[pacote.modalidade_hospedagem]?.titulo || pacote.modalidade_hospedagem}</p>
                                       <span className={`mt-2 inline-block rounded-full px-2 py-1 text-[10px] font-bold uppercase ${pacote.disponibilidade === 'esgotado' ? 'bg-slate-800 text-white' : pacote.disponibilidade === 'ultimas_vagas' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{pacote.disponibilidade === 'esgotado' ? 'Esgotado' : pacote.disponibilidade === 'ultimas_vagas' ? 'Últimas vagas' : 'Disponível'}</span>
                                     </div>
-                                    <button onClick={() => despublicarPacote(lote.id, pacote.id)} className="text-gray-400 hover:text-red-600" title="Despublicar">
-                                      <Trash2 size={16} />
-                                    </button>
+                                    <div className="flex gap-2">
+                                      <button onClick={() => editarPacote(lote.id, pacote)} className="text-gray-400 hover:text-slate-800" title="Editar pacote">
+                                        <Pencil size={16} />
+                                      </button>
+                                      <button onClick={() => excluirPacote(lote.id, pacote.id)} className="text-gray-400 hover:text-red-600" title="Excluir pacote">
+                                        <Trash2 size={16} />
+                                      </button>
+                                    </div>
                                   </div>
                                   <p className="mt-2 text-sm text-gray-500">{pacote.descricao}</p>
                                   <p className="mt-3 text-lg font-bold text-slate-900">{moeda.format(Number(pacote.valor_total))}</p>

@@ -14,6 +14,8 @@ Data da validação: 09/09/2026
 
 O sistema existente foi preservado e recebeu alterações direcionadas para completar a operação comercial e física da excursão. A entrega inclui upload real de fotos, gestão completa da equipe, painel gerencial mais útil, informações operacionais nos contratos e áreas do cliente/admin e um novo controle normalizado de saídas, transportes, lugares, embarques e manifesto.
 
+A passagem final corrigiu o erro real mostrado no deploy ao excluir lotes: o backend não executa mais um `DELETE` cego nem devolve a consulta SQL ao navegador. Pacotes, períodos, excursões, saídas e ônibus agora são excluídos definitivamente quando não existe histórico; havendo reservas, contratos, pagamentos, passageiros ou auditoria, ficam arquivados e saem das telas ativas sem perda de dados.
+
 Também foi aplicado o padrão visual fornecido nos mockups: fundo marfim, navegação azul-petróleo, ação principal coral, cards claros, tabelas mais leves, hierarquia tipográfica consistente e adaptação responsiva. Nenhum gráfico ou indicador fictício foi incluído; as novas apresentações consomem os dados reais já retornados pelo backend.
 
 Os fluxos já existentes de cadastro mínimo, referência assinada de vendedor, parcelamento dinâmico, contratos versionados, boletos manuais, pagamentos idempotentes, proteção do DEV, e-mail e redefinição de senha não foram reescritos. Foram inspecionados e preservados.
@@ -60,6 +62,16 @@ Os fluxos já existentes de cadastro mínimo, referência assinada de vendedor, 
 - Vagas livres descontam ocupações, bloqueios e reservas temporárias ainda válidas.
 - Alerta de divergência entre capacidade física da frota e inventário comercial do lote.
 - Histórico operacional append-only com ator, estado anterior e posterior.
+- Ações de excluir ônibus e saída sempre funcionam de forma segura: retiram o item da operação, encerram alocações ativas, liberam reservas temporárias e preservam passageiros e auditoria.
+
+### Exclusão e edição pelo DEV
+
+- Excursões, períodos e pacotes podem ser editados diretamente em **Viagens e pacotes**.
+- O DEV pode excluir pacote, período, excursão, saída e ônibus sem erro de FK.
+- Sem histórico obrigatório, a exclusão é definitiva e as configurações dependentes são removidas na ordem correta.
+- Com histórico, a ação arquiva a estrutura inteira, desativa sua publicação e mantém reservas, contratos, pagamentos, comissões e auditoria.
+- Os endpoints retornam mensagens simples e não expõem SQL, parâmetros, stack trace ou detalhes internos.
+- A exclusão de clientes/usuários já existente foi preservada: exclusão definitiva sem dependências e arquivamento quando há histórico.
 
 ### Fotos e publicação
 
@@ -87,6 +99,7 @@ Os fluxos já existentes de cadastro mínimo, referência assinada de vendedor, 
 - Checkout ganhou indicação de etapas e resumo mais claro; a área do cliente passou a usar cabeçalho leve e métricas legíveis.
 - Upload de fotos continua por seletor de arquivo do dispositivo, com estilo alinhado ao restante do painel.
 - Tabelas continuam roláveis no mobile; grids e ações empilham nos pontos de quebra existentes.
+- No PWA instalado em iPhone, a escala fica fixa e o contêiner raiz impede deslocamento lateral; no navegador comum, o zoom de acessibilidade continua disponível.
 
 ### Parcelamento e pagamentos preservados
 
@@ -108,7 +121,9 @@ Arquivo: `drizzle/0013_operacao_onibus_equipe.sql`.
 ## 5. Arquivos alterados
 
 - `apps/web/src/App.tsx`
+- `apps/web/index.html`
 - `apps/web/src/index.css`
+- `apps/web/src/main.tsx`
 - `apps/web/src/components/admin/AdminModal.tsx` (novo)
 - `apps/web/src/components/admin/DataVisuals.tsx` (novo)
 - `apps/web/src/layouts/AdminLayout.tsx`
@@ -139,12 +154,17 @@ Arquivo: `drizzle/0013_operacao_onibus_equipe.sql`.
 - `server/routes/auth.ts`
 - `server/routes/cliente.ts`
 - `server/routes/eventos.ts`
+- `server/routes/lotes.ts`
 - `server/routes/operacao.ts` (novo)
+- `server/routes/pacotes.ts`
+- `server/services/catalogoExclusaoService.ts` (novo)
 - `server/services/contratoService.ts`
 - `server/services/operacaoOnibusService.ts` (novo)
 - `tests/contratoHtml.spec.ts`
 - `tests/operacaoOnibus.spec.ts` (novo)
 - `tests/criticalRoutes.spec.ts` (novo)
+- `tests/exclusaoSegura.spec.ts` (novo)
+- `tests/mobileViewport.spec.ts` (novo)
 
 ## 6. Validação automatizada
 
@@ -161,12 +181,13 @@ Resultado final:
 
 - `npm run typecheck:server`: aprovado.
 - `npm run lint`: aprovado.
-- `npm test -- --run`: 9 arquivos e 52 testes aprovados.
+- `npm test -- --run`: 11 arquivos e 58 testes aprovados.
 - `npm run build`: aprovado (`build:server`, `build:seed`, `build:web`).
 - `npm --prefix apps/mobile run build`: aprovado.
 - `npm run test:a11y`: aprovado para estrutura, foco e metadados verificáveis no build.
 - `git diff --check`: aprovado.
 - Testes cobrem autenticação segura, DEV invisível para ADMIN, IDOR entre clientes, contratos/PDF, referência assinada de vendedor, parcelamento dinâmico, configuração de gateway, mapa de 44 poltronas, limites de capacidade e caráter não destrutivo da migration.
+- Os testes adicionais cobrem arquivamento do catálogo, exclusão de ônibus/saídas sem perda histórica, respostas sem SQL e contenção horizontal do PWA instalado no iPhone.
 
 ## 7. Deploy Coolify
 
@@ -195,6 +216,9 @@ A migration não exige execução manual no fluxo atual: o `Dockerfile` inclui a
 8. Simular boleto/cartão em início, meio e fim da oferta; tentar alterar parcelas no request e confirmar rejeição do backend.
 9. Validar visualmente as telas em 320, 360, 390, 430, 768 e desktop com dados reais do ambiente de homologação.
 10. Entrar como DEV, abrir **Minha conta**, alterar nome/telefone, trocar o e-mail de login e alterar a senha informando a senha atual.
+11. Como DEV, excluir um pacote sem reserva e outro com reserva; confirmar exclusão definitiva no primeiro e arquivamento no segundo.
+12. Repetir para período/excursão e confirmar que não aparece consulta SQL nem erro de FK.
+13. No iPhone, remover a instalação anterior, instalar novamente, abrir em modo standalone e confirmar que a tela não desloca horizontalmente nem reduz por gesto de pinça.
 
 ## 9. Segunda passagem visual e de navegação
 
@@ -213,12 +237,13 @@ A migration não exige execução manual no fluxo atual: o `Dockerfile` inclui a
 - O provedor Cora atualmente integrado processa PIX/boleto. A regra comercial de cartão é calculada e validada, mas cartão não é oferecido até existir um adquirente compatível; nenhum pagamento fictício foi criado.
 - A alocação de transporte/lugar entra em novos contratos gerados depois da atribuição. Documentos assinados antigos não são alterados, por integridade jurídica.
 - A validação visual autenticada com dados de produção deve ser repetida após o deploy; nesta entrega foram validados TypeScript, Tailwind, grids responsivos e os builds web/mobile, sem usar credenciais reais.
+- O ambiente local não recebeu `DATABASE_URL`; por isso a nova exclusão transacional foi validada por TypeScript, build e testes de contrato de código, mas o teste integrado deve ser repetido após a migration automática e o redeploy de homologação.
 
 ## 11. Commit sugerido
 
 Mensagem:
 
-`feat: finalizar operação, conta DEV e interface visual do sistema`
+`feat: finalizar operação, exclusão segura e PWA no iPhone`
 
 Resumo:
 
@@ -229,3 +254,6 @@ Resumo:
 - aplica o padrão visual dos mockups nas telas administrativas e do cliente;
 - adiciona gráficos reais, formulários em modal e edição segura da conta DEV;
 - preserva cadastro mínimo, vendas atribuídas, pagamentos e contratos imutáveis.
+- corrige exclusão com dependências sem erro de FK ou vazamento de SQL;
+- adiciona edição de excursões, períodos e pacotes;
+- impede deslocamento horizontal do PWA instalado no iPhone.

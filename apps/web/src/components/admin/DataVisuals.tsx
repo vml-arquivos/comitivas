@@ -24,7 +24,7 @@ export function LineTrend({ dados, formatar = (valor) => String(valor) }: { dado
       <div className="mb-3 flex items-center justify-between text-xs text-slate-400">
         <span>0</span><span>{formatar(maximo)}</span>
       </div>
-      <svg viewBox={`0 0 ${largura} ${altura}`} className="h-56 w-full overflow-visible" role="img" aria-label="Evolução das vendas no período">
+      <svg viewBox={`0 0 ${largura} ${altura}`} className="h-56 w-full overflow-hidden" role="img" aria-label="Evolução das vendas no período">
         <defs>
           <linearGradient id={`chart-${id}`} x1="0" x2="0" y1="0" y2="1">
             <stop offset="0" stopColor="#176477" stopOpacity=".24" />

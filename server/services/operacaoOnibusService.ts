@@ -60,6 +60,7 @@ export class OperacaoOnibusService {
       FROM saidas_operacionais s
       JOIN lotes l ON l.id = s.lote_id
       JOIN eventos e ON e.id = l.evento_id
+      WHERE s.ativa = true AND l.ativo = true AND e.ativo = true
       ORDER BY COALESCE(s.data_partida, l.data_embarque, l.data_inicio), s.criado_em DESC
     `));
     return saidas.map((saida) => ({
@@ -159,6 +160,66 @@ export class OperacaoOnibusService {
         WHERE id = ${id} RETURNING *`))[0];
       await registrar(tx, antes.saida_id, "onibus", id, "onibus_atualizado", atorId, antes, depois);
       return depois;
+    });
+  }
+
+  static async excluirOuArquivarOnibus(id: string, atorId: string) {
+    return db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`onibus-excluir:${id}`}))`);
+      const antes = linhas(await tx.execute(sql`SELECT * FROM onibus_operacionais WHERE id = ${id} FOR UPDATE`))[0];
+      if (!antes) throw new Error("Ônibus não encontrado");
+
+      await tx.execute(sql`UPDATE reservas SET saida_operacional_id = NULL, ponto_embarque_id = NULL, atualizado_em = CURRENT_TIMESTAMP
+        WHERE saida_operacional_id = ${antes.saida_id} AND id IN (
+          SELECT aa.reserva_id FROM assento_alocacoes aa
+          JOIN assentos_onibus a ON a.id = aa.assento_id
+          WHERE a.onibus_id = ${id} AND aa.status = 'ativa'
+        )`);
+      await tx.execute(sql`UPDATE assento_holds SET status = 'liberado', liberado_em = COALESCE(liberado_em, CURRENT_TIMESTAMP)
+        WHERE status = 'ativo' AND assento_id IN (SELECT id FROM assentos_onibus WHERE onibus_id = ${id})`);
+      await tx.execute(sql`UPDATE assento_alocacoes SET status = 'cancelada', encerrado_em = CURRENT_TIMESTAMP,
+        motivo = 'Ônibus retirado da operação'
+        WHERE status = 'ativa' AND assento_id IN (SELECT id FROM assentos_onibus WHERE onibus_id = ${id})`);
+      const depois = linhas(await tx.execute(sql`UPDATE onibus_operacionais SET ativo = false,
+        status = CASE WHEN status = 'concluido' THEN status ELSE 'cancelado' END,
+        atualizado_em = CURRENT_TIMESTAMP WHERE id = ${id} RETURNING *`))[0];
+      await registrar(tx, antes.saida_id, "onibus", id, "onibus_arquivado", atorId, antes, depois);
+      return {
+        modo: "arquivado",
+        mensagem: "Ônibus retirado da operação. Passageiros, lugares e histórico foram preservados.",
+      };
+    });
+  }
+
+  static async excluirOuArquivarSaida(id: string, atorId: string) {
+    return db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`saida-excluir:${id}`}))`);
+      const antes = linhas(await tx.execute(sql`SELECT * FROM saidas_operacionais WHERE id = ${id} FOR UPDATE`))[0];
+      if (!antes) throw new Error("Saída não encontrada");
+
+      await tx.execute(sql`UPDATE reservas SET saida_operacional_id = NULL, ponto_embarque_id = NULL, atualizado_em = CURRENT_TIMESTAMP
+        WHERE saida_operacional_id = ${id}`);
+      await tx.execute(sql`UPDATE assento_holds SET status = 'liberado', liberado_em = COALESCE(liberado_em, CURRENT_TIMESTAMP)
+        WHERE status = 'ativo' AND assento_id IN (
+          SELECT a.id FROM assentos_onibus a JOIN onibus_operacionais o ON o.id = a.onibus_id WHERE o.saida_id = ${id}
+        )`);
+      await tx.execute(sql`UPDATE assento_alocacoes SET status = 'cancelada', encerrado_em = CURRENT_TIMESTAMP,
+        motivo = 'Saída retirada da operação'
+        WHERE status = 'ativa' AND assento_id IN (
+          SELECT a.id FROM assentos_onibus a JOIN onibus_operacionais o ON o.id = a.onibus_id WHERE o.saida_id = ${id}
+        )`);
+      await tx.execute(sql`UPDATE pontos_embarque_operacao SET ativo = false WHERE saida_id = ${id}`);
+      await tx.execute(sql`UPDATE onibus_operacionais SET ativo = false,
+        status = CASE WHEN status = 'concluido' THEN status ELSE 'cancelado' END,
+        atualizado_em = CURRENT_TIMESTAMP WHERE saida_id = ${id}`);
+      const depois = linhas(await tx.execute(sql`UPDATE saidas_operacionais SET ativa = false,
+        status = CASE WHEN status = 'concluida' THEN status ELSE 'cancelada' END,
+        atualizado_em = CURRENT_TIMESTAMP WHERE id = ${id} RETURNING *`))[0];
+      await registrar(tx, id, "saida", id, "saida_arquivada", atorId, antes, depois);
+      return {
+        modo: "arquivado",
+        mensagem: "Saída retirada da operação. Ônibus, passageiros e histórico foram preservados.",
+      };
     });
   }
 

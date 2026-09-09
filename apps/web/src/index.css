@@ -23,8 +23,28 @@
     background: #f8f5ef;
   }
 
+  html,
+  body,
+  #root {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  @supports (overflow: clip) {
+    html,
+    body,
+    #root {
+      overflow-x: clip;
+    }
+  }
+
   body {
     margin: 0;
+    min-height: 100vh;
+    min-height: 100dvh;
+    position: relative;
     background: #f8f5ef;
     color: #182d3b;
     font-family:
@@ -39,6 +59,24 @@
     line-height: 1.55;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
+  }
+
+  #root {
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  img,
+  video,
+  canvas,
+  svg {
+    max-width: 100%;
+  }
+
+  html.ios-pwa-standalone,
+  html.ios-pwa-standalone body,
+  html.ios-pwa-standalone #root {
+    overscroll-behavior-x: none;
   }
 
   h1,
@@ -214,10 +252,6 @@
 }
 
 @media (max-width: 767px) {
-  body {
-    overflow-x: hidden;
-  }
-
   button,
   a[role='button'] {
     -webkit-tap-highlight-color: transparent;

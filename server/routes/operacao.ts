@@ -33,6 +33,16 @@ router.patch("/saidas/:saidaId", async (req: Request, res: Response) => {
   }
 });
 
+router.delete("/saidas/:saidaId", async (req: Request, res: Response) => {
+  try {
+    return res.json(await OperacaoOnibusService.excluirOuArquivarSaida(req.params.saidaId, req.usuario!.id));
+  } catch (error: any) {
+    console.error("[OPERACAO] Falha ao excluir ou arquivar saída:", error);
+    if (error?.message === "Saída não encontrada") return res.status(404).json({ erro: error.message });
+    return res.status(500).json({ erro: "Não foi possível excluir ou arquivar a saída" });
+  }
+});
+
 router.get("/saidas/:saidaId/mapa", async (req: Request, res: Response) => {
   try {
     return res.json(await OperacaoOnibusService.obterMapa(req.params.saidaId));
@@ -54,6 +64,16 @@ router.patch("/onibus/:onibusId", async (req: Request, res: Response) => {
     return res.json({ onibus: await OperacaoOnibusService.atualizarOnibus(req.params.onibusId, req.body, req.usuario!.id) });
   } catch (error: any) {
     return res.status(400).json({ erro: error.message || "Não foi possível atualizar o ônibus" });
+  }
+});
+
+router.delete("/onibus/:onibusId", async (req: Request, res: Response) => {
+  try {
+    return res.json(await OperacaoOnibusService.excluirOuArquivarOnibus(req.params.onibusId, req.usuario!.id));
+  } catch (error: any) {
+    console.error("[OPERACAO] Falha ao excluir ou arquivar ônibus:", error);
+    if (error?.message === "Ônibus não encontrado") return res.status(404).json({ erro: error.message });
+    return res.status(500).json({ erro: "Não foi possível excluir ou arquivar o ônibus" });
   }
 });
 

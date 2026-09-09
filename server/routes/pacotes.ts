@@ -9,6 +9,7 @@ import { db } from "../db/index.js";
 import { eventos, lotes, pacotes, itens_addon, reservas, usuarios, leads_origem, pagamentos, pagamentoParcelas } from "../db/schema.js";
 import { eq, and, desc, inArray, isNull, or, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
+import { CatalogoExclusaoService } from "../services/catalogoExclusaoService.js";
 
 const router = Router();
 
@@ -545,18 +546,18 @@ router.put("/:pacote_id", authMiddleware, requireRole("admin"), async (req: Requ
   }
 });
 
-// Despublicar pacote sem apagar histórico de reservas (admin)
+// Excluir definitivamente quando não há histórico; caso contrário, arquivar.
 router.delete("/:pacote_id", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
   try {
-    const despublicado = await db.update(pacotes).set({ ativo: false, atualizado_em: new Date() })
-      .where(eq(pacotes.id, req.params.pacote_id)).returning();
-    if (despublicado.length === 0) {
-      return res.status(404).json({ erro: "Pacote não encontrado" });
-    }
-    res.json({ mensagem: "Pacote despublicado com sucesso", pacote: despublicado[0] });
+    const resultado = await CatalogoExclusaoService.pacote(req.params.pacote_id, {
+      id: req.usuario!.id,
+      tipo: req.usuario!.tipo,
+    });
+    return res.json(resultado);
   } catch (error: any) {
-    console.error("[PACOTES] Erro ao despublicar pacote:", error);
-    res.status(500).json({ erro: error.message || "Erro ao despublicar pacote" });
+    console.error("[PACOTES] Falha ao excluir ou arquivar pacote:", error);
+    if (error?.message === "Pacote não encontrado") return res.status(404).json({ erro: error.message });
+    return res.status(500).json({ erro: "Não foi possível excluir ou arquivar o pacote" });
   }
 });
 

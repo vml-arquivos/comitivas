@@ -1,11 +1,12 @@
 import { Router, Request, Response, NextFunction, raw } from "express";
 import { authMiddleware, requireRole } from "../middleware/authMiddleware.js";
 import { db } from "../db/index.js";
-import { eventos, fotos_evento, lotes } from "../db/schema.js";
+import { eventos, fotos_evento } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { CatalogoExclusaoService } from "../services/catalogoExclusaoService.js";
 
 const router = Router();
 
@@ -38,7 +39,7 @@ function caminhoFoto(eventoId: string, fotoId: string, mime: string): string {
 // Listar todos os eventos (público)
 router.get("/", async (req: Request, res: Response) => {
   try {
-    const eventosList = await db.select().from(eventos);
+    const eventosList = await db.select().from(eventos).where(eq(eventos.ativo, true));
     res.json({ eventos: eventosList });
   } catch (error: any) {
     console.error("[EVENTOS] Erro ao listar:", error);
@@ -53,7 +54,7 @@ router.get("/:evento_id", async (req: Request, res: Response) => {
     const evento = await db
       .select()
       .from(eventos)
-      .where(eq(eventos.id, evento_id))
+      .where(and(eq(eventos.id, evento_id), eq(eventos.ativo, true)))
       .limit(1);
 
     if (evento.length === 0) {
@@ -136,8 +137,14 @@ router.post("/:evento_id/fotos", authMiddleware, requireRole("admin"), uploadFot
 // As fotos da galeria são públicas, mas o caminho físico nunca é exposto.
 router.get("/:evento_id/fotos/:foto_id/arquivo", async (req: Request, res: Response) => {
   try {
-    const foto = (await db.select({ id: fotos_evento.id, formato: fotos_evento.formato }).from(fotos_evento)
-      .where(and(eq(fotos_evento.id, req.params.foto_id), eq(fotos_evento.evento_id, req.params.evento_id))).limit(1))[0];
+    const foto = (await db.select({ id: fotos_evento.id, formato: fotos_evento.formato })
+      .from(fotos_evento)
+      .innerJoin(eventos, eq(eventos.id, fotos_evento.evento_id))
+      .where(and(
+        eq(fotos_evento.id, req.params.foto_id),
+        eq(fotos_evento.evento_id, req.params.evento_id),
+        eq(eventos.ativo, true),
+      )).limit(1))[0];
     if (!foto?.formato?.startsWith("image/")) return res.status(404).json({ erro: "Foto não encontrada" });
     const arquivo = caminhoFoto(req.params.evento_id, foto.id, foto.formato);
     await fs.access(arquivo);
@@ -235,37 +242,26 @@ router.put("/:evento_id", authMiddleware, requireRole("admin"), async (req: Requ
   }
 });
 
-// Deletar evento (admin)
+// Excluir definitivamente quando não há histórico; caso contrário, arquivar.
 router.delete("/:evento_id", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
   try {
     const { evento_id } = req.params;
-
-    // Verificar se existem lotes vinculados
-    const lotesVinculados = await db
-      .select()
-      .from(lotes)
-      .where(eq(lotes.evento_id, evento_id));
-
-    if (lotesVinculados.length > 0) {
-      return res.status(409).json({
-        erro: "Não é possível deletar evento com lotes vinculados",
-        lotes_count: lotesVinculados.length,
-      });
+    const resultado = await CatalogoExclusaoService.evento(evento_id, {
+      id: req.usuario!.id,
+      tipo: req.usuario!.tipo,
+    });
+    if (resultado.modo === "excluido") {
+      const base = path.resolve(process.env.STORAGE_PATH || "./uploads");
+      const pasta = path.resolve(base, "eventos", evento_id);
+      if (pasta.startsWith(`${base}${path.sep}`)) {
+        await fs.rm(pasta, { recursive: true, force: true }).catch(() => undefined);
+      }
     }
-
-    const deletado = await db
-      .delete(eventos)
-      .where(eq(eventos.id, evento_id))
-      .returning();
-
-    if (deletado.length === 0) {
-      return res.status(404).json({ erro: "Evento não encontrado" });
-    }
-
-    res.json({ mensagem: "Evento deletado com sucesso" });
+    return res.json(resultado);
   } catch (error: any) {
-    console.error("[EVENTOS] Erro ao deletar:", error);
-    res.status(500).json({ erro: error.message || "Erro ao deletar evento" });
+    console.error("[EVENTOS] Falha ao excluir ou arquivar excursão:", error);
+    if (error?.message === "Excursão não encontrada") return res.status(404).json({ erro: error.message });
+    return res.status(500).json({ erro: "Não foi possível excluir ou arquivar a excursão" });
   }
 });
 

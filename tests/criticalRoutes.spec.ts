@@ -30,6 +30,8 @@ describe("ligações dos fluxos críticos", () => {
     expect(pacotes).toContain('router.post("/reservas/:reserva_id/simular-pagamento"');
     expect(contratos).toContain('router.post("/preparar/:reserva_id"');
     expect(operacao).toContain('router.post("/saidas/:saidaId/onibus"');
+    expect(operacao).toContain('router.delete("/saidas/:saidaId"');
+    expect(operacao).toContain('router.delete("/onibus/:onibusId"');
     expect(autenticacao).toContain('router.post("/alterar-login", authMiddleware');
     expect(autenticacao).toContain('router.post("/alterar-senha", authMiddleware');
   });

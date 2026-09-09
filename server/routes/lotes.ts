@@ -2,8 +2,9 @@ import { Router, Request, Response } from "express";
 import { authMiddleware, requireRole } from "../middleware/authMiddleware.js";
 import { db } from "../db/index.js";
 import { lotes, eventos } from "../db/schema.js";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
+import { CatalogoExclusaoService } from "../services/catalogoExclusaoService.js";
 
 const router = Router();
 
@@ -14,7 +15,7 @@ router.get("/evento/:evento_id", async (req: Request, res: Response) => {
     const lotesList = await db
       .select()
       .from(lotes)
-      .where(eq(lotes.evento_id, evento_id));
+      .where(and(eq(lotes.evento_id, evento_id), eq(lotes.ativo, true)));
 
     res.json({ evento_id, lotes: lotesList });
   } catch (error: any) {
@@ -30,7 +31,7 @@ router.get("/:lote_id", async (req: Request, res: Response) => {
     const lote = await db
       .select()
       .from(lotes)
-      .where(eq(lotes.id, lote_id))
+      .where(and(eq(lotes.id, lote_id), eq(lotes.ativo, true)))
       .limit(1);
 
     if (lote.length === 0) {
@@ -179,24 +180,19 @@ router.put("/:lote_id", authMiddleware, requireRole("admin"), async (req: Reques
   }
 });
 
-// Deletar lote (admin)
+// Excluir definitivamente quando não há histórico; caso contrário, arquivar.
 router.delete("/:lote_id", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
   try {
     const { lote_id } = req.params;
-
-    const deletado = await db
-      .delete(lotes)
-      .where(eq(lotes.id, lote_id))
-      .returning();
-
-    if (deletado.length === 0) {
-      return res.status(404).json({ erro: "Lote não encontrado" });
-    }
-
-    res.json({ mensagem: "Lote deletado com sucesso" });
+    const resultado = await CatalogoExclusaoService.lote(lote_id, {
+      id: req.usuario!.id,
+      tipo: req.usuario!.tipo,
+    });
+    return res.json(resultado);
   } catch (error: any) {
-    console.error("[LOTES] Erro ao deletar:", error);
-    res.status(500).json({ erro: error.message || "Erro ao deletar lote" });
+    console.error("[LOTES] Falha ao excluir ou arquivar período:", error);
+    if (error?.message === "Lote não encontrado") return res.status(404).json({ erro: error.message });
+    return res.status(500).json({ erro: "Não foi possível excluir ou arquivar o período" });
   }
 });
 

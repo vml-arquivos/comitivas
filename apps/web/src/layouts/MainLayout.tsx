@@ -41,7 +41,7 @@ export function MainLayout() {
   const fecharMenu = () => setMenuAberto(false);
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#F8F5EF] text-[#182D3B]">
+    <div className="safe-mobile-content flex min-h-screen w-full flex-col overflow-x-clip bg-[#F8F5EF] text-[#182D3B]">
       <a
         href="#conteudo-principal"
         className="fixed left-4 top-3 z-[70] -translate-y-20 rounded-full bg-[#182D3B] px-4 py-2 text-sm font-bold text-white shadow-lg transition focus:translate-y-0"
@@ -145,7 +145,7 @@ export function MainLayout() {
         </div>
       </header>
 
-      <main id="conteudo-principal" className="flex-1" tabIndex={-1}>
+      <main id="conteudo-principal" className="min-w-0 flex-1" tabIndex={-1}>
         <Outlet />
       </main>
 

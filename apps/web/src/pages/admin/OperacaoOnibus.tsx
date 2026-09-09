@@ -8,6 +8,7 @@ import {
   MoveRight,
   Plus,
   RefreshCw,
+  Trash2,
   Undo2,
   UserCheck,
 } from "lucide-react";
@@ -312,6 +313,22 @@ export default function OperacaoOnibus() {
     }
   };
 
+  const excluirSaida = async () => {
+    if (!saidaId || !confirm("Excluir esta saída da operação? Ônibus, passageiros e histórico serão preservados.")) return;
+    await executar(
+      () => api.delete(`/operacao/saidas/${saidaId}`),
+      "Saída retirada da operação com o histórico preservado.",
+    );
+  };
+
+  const excluirOnibus = async (onibusId: string) => {
+    if (!confirm("Excluir este ônibus da operação? Passageiros e histórico serão preservados.")) return;
+    await executar(
+      () => api.delete(`/operacao/onibus/${onibusId}`),
+      "Ônibus retirado da operação com o histórico preservado.",
+    );
+  };
+
   const corAssento = (assento: Assento) =>
     assento.alocacao_id
       ? "border-[#DF6248] bg-[#fff0eb] text-[#b8442e]"
@@ -388,26 +405,32 @@ export default function OperacaoOnibus() {
               </select>
             </div>
             {mapa && (
-              <select
-                aria-label="Situação da saída"
-                value={mapa.saida.status}
-                onChange={(e) =>
-                  void executar(
-                    () =>
-                      api.patch(`/operacao/saidas/${saidaId}`, {
-                        status: e.target.value,
-                      }),
-                    "Situação da saída atualizada.",
-                  )
-                }
-                className={inputClass}
-              >
-                {Object.entries(statusSaida).map(([valor, label]) => (
-                  <option key={valor} value={valor}>
-                    {label}
-                  </option>
-                ))}
-              </select>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  aria-label="Situação da saída"
+                  value={mapa.saida.status}
+                  onChange={(e) =>
+                    void executar(
+                      () =>
+                        api.patch(`/operacao/saidas/${saidaId}`, {
+                          status: e.target.value,
+                        }),
+                      "Situação da saída atualizada.",
+                    )
+                  }
+                  className={inputClass}
+                >
+                  {Object.entries(statusSaida).map(([valor, label]) => (
+                    <option key={valor} value={valor}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+                <Button variant="outline" className="text-red-700" onClick={() => void excluirSaida()}>
+                  <Trash2 size={16} className="mr-2" />
+                  Excluir saída
+                </Button>
+              </div>
             )}
           </div>
         </CardContent>
@@ -506,18 +529,11 @@ export default function OperacaoOnibus() {
                       </div>
                       <Button
                         variant="outline"
-                        disabled={Number(onibus.ocupadas) > 0}
-                        onClick={() =>
-                          void executar(
-                            () =>
-                              api.patch(`/operacao/onibus/${onibus.id}`, {
-                                ativo: false,
-                              }),
-                            "Transporte arquivado.",
-                          )
-                        }
+                        className="text-red-700"
+                        onClick={() => void excluirOnibus(onibus.id)}
                       >
-                        Arquivar
+                        <Trash2 size={15} className="mr-2" />
+                        Excluir
                       </Button>
                     </div>
                     <div className="grid max-w-md grid-cols-4 gap-x-2 gap-y-2 rounded-2xl bg-[#f5f8f7] p-4 sm:gap-x-4">

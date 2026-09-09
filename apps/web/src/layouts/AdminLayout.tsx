@@ -183,7 +183,7 @@ export function AdminLayout() {
     .filter((group) => group.items.length > 0);
 
   return (
-    <div className="admin-shell flex min-h-screen bg-[#F7F4EE]">
+    <div className="admin-shell flex min-h-screen w-full min-w-0 overflow-x-clip bg-[#F7F4EE]">
       {/* Sidebar */}
       <aside className="sticky top-0 hidden h-screen w-[258px] shrink-0 flex-col bg-[linear-gradient(180deg,#073F50_0%,#062F3D_100%)] text-white md:flex">
         <div className="flex h-[78px] shrink-0 items-center border-b border-white/10 px-5">
@@ -284,7 +284,7 @@ export function AdminLayout() {
           </div>
         )}
 
-        <div className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 xl:p-10">
+        <div className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain p-4 sm:p-6 lg:p-8 xl:p-10">
           <Outlet />
         </div>
       </main>
