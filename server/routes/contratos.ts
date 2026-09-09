@@ -4,16 +4,22 @@ import { ContratoService, REGRAS_CONVIVENCIA_OFICIAIS, REGRAS_CONVIVENCIA_VERSIO
 import { ConfiguracaoService } from "../services/configuracaoService.js";
 import { db } from "../db/index.js";
 import { eventos, lotes, pacotes, reservas, usuarios, pagamentos, contratosDocumentos, contratoValidacoes } from "../db/schema.js";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 import fs from "fs/promises";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { generateBrandedPdfBuffer } from "../../packages/contract-engine/brandedPdfLayout.js";
 import { OtpService } from "../services/otpService.js";
+import { cadastroAprovadoComEvidencia, camposFaltantesCadastroMinimo } from "../security/governance.js";
 
 const router = Router();
 
-function podeAcessarReserva(req: Request, reserva: { usuario_id: string; vendedor_id: string | null }, somenteCliente = false): boolean {
+async function podeAcessarReserva(req: Request, reserva: { usuario_id: string; vendedor_id: string | null }, somenteCliente = false): Promise<boolean> {
   if (!req.usuario) return false;
+  if (req.usuario.tipo !== "dev") {
+    const alvo = (await db.select({ tipo: usuarios.tipo }).from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0];
+    if (!alvo || alvo.tipo === "dev") return false;
+  }
   if (isAdminOrDev(req.usuario.tipo)) return true;
   if (reserva.usuario_id === req.usuario.id) return true;
   return !somenteCliente && req.usuario.tipo === "vendedor" && reserva.vendedor_id === req.usuario.id;
@@ -49,23 +55,65 @@ function formatarDataHora(valor: Date): string {
 }
 
 async function cadastroAprovado(reservaId: string): Promise<boolean> {
-  const registro = (await db.select({ cadastro_status: usuarios.cadastro_status, aprovado_em: usuarios.aprovado_em }).from(reservas).innerJoin(usuarios, eq(reservas.usuario_id, usuarios.id)).where(eq(reservas.id, reservaId)).limit(1))[0];
-  // Clientes legados recebem status aprovado na migration de governança e
-  // podem não ter timestamp histórico; o status é a fonte de verdade.
-  return Boolean(registro?.cadastro_status === "aprovado");
+  const registro = (await db.select({ ativo: usuarios.ativo, cadastro_status: usuarios.cadastro_status, aprovado_em: usuarios.aprovado_em, aprovado_por: usuarios.aprovado_por }).from(reservas).innerJoin(usuarios, eq(reservas.usuario_id, usuarios.id)).where(eq(reservas.id, reservaId)).limit(1))[0];
+  return cadastroAprovadoComEvidencia(registro);
+}
+
+async function camposCadastroFaltantes(reservaId: string): Promise<string[]> {
+  const registro = (await db.select({ nome: usuarios.nome, email: usuarios.email, cpf: usuarios.cpf, telefone: usuarios.telefone, data_nascimento: usuarios.data_nascimento, endereco: usuarios.endereco })
+    .from(reservas)
+    .innerJoin(usuarios, eq(reservas.usuario_id, usuarios.id))
+    .where(eq(reservas.id, reservaId))
+    .limit(1))[0];
+  return camposFaltantesCadastroMinimo(registro);
+}
+
+async function lerArquivoContrato(caminhos: Array<string | null | undefined>): Promise<Buffer | null> {
+  const base = path.resolve(process.env.STORAGE_PATH || "./uploads");
+  const candidatos = new Set<string>();
+
+  for (const caminhoInformado of caminhos) {
+    if (!caminhoInformado) continue;
+    const resolvido = path.resolve(caminhoInformado);
+    if (resolvido.startsWith(`${base}${path.sep}`)) candidatos.add(resolvido);
+    // Instalações antigas podem ter persistido o caminho absoluto do contêiner
+    // anterior. Preservamos também o caminho relativo abaixo do diretório de
+    // uploads, sem aceitar travessia para fora do storage atual.
+    const normalizado = caminhoInformado.replace(/\\/g, "/");
+    for (const marcador of ["/uploads/", "/storage/"]) {
+      const indice = normalizado.lastIndexOf(marcador);
+      if (indice >= 0) candidatos.add(path.resolve(base, normalizado.slice(indice + marcador.length)));
+    }
+    candidatos.add(path.join(base, path.basename(caminhoInformado)));
+  }
+
+  for (const candidato of candidatos) {
+    if (!candidato.startsWith(`${base}${path.sep}`)) continue;
+    try {
+      return await fs.readFile(candidato);
+    } catch (error: any) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+  }
+  return null;
 }
 
 function regrasDoPacote(pacote: typeof pacotes.$inferSelect | undefined) {
   const configuracao = pacote?.configuracao_pagamento && typeof pacote.configuracao_pagamento === "object"
-    ? pacote.configuracao_pagamento as { formas_permitidas?: unknown; boleto_parcelas_maximo?: unknown }
+    ? pacote.configuracao_pagamento as Record<string, unknown>
     : {};
   const formasPermitidas = Array.isArray(configuracao.formas_permitidas)
     ? configuracao.formas_permitidas.map(String).filter((forma) => ["pix", "boleto", "credito"].includes(forma))
     : ["pix", "boleto"];
   const limiteConfigurado = Number(configuracao.boleto_parcelas_maximo);
+  const limiteCredito = Number(configuracao.credito_parcelas_maximo);
   return {
     formasPermitidas: formasPermitidas.length ? formasPermitidas : ["pix", "boleto"],
     boletoParcelasMaximo: Number.isInteger(limiteConfigurado) && limiteConfigurado > 0 ? limiteConfigurado : undefined,
+    creditoParcelasMaximo: Number.isInteger(limiteCredito) && limiteCredito > 0 ? limiteCredito : undefined,
+    creditoTaxaPercentual: Number(configuracao.credito_taxa_percentual) || 0,
+    creditoJurosMensalPercentual: Number(configuracao.credito_juros_mensal_percentual) || 0,
+    prazoSegurancaDias: Number.isInteger(Number(configuracao.prazo_seguranca_dias)) ? Math.max(0, Number(configuracao.prazo_seguranca_dias)) : 0,
     dataLimitePagamento: pacote?.data_limite_pagamento,
   };
 }
@@ -76,8 +124,10 @@ router.post("/preparar/:reserva_id", authMiddleware, async (req: Request, res: R
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
-    if (!podeAcessarReserva(req, reserva)) return res.status(403).json({ erro: "Acesso negado" });
+    if (!(await podeAcessarReserva(req, reserva))) return res.status(403).json({ erro: "Acesso negado" });
     if (!(await cadastroAprovado(reserva.id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes de preparar o contrato" });
+    const faltantes = await camposCadastroFaltantes(reserva.id);
+    if (faltantes.length) return res.status(409).json({ erro: `Complete os dados essenciais antes do contrato: ${faltantes.join(", ")}` });
     const documento = await ContratoService.prepararContrato(req.params.reserva_id);
     return res.json({ documento });
   } catch (error: any) {
@@ -131,8 +181,8 @@ router.get("/estado/:reserva_id", authMiddleware, async (req: Request, res: Resp
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
-    if (!podeAcessarReserva(req, reserva)) return res.status(403).json({ erro: "Acesso negado" });
-    const documento = (await db.select({ id: contratosDocumentos.id, versao: contratosDocumentos.versao, status: contratosDocumentos.status, snapshot_sha256: contratosDocumentos.snapshot_sha256, pdf_sha256: contratosDocumentos.pdf_sha256, arquivo: contratosDocumentos.arquivo }).from(contratosDocumentos).where(eq(contratosDocumentos.reserva_id, reserva.id)).orderBy(desc(contratosDocumentos.versao)).limit(1))[0] || null;
+    if (!(await podeAcessarReserva(req, reserva))) return res.status(403).json({ erro: "Acesso negado" });
+    const documento = (await db.select({ id: contratosDocumentos.id, versao: contratosDocumentos.versao, status: contratosDocumentos.status, snapshot_sha256: contratosDocumentos.snapshot_sha256, pdf_sha256: contratosDocumentos.pdf_sha256, pdf_disponivel: sql<boolean>`${contratosDocumentos.arquivo} IS NOT NULL` }).from(contratosDocumentos).where(eq(contratosDocumentos.reserva_id, reserva.id)).orderBy(desc(contratosDocumentos.versao)).limit(1))[0] || null;
     const pagamento = (await db.select().from(pagamentos).where(eq(pagamentos.reserva_id, reserva.id)).orderBy(desc(pagamentos.criado_em)).limit(1))[0] || null;
     const checkoutEstado = reserva.checkout_estado || (reserva.status === "cliente_confirmado" ? "primeira_parcela_confirmada" : reserva.status === "aguardando_pagamento" ? "aguardando_pagamento" : reserva.status === "contrato_gerado" ? "contrato_validado" : reserva.status);
     return res.json({ reserva_id: reserva.id, status: reserva.status, checkout_estado: checkoutEstado, contrato: documento, pagamento: pagamento ? { id: pagamento.id, status: pagamento.status, gateway_id: pagamento.gateway_id, valor: pagamento.valor, valor_pago_centavos: pagamento.valor_pago_centavos, resposta: pagamento.gateway_resposta } : null });
@@ -147,7 +197,7 @@ router.get("/validacao/:reserva_id", authMiddleware, async (req: Request, res: R
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
-    if (!podeAcessarReserva(req, reserva)) return res.status(403).json({ erro: "Acesso negado" });
+    if (!(await podeAcessarReserva(req, reserva))) return res.status(403).json({ erro: "Acesso negado" });
     const validacao = (await db.select().from(contratoValidacoes).where(eq(contratoValidacoes.reserva_id, req.params.reserva_id)).orderBy(desc(contratoValidacoes.confirmado_em)).limit(1))[0];
     if (!validacao) return res.status(404).json({ erro: "Validação ainda não registrada" });
     return res.json({ validacao });
@@ -184,6 +234,8 @@ router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Re
       return res.status(403).json({ erro: "Acesso negado" });
     }
     if (!(await cadastroAprovado(reserva.id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes de aceitar o contrato" });
+    const faltantes = await camposCadastroFaltantes(reserva.id);
+    if (faltantes.length) return res.status(409).json({ erro: `Complete os dados essenciais antes do contrato: ${faltantes.join(", ")}` });
 
     // Verificar status
     if (reserva.status !== "pacote_montado" && reserva.status !== "checkout_iniciado") {
@@ -216,7 +268,8 @@ router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Re
       if (!regrasPacote.formasPermitidas.includes(String(metodoPagamento))) {
         throw new Error("A forma de pagamento não está disponível para este pacote");
       }
-      const dataLimitePagamento = regrasPacote.dataLimitePagamento || loteResult[0]?.data_embarque || loteResult[0]?.data_inicio;
+      const dataViagem = loteResult[0]?.data_embarque || loteResult[0]?.data_inicio;
+      const dataLimitePagamento = ContratoService.calcularDataLimiteEfetiva(regrasPacote.dataLimitePagamento, dataViagem, regrasPacote.prazoSegurancaDias);
       const configPagamento = await ConfiguracaoService.obterConfiguracoesPagamento();
       const parcelasPorData = ContratoService.calcularParcelasMaximasBoleto(
         dataLimitePagamento,
@@ -224,6 +277,7 @@ router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Re
         configPagamento.boleto_meses_maximo_antecedencia,
       );
       const parcelasMaximasBoleto = Math.min(parcelasPorData, regrasPacote.boletoParcelasMaximo || parcelasPorData);
+      const parcelasMaximasCredito = Math.min(parcelasPorData, regrasPacote.creditoParcelasMaximo || configPagamento.credito_parcelas_maximo, configPagamento.credito_parcelas_maximo);
 
       // O valor_total persistido já pode conter o desconto da condição anterior.
       // Reconstituímos a base somando apenas o desconto financeiro anterior para
@@ -236,7 +290,9 @@ router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Re
         parcelasMaximasBoleto,
         {
           percentualDescontoPix: configPagamento.pix_desconto_percentual,
-          parcelasMaximasCredito: configPagamento.credito_parcelas_maximo,
+          parcelasMaximasCredito,
+          percentualTaxaCredito: regrasPacote.creditoTaxaPercentual,
+          percentualJurosMensalCredito: regrasPacote.creditoJurosMensalPercentual,
         },
       );
     } catch (error: any) {
@@ -257,7 +313,7 @@ router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Re
       })
       .where(eq(reservas.id, reserva_id));
 
-    const documento = await ContratoService.prepararContrato(reserva_id);
+    const documento = await ContratoService.prepararContrato(reserva_id, undefined, condicaoPagamento);
     res.json({
       mensagem: "Contrato preparado e aguardando validação eletrônica",
       reserva_id,
@@ -293,25 +349,38 @@ router.get("/download/:reserva_id", authMiddleware, async (req: Request, res: Re
 
     const reserva = reservaResult[0];
 
-    if (!podeAcessarReserva(req, reserva)) {
+    if (!(await podeAcessarReserva(req, reserva))) {
       return res.status(403).json({ erro: "Acesso negado" });
     }
 
-    if (!reserva.contrato_pdf_url) {
+    const contratoId = String(req.query.contrato_id || "").trim();
+    const condicaoDocumento = contratoId
+      ? and(eq(contratosDocumentos.reserva_id, reserva_id), eq(contratosDocumentos.id, contratoId), ne(contratosDocumentos.status, "invalidado"))
+      : and(eq(contratosDocumentos.reserva_id, reserva_id), ne(contratosDocumentos.status, "invalidado"));
+    const documento = (await db.select({ id: contratosDocumentos.id, arquivo: contratosDocumentos.arquivo, pdf_sha256: contratosDocumentos.pdf_sha256, versao: contratosDocumentos.versao })
+      .from(contratosDocumentos)
+      .where(condicaoDocumento)
+      .orderBy(desc(contratosDocumentos.versao))
+      .limit(1))[0];
+
+    if (contratoId && !documento) return res.status(404).json({ erro: "Versão contratual não encontrada" });
+    if (documento && !documento.arquivo) return res.status(404).json({ erro: "O PDF da versão vigente ainda não está disponível" });
+    if (!documento && !reserva.contrato_pdf_url) {
       return res.status(404).json({ erro: "Contrato não disponível" });
     }
 
-    const caminhoBase = path.resolve(process.env.STORAGE_PATH || "./uploads");
-    const caminhoArquivo = path.resolve(reserva.contrato_pdf_url);
-    if (caminhoArquivo !== caminhoBase && !caminhoArquivo.startsWith(`${caminhoBase}${path.sep}`)) return res.status(403).json({ erro: "Arquivo contratual inválido" });
-    const pdfBuffer = await fs.readFile(caminhoArquivo);
+    const pdfBuffer = await lerArquivoContrato(documento ? [documento.arquivo] : [reserva.contrato_pdf_url]);
+    if (!pdfBuffer) return res.status(404).json({ erro: "Arquivo do contrato não encontrado. O registro e o histórico foram preservados." });
+    if (documento?.pdf_sha256 && createHash("sha256").update(pdfBuffer).digest("hex") !== documento.pdf_sha256) {
+      return res.status(409).json({ erro: "O arquivo do contrato não corresponde à versão validada. Nenhuma regeneração foi realizada." });
+    }
 
     // Enviar arquivo
     res.setHeader("Content-Type", "application/pdf");
     const disposicao = req.query.inline === "1" ? "inline" : "attachment";
     res.setHeader(
       "Content-Disposition",
-      `${disposicao}; filename="contrato-${reserva_id}.pdf"`
+      `${disposicao}; filename="contrato-${reserva_id}${documento ? `-v${documento.versao}` : ""}.pdf"`
     );
     res.send(pdfBuffer);
   } catch (error: any) {
@@ -325,7 +394,7 @@ router.get("/evidencias/:reserva_id", authMiddleware, async (req: Request, res: 
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
     const reserva = (await db.select({ id: reservas.id, usuario_id: reservas.usuario_id, vendedor_id: reservas.vendedor_id }).from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
-    if (!podeAcessarReserva(req, reserva)) return res.status(403).json({ erro: "Acesso negado" });
+    if (!(await podeAcessarReserva(req, reserva))) return res.status(403).json({ erro: "Acesso negado" });
     const validacao = (await db.select().from(contratoValidacoes).where(eq(contratoValidacoes.reserva_id, reserva.id)).orderBy(desc(contratoValidacoes.confirmado_em)).limit(1))[0];
     if (!validacao) return res.status(404).json({ erro: "Relatório de evidências não disponível" });
     return res.json({ protocolo: validacao.protocolo, contrato_id: validacao.contrato_id, reserva_id: validacao.reserva_id, versao: validacao.versao, snapshot_sha256: validacao.snapshot_sha256, pdf_sha256: validacao.pdf_sha256, aceite_contrato: validacao.aceite_contrato, aceite_regras: validacao.aceite_regras, aceite_contrato_texto: validacao.aceite_contrato_texto, aceite_regras_texto: validacao.aceite_regras_texto, regras_versao: validacao.regras_versao, aviso_privacidade_versao: validacao.aviso_privacidade_versao, canal: validacao.canal, destinatario_mascarado: validacao.destinatario_mascarado, confirmado_em: validacao.confirmado_em, servidor_utc: validacao.servidor_utc, navegador: validacao.navegador, sistema_operacional: validacao.sistema_operacional, idioma: validacao.idioma, timezone: validacao.timezone, geolocalizacao_consentida: validacao.geolocalizacao_consentida });
@@ -369,7 +438,7 @@ router.get("/voucher/:reserva_id", authMiddleware, async (req: Request, res: Res
 
     const voucher = dados[0];
     if (!voucher) return res.status(404).json({ erro: "Reserva não encontrada" });
-    if (voucher.usuario_id !== req.usuario.id && !isAdminOrDev(req.usuario.tipo)) {
+    if (!(await podeAcessarReserva(req, { usuario_id: voucher.usuario_id, vendedor_id: null }, true))) {
       return res.status(403).json({ erro: "Acesso negado" });
     }
     if (voucher.status !== "cliente_confirmado") {
@@ -475,7 +544,7 @@ router.get("/visualizar/:reserva_id", authMiddleware, async (req: Request, res: 
     const reserva = reservaResult[0];
 
     // Verificar se é do usuário ou admin
-    if (reserva.usuario_id !== req.usuario.id && !isAdminOrDev(req.usuario.tipo)) {
+    if (!(await podeAcessarReserva(req, reserva))) {
       return res.status(403).json({ erro: "Acesso negado" });
     }
 

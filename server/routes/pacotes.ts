@@ -42,13 +42,34 @@ function validarConfiguracaoComercial(body: any) {
   if (formasPermitidas.length === 0) throw new Error("Selecione ao menos uma forma de pagamento");
   const boletoParcelasMaximo = Number(pagamento.boleto_parcelas_maximo ?? 1);
   if (!Number.isInteger(boletoParcelasMaximo) || boletoParcelasMaximo < 1 || boletoParcelasMaximo > 36) throw new Error("O limite de parcelas do boleto deve estar entre 1 e 36");
+  const creditoParcelasMaximo = Number(pagamento.credito_parcelas_maximo ?? 10);
+  if (!Number.isInteger(creditoParcelasMaximo) || creditoParcelasMaximo < 1 || creditoParcelasMaximo > 24) throw new Error("O limite de parcelas do cartão deve estar entre 1 e 24");
+  const creditoTaxaPercentual = Number(pagamento.credito_taxa_percentual ?? 0);
+  if (!Number.isFinite(creditoTaxaPercentual) || creditoTaxaPercentual < 0 || creditoTaxaPercentual > 100) throw new Error("A taxa do cartão deve estar entre 0% e 100%");
+  const creditoJurosMensalPercentual = Number(pagamento.credito_juros_mensal_percentual ?? 0);
+  if (!Number.isFinite(creditoJurosMensalPercentual) || creditoJurosMensalPercentual < 0 || creditoJurosMensalPercentual > 20) throw new Error("Os juros mensais do cartão devem estar entre 0% e 20%");
+  const prazoSegurancaDias = Number(pagamento.prazo_seguranca_dias ?? 0);
+  if (!Number.isInteger(prazoSegurancaDias) || prazoSegurancaDias < 0 || prazoSegurancaDias > 365) throw new Error("O prazo de segurança deve estar entre 0 e 365 dias");
+  const multaAtrasoPercentual = Number(pagamento.multa_atraso_percentual ?? 2);
+  const jurosMoraMensalPercentual = Number(pagamento.juros_mora_mensal_percentual ?? 1);
+  if (!Number.isFinite(multaAtrasoPercentual) || multaAtrasoPercentual < 0 || multaAtrasoPercentual > 100) throw new Error("A multa por atraso deve estar entre 0% e 100%");
+  if (!Number.isFinite(jurosMoraMensalPercentual) || jurosMoraMensalPercentual < 0 || jurosMoraMensalPercentual > 20) throw new Error("Os juros de mora devem estar entre 0% e 20% ao mês");
   const dataLimite = body.data_limite_pagamento ? new Date(body.data_limite_pagamento) : null;
   if (dataLimite && Number.isNaN(dataLimite.getTime())) throw new Error("Data limite de pagamento inválida");
 
   return {
     forma_contratacao: formaContratacao,
     onibus_config: onibusNormalizados,
-    configuracao_pagamento: { formas_permitidas: formasPermitidas, boleto_parcelas_maximo: boletoParcelasMaximo },
+    configuracao_pagamento: {
+      formas_permitidas: formasPermitidas,
+      boleto_parcelas_maximo: boletoParcelasMaximo,
+      credito_parcelas_maximo: creditoParcelasMaximo,
+      credito_taxa_percentual: creditoTaxaPercentual,
+      credito_juros_mensal_percentual: creditoJurosMensalPercentual,
+      prazo_seguranca_dias: prazoSegurancaDias,
+      multa_atraso_percentual: multaAtrasoPercentual,
+      juros_mora_mensal_percentual: jurosMoraMensalPercentual,
+    },
     data_limite_pagamento: dataLimite,
   };
 }
@@ -56,8 +77,14 @@ function validarConfiguracaoComercial(body: any) {
 function regrasDoPacote(pacote: any) {
   const configuracao = pacote?.configuracao_pagamento && typeof pacote.configuracao_pagamento === "object" ? pacote.configuracao_pagamento : {};
   const limite = Number(configuracao.boleto_parcelas_maximo);
+  const limiteCredito = Number(configuracao.credito_parcelas_maximo);
   return {
+    formasPermitidas: Array.isArray(configuracao.formas_permitidas) ? configuracao.formas_permitidas.map(String).filter((forma: string) => FORMAS_PAGAMENTO_PACOTE.has(forma)) : ["pix", "boleto"],
     boletoParcelasMaximo: Number.isInteger(limite) && limite > 0 ? limite : undefined,
+    creditoParcelasMaximo: Number.isInteger(limiteCredito) && limiteCredito > 0 ? limiteCredito : undefined,
+    creditoTaxaPercentual: Number(configuracao.credito_taxa_percentual) || 0,
+    creditoJurosMensalPercentual: Number(configuracao.credito_juros_mensal_percentual) || 0,
+    prazoSegurancaDias: Number.isInteger(Number(configuracao.prazo_seguranca_dias)) ? Math.max(0, Number(configuracao.prazo_seguranca_dias)) : 0,
     dataLimitePagamento: pacote?.data_limite_pagamento || null,
   };
 }
@@ -137,7 +164,7 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
       const leadDaConta = await db.select({ id: leads_origem.id, vendedor_id: leads_origem.vendedor_id, codigo_origem: leads_origem.codigo_origem })
         .from(leads_origem)
         .where(eq(leads_origem.usuario_id, req.usuario.id))
-        .orderBy(desc(leads_origem.atualizado_em))
+        .orderBy(desc(sql`${leads_origem.vendedor_id} IS NOT NULL`), desc(leads_origem.atualizado_em))
         .limit(1);
       if (leadDaConta[0]) origem = { lead_id: leadDaConta[0].id, vendedor_id: leadDaConta[0].vendedor_id || undefined, codigo_origem: leadDaConta[0].codigo_origem || undefined };
     }
@@ -156,7 +183,7 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
       const leadDaConta = await db.select({ id: leads_origem.id })
         .from(leads_origem)
         .where(eq(leads_origem.usuario_id, req.usuario.id))
-        .orderBy(desc(leads_origem.atualizado_em))
+        .orderBy(desc(sql`${leads_origem.vendedor_id} IS NOT NULL`), desc(leads_origem.atualizado_em))
         .limit(1);
       if (leadDaConta[0]) {
         await db.update(leads_origem).set({
@@ -274,17 +301,17 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
     if (reserva[0].usuario_id !== req.usuario.id && !isAdminOrDev(req.usuario.tipo)) {
       return res.status(403).json({ erro: "Acesso negado" });
     }
+    if (req.usuario.tipo !== "dev") {
+      const perfilAlvo = (await db.select({ tipo: usuarios.tipo }).from(usuarios).where(eq(usuarios.id, reserva[0].usuario_id)).limit(1))[0];
+      if (!perfilAlvo || perfilAlvo.tipo === "dev") return res.status(404).json({ erro: "Reserva não encontrada" });
+    }
 
     const contratante = await db
       .select({
         nome: usuarios.nome,
         cpf: usuarios.cpf,
-        rg: usuarios.rg,
         data_nascimento: usuarios.data_nascimento,
-        estado_civil: usuarios.estado_civil,
-        profissao: usuarios.profissao,
         endereco: usuarios.endereco,
-        nacionalidade: usuarios.nacionalidade,
         telefone: usuarios.telefone,
         email: usuarios.email,
       })
@@ -315,7 +342,8 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
       .where(eq(lotes.id, reserva[0].lote_id))
       .limit(1);
     const regrasPacote = regrasDoPacote(pacoteSelecionado[0] as any);
-    const dataLimitePagamento = regrasPacote.dataLimitePagamento || loteResult[0]?.data_embarque || loteResult[0]?.data_inicio;
+    const dataViagem = loteResult[0]?.data_embarque || loteResult[0]?.data_inicio;
+    const dataLimitePagamento = ContratoService.calcularDataLimiteEfetiva(regrasPacote.dataLimitePagamento, dataViagem, regrasPacote.prazoSegurancaDias);
     const configPagamento = await ConfiguracaoService.obterConfiguracoesPagamento();
     // Se o contrato já foi gerado, a condição fica travada (ver Checkout.tsx),
     // então o teto correto para exibir é o que valia no momento do aceite —
@@ -326,7 +354,14 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
       reserva[0].forma_pagamento ? reserva[0].criado_em : new Date(),
       configPagamento.boleto_meses_maximo_antecedencia,
     );
-    const parcelasBoletoMaximas = Math.min(parcelasPorData, regrasPacote.boletoParcelasMaximo || parcelasPorData);
+    const parcelasBoletoMaximasCalculadas = Math.min(parcelasPorData, regrasPacote.boletoParcelasMaximo || parcelasPorData);
+    const parcelasBoletoMaximas = reserva[0].forma_pagamento === "boleto"
+      ? Math.max(parcelasBoletoMaximasCalculadas, Number(reserva[0].quantidade_parcelas || 1))
+      : parcelasBoletoMaximasCalculadas;
+    const parcelasCreditoMaximasCalculadas = Math.min(parcelasPorData, regrasPacote.creditoParcelasMaximo || configPagamento.credito_parcelas_maximo, configPagamento.credito_parcelas_maximo);
+    const parcelasCreditoMaximas = reserva[0].forma_pagamento === "credito"
+      ? Math.max(parcelasCreditoMaximasCalculadas, Number(reserva[0].quantidade_parcelas || 1))
+      : parcelasCreditoMaximasCalculadas;
 
     const gatewayPainel = await GatewayConfigService.obterMascara().catch(() => null);
     const gatewayAmbienteConfigurado = Boolean(
@@ -347,6 +382,14 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
       data_limite_pagamento: pacoteSelecionado[0]?.data_limite_pagamento || null,
       contratante: contratante[0] || null,
       parcelas_boleto_maximas: parcelasBoletoMaximas,
+      parcelas_credito_maximas: parcelasCreditoMaximas,
+      formas_pagamento_permitidas: regrasPacote.formasPermitidas,
+      formas_pagamento_checkout: regrasPacote.formasPermitidas.filter((forma: string) => forma !== "credito"),
+      credito_taxa_percentual: regrasPacote.creditoTaxaPercentual,
+      credito_juros_mensal_percentual: regrasPacote.creditoJurosMensalPercentual,
+      cartao_disponivel: false,
+      cartao_indisponivel_motivo: regrasPacote.formasPermitidas.includes("credito") ? "O provedor bancário atual não processa cartão no checkout." : null,
+      data_limite_efetiva: dataLimitePagamento?.toISOString() || null,
       pix_desconto_percentual: configPagamento.pix_desconto_percentual,
       credito_parcelas_maximo: configPagamento.credito_parcelas_maximo,
       boleto_modo: configPagamento.boleto_modo,
@@ -355,6 +398,37 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
   } catch (error) {
     console.error("[PACOTES] Erro ao buscar reserva:", error);
     res.status(500).json({ erro: "Erro ao buscar reserva" });
+  }
+});
+
+// Simulação autoritativa: usa as mesmas regras que serão revalidadas ao
+// preparar o contrato. Nenhum preço, parcela ou vencimento enviado pelo
+// navegador é persistido por este endpoint.
+router.post("/reservas/:reserva_id/simular-pagamento", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
+    if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
+    if (reserva.usuario_id !== req.usuario.id && !isAdminOrDev(req.usuario.tipo)) return res.status(403).json({ erro: "Acesso negado" });
+    const metodo = String(req.body?.metodo_pagamento || "").toLowerCase();
+    if (!['pix', 'boleto'].includes(metodo)) return res.status(400).json({ erro: "O provedor bancário atual oferece somente PIX e boleto" });
+
+    const pacote = reserva.pacote_id ? (await db.select().from(pacotes).where(eq(pacotes.id, reserva.pacote_id)).limit(1))[0] : undefined;
+    const lote = (await db.select({ data_embarque: lotes.data_embarque, data_inicio: lotes.data_inicio }).from(lotes).where(eq(lotes.id, reserva.lote_id)).limit(1))[0];
+    const regras = regrasDoPacote(pacote);
+    if (!regras.formasPermitidas.includes(metodo)) return res.status(400).json({ erro: "A forma de pagamento não está disponível para este pacote" });
+    const configuracao = await ConfiguracaoService.obterConfiguracoesPagamento();
+    const dataLimite = ContratoService.calcularDataLimiteEfetiva(regras.dataLimitePagamento, lote?.data_embarque || lote?.data_inicio, regras.prazoSegurancaDias);
+    const parcelasPorData = ContratoService.calcularParcelasMaximasBoleto(dataLimite, new Date(), configuracao.boleto_meses_maximo_antecedencia);
+    const parcelasMaximasBoleto = Math.min(parcelasPorData, regras.boletoParcelasMaximo || parcelasPorData);
+    const quantidade = metodo === 'pix' ? 1 : Number(req.body?.quantidade_parcelas || 1);
+    const valorBase = Number(reserva.valor_total) + Number(reserva.desconto_pagamento || 0);
+    const condicao = ContratoService.calcularCondicaoPagamento(valorBase.toFixed(2), metodo, quantidade, parcelasMaximasBoleto, { percentualDescontoPix: configuracao.pix_desconto_percentual });
+    const vencimentos = metodo === 'boleto' ? ContratoService.gerarVencimentos(dataLimite, condicao.quantidade_parcelas, new Date()) : [];
+    if (metodo === 'boleto' && vencimentos.length !== condicao.quantidade_parcelas) return res.status(400).json({ erro: "As parcelas solicitadas ultrapassam a data limite de pagamento" });
+    return res.json({ condicao_pagamento: condicao, vencimentos, data_limite_efetiva: dataLimite?.toISOString() || null, parcelas_maximas: metodo === 'boleto' ? parcelasMaximasBoleto : 1 });
+  } catch (error: any) {
+    return res.status(400).json({ erro: error.message || "Não foi possível simular a condição de pagamento" });
   }
 });
 

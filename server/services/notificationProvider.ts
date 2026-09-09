@@ -1,5 +1,4 @@
 import axios from "axios";
-import nodemailer from "nodemailer";
 import { obterRemetente, obterReplyTo } from "./emailSenderConfig.js";
 import { enviarEmailTransacional } from "./emailDeliveryService.js";
 
@@ -27,24 +26,16 @@ function mapEmailResult(resultado: Awaited<ReturnType<typeof enviarEmailTransaci
 
 export class EmailProvider implements NotificationProvider {
   async sendBoleto(destination: string, nome: string, reservaId: string, parcelaNumero: number, arquivo: string): Promise<NotificationResult> {
-    const host = process.env.SMTP_HOST?.trim();
-    const user = process.env.SMTP_USER?.trim();
-    const pass = process.env.SMTP_PASS;
-    if (!host || !user || !pass) return { sent: false, reason: "SMTP não configurado" };
-    try {
-      const transporter = nodemailer.createTransport({ host, port: Number(process.env.SMTP_PORT || 587), secure: process.env.SMTP_SECURE === "true", auth: { user, pass } });
-      const info = await transporter.sendMail({
-        from: process.env.SMTP_FINANCEIRO_FROM?.trim() || process.env.SMTP_FROM?.trim() || `Excursão das Comitivas <${user}>`,
-        to: destination,
-        subject: `Boleto da excursão — parcela ${parcelaNumero}`,
-        text: `Olá, ${nome}. Segue o boleto da parcela ${parcelaNumero} da reserva ${reservaId}.`,
-        html: `<div style="font-family:Arial,sans-serif;color:#2b1718;padding:24px"><h1 style="color:#540c16">Boleto da excursão</h1><p>Olá, ${nome.replace(/[<>]/g, "")}. O boleto da parcela ${parcelaNumero} segue em anexo.</p><p>Reserva: ${reservaId}</p></div>`,
-        attachments: [{ filename: `boleto-parcela-${parcelaNumero}.pdf`, path: arquivo }],
-      });
-      return { sent: true, messageId: info.messageId, sentAt: new Date() };
-    } catch (error: any) {
-      return { sent: false, reason: error?.message || "Falha no envio do boleto" };
-    }
+    const resultado = await enviarEmailTransacional({
+      remetente: obterRemetente("finance"),
+      replyTo: obterReplyTo(),
+      destinatario: destination,
+      assunto: `Boleto da excursão — parcela ${parcelaNumero}`,
+      corpo_texto: `Olá, ${nome}. Segue o boleto da parcela ${parcelaNumero} da reserva ${reservaId}.`,
+      corpo_html: `<div style="font-family:Arial,sans-serif;color:#2b1718;padding:24px"><h1 style="color:#540c16">Boleto da excursão</h1><p>Olá, ${nome.replace(/[<>]/g, "")}. O boleto da parcela ${parcelaNumero} segue em anexo.</p><p>Reserva: ${reservaId}</p></div>`,
+      anexos: [{ nome: `boleto-parcela-${parcelaNumero}.pdf`, caminho: arquivo }],
+    });
+    return mapEmailResult(resultado);
   }
 
   async sendEmailVerification(destination: string, nome: string, code: string): Promise<NotificationResult> {

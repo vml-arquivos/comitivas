@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { api } from '../../contexts/AuthContext';
+import { api, useAuth } from '../../contexts/AuthContext';
 import { Card, CardContent, Button, Input } from '@ui/index';
 import { Eye, Download, FileSignature, X, FileText, RefreshCw } from 'lucide-react';
 
@@ -20,6 +20,7 @@ interface ContratoLinha {
   evento_nome: string;
   lote_nome: string;
   contrato_gerado: boolean;
+  pdf_disponivel: boolean;
   documento: { id: string; status: string; aprovado_admin_em: string | null; validado_em: string | null } | null;
 }
 
@@ -29,10 +30,6 @@ type FormularioContrato = {
   contratante: {
     nome: string;
     cpf: string;
-    rg: string;
-    nacionalidade: string;
-    estado_civil: string;
-    profissao: string;
     nascimento: string;
     endereco: string;
     telefone: string;
@@ -56,13 +53,14 @@ type FormularioContrato = {
 };
 
 const FORMA_LABEL: Record<string, string> = { pix: 'PIX à vista', boleto: 'Boleto parcelado' };
+const STATUS_CONTRATO: Record<string, string> = { preparado: 'Aguardando cliente', aguardando_validacao: 'Aguardando cliente', aguardando_aprovacao_admin: 'Aguardando aprovação', validado: 'Aguardando aprovação', aprovado_admin: 'Aprovado', invalidado: 'Invalidado' };
 const inputClass = 'flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary';
 const sectionClass = 'rounded-xl border border-gray-200 bg-gray-50/70 p-4 space-y-4';
 
 function formularioInicial(contrato: ContratoLinha): FormularioContrato {
   return {
     contratante: {
-      nome: contrato.cliente_nome || '', cpf: contrato.cliente_cpf || '', rg: '', nacionalidade: 'Brasileira', estado_civil: '', profissao: '', nascimento: '', endereco: '', telefone: '', email: contrato.cliente_email || '',
+      nome: contrato.cliente_nome || '', cpf: contrato.cliente_cpf || '', nascimento: '', endereco: '', telefone: '', email: contrato.cliente_email || '',
     },
     hospedagem: { check_in: '', check_out: '', modalidade: '', local: '' },
     transporte: { rodoviario_incluido: false, local_embarque: '', ponto_referencia: '', data_saida: '', horario_saida: '', data_retorno: '', horario_retorno: '', veiculo: '' },
@@ -74,6 +72,7 @@ function formularioInicial(contrato: ContratoLinha): FormularioContrato {
 }
 
 export default function Contratos() {
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const [contratos, setContratos] = useState<ContratoLinha[]>([]);
   const [modelos, setModelos] = useState<ModeloContrato[]>([]);
@@ -132,12 +131,13 @@ export default function Contratos() {
     }
   };
 
-  const handleVisualizar = (reservaId: string) => {
-    window.open(`/api/contratos/download/${encodeURIComponent(reservaId)}?inline=1`, '_blank', 'noopener,noreferrer');
+  const handleVisualizar = (reservaId: string, pdfDisponivel: boolean) => {
+    const rota = pdfDisponivel ? `/api/contratos/download/${encodeURIComponent(reservaId)}?inline=1` : `/api/contratos/visualizar/${encodeURIComponent(reservaId)}`;
+    window.open(rota, '_blank', 'noopener,noreferrer');
   };
 
   const handleAprovar = async (contratoId: string) => {
-    if (!window.confirm('Aprovar este contrato para liberar a etapa financeira? O snapshot não será alterado.')) return;
+    if (!window.confirm('Aprovar este contrato para liberar a etapa financeira? A versão registrada não será alterada.')) return;
     try { await api.post(`/admin/contratos/${contratoId}/aprovar`); setAcaoMsg('Contrato aprovado administrativamente; a cobrança agora pode ser liberada.'); await carregar(); } catch (err: any) { setError(err.response?.data?.erro || 'Não foi possível aprovar o contrato.'); }
   };
 
@@ -226,10 +226,10 @@ export default function Contratos() {
 
       {contratoAtual && formulario && (
         <Card><CardContent className="p-6"><form onSubmit={handleGerarContrato} className="space-y-5">
-          <div className="flex items-start justify-between gap-4"><div><h2 className="font-semibold text-gray-900">Gerar contrato padrão — reserva {contratoAtual.reserva_id.substring(0, 8)}</h2><p className="mt-1 text-sm text-gray-600">O texto-base segue o documento oficial anexado. Edite somente os dados variáveis; ao gerar, eles serão congelados no snapshot e qualquer alteração futura criará nova versão.</p></div><button type="button" onClick={fecharGerarContrato} className="text-gray-500 hover:text-gray-700" aria-label="Fechar formulário"><X size={18} /></button></div>
+          <div className="flex items-start justify-between gap-4"><div><h2 className="font-semibold text-gray-900">Gerar contrato padrão — reserva {contratoAtual.reserva_id.substring(0, 8)}</h2><p className="mt-1 text-sm text-gray-600">O texto-base segue o documento oficial anexado. Edite somente os dados variáveis; ao gerar, eles serão registrados e qualquer alteração futura criará nova versão.</p></div><button type="button" onClick={fecharGerarContrato} className="text-gray-500 hover:text-gray-700" aria-label="Fechar formulário"><X size={18} /></button></div>
           {erroContrato && <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{erroContrato}</div>}
 
-          <section className={sectionClass}><h3 className="font-semibold text-gray-900">1. Qualificação das partes</h3><div className="grid grid-cols-1 gap-4 md:grid-cols-2">{input('Nome completo', 'contratante', 'nome')}{input('CPF', 'contratante', 'cpf', 'text', '000.000.000-00')}{input('RG / identidade', 'contratante', 'rg')}{input('Nacionalidade', 'contratante', 'nacionalidade')}{input('Estado civil', 'contratante', 'estado_civil')}{input('Profissão', 'contratante', 'profissao')}{input('Data de nascimento', 'contratante', 'nascimento', 'date')}{input('Telefone / WhatsApp', 'contratante', 'telefone')}{input('E-mail', 'contratante', 'email', 'email')}{input('Endereço completo', 'contratante', 'endereco')}</div></section>
+          <section className={sectionClass}><h3 className="font-semibold text-gray-900">1. Qualificação das partes</h3><div className="grid grid-cols-1 gap-4 md:grid-cols-2">{input('Nome completo', 'contratante', 'nome')}{input('CPF', 'contratante', 'cpf', 'text', '000.000.000-00')}{input('Data de nascimento', 'contratante', 'nascimento', 'date')}{input('Telefone / WhatsApp', 'contratante', 'telefone')}{input('E-mail', 'contratante', 'email', 'email')}{input('Endereço completo', 'contratante', 'endereco')}</div></section>
 
           <section className={sectionClass}><h3 className="font-semibold text-gray-900">2. Hospedagem e serviços</h3><div className="grid grid-cols-1 gap-4 md:grid-cols-2">{input('Check-in', 'hospedagem', 'check_in', 'date')}{input('Check-out', 'hospedagem', 'check_out', 'date')}{input('Local de hospedagem', 'hospedagem', 'local', 'text', 'Chácara Recanto Novo Encantado ou Santa Thereza')}<div><label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="modalidade-hospedagem">Modalidade de hospedagem</label><select id="modalidade-hospedagem" className={inputClass} value={formulario.hospedagem.modalidade} onChange={(e) => atualizarFormulario('hospedagem', 'modalidade', e.target.value)}><option value="">Conforme contratação</option><option value="camping">CAMPING</option><option value="quarto_ventilador">QUARTO COM VENTILADOR COMPARTILHADO</option><option value="quarto_ar_condicionado">QUARTO COM CLIMATIZADOR COMPARTILHADO</option></select></div></div><p className="text-xs text-gray-500">Os serviços padrão permanecem no contrato: hospedagem, café da manhã, almoço, Open Bar das 9h às 19h e translado interno entre a chácara e o Parque do Peão.</p></section>
 
@@ -239,14 +239,14 @@ export default function Contratos() {
 
           <section className={sectionClass}><h3 className="font-semibold text-gray-900">5. Pagamento e uso de imagem</h3><div className="grid grid-cols-1 gap-4 md:grid-cols-2"><div><label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="forma-pagamento">Forma de pagamento</label><select id="forma-pagamento" className={inputClass} value={formaPagamentoContrato} onChange={(e) => { const forma = e.target.value as 'pix' | 'boleto'; setFormaPagamentoContrato(forma); if (forma === 'pix') setParcelasContrato('1'); }}><option value="pix">PIX à vista</option><option value="boleto">Boleto parcelado</option></select></div><Input label="Quantidade de parcelas" type="number" min={1} max={20} disabled={formaPagamentoContrato === 'pix'} value={formaPagamentoContrato === 'pix' ? '1' : parcelasContrato} onChange={(e) => setParcelasContrato(e.target.value)} /><label className="flex items-center gap-2 text-sm font-medium text-gray-700 md:col-span-2"><input type="checkbox" checked={formulario.uso_imagem.autorizado} onChange={(e) => atualizarFormulario('uso_imagem', 'autorizado', e.target.checked)} /> Autorizar uso de imagem por 3 anos para divulgação institucional</label></div></section>
 
-          <section className={sectionClass}><h3 className="font-semibold text-gray-900">6. Observações específicas</h3><textarea value={formulario.observacoes_especificas} onChange={(e) => setFormulario((atual) => atual ? ({ ...atual, observacoes_especificas: e.target.value }) : atual)} rows={3} maxLength={500} className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" placeholder="Opcional. Será incorporado ao snapshot do contrato." /></section>
+          <section className={sectionClass}><h3 className="font-semibold text-gray-900">6. Observações específicas</h3><textarea value={formulario.observacoes_especificas} onChange={(e) => setFormulario((atual) => atual ? ({ ...atual, observacoes_especificas: e.target.value }) : atual)} rows={3} maxLength={500} className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" placeholder="Opcional. Será incluído na versão do contrato." /></section>
 
           <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={carregandoPreview} onClick={() => void handlePreview()}>{carregandoPreview ? 'Montando preview...' : 'Visualizar preview'}</Button><Button type="submit" disabled={salvandoContrato}>{salvandoContrato ? 'Gerando...' : 'Gerar e congelar contrato'}</Button><Button type="button" variant="outline" onClick={fecharGerarContrato}>Cancelar</Button></div>
           {previewHtml && <div className="rounded-xl border border-gray-300 bg-white p-2"><div className="mb-2 flex items-center justify-between px-2 text-xs font-semibold uppercase tracking-wide text-gray-500"><span>Preview do modelo oficial</span><span>Somente leitura</span></div><iframe title="Preview do contrato" srcDoc={previewHtml} sandbox="allow-same-origin" className="h-[720px] w-full rounded-lg border border-gray-200" /></div>}
         </form></CardContent></Card>
       )}
 
-      <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-gray-50 uppercase text-gray-700"><tr><th className="px-6 py-4 font-medium">Cliente</th><th className="px-6 py-4 font-medium">Evento / Lote</th><th className="px-6 py-4 font-medium">Valor</th><th className="px-6 py-4 font-medium">Pagamento</th><th className="px-6 py-4 font-medium">Status</th><th className="px-6 py-4 text-right font-medium">Ações</th></tr></thead><tbody className="divide-y divide-gray-200">{isLoading && <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500">Carregando...</td></tr>}{!isLoading && contratosFiltrados.map((c) => <tr key={c.reserva_id} className="hover:bg-gray-50"><td className="px-6 py-4"><div className="font-medium text-gray-900">{c.cliente_nome}</div><div className="text-xs text-gray-500">{c.cliente_email}</div></td><td className="px-6 py-4"><div>{c.evento_nome}</div><div className="text-xs text-gray-500">{c.lote_nome}</div></td><td className="px-6 py-4">R$ {c.valor_total}</td><td className="px-6 py-4">{c.forma_pagamento ? <>{FORMA_LABEL[c.forma_pagamento] || c.forma_pagamento}{(c.quantidade_parcelas || 1) > 1 ? ` — ${c.quantidade_parcelas}x` : ''}</> : <span className="text-gray-400">Não definida</span>}</td><td className="px-6 py-4"><span className={`rounded-full px-2 py-1 text-xs font-medium ${c.documento?.status === 'aprovado_admin' ? 'bg-green-100 text-green-800' : c.documento?.status === 'aguardando_aprovacao_admin' ? 'bg-amber-100 text-amber-800' : c.contrato_gerado ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>{c.documento?.status || (c.contrato_gerado ? 'Contrato gerado' : 'Sem contrato')}</span></td><td className="space-x-2 whitespace-nowrap px-6 py-4 text-right">{c.contrato_gerado ? <><button onClick={() => handleVisualizar(c.reserva_id)} className="p-1 text-gray-500 transition-colors hover:text-primary" title="Visualizar PDF"><Eye size={18} /></button><button onClick={() => void handleDownload(c.reserva_id, c.cliente_nome)} className="p-1 text-gray-500 transition-colors hover:text-primary" title="Baixar PDF"><Download size={18} /></button>{c.documento?.status === 'aguardando_aprovacao_admin' && c.documento.validado_em && <Button type="button" onClick={() => void handleAprovar(c.documento!.id)}>Aprovar</Button>}</> : <button onClick={() => abrirGerarContrato(c)} className="p-1 text-gray-500 transition-colors hover:text-primary" title="Abrir formulário do contrato padrão"><FileSignature size={18} /></button>}</td></tr>)}{!isLoading && contratosFiltrados.length === 0 && <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500"><div className="flex flex-col items-center gap-2"><FileText size={24} className="text-gray-300" />Nenhum contrato encontrado</div></td></tr>}</tbody></table></div></CardContent></Card>
+      <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-gray-50 uppercase text-gray-700"><tr><th className="px-6 py-4 font-medium">Cliente</th><th className="px-6 py-4 font-medium">Evento / Lote</th><th className="px-6 py-4 font-medium">Valor</th><th className="px-6 py-4 font-medium">Pagamento</th><th className="px-6 py-4 font-medium">Status</th><th className="px-6 py-4 text-right font-medium">Ações</th></tr></thead><tbody className="divide-y divide-gray-200">{isLoading && <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500">Carregando...</td></tr>}{!isLoading && contratosFiltrados.map((c) => <tr key={c.reserva_id} className="hover:bg-gray-50"><td className="px-6 py-4"><div className="font-medium text-gray-900">{c.cliente_nome}</div><div className="text-xs text-gray-500">{c.cliente_email}</div></td><td className="px-6 py-4"><div>{c.evento_nome}</div><div className="text-xs text-gray-500">{c.lote_nome}</div></td><td className="px-6 py-4">R$ {c.valor_total}</td><td className="px-6 py-4">{c.forma_pagamento ? <>{FORMA_LABEL[c.forma_pagamento] || c.forma_pagamento}{(c.quantidade_parcelas || 1) > 1 ? ` — ${c.quantidade_parcelas}x` : ''}</> : <span className="text-gray-400">Não definida</span>}</td><td className="px-6 py-4"><span className={`rounded-full px-2 py-1 text-xs font-medium ${c.documento?.status === 'aprovado_admin' ? 'bg-green-100 text-green-800' : ['aguardando_aprovacao_admin', 'validado'].includes(c.documento?.status || '') ? 'bg-amber-100 text-amber-800' : c.contrato_gerado ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>{c.documento ? (STATUS_CONTRATO[c.documento.status] || 'Contrato registrado') : (c.contrato_gerado ? 'Contrato gerado' : 'Sem contrato')}</span></td><td className="space-x-2 whitespace-nowrap px-6 py-4 text-right">{c.contrato_gerado ? <><button onClick={() => handleVisualizar(c.reserva_id, c.pdf_disponivel)} className="p-1 text-gray-500 transition-colors hover:text-primary" title="Visualizar contrato"><Eye size={18} /></button>{c.pdf_disponivel && <button onClick={() => void handleDownload(c.reserva_id, c.cliente_nome)} className="p-1 text-gray-500 transition-colors hover:text-primary" title="Baixar PDF"><Download size={18} /></button>}{['admin', 'dev'].includes(user?.tipo || '') && ['aguardando_aprovacao_admin', 'validado'].includes(c.documento?.status || '') && c.documento?.validado_em && <Button type="button" onClick={() => void handleAprovar(c.documento!.id)}>Aprovar</Button>}</> : <button onClick={() => abrirGerarContrato(c)} className="p-1 text-gray-500 transition-colors hover:text-primary" title="Abrir formulário do contrato padrão"><FileSignature size={18} /></button>}</td></tr>)}{!isLoading && contratosFiltrados.length === 0 && <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500"><div className="flex flex-col items-center gap-2"><FileText size={24} className="text-gray-300" />Nenhum contrato encontrado</div></td></tr>}</tbody></table></div></CardContent></Card>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { db } from "../db/index.js";
 import { reservas, pagamentos, cupons, eventos, lotes } from "../db/schema.js";
-import { eq, and, gte, lte, count, sum } from "drizzle-orm";
+import { eq, and, gte, lte, count, sum, sql } from "drizzle-orm";
 import Decimal from "decimal.js";
 
 export class RelatorioService {
@@ -22,7 +22,8 @@ export class RelatorioService {
           .where(
             and(
               eq(reservas.lote_id, lote.id),
-              eq(reservas.status, "cliente_confirmado")
+              eq(reservas.status, "cliente_confirmado"),
+              sql`EXISTS (SELECT 1 FROM usuarios WHERE usuarios.id = ${reservas.usuario_id} AND usuarios.tipo = 'cliente')`,
             )
           );
 
@@ -67,7 +68,8 @@ export class RelatorioService {
           .where(
             and(
               eq(reservas.lote_id, lote.id),
-              eq(reservas.status, "cliente_confirmado")
+              eq(reservas.status, "cliente_confirmado"),
+              sql`EXISTS (SELECT 1 FROM usuarios WHERE usuarios.id = ${reservas.usuario_id} AND usuarios.tipo = 'cliente')`,
             )
           );
 
@@ -126,7 +128,8 @@ export class RelatorioService {
           .where(
             and(
               eq(reservas.lote_id, lote.id),
-              eq(reservas.status, "cliente_confirmado")
+              eq(reservas.status, "cliente_confirmado"),
+              sql`EXISTS (SELECT 1 FROM usuarios WHERE usuarios.id = ${reservas.usuario_id} AND usuarios.tipo = 'cliente')`,
             )
           );
 

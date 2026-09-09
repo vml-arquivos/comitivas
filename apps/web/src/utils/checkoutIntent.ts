@@ -1,6 +1,7 @@
 export const CHECKOUT_INTENT_KEY = 'comitivas_checkout_intent';
 export const LEAD_ID_KEY = 'comitivas_lead_id';
 export const LEAD_INTENT_TOKEN_KEY = 'comitivas_lead_intent_token';
+export const SELLER_REFERRAL_KEY = 'comitivas_seller_referral';
 
 export interface CheckoutIntent {
   loteId: string;
@@ -40,6 +41,14 @@ export function lerLeadId() {
 
 export function lerLeadIntentToken() {
   return localStorage.getItem(LEAD_INTENT_TOKEN_KEY);
+}
+
+export function salvarReferenciaVendedor(referencia: string) {
+  if (referencia) localStorage.setItem(SELLER_REFERRAL_KEY, referencia);
+}
+
+export function lerReferenciaVendedor() {
+  return localStorage.getItem(SELLER_REFERRAL_KEY);
 }
 
 export function destinoSeguro(valor: string | null, fallback = '/') {

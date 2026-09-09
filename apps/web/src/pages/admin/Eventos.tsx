@@ -40,7 +40,7 @@ interface Pacote {
   contrato_modelo: 'auto' | 'hospedagem' | 'transporte';
   forma_contratacao: 'onibus' | 'hospedagem' | 'onibus_hospedagem' | 'livre';
   onibus_config?: Array<{ id: string; nome: string; capacidade: number; ocupadas?: number[] }>;
-  configuracao_pagamento?: { formas_permitidas?: string[]; boleto_parcelas_maximo?: number };
+  configuracao_pagamento?: { formas_permitidas?: string[]; boleto_parcelas_maximo?: number; credito_parcelas_maximo?: number; credito_taxa_percentual?: number; credito_juros_mensal_percentual?: number; prazo_seguranca_dias?: number; multa_atraso_percentual?: number; juros_mora_mensal_percentual?: number };
   data_limite_pagamento?: string | null;
   ativo: boolean;
 }
@@ -104,6 +104,12 @@ export default function EventosAdmin() {
     capacidadeOnibus: '44',
     formasPagamento: ['pix', 'boleto'] as string[],
     boletoParcelas: '11',
+    creditoParcelas: '10',
+    creditoTaxa: '0',
+    creditoJurosMensal: '0',
+    prazoSegurancaDias: '0',
+    multaAtraso: '2',
+    jurosMoraMensal: '1',
     dataLimitePagamento: '',
   });
   const [kitForm, setKitForm] = useState({
@@ -294,11 +300,17 @@ export default function EventosAdmin() {
         configuracao_pagamento: {
           formas_permitidas: pacoteForm.formasPagamento,
           boleto_parcelas_maximo: Math.max(1, Number(pacoteForm.boletoParcelas) || 1),
+          credito_parcelas_maximo: Math.max(1, Number(pacoteForm.creditoParcelas) || 1),
+          credito_taxa_percentual: Math.max(0, Number(pacoteForm.creditoTaxa) || 0),
+          credito_juros_mensal_percentual: Math.max(0, Number(pacoteForm.creditoJurosMensal) || 0),
+          prazo_seguranca_dias: Math.max(0, Number(pacoteForm.prazoSegurancaDias) || 0),
+          multa_atraso_percentual: Math.max(0, Number(pacoteForm.multaAtraso) || 0),
+          juros_mora_mensal_percentual: Math.max(0, Number(pacoteForm.jurosMoraMensal) || 0),
         },
         data_limite_pagamento: pacoteForm.dataLimitePagamento ? dataSaoPauloIso(pacoteForm.dataLimitePagamento, true) : undefined,
       });
       await carregarPacotes(loteId);
-      setPacoteForm({ nome: '', descricao: '', valorTotal: '', modalidade: 'quarto_ventilador', disponibilidade: 'disponivel', contratoModelo: 'auto', formaContratacao: 'hospedagem', quantidadeOnibus: '1', capacidadeOnibus: '44', formasPagamento: ['pix', 'boleto'], boletoParcelas: '11', dataLimitePagamento: '' });
+      setPacoteForm({ nome: '', descricao: '', valorTotal: '', modalidade: 'quarto_ventilador', disponibilidade: 'disponivel', contratoModelo: 'auto', formaContratacao: 'hospedagem', quantidadeOnibus: '1', capacidadeOnibus: '44', formasPagamento: ['pix', 'boleto'], boletoParcelas: '11', creditoParcelas: '10', creditoTaxa: '0', creditoJurosMensal: '0', prazoSegurancaDias: '0', multaAtraso: '2', jurosMoraMensal: '1', dataLimitePagamento: '' });
       setMostrarFormPacote(null);
     } catch (err: any) {
       setErroForm(err.response?.data?.erro || 'Erro ao publicar pacote.');
@@ -561,6 +573,15 @@ export default function EventosAdmin() {
                                   <label className="mb-1 block text-sm font-medium text-gray-700">Máx. parcelas boleto</label>
                                   <Input type="number" min={1} max={36} value={pacoteForm.boletoParcelas} onChange={(e) => setPacoteForm({ ...pacoteForm, boletoParcelas: e.target.value })} />
                                 </div>
+                                <div>
+                                  <label className="mb-1 block text-sm font-medium text-gray-700">Máx. parcelas cartão</label>
+                                  <Input type="number" min={1} max={24} value={pacoteForm.creditoParcelas} onChange={(e) => setPacoteForm({ ...pacoteForm, creditoParcelas: e.target.value })} />
+                                </div>
+                                <Input label="Taxa do cartão (%)" type="number" min={0} max={100} step="0.01" value={pacoteForm.creditoTaxa} onChange={(e) => setPacoteForm({ ...pacoteForm, creditoTaxa: e.target.value })} />
+                                <Input label="Juros cartão ao mês (%)" type="number" min={0} max={20} step="0.01" value={pacoteForm.creditoJurosMensal} onChange={(e) => setPacoteForm({ ...pacoteForm, creditoJurosMensal: e.target.value })} />
+                                <Input label="Segurança antes da viagem (dias)" type="number" min={0} max={365} value={pacoteForm.prazoSegurancaDias} onChange={(e) => setPacoteForm({ ...pacoteForm, prazoSegurancaDias: e.target.value })} />
+                                <Input label="Multa por atraso (%)" type="number" min={0} max={100} step="0.01" value={pacoteForm.multaAtraso} onChange={(e) => setPacoteForm({ ...pacoteForm, multaAtraso: e.target.value })} />
+                                <Input label="Juros de mora ao mês (%)" type="number" min={0} max={20} step="0.01" value={pacoteForm.jurosMoraMensal} onChange={(e) => setPacoteForm({ ...pacoteForm, jurosMoraMensal: e.target.value })} />
                                 <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600 md:col-span-3">
                                   <span className="font-semibold text-gray-700">Pagamento:</span>
                                   {['pix', 'boleto', 'credito'].map((forma) => <label key={forma} className="flex items-center gap-1"><input type="checkbox" checked={pacoteForm.formasPagamento.includes(forma)} onChange={(e) => setPacoteForm({ ...pacoteForm, formasPagamento: e.target.checked ? [...pacoteForm.formasPagamento, forma] : pacoteForm.formasPagamento.filter((item) => item !== forma) })} />{forma === 'pix' ? 'PIX' : forma === 'boleto' ? 'Boleto' : 'Cartão'}</label>)}

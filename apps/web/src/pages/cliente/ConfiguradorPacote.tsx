@@ -9,7 +9,9 @@ import {
   lerLeadId,
   lerLeadIntentToken,
   limparIntencaoCheckout,
+  lerReferenciaVendedor,
   salvarIntencaoCheckout,
+  salvarReferenciaVendedor,
 } from '../../utils/checkoutIntent';
 
 interface PacotePublicado {
@@ -47,6 +49,11 @@ export default function ConfiguradorPacote() {
   const [isCalculating, setIsCalculating] = useState(false);
   const [isReserving, setIsReserving] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    const referencia = searchParams.get('ref');
+    if (referencia) salvarReferenciaVendedor(referencia);
+  }, [searchParams]);
 
   useEffect(() => {
     const carregarConfigurador = async () => {
@@ -176,15 +183,17 @@ export default function ConfiguradorPacote() {
           lead_intent_token: leadIntentToken,
         }).catch(() => undefined);
       }
-      const retorno = `/pacote/${loteId}?retomar=1${pacoteId ? `&pacote=${encodeURIComponent(pacoteId)}` : ''}${searchParams.get('ref') ? `&ref=${encodeURIComponent(searchParams.get('ref')!)}` : ''}`;
+      const referencia = searchParams.get('ref') || lerReferenciaVendedor();
+      const retorno = `/pacote/${loteId}?retomar=1${pacoteId ? `&pacote=${encodeURIComponent(pacoteId)}` : ''}${referencia ? `&ref=${encodeURIComponent(referencia)}` : ''}`;
       navigate(`/cadastro?redirect=${encodeURIComponent(retorno)}`);
       return;
     }
 
     setIsReserving(true);
     try {
-      if (!leadId && searchParams.get('ref')) {
-        const origem = await api.post('/jornada/registrar-origem', { codigo_origem: searchParams.get('ref') });
+      const referencia = searchParams.get('ref') || lerReferenciaVendedor();
+      if (!leadId && referencia) {
+        const origem = await api.post('/jornada/registrar-origem', { codigo_origem: referencia });
         leadId = origem.data.lead_id || undefined;
       }
       const itensPayload = Object.entries(itensSelecionados)

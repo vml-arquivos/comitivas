@@ -61,6 +61,27 @@ export class AuthService {
     }
   }
 
+  static generateSellerReferralToken(vendedorId: string): string {
+    if (!vendedorId) throw new Error("vendedorId é obrigatório");
+    return jwt.sign(
+      { vendedor_id: vendedorId, purpose: "seller-referral" },
+      obterJwtSecret(),
+      { expiresIn: "365d" },
+    );
+  }
+
+  static verifySellerReferralToken(token: string): string | null {
+    if (!token) return null;
+    try {
+      const payload = jwt.verify(token, obterJwtSecret()) as { vendedor_id?: string; purpose?: string };
+      return payload.purpose === "seller-referral" && payload.vendedor_id
+        ? payload.vendedor_id
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
   static extractTokenFromHeader(authHeader: string | undefined): string | null {
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return null;

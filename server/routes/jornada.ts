@@ -2,8 +2,9 @@ import { Router, Request, Response } from "express";
 import { authMiddleware, requireRole, isAdminOrDev } from "../middleware/authMiddleware.js";
 import { db } from "../db/index.js";
 import { leads_origem, pacotes, reservas, usuarios } from "../db/schema.js";
-import { eq, and, desc, isNull } from "drizzle-orm";
+import { eq, and, desc, isNull, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
+import { AuthService } from "../services/authService.js";
 
 const router = Router();
 
@@ -19,29 +20,19 @@ router.post("/gerar-link", authMiddleware, requireRole("vendedor", "admin"), asy
     const vendedor = (await db.select({ id: usuarios.id, tipo: usuarios.tipo, ativo: usuarios.ativo }).from(usuarios).where(eq(usuarios.id, vendedorId)).limit(1))[0];
     if (!vendedor || vendedor.tipo !== "vendedor" || vendedor.ativo === false) return res.status(400).json({ erro: "Selecione um vendedor ativo para gerar o link" });
 
-    // Gerar código único
-    const codigo_origem = `${vendedorId}-${createId()}`;
-
-    // Salvar lead_origem
-    const lead = await db
-      .insert(leads_origem)
-      .values({
-        codigo_origem,
-        vendedor_id: vendedorId,
-        evento_id: evento_id || null,
-        origem: "link_vendedor",
-        status: "novo",
-        atualizado_em: new Date(),
-      })
-      .returning();
+    // O token assinado identifica o vendedor sem expor um id manipulável e é
+    // reutilizável por clientes diferentes. Cada acesso/cadastro cria seu
+    // próprio lead; o link nunca representa um lead compartilhado.
+    const codigo_origem = AuthService.generateSellerReferralToken(vendedorId);
 
     // Gerar URL de rastreio
-    const urlRastreio = `${process.env.WEB_URL}?ref=${codigo_origem}`;
+    const baseUrl = (process.env.WEB_URL || "http://localhost:5173").replace(/\/$/, "");
+    const urlRastreio = `${baseUrl}/?ref=${encodeURIComponent(codigo_origem)}`;
 
     res.json({
       codigo_origem,
       url_rastreio: urlRastreio,
-      lead_id: lead[0].id,
+      evento_id: evento_id || null,
     });
   } catch (error: any) {
     console.error("[JORNADA] Erro ao gerar link:", error);
@@ -66,8 +57,11 @@ router.get("/leads", authMiddleware, requireRole("admin", "vendedor"), async (re
           nome: usuarios.nome,
           email: usuarios.email,
           telefone: usuarios.telefone,
-        }).from(usuarios).where(eq(usuarios.id, lead.usuario_id)).limit(1)
+          tipo: usuarios.tipo,
+        }).from(usuarios).where(and(eq(usuarios.id, lead.usuario_id), eq(usuarios.tipo, "cliente"))).limit(1)
         : [];
+
+      if (lead.usuario_id && !usuario[0]) return null;
 
       const ultimaReserva = lead.usuario_id
         ? await db.select({
@@ -116,7 +110,8 @@ router.get("/leads", authMiddleware, requireRole("admin", "vendedor"), async (re
       };
     }));
 
-    res.json({ total: leads.length, leads });
+    const leadsVisiveis = leads.filter((lead): lead is NonNullable<typeof lead> => lead !== null);
+    res.json({ total: leadsVisiveis.length, leads: leadsVisiveis });
   } catch (error: any) {
     console.error("[JORNADA] Erro ao listar leads:", error);
     res.status(500).json({ erro: "Erro ao carregar a esteira comercial" });
@@ -184,7 +179,41 @@ router.post("/registrar-origem", authMiddleware, async (req: Request, res: Respo
       return res.status(400).json({ erro: "codigo_origem é obrigatório" });
     }
 
-    // Buscar lead_origem
+    const vendedorToken = AuthService.verifySellerReferralToken(String(codigo_origem));
+    if (vendedorToken) {
+      const vendedor = (await db.select({ id: usuarios.id }).from(usuarios)
+        .where(and(eq(usuarios.id, vendedorToken), eq(usuarios.tipo, "vendedor"), eq(usuarios.ativo, true)))
+        .limit(1))[0];
+      if (!vendedor) return res.status(404).json({ erro: "Link de vendedor inválido ou inativo" });
+
+      const existente = (await db.select({ id: leads_origem.id, vendedor_id: leads_origem.vendedor_id })
+        .from(leads_origem)
+        .where(eq(leads_origem.usuario_id, usuarioId))
+        .orderBy(desc(sql`${leads_origem.vendedor_id} IS NOT NULL`), desc(leads_origem.atualizado_em))
+        .limit(1))[0];
+      if (existente) {
+        await db.update(leads_origem).set({
+          vendedor_id: existente.vendedor_id || vendedor.id,
+          status: "cadastrado",
+          atualizado_em: new Date(),
+        }).where(eq(leads_origem.id, existente.id));
+        return res.json({ mensagem: "Origem registrada com sucesso", lead_id: existente.id });
+      }
+
+      const novo = (await db.insert(leads_origem).values({
+        id: createId(),
+        codigo_origem: `ref-${createId()}`,
+        vendedor_id: vendedor.id,
+        usuario_id: usuarioId,
+        origem: "link_vendedor",
+        status: "cadastrado",
+        dados_contexto: { origem: "link_vendedor" },
+        atualizado_em: new Date(),
+      }).returning({ id: leads_origem.id }))[0];
+      return res.json({ mensagem: "Origem registrada com sucesso", lead_id: novo.id });
+    }
+
+    // Compatibilidade com links legados já enviados antes dos tokens assinados.
     const leadResult = await db
       .select()
       .from(leads_origem)
@@ -222,6 +251,8 @@ router.get("/cliente/:usuario_id", authMiddleware, requireRole("admin", "vendedo
     const { usuario_id } = req.params;
 
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const usuario = (await db.select().from(usuarios).where(and(eq(usuarios.id, usuario_id), eq(usuarios.tipo, "cliente"))).limit(1))[0];
+    if (!usuario) return res.status(404).json({ erro: "Cliente não encontrado" });
 
     // A jornada comercial só pode ser consultada pelo admin ou pelo vendedor
     // responsável pela origem vinculada ao cliente. O filtro é aplicado no
@@ -251,18 +282,6 @@ router.get("/cliente/:usuario_id", authMiddleware, requireRole("admin", "vendedo
         ? eq(reservas.usuario_id, usuario_id)
         : and(eq(reservas.usuario_id, usuario_id), eq(reservas.vendedor_id, req.usuario.id)));
 
-    // Buscar usuário
-    const usuarioResult = await db
-      .select()
-      .from(usuarios)
-      .where(eq(usuarios.id, usuario_id))
-      .limit(1);
-
-    if (usuarioResult.length === 0) {
-      return res.status(404).json({ erro: "Usuário não encontrado" });
-    }
-
-    const usuario = usuarioResult[0];
     const lead = leadResult[0];
 
     // Calcular status da jornada
@@ -324,7 +343,7 @@ router.get("/vendedor/clientes", authMiddleware, requireRole("vendedor", "admin"
         const usuarioResult = await db
           .select()
           .from(usuarios)
-          .where(eq(usuarios.id, lead.usuario_id))
+          .where(and(eq(usuarios.id, lead.usuario_id), eq(usuarios.tipo, "cliente")))
           .limit(1);
 
         if (usuarioResult.length > 0) {
@@ -375,7 +394,7 @@ router.get("/admin/ranking", authMiddleware, requireRole("admin"), async (req: R
           .where(eq(usuarios.id, lead.vendedor_id))
           .limit(1);
 
-        if (vendedorResult.length > 0) {
+        if (vendedorResult[0]?.tipo === "vendedor") {
           const vendedor = vendedorResult[0];
           const chave = vendedor.id;
 

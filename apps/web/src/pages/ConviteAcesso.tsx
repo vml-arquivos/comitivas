@@ -15,7 +15,7 @@ export default function ConviteAcesso() {
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
-  const [form, setForm] = useState({ nome: '', email: '', cpf: '', telefone: '', rg: '', data_nascimento: '', estado_civil: '', profissao: '', endereco: '', nacionalidade: 'Brasileira', senha: '', confirmar: '' });
+  const [form, setForm] = useState({ nome: '', email: '', cpf: '', telefone: '', senha: '', confirmar: '' });
 
   useEffect(() => {
     if (!token) return;
@@ -35,9 +35,7 @@ export default function ConviteAcesso() {
     setSalvando(true);
     try {
       const response = await api.post(`/auth/convite/${encodeURIComponent(token)}`, {
-        nome: form.nome, email: form.email, cpf: form.cpf, telefone: form.telefone, rg: form.rg,
-        data_nascimento: form.data_nascimento || undefined, estado_civil: form.estado_civil, profissao: form.profissao,
-        endereco: form.endereco, nacionalidade: form.nacionalidade, senha: form.senha,
+        nome: form.nome, email: form.email, cpf: form.cpf, telefone: form.telefone, senha: form.senha,
       });
       login(response.data.usuario);
       navigate('/admin', { replace: true });
@@ -61,13 +59,7 @@ export default function ConviteAcesso() {
             <Input label="Nome completo" value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} required autoComplete="name" />
             <Input label="E-mail" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required disabled={Boolean(convite.email_destino)} autoComplete="email" />
             <Input label="CPF" value={form.cpf} onChange={(e) => setForm({ ...form, cpf: e.target.value })} required inputMode="numeric" />
-            <Input label="WhatsApp" value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} inputMode="tel" />
-            <Input label="RG" value={form.rg} onChange={(e) => setForm({ ...form, rg: e.target.value })} />
-            <Input label="Data de nascimento" type="date" value={form.data_nascimento} onChange={(e) => setForm({ ...form, data_nascimento: e.target.value })} />
-            <Input label="Estado civil" value={form.estado_civil} onChange={(e) => setForm({ ...form, estado_civil: e.target.value })} />
-            <Input label="Profissão" value={form.profissao} onChange={(e) => setForm({ ...form, profissao: e.target.value })} />
-            <Input label="Nacionalidade" value={form.nacionalidade} onChange={(e) => setForm({ ...form, nacionalidade: e.target.value })} />
-            <Input label="Endereço" value={form.endereco} onChange={(e) => setForm({ ...form, endereco: e.target.value })} />
+            <Input label="WhatsApp" value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} required inputMode="tel" />
             <Input label="Crie sua senha" type="password" value={form.senha} onChange={(e) => setForm({ ...form, senha: e.target.value })} required autoComplete="new-password" />
             <Input label="Confirme a senha" type="password" value={form.confirmar} onChange={(e) => setForm({ ...form, confirmar: e.target.value })} required autoComplete="new-password" />
           </div>

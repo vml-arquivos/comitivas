@@ -7,11 +7,17 @@ export type ContratoModeloSnapshot = {
   lote?: { nome?: string; descricao?: string | null };
   pacote?: { nome?: string; descricao?: string | null };
   cliente: Record<string, unknown>;
+  vendedor?: { nome?: string; email?: string } | null;
   periodo: { check_in: string; check_out: string };
   hospedagem: { modalidade: string | null; local: string };
   financeiro: {
     total: string;
+    valor_base?: string;
     desconto_pagamento: string;
+    taxa_pagamento?: string;
+    juros_pagamento?: string;
+    multa_atraso_percentual?: number;
+    juros_mora_mensal_percentual?: number;
     forma_pagamento: string | null;
     parcelas: number;
     cronograma: Array<{ numero: number; vencimento: string; valor: string; valor_centavos: number }>;
@@ -145,17 +151,23 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
   const seguro = snapshot.seguro || { seguradora: null, apolice: null, cobertura: null, telefone: null };
   const usoImagem = snapshot.uso_imagem || { autorizado: true, prazo_anos: 3 };
   const nome = valueOrBlank(c.nome, "______________________________");
-  const nacionalidade = valueOrBlank(c.nacionalidade, "brasileiro");
-  const estadoCivil = valueOrBlank(c.estado_civil, "________________");
-  const profissao = valueOrBlank(c.profissao, "________________");
   const nascimento = formatDate(c.nascimento, "__/__/____");
-  const identidade = valueOrBlank(c.rg, "***********");
-  const endereco = valueOrBlank(c.endereco, "******************, ***********, *******, Minas Gerais");
-  const telefone = valueOrBlank(c.telefone, "(31) *********");
-  const email = valueOrBlank(c.email, "*********@hotmail.com");
+  const endereco = valueOrBlank(c.endereco);
+  const telefone = valueOrBlank(c.telefone);
+  const email = valueOrBlank(c.email);
   const total = Number(f.total || 0);
   const totalMoney = total > 0 ? money(total) : "R$ ________";
   const totalWords = total > 0 ? numberToWords(total) : "________________________";
+  const taxaPagamento = Number(f.taxa_pagamento || 0);
+  const jurosPagamento = Number(f.juros_pagamento || 0);
+  const multaAtraso = Number.isFinite(Number(f.multa_atraso_percentual)) ? Number(f.multa_atraso_percentual) : 2;
+  const jurosMora = Number.isFinite(Number(f.juros_mora_mensal_percentual)) ? Number(f.juros_mora_mensal_percentual) : 1;
+  const detalhesEncargos = taxaPagamento > 0 || jurosPagamento > 0
+    ? ` O total apresentado inclui ${taxaPagamento > 0 ? `${money(taxaPagamento)} de taxas` : ""}${taxaPagamento > 0 && jurosPagamento > 0 ? " e " : ""}${jurosPagamento > 0 ? `${money(jurosPagamento)} de juros` : ""}, previamente informados ao CONTRATANTE.`
+    : "";
+  const vendedorResponsavel = snapshot.vendedor?.nome
+    ? `<p class="qualification"><strong>Atendimento comercial:</strong> ${escapeHtml(snapshot.vendedor.nome)}.</p>`
+    : "";
   const modalidade = h.modalidade || null;
   const checkin = formatDate(snapshot.periodo?.check_in);
   const checkout = formatDate(snapshot.periodo?.check_out);
@@ -214,7 +226,9 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
 <h2>QUALIFICAÇÃO DAS PARTES:</h2>
 <p class="qualification">As partes qualificadas neste instrumento celebram, pelo presente, contrato para a prestação de serviços de <strong>HOSPEDAGEM/TRANSPORTE</strong></p>
 <p class="qualification"><strong>Contratada:</strong> ${escapeHtml(CONTRATADA_DADOS.razao_social)}, empresa inscrita no CNPJ ${escapeHtml(CONTRATADA_DADOS.cnpj)}, com sede na Qr 502 conjunto 20 – Samambaia Sul/DF, CEP 72.210-420, e-mail: ${escapeHtml(CONTRATADA_DADOS.email)}</p>
-<p class="qualification"><strong>Contratante:</strong> ${escapeHtml(nome)}, ${escapeHtml(nacionalidade)}, ${escapeHtml(estadoCivil)}, ${escapeHtml(profissao)}, nascida em ${escapeHtml(nascimento)} portador da identidade nº ${escapeHtml(identidade)} e CPF ${escapeHtml(cpf(c.cpf))}, Residente: ${escapeHtml(endereco)}, telefone: ${escapeHtml(telefone)} e-mail: ${escapeHtml(email)}, têm entre si, justo e contratados, o que mutuamente outorgam, aceitam e assinam, convencionados pelas cláusulas termos e condições a seguir devidamente enumeradas.</p>
+<p class="qualification"><strong>Contratante:</strong> ${escapeHtml(nome)}, nascido(a) em ${escapeHtml(nascimento)}, inscrito(a) no CPF ${escapeHtml(cpf(c.cpf))}, residente em ${escapeHtml(endereco)}, telefone ${escapeHtml(telefone)} e e-mail ${escapeHtml(email)}.</p>
+${vendedorResponsavel}
+<p class="qualification">As partes têm entre si justo e contratado o que mutuamente outorgam, aceitam e assinam, conforme as cláusulas, termos e condições a seguir.</p>
 <h2>CLÁUSULA PRIMEIRA<br/>DO OBJETO DO CONTRATO</h2>
 <p class="clause"><strong>1.1</strong> ${objetoTexto}</p>
 <p class="clause"><strong>1.2</strong> O evento possui caráter regional e ocorre apenas uma vez ao ano, motivo pelo qual não será possível a remarcação do pacote para data fora da temporada oficial.</p>
@@ -239,11 +253,11 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
 <p><strong>I – Pagamento à vista via PIX:</strong> com desconto de 5% (cinco por cento), mediante utilização da chave PIX vinculada ao CNPJ da CONTRATADA, qual seja:<br/><strong>CHAVE: ${escapeHtml(CONTRATADA_DADOS.pix_chave)}</strong><br/><strong>BANCO: ${escapeHtml(CONTRATADA_DADOS.pix_banco)}</strong></p>
 <div class="page-break"></div><p><strong>II – Parcelamento por boleto bancário:</strong> sem incidência de juros, observado que a quantidade de parcelas disponíveis será definida de acordo com a data da contratação, devendo o valor integral do pacote estar obrigatoriamente quitado antes da data de início da hospedagem.<br/>Atentando-se as seguintes datas:</p>
 <table class="installments"><tbody>${scheduleRows(snapshot)}</tbody></table>
-<p><strong>III – Parcelamento por cartão de crédito:</strong> em até 10 (dez) parcelas, incidindo os encargos e taxas eventualmente praticados pela administradora do cartão de crédito, os quais serão integralmente suportados pelo <strong>CONTRATANTE.</strong></p>
+<p><strong>III – Parcelamento por cartão de crédito:</strong> na quantidade apresentada e aceita antes da confirmação, respeitados o limite do pacote, a data da viagem e a disponibilidade do provedor.${escapeHtml(detalhesEncargos)}</p>
 <p><strong>5.2.</strong> A confirmação da reserva somente ocorrerá após a comprovação do pagamento da primeira parcela ou do valor integral contratado, conforme a modalidade de pagamento escolhida.</p>
 <p><strong>5.3.</strong> O inadimplemento das parcelas não garante ao <strong>CONTRATANTE</strong> o direito de usufruir dos serviços contratados, ficando a participação na excursão condicionada à quitação integral do contrato antes da data do evento.</p>
 <h2>CLÁUSULA SEXTA<br/>DO ATRASO NO PAGAMENTO</h2>
-<p><strong>6.1.</strong> O atraso no pagamento de qualquer parcela implicará a incidência de multa moratória de 2% (dois por cento) sobre o valor da parcela vencida, acrescida de juros de mora de 1% (um por cento) ao mês, calculados proporcionalmente aos dias de atraso, bem como atualização monetária pelo Índice Nacional de Preços ao Consumidor Amplo – IPCA, ou outro índice oficial que venha a substituí-lo.</p>
+<p><strong>6.1.</strong> O atraso no pagamento de qualquer parcela implicará a incidência de multa moratória de ${escapeHtml(multaAtraso.toLocaleString("pt-BR"))}% sobre o valor da parcela vencida, acrescida de juros de mora de ${escapeHtml(jurosMora.toLocaleString("pt-BR"))}% ao mês, calculados proporcionalmente aos dias de atraso, bem como atualização monetária pelo Índice Nacional de Preços ao Consumidor Amplo – IPCA, ou outro índice oficial que venha a substituí-lo.</p>
 <p><strong>6.2.</strong> Permanecendo o débito em aberto, a <strong>CONTRATADA</strong> poderá promover a cobrança pelos meios legalmente admitidos, sem prejuízo da aplicação das penalidades previstas neste contrato.</p>
 <p><strong>6.3.</strong> O atraso ou inadimplemento de 2 ou mais parcelas poderá acarretar a suspensão da reserva e impedir a participação do <strong>CONTRATANTE</strong> na excursão, caso o pagamento integral não seja efetuado até a data de início do evento, sem prejuízo da aplicação da política de cancelamento prevista neste contrato.</p>
 

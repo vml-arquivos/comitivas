@@ -7,6 +7,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { AuthService } from "../services/authService.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 import { EmailProvider } from "../services/notificationProvider.js";
+import { cadastroAprovadoComEvidencia, camposFaltantesCadastroMinimo } from "../security/governance.js";
 
 const router = Router();
 const AUTH_COOKIE = "auth_token";
@@ -24,16 +25,13 @@ function limparCookieAuth(res: Response) {
 interface CadastroRequest {
   nome: string;
   email: string;
-  cpf?: string;
-  rg?: string;
-  telefone?: string;
-  data_nascimento?: string;
-  estado_civil?: string;
-  profissao?: string;
-  endereco?: string;
-  nacionalidade?: string;
+  cpf: string;
+  telefone: string;
+  data_nascimento: string;
+  endereco: string;
   lead_id?: string;
   lead_intent_token?: string;
+  vendedor_ref?: string;
   senha: string;
 }
 
@@ -76,15 +74,16 @@ function gerarCodigoEmail(): string {
 
 router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Response) => {
   try {
-    const { nome, email, cpf, rg, telefone, data_nascimento, estado_civil, profissao, endereco, nacionalidade, lead_id, lead_intent_token, senha } = req.body;
+    const { nome, email, cpf, telefone, data_nascimento, endereco, lead_id, lead_intent_token, vendedor_ref, senha } = req.body;
     const emailNormalizado = String(email || "").trim().toLowerCase();
     const nomeNormalizado = String(nome || "").trim();
     const cpfNormalizado = somenteDigitos(cpf);
     const telefoneNormalizado = somenteDigitos(telefone);
+    const enderecoNormalizado = String(endereco || "").trim();
 
     // Validações
-    if (!nomeNormalizado || !emailNormalizado || !cpfNormalizado || !senha) {
-      return res.status(400).json({ erro: "Nome, email, CPF e senha são obrigatórios" });
+    if (!nomeNormalizado || !emailNormalizado || !cpfNormalizado || !telefoneNormalizado || !data_nascimento || !enderecoNormalizado || !senha) {
+      return res.status(400).json({ erro: "Nome, e-mail, CPF, telefone, data de nascimento, endereço e senha são obrigatórios" });
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailNormalizado)) {
       return res.status(400).json({ erro: "Informe um e-mail válido" });
@@ -92,14 +91,17 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
     if (!cpfValido(cpfNormalizado)) {
       return res.status(400).json({ erro: "Informe um CPF válido" });
     }
-    if (telefoneNormalizado && (telefoneNormalizado.length < 10 || telefoneNormalizado.length > 13)) {
+    if (telefoneNormalizado.length < 10 || telefoneNormalizado.length > 13) {
       return res.status(400).json({ erro: "Informe um telefone com DDD válido" });
+    }
+    if (enderecoNormalizado.length < 8 || enderecoNormalizado.length > 500) {
+      return res.status(400).json({ erro: "Informe um endereço completo válido" });
     }
     if (senha.length < 8) {
       return res.status(400).json({ erro: "Senha deve ter no mínimo 8 caracteres" });
     }
     const dataNascimento = data_nascimento ? new Date(data_nascimento) : null;
-    if (dataNascimento && Number.isNaN(dataNascimento.getTime())) {
+    if (!dataNascimento || Number.isNaN(dataNascimento.getTime()) || dataNascimento.getTime() >= Date.now()) {
       return res.status(400).json({ erro: "Data de nascimento inválida" });
     }
 
@@ -122,6 +124,10 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
     const senhaHash = await AuthService.hashPassword(senha);
 
     const leadTokenValido = Boolean(lead_id && AuthService.verifyLeadIntentToken(String(lead_intent_token || ""), lead_id));
+    const vendedorDoToken = AuthService.verifySellerReferralToken(String(vendedor_ref || ""));
+    const vendedorValido = vendedorDoToken
+      ? (await db.select({ id: usuarios.id }).from(usuarios).where(and(eq(usuarios.id, vendedorDoToken), eq(usuarios.tipo, "vendedor"), eq(usuarios.ativo, true))).limit(1))[0]?.id || null
+      : null;
 
     // Usuário e lead são gravados na mesma transação. Se qualquer operação
     // falhar, não fica uma conta sem card correspondente no CRM.
@@ -132,13 +138,9 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
           nome: nomeNormalizado,
           email: emailNormalizado,
           cpf: cpfNormalizado,
-          rg: String(rg || "").trim() || null,
-          telefone: telefoneNormalizado || null,
+          telefone: telefoneNormalizado,
           data_nascimento: dataNascimento,
-          estado_civil: String(estado_civil || "").trim() || null,
-          profissao: String(profissao || "").trim() || null,
-          endereco: String(endereco || "").trim() || null,
-          nacionalidade: String(nacionalidade || "").trim() || "Brasileira",
+          endereco: enderecoNormalizado,
           senha_hash: senhaHash,
           tipo: "cliente",
           email_confirmado: false,
@@ -155,6 +157,9 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
           nome: nomeNormalizado,
           email: emailNormalizado,
           whatsapp: telefoneNormalizado || undefined,
+          vendedor_id: vendedorValido
+            ? sql`COALESCE(${leads_origem.vendedor_id}, ${vendedorValido})`
+            : undefined,
           status: "cadastrado",
           atualizado_em: new Date(),
         }).where(and(eq(leads_origem.id, lead_id!), isNull(leads_origem.usuario_id)))
@@ -168,10 +173,10 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
         const mesmoContato = telefoneNormalizado
           ? or(eq(leads_origem.email, emailNormalizado), eq(leads_origem.whatsapp, telefoneNormalizado))
           : eq(leads_origem.email, emailNormalizado);
-        const leadExistente = await tx.select({ id: leads_origem.id })
+        const leadExistente = await tx.select({ id: leads_origem.id, vendedor_id: leads_origem.vendedor_id })
           .from(leads_origem)
           .where(and(isNull(leads_origem.usuario_id), mesmoContato))
-          .orderBy(desc(leads_origem.criado_em))
+          .orderBy(desc(sql`${leads_origem.vendedor_id} IS NOT NULL`), desc(leads_origem.criado_em))
           .limit(1);
 
         if (leadExistente[0]) {
@@ -180,6 +185,7 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
             nome: nomeNormalizado,
             email: emailNormalizado,
             whatsapp: telefoneNormalizado || undefined,
+            vendedor_id: leadExistente[0].vendedor_id || vendedorValido || undefined,
             status: "cadastrado",
             atualizado_em: new Date(),
           }).where(and(eq(leads_origem.id, leadExistente[0].id), isNull(leads_origem.usuario_id)))
@@ -191,6 +197,7 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
         await tx.insert(leads_origem).values({
           id: createId(),
           codigo_origem: `cadastro-direto-${criado[0].id}`.slice(0, 100),
+          vendedor_id: vendedorValido,
           usuario_id: criado[0].id,
           nome: nomeNormalizado,
           email: emailNormalizado,
@@ -198,7 +205,7 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
           origem: "cadastro_direto",
           status: "cadastrado",
           consentimento_whatsapp: false,
-          dados_contexto: { origem: "formulario_cadastro" },
+          dados_contexto: { origem: vendedorValido ? "link_vendedor" : "formulario_cadastro" },
           atualizado_em: new Date(),
         });
       }
@@ -230,7 +237,7 @@ router.post("/confirmar-email", async (req: Request, res: Response) => {
     const email = String(req.body?.email || "").trim().toLowerCase();
     const codigo = String(req.body?.codigo || "").trim();
     if (!email || !/^\d{6}$/.test(codigo)) return res.status(400).json({ erro: "Informe o e-mail e o código de 6 dígitos" });
-    const usuario = (await db.select({ id: usuarios.id, email: usuarios.email, nome: usuarios.nome, tipo: usuarios.tipo, session_version: usuarios.session_version, email_confirmado: usuarios.email_confirmado, cadastro_status: usuarios.cadastro_status }).from(usuarios).where(eq(usuarios.email, email)).limit(1))[0];
+    const usuario = (await db.select({ id: usuarios.id, email: usuarios.email, nome: usuarios.nome, tipo: usuarios.tipo, ativo: usuarios.ativo, session_version: usuarios.session_version, email_confirmado: usuarios.email_confirmado, cadastro_status: usuarios.cadastro_status, aprovado_em: usuarios.aprovado_em, aprovado_por: usuarios.aprovado_por }).from(usuarios).where(eq(usuarios.email, email)).limit(1))[0];
     if (!usuario || usuario.email_confirmado) return res.status(400).json({ erro: "Código inválido ou conta já confirmada" });
     const agora = new Date();
     const confirmado = await db.transaction(async (tx) => {
@@ -240,7 +247,7 @@ router.post("/confirmar-email", async (req: Request, res: Response) => {
       return true;
     });
     if (!confirmado) return res.status(400).json({ erro: "Código inválido, expirado ou já utilizado" });
-    const aprovadoParaSessao = usuario.tipo !== "cliente" || (usuario.cadastro_status === "aprovado");
+    const aprovadoParaSessao = usuario.tipo !== "cliente" || cadastroAprovadoComEvidencia(usuario);
     if (aprovadoParaSessao) {
       const token = AuthService.generateToken({ id: usuario.id, email: usuario.email, tipo: usuario.tipo || "cliente", session_version: Number(usuario.session_version || 1) });
       definirCookieAuth(res, token);
@@ -296,13 +303,9 @@ router.get("/perfil", authMiddleware, async (req: Request, res: Response) => {
       nome: usuarios.nome,
       email: usuarios.email,
       cpf: usuarios.cpf,
-      rg: usuarios.rg,
       telefone: usuarios.telefone,
       data_nascimento: usuarios.data_nascimento,
-      estado_civil: usuarios.estado_civil,
-      profissao: usuarios.profissao,
       endereco: usuarios.endereco,
-      nacionalidade: usuarios.nacionalidade,
       tipo: usuarios.tipo,
       cadastro_status: usuarios.cadastro_status,
     }).from(usuarios).where(eq(usuarios.id, req.usuario.id)).limit(1);
@@ -337,28 +340,25 @@ router.put("/perfil", authMiddleware, async (req: Request, res: Response) => {
       const usuarioAtualizado = await tx.update(usuarios).set({
         nome: campos.nome ? String(campos.nome).trim() : undefined,
         cpf: cpfNormalizado !== undefined ? cpfNormalizado : undefined,
-        rg: campos.rg !== undefined ? (String(campos.rg).trim() || null) : undefined,
         telefone: telefoneNormalizado !== undefined ? (telefoneNormalizado || null) : undefined,
         data_nascimento: campos.data_nascimento !== undefined ? dataNascimento : undefined,
-        estado_civil: campos.estado_civil !== undefined ? (String(campos.estado_civil).trim() || null) : undefined,
-        profissao: campos.profissao !== undefined ? (String(campos.profissao).trim() || null) : undefined,
         endereco: campos.endereco !== undefined ? (String(campos.endereco).trim() || null) : undefined,
-        nacionalidade: campos.nacionalidade !== undefined ? (String(campos.nacionalidade).trim() || "Brasileira") : undefined,
         atualizado_em: new Date(),
       }).where(eq(usuarios.id, req.usuario!.id)).returning({
         id: usuarios.id,
         nome: usuarios.nome,
         email: usuarios.email,
         cpf: usuarios.cpf,
-        rg: usuarios.rg,
         telefone: usuarios.telefone,
         data_nascimento: usuarios.data_nascimento,
-        estado_civil: usuarios.estado_civil,
-        profissao: usuarios.profissao,
         endereco: usuarios.endereco,
-        nacionalidade: usuarios.nacionalidade,
         tipo: usuarios.tipo,
       });
+
+      if (usuarioAtualizado[0]?.tipo === "cliente") {
+        const faltantes = camposFaltantesCadastroMinimo(usuarioAtualizado[0]);
+        if (faltantes.length) throw new Error(`Complete os dados essenciais: ${faltantes.join(", ")}`);
+      }
 
       if (usuarioAtualizado[0]) {
         await tx.update(leads_origem).set({
@@ -374,11 +374,12 @@ router.put("/perfil", authMiddleware, async (req: Request, res: Response) => {
 
     if (!atualizado[0]) return res.status(404).json({ erro: "Usuário não encontrado" });
     res.json({ mensagem: "Dados atualizados com sucesso", usuario: atualizado[0] });
-  } catch (error) {
+  } catch (error: any) {
     console.error("[AUTH] Erro ao atualizar perfil:", error);
     if (erroDeUnicidade(error)) {
       return res.status(409).json({ erro: "CPF já cadastrado em outra conta" });
     }
+    if (String(error?.message || "").startsWith("Complete os dados essenciais:")) return res.status(400).json({ erro: error.message });
     res.status(500).json({ erro: "Erro ao atualizar dados cadastrais" });
   }
 });
@@ -469,24 +470,22 @@ router.post("/convite/:token", async (req: Request, res: Response) => {
     const cpf = somenteDigitos(req.body?.cpf);
     const telefone = somenteDigitos(req.body?.telefone);
     const senha = String(req.body?.senha || "");
-    if (!nome || !email || !cpf || senha.length < 8) return res.status(400).json({ erro: "Nome, e-mail, CPF e senha de pelo menos 8 caracteres são obrigatórios" });
+    if (!nome || !email || !cpf || !telefone || senha.length < 8) return res.status(400).json({ erro: "Nome, e-mail, CPF, telefone e senha de pelo menos 8 caracteres são obrigatórios" });
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !cpfValido(cpf)) return res.status(400).json({ erro: "E-mail ou CPF inválido" });
+    if (telefone.length < 10 || telefone.length > 13) return res.status(400).json({ erro: "Informe um telefone com DDD válido" });
     const agora = new Date();
     const resultado = await db.transaction(async (tx) => {
       // Serializa tentativas sobre o mesmo convite para preservar uso único até
       // sob requisições concorrentes. O token bruto nunca entra no lock nem no banco.
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${tokenHash}))`);
       const convite = (await tx.select().from(convitesAcesso).where(and(eq(convitesAcesso.token_hash, tokenHash), isNull(convitesAcesso.usado_em), isNull(convitesAcesso.revogado_em), sql`${convitesAcesso.expira_em} > CURRENT_TIMESTAMP`)).limit(1))[0];
-      if (!convite || !["admin", "vendedor"].includes(convite.papel)) return null;
+      if (!convite || !["dev", "admin", "vendedor"].includes(convite.papel)) return null;
       if (convite.email_destino && convite.email_destino.toLowerCase() !== email) throw new Error("Este convite foi emitido para outro e-mail");
       const existente = (await tx.select({ id: usuarios.id }).from(usuarios).where(or(eq(usuarios.email, email), sql`regexp_replace(COALESCE(${usuarios.cpf}, ''), '\\D', '', 'g') = ${cpf}`)).limit(1))[0];
       if (existente) throw new Error("E-mail ou CPF já cadastrado");
       const senhaHash = await AuthService.hashPassword(senha);
       const usuario = (await tx.insert(usuarios).values({
-        id: createId(), nome, email, cpf, telefone: telefone || null, senha_hash: senhaHash, tipo: convite.papel as "admin" | "vendedor",
-        rg: String(req.body?.rg || "").trim() || null, data_nascimento: req.body?.data_nascimento ? new Date(req.body.data_nascimento) : null,
-        estado_civil: String(req.body?.estado_civil || "").trim() || null, profissao: String(req.body?.profissao || "").trim() || null,
-        endereco: String(req.body?.endereco || "").trim() || null, nacionalidade: String(req.body?.nacionalidade || "").trim() || "Brasileira",
+        id: createId(), nome, email, cpf, telefone: telefone || null, senha_hash: senhaHash, tipo: convite.papel as "dev" | "admin" | "vendedor",
         email_confirmado: true, email_confirmado_em: agora, cadastro_status: "aprovado", aprovado_em: agora, aprovado_por: convite.criado_por, ativo: true, criado_em: agora, atualizado_em: agora,
       }).returning({ id: usuarios.id, nome: usuarios.nome, email: usuarios.email, tipo: usuarios.tipo, session_version: usuarios.session_version }))[0];
       if (!usuario) throw new Error("Não foi possível criar a conta");
@@ -525,6 +524,8 @@ router.post("/login", async (req: Request<{}, {}, LoginRequest>, res: Response) 
         session_version: usuarios.session_version,
         email_confirmado: usuarios.email_confirmado,
         cadastro_status: usuarios.cadastro_status,
+        aprovado_em: usuarios.aprovado_em,
+        aprovado_por: usuarios.aprovado_por,
       })
       .from(usuarios)
       .where(eq(usuarios.email, emailNormalizado))
@@ -549,8 +550,13 @@ router.post("/login", async (req: Request<{}, {}, LoginRequest>, res: Response) 
     if (!usuario.email_confirmado) {
       return res.status(403).json({ erro: "Confirme seu e-mail antes de entrar", email_confirmacao_necessaria: true });
     }
-    if (usuario.tipo === "cliente" && ["pendente", "rejeitado", "revisao_necessaria"].includes(String(usuario.cadastro_status || "pendente"))) {
-      return res.status(403).json({ erro: usuario.cadastro_status === "rejeitado" ? "Seu cadastro foi rejeitado. Consulte a equipe." : "Seu cadastro aguarda aprovação administrativa.", cadastro_aprovacao_necessaria: true, cadastro_status: usuario.cadastro_status });
+    if (usuario.tipo === "cliente" && !cadastroAprovadoComEvidencia(usuario)) {
+      const erro = usuario.cadastro_status === "rejeitado"
+        ? "Seu cadastro foi rejeitado. Consulte a equipe."
+        : usuario.cadastro_status === "aprovado"
+          ? "Seu cadastro precisa de uma nova aprovação administrativa."
+          : "Seu cadastro aguarda aprovação administrativa.";
+      return res.status(403).json({ erro, cadastro_aprovacao_necessaria: true, cadastro_status: usuario.cadastro_status });
     }
 
     // Gerar token

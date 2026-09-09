@@ -15,7 +15,8 @@ router.get("/stats", async (req: Request, res: Response) => {
     const [{ count: clientesConfirmados }] = await db
       .select({ count: sql<number>`count(distinct ${reservas.usuario_id})` })
       .from(reservas)
-      .where(eq(reservas.status, "cliente_confirmado"));
+      .innerJoin(usuarios, eq(reservas.usuario_id, usuarios.id))
+      .where(and(eq(reservas.status, "cliente_confirmado"), eq(usuarios.tipo, "cliente")));
 
     const [{ count: excursoesRealizadas }] = await db
       .select({ count: sql<number>`count(*)` })
@@ -25,7 +26,8 @@ router.get("/stats", async (req: Request, res: Response) => {
     const [{ media }] = await db
       .select({ media: sql<number>`coalesce(avg(${avaliacoes.nota}), 0)` })
       .from(avaliacoes)
-      .where(eq(avaliacoes.aprovado, true));
+      .innerJoin(usuarios, eq(avaliacoes.usuario_id, usuarios.id))
+      .where(and(eq(avaliacoes.aprovado, true), eq(usuarios.tipo, "cliente")));
 
     const notaNumerica = Number(media);
     res.json({
@@ -146,7 +148,14 @@ router.post("/leads", async (req: Request, res: Response) => {
       campanha: req.body.campanha || null,
     };
 
-    let leadExistente = codigoOrigem
+    const vendedorToken = AuthService.verifySellerReferralToken(codigoOrigem);
+    const vendedorValido = vendedorToken
+      ? (await db.select({ id: usuarios.id }).from(usuarios).where(and(eq(usuarios.id, vendedorToken), eq(usuarios.tipo, "vendedor"), eq(usuarios.ativo, true))).limit(1))[0]?.id || null
+      : null;
+
+    // Links novos são tokens de vendedor reutilizáveis. Nunca buscamos um lead
+    // pelo token, pois clientes diferentes não podem compartilhar o mesmo card.
+    let leadExistente = codigoOrigem && !vendedorToken
       ? await db.select().from(leads_origem)
         .where(eq(leads_origem.codigo_origem, codigoOrigem))
         .orderBy(desc(leads_origem.criado_em))
@@ -156,7 +165,7 @@ router.post("/leads", async (req: Request, res: Response) => {
     if (leadExistente.length === 0) {
       leadExistente = await db.select().from(leads_origem)
         .where(eq(leads_origem.whatsapp, whatsapp))
-        .orderBy(desc(leads_origem.criado_em))
+        .orderBy(desc(sql`${leads_origem.vendedor_id} IS NOT NULL`), desc(leads_origem.criado_em))
         .limit(1);
     }
 
@@ -166,21 +175,23 @@ router.post("/leads", async (req: Request, res: Response) => {
         whatsapp,
         email,
         origem,
+        vendedor_id: leadExistente[0].vendedor_id || vendedorValido || undefined,
         status: leadExistente[0].status === "cliente_confirmado" ? "cliente_confirmado" : "interessado",
         consentimento_whatsapp: true,
-        dados_contexto: contexto,
+        dados_contexto: { ...contexto, origem_vendedor: Boolean(vendedorValido || leadExistente[0].vendedor_id) },
         atualizado_em: new Date(),
       }).where(eq(leads_origem.id, leadExistente[0].id)).returning()
       : await db.insert(leads_origem).values({
         id: createId(),
         codigo_origem: `captura-${createId()}`,
+        vendedor_id: vendedorValido,
         nome,
         whatsapp,
         email,
         origem,
         status: "interessado",
         consentimento_whatsapp: true,
-        dados_contexto: contexto,
+        dados_contexto: { ...contexto, origem_vendedor: Boolean(vendedorValido) },
         atualizado_em: new Date(),
       }).returning();
 
@@ -261,11 +272,13 @@ router.get("/eventos-realizados", async (req: Request, res: Response) => {
           .orderBy(fotos_evento.ordem);
 
         const avaliacoesAprovadas = await db
-          .select()
+          .select({ id: avaliacoes.id, evento_id: avaliacoes.evento_id, nota: avaliacoes.nota, comentario: avaliacoes.comentario, criado_em: avaliacoes.criado_em })
           .from(avaliacoes)
+          .innerJoin(usuarios, eq(avaliacoes.usuario_id, usuarios.id))
           .where(and(
             eq(avaliacoes.evento_id, evento.id),
-            eq(avaliacoes.aprovado, true)
+            eq(avaliacoes.aprovado, true),
+            eq(usuarios.tipo, "cliente"),
           ))
           .orderBy(desc(avaliacoes.criado_em));
 
@@ -289,8 +302,8 @@ router.get("/avaliacoes", async (req: Request, res: Response) => {
   try {
     const { evento_id } = req.query;
     const filtro = evento_id
-      ? and(eq(avaliacoes.evento_id, evento_id as string), eq(avaliacoes.aprovado, true))
-      : eq(avaliacoes.aprovado, true);
+      ? and(eq(avaliacoes.evento_id, evento_id as string), eq(avaliacoes.aprovado, true), eq(usuarios.tipo, "cliente"))
+      : and(eq(avaliacoes.aprovado, true), eq(usuarios.tipo, "cliente"));
 
     const avaliacoesAprovadas = await db
       .select({
@@ -302,7 +315,7 @@ router.get("/avaliacoes", async (req: Request, res: Response) => {
         usuario_nome: usuarios.nome,
       })
       .from(avaliacoes)
-      .leftJoin(usuarios, eq(avaliacoes.usuario_id, usuarios.id))
+      .innerJoin(usuarios, eq(avaliacoes.usuario_id, usuarios.id))
       .where(filtro)
       .orderBy(desc(avaliacoes.criado_em));
 

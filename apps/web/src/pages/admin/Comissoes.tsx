@@ -33,7 +33,7 @@ export default function Comissoes() {
     try {
       await api.post('/admin/comissoes/regras', { vendedor_id: vendedorId, tipo, valor: Number(valor) });
       setValor('');
-      setMensagem('Regra de comissão salva. Novas reservas usarão este snapshot.');
+      setMensagem('Regra de comissão salva. Novas reservas usarão esta configuração.');
       await carregar();
     } catch (error: any) { setErro(error.response?.data?.erro || 'Não foi possível salvar a regra.'); }
   };

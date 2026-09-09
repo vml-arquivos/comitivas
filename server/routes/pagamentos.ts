@@ -5,10 +5,12 @@ import { PaymentGatewayAdapter } from "../services/paymentGatewayAdapter.js";
 import { ConfiguracaoService } from "../services/configuracaoService.js";
 import { GatewayConfigService } from "../services/gatewayConfigService.js";
 import { InventoryService } from "../services/inventoryService.js";
+import { ContratoService } from "../services/contratoService.js";
 import { db } from "../db/index.js";
-import { comissoes, contratosDocumentos, inventarioHolds, leads_origem, pagamentoIdempotencias, pagamentoParcelas, pagamentos, reservas, usuarios, webhookEventos } from "../db/schema.js";
+import { comissoes, contratosDocumentos, inventarioHolds, leads_origem, lotes, pacotes, pagamentoIdempotencias, pagamentoParcelas, pagamentos, reservas, usuarios, webhookEventos } from "../db/schema.js";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
+import { cadastroAprovadoComEvidencia } from "../security/governance.js";
 
 const router = Router();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -97,8 +99,8 @@ router.post("/criar", authMiddleware, async (req: Request, res: Response) => {
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, reserva_id)).limit(1))[0];
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
     if (reserva.usuario_id !== req.usuario.id) return res.status(403).json({ erro: "Acesso negado" });
-    const cliente = (await db.select({ cadastro_status: usuarios.cadastro_status, aprovado_em: usuarios.aprovado_em, ativo: usuarios.ativo }).from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0];
-    if (!cliente?.ativo || cliente.cadastro_status !== "aprovado" || !cliente.aprovado_em) return res.status(409).json({ erro: "Cobrança bloqueada: cadastro do cliente ainda não foi aprovado administrativamente" });
+    const cliente = (await db.select({ cadastro_status: usuarios.cadastro_status, aprovado_em: usuarios.aprovado_em, aprovado_por: usuarios.aprovado_por, ativo: usuarios.ativo }).from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0];
+    if (!cadastroAprovadoComEvidencia(cliente)) return res.status(409).json({ erro: "Cobrança bloqueada: cadastro do cliente ainda não possui aprovação administrativa completa" });
     const contrato = (await db.select({ status: contratosDocumentos.status, validado_em: contratosDocumentos.validado_em, aprovado_admin_em: contratosDocumentos.aprovado_admin_em }).from(contratosDocumentos).where(eq(contratosDocumentos.reserva_id, reserva.id)).orderBy(desc(contratosDocumentos.versao)).limit(1))[0];
     if (!contrato?.validado_em) return res.status(409).json({ erro: "Cobrança bloqueada: contrato ainda não foi validado pelo cliente" });
     if (!contrato.aprovado_admin_em || contrato.status !== "aprovado_admin") return res.status(409).json({ erro: "Cobrança bloqueada: contrato ainda não foi aprovado administrativamente" });
@@ -107,6 +109,19 @@ router.post("/criar", authMiddleware, async (req: Request, res: Response) => {
 
     const parcelas = metodo === "boleto" ? Math.max(1, Number(reserva.quantidade_parcelas || 1)) : 1;
     const configuracoes = await ConfiguracaoService.obterConfiguracoesPagamento();
+    if (metodo === "boleto") {
+      const pacote = reserva.pacote_id ? (await db.select({ data_limite_pagamento: pacotes.data_limite_pagamento, configuracao_pagamento: pacotes.configuracao_pagamento }).from(pacotes).where(eq(pacotes.id, reserva.pacote_id)).limit(1))[0] : undefined;
+      const lote = (await db.select({ data_embarque: lotes.data_embarque, data_inicio: lotes.data_inicio }).from(lotes).where(eq(lotes.id, reserva.lote_id)).limit(1))[0];
+      const regras = pacote?.configuracao_pagamento && typeof pacote.configuracao_pagamento === "object" ? pacote.configuracao_pagamento as Record<string, unknown> : {};
+      const tetoPacote = Number(regras.boleto_parcelas_maximo);
+      const prazoSeguranca = Number.isInteger(Number(regras.prazo_seguranca_dias)) ? Math.max(0, Number(regras.prazo_seguranca_dias)) : 0;
+      const dataLimite = ContratoService.calcularDataLimiteEfetiva(pacote?.data_limite_pagamento, lote?.data_embarque || lote?.data_inicio, prazoSeguranca);
+      const tetoAtual = Math.min(
+        ContratoService.calcularParcelasMaximasBoleto(dataLimite, new Date(), configuracoes.boleto_meses_maximo_antecedencia),
+        Number.isInteger(tetoPacote) && tetoPacote > 0 ? tetoPacote : Number.MAX_SAFE_INTEGER,
+      );
+      if (parcelas > tetoAtual) return res.status(409).json({ erro: "A condição do boleto ultrapassou o prazo atual. A equipe precisa preparar uma nova versão do contrato." });
+    }
 
     // Boleto manual: o cliente já concluiu a assinatura eletrônica, mas nenhuma
     // cobrança é criada no gateway. O financeiro só é liberado por Admin/DEV
@@ -200,6 +215,10 @@ router.get("/status/:reserva_id", authMiddleware, async (req: Request, res: Resp
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
     if (reserva.usuario_id !== req.usuario.id && !isAdminOrDev(req.usuario.tipo)) return res.status(403).json({ erro: "Acesso negado" });
+    if (req.usuario.tipo !== "dev") {
+      const alvo = (await db.select({ tipo: usuarios.tipo }).from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0];
+      if (!alvo || alvo.tipo === "dev") return res.status(403).json({ erro: "Acesso negado" });
+    }
     const pagamento = (await db.select().from(pagamentos).where(eq(pagamentos.reserva_id, req.params.reserva_id)).orderBy(desc(pagamentos.criado_em)).limit(1))[0];
     if (!pagamento) {
       const config = await ConfiguracaoService.obterConfiguracoesPagamento();

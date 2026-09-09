@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { CheckCircle2, MessageCircle, Send } from 'lucide-react';
 import { Button, Input, WhatsAppCTA } from '@ui/index';
 import { api } from '../contexts/AuthContext';
-import { salvarLeadId } from '../utils/checkoutIntent';
+import { salvarLeadId, salvarReferenciaVendedor } from '../utils/checkoutIntent';
 
 const OPCOES = [
   { value: '', label: 'Quero conhecer todas as opções' },
@@ -27,11 +27,13 @@ export default function LeadCapture() {
     setError('');
     setIsLoading(true);
     try {
+      const referenciaVendedor = new URLSearchParams(window.location.search).get('ref');
+      if (referenciaVendedor) salvarReferenciaVendedor(referenciaVendedor);
       const response = await api.post('/publico/leads', {
         ...form,
         origem: 'landing_page',
         pagina: '/',
-        codigo_origem: new URLSearchParams(window.location.search).get('ref') || undefined,
+        codigo_origem: referenciaVendedor || undefined,
       });
       salvarLeadId(response.data.lead_id, response.data.lead_intent_token);
       setSucesso(true);

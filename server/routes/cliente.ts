@@ -120,13 +120,9 @@ router.get("/portal", async (req: Request, res: Response) => {
       nome: usuarios.nome,
       email: usuarios.email,
       cpf: usuarios.cpf,
-      rg: usuarios.rg,
       telefone: usuarios.telefone,
       data_nascimento: usuarios.data_nascimento,
-      estado_civil: usuarios.estado_civil,
-      profissao: usuarios.profissao,
       endereco: usuarios.endereco,
-      nacionalidade: usuarios.nacionalidade,
       cadastro_status: usuarios.cadastro_status,
       criado_em: usuarios.criado_em,
       atualizado_em: usuarios.atualizado_em,
@@ -326,11 +322,15 @@ router.get("/documentos/:documentoId", async (req: Request, res: Response) => {
     )).limit(1))[0];
     if (!documento) return res.status(404).json({ erro: "Documento não encontrado" });
 
+    const base = path.resolve(process.env.STORAGE_PATH || "./uploads");
     const arquivo = path.resolve(documento.arquivo);
+    if (!arquivo.startsWith(`${base}${path.sep}`)) return res.status(404).json({ erro: "Documento não encontrado" });
     const inline = req.query.inline === "1";
     res.setHeader("Content-Type", documento.mime_type || "application/octet-stream");
     res.setHeader("Content-Disposition", `${inline ? "inline" : "attachment"}; filename="${encodeURIComponent(documento.nome_original)}"`);
-    return res.sendFile(arquivo);
+    return res.sendFile(arquivo, (error) => {
+      if (error && !res.headersSent) res.status(404).json({ erro: "Arquivo do documento não encontrado" });
+    });
   } catch (error) {
     console.error("[CLIENTE] Erro ao abrir documento:", error);
     return res.status(500).json({ erro: "Não foi possível abrir o documento" });

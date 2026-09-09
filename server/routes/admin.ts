@@ -10,13 +10,14 @@ import { AuditService } from "../services/auditService.js";
 import { CoraPaymentProvider } from "../services/coraPaymentProvider.js";
 import { PacoteService, ConfiguracaoPacote } from "../services/pacoteService.js";
 import { db } from "../db/index.js";
-import { reservas, eventos, lotes, pacotes, usuarios, leads_origem, descontosAdministrativos, pagamentos, contratosDocumentos, contratoValidacoes, pagamentoParcelas, emails_enviados, clienteDocumentos, clienteHistorico, videosEvento, fotos_evento, comissaoRegras, comissoes, convitesAcesso, auditoriaAdmin, inventarioHolds } from "../db/schema.js";
+import { reservas, eventos, lotes, pacotes, usuarios, leads_origem, descontosAdministrativos, pagamentos, contratosDocumentos, contratoValidacoes, pagamentoParcelas, emails_enviados, clienteDocumentos, clienteHistorico, videosEvento, fotos_evento, comissaoRegras, comissoes, convitesAcesso, auditoriaAdmin, inventarioHolds, sessoes, passwordResetTokens, verificacoesEmail } from "../db/schema.js";
 import { eq, and, inArray, or, sql, desc, isNull, ne } from "drizzle-orm";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import nodePath from "node:path";
 import { createId } from "@paralleldrive/cuid2";
 import Decimal from "decimal.js";
+import { cadastroAprovadoComEvidencia, camposFaltantesCadastroMinimo, motivoBloqueioBoleto, podeExporUsuario } from "../security/governance.js";
 
 const router = Router();
 
@@ -304,22 +305,20 @@ router.get("/dashboard", requireRole("admin", "vendedor"), async (req: Request, 
 
     // Admin vê a operação inteira. Vendedor vê apenas contatos atribuídos a
     // ele e as reservas desses clientes, evitando exposição entre carteiras.
-    const totalLeads = isAdminOrDev(req.usuario.tipo)
+    const leadsConsultados = isAdminOrDev(req.usuario.tipo)
       ? await db.select().from(leads_origem)
       : await db.select().from(leads_origem)
         .where(eq(leads_origem.vendedor_id, req.usuario.id));
-    const clienteIds = Array.from(new Set(
-      totalLeads.flatMap((lead) => lead.usuario_id ? [lead.usuario_id] : []),
-    ));
-
-    const totalClientes = isAdminOrDev(req.usuario.tipo)
-      ? await db.select({ id: usuarios.id }).from(usuarios).where(eq(usuarios.tipo, "cliente"))
-      : clienteIds.map((id) => ({ id }));
-    const totalReservas = isAdminOrDev(req.usuario.tipo)
-      ? await db.select().from(reservas)
-      : clienteIds.length > 0
-        ? await db.select().from(reservas).where(inArray(reservas.usuario_id, clienteIds))
-        : [];
+    const todosClientes = await db.select({ id: usuarios.id }).from(usuarios).where(eq(usuarios.tipo, "cliente"));
+    const idsClientesValidos = new Set(todosClientes.map((cliente) => cliente.id));
+    const totalLeads = leadsConsultados.filter((lead) => !lead.usuario_id || idsClientesValidos.has(lead.usuario_id));
+    const clienteIds = isAdminOrDev(req.usuario.tipo)
+      ? todosClientes.map((cliente) => cliente.id)
+      : Array.from(new Set(totalLeads.flatMap((lead) => lead.usuario_id ? [lead.usuario_id] : [])));
+    const totalClientes = isAdminOrDev(req.usuario.tipo) ? todosClientes : clienteIds.map((id) => ({ id }));
+    const totalReservas = clienteIds.length > 0
+      ? await db.select().from(reservas).where(inArray(reservas.usuario_id, clienteIds))
+      : [];
     const reservasConfirmadas = totalReservas.filter((reserva) => reserva.status === "cliente_confirmado");
     const reservasPendentes = totalReservas.filter((reserva) => reserva.status === "aguardando_pagamento");
     const contratosGerados = totalReservas.filter((reserva) => Boolean(reserva.contrato_pdf_url));
@@ -373,8 +372,8 @@ async function resolverOrigemVenda(req: Request, usuarioId: string, vendedorSoli
 
   const vendedorId = req.usuario.tipo === "vendedor" ? req.usuario.id : (vendedorSolicitado || undefined);
   if (vendedorId) {
-    const vendedor = (await db.select({ id: usuarios.id, tipo: usuarios.tipo }).from(usuarios).where(eq(usuarios.id, vendedorId)).limit(1))[0];
-    if (!vendedor || vendedor.tipo !== "vendedor") throw new Error("Vendedor inválido");
+    const vendedor = (await db.select({ id: usuarios.id, tipo: usuarios.tipo, ativo: usuarios.ativo }).from(usuarios).where(eq(usuarios.id, vendedorId)).limit(1))[0];
+    if (!vendedor || vendedor.tipo !== "vendedor" || vendedor.ativo === false) throw new Error("Vendedor inválido ou inativo");
   }
 
   const condicoes = [eq(leads_origem.usuario_id, usuarioId)];
@@ -394,8 +393,13 @@ async function resolverOrigemVenda(req: Request, usuarioId: string, vendedorSoli
   };
 }
 
-function vendedorPodeOperarReserva(req: Request, reserva: { usuario_id: string; vendedor_id: string | null }): boolean {
-  return Boolean(req.usuario && (isAdminOrDev(req.usuario.tipo) || reserva.usuario_id === req.usuario.id || (req.usuario.tipo === "vendedor" && reserva.vendedor_id === req.usuario.id)));
+async function vendedorPodeOperarReserva(req: Request, reserva: { usuario_id: string; vendedor_id: string | null }): Promise<boolean> {
+  if (!req.usuario) return false;
+  if (req.usuario.tipo !== "dev") {
+    const alvo = (await db.select({ tipo: usuarios.tipo }).from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0];
+    if (!alvo || alvo.tipo !== "cliente") return false;
+  }
+  return isAdminOrDev(req.usuario.tipo) || reserva.usuario_id === req.usuario.id || (req.usuario.tipo === "vendedor" && reserva.vendedor_id === req.usuario.id);
 }
 
 router.get("/vendas/clientes", async (req: Request, res: Response) => {
@@ -437,16 +441,22 @@ router.post("/vendas/clientes", async (req: Request, res: Response) => {
     const nome = String(req.body?.nome || "").trim();
     const email = String(req.body?.email || "").trim().toLowerCase();
     const cpf = somenteDigitos(req.body?.cpf);
-    if (!nome || !email || !cpf) return res.status(400).json({ erro: "Nome, e-mail e CPF são obrigatórios" });
+    const telefone = somenteDigitos(req.body?.telefone);
+    const endereco = String(req.body?.endereco || "").trim();
+    const dataNascimento = req.body?.data_nascimento ? new Date(req.body.data_nascimento) : null;
+    const faltantes = camposFaltantesCadastroMinimo({ nome, email, cpf, telefone, data_nascimento: dataNascimento, endereco });
+    if (faltantes.length) return res.status(400).json({ erro: `Complete os dados essenciais do cliente: ${faltantes.join(", ")}` });
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ erro: "Informe um e-mail válido" });
     if (!cpfValido(cpf)) return res.status(400).json({ erro: "Informe um CPF válido" });
+    if (telefone.length < 10 || telefone.length > 13) return res.status(400).json({ erro: "Informe um telefone com DDD válido" });
+    if (!dataNascimento || Number.isNaN(dataNascimento.getTime()) || dataNascimento.getTime() >= Date.now()) return res.status(400).json({ erro: "Data de nascimento inválida" });
 
     const senhaTemporaria = String(req.body?.senha || "").trim() || gerarSenhaTemporaria();
     if (senhaTemporaria.length < 8) return res.status(400).json({ erro: "Senha deve ter no mínimo 8 caracteres" });
     const vendedorId = req.usuario.tipo === "vendedor" ? req.usuario.id : String(req.body?.vendedor_id || "").trim() || undefined;
     if (vendedorId) {
-      const vendedor = (await db.select({ id: usuarios.id, tipo: usuarios.tipo }).from(usuarios).where(eq(usuarios.id, vendedorId)).limit(1))[0];
-      if (!vendedor || vendedor.tipo !== "vendedor") return res.status(400).json({ erro: "Vendedor inválido" });
+      const vendedor = (await db.select({ id: usuarios.id, tipo: usuarios.tipo, ativo: usuarios.ativo }).from(usuarios).where(eq(usuarios.id, vendedorId)).limit(1))[0];
+      if (!vendedor || vendedor.tipo !== "vendedor" || vendedor.ativo === false) return res.status(400).json({ erro: "Vendedor inválido ou inativo" });
     }
 
     const criado = await db.transaction(async (tx) => {
@@ -454,10 +464,9 @@ router.post("/vendas/clientes", async (req: Request, res: Response) => {
         nome,
         email,
         cpf,
-        telefone: somenteDigitos(req.body?.telefone) || null,
-        rg: String(req.body?.rg || "").trim() || null,
-        endereco: String(req.body?.endereco || "").trim() || null,
-        nacionalidade: String(req.body?.nacionalidade || "Brasileira").trim(),
+        telefone,
+        data_nascimento: dataNascimento,
+        endereco,
         tipo: "cliente",
         senha_hash: await AuthService.hashPassword(senhaTemporaria),
         email_confirmado: true,
@@ -474,7 +483,7 @@ router.post("/vendas/clientes", async (req: Request, res: Response) => {
           usuario_id: usuario.id,
           nome,
           email,
-          whatsapp: somenteDigitos(req.body?.telefone) || null,
+          whatsapp: telefone,
           origem: "venda_interna",
           status: "cadastrado",
           atualizado_em: new Date(),
@@ -542,7 +551,7 @@ router.post("/vendas/reservar", async (req: Request, res: Response) => {
 router.get("/vendas/reservas", async (req: Request, res: Response) => {
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
-    const condicoes = [];
+    const condicoes = [eq(usuarios.tipo, "cliente")];
     if (req.usuario.tipo === "vendedor") condicoes.push(eq(reservas.vendedor_id, req.usuario.id));
     if (req.query.status) condicoes.push(eq(reservas.status, String(req.query.status) as any));
     if (req.query.usuario_id) condicoes.push(eq(reservas.usuario_id, String(req.query.usuario_id)));
@@ -581,13 +590,18 @@ router.get("/vendas/reservas", async (req: Request, res: Response) => {
       .limit(100);
 
     const ids = linhas.map((linha) => linha.id);
+    const vendedorIds = Array.from(new Set(linhas.map((linha) => linha.vendedor_id).filter((id): id is string => Boolean(id))));
+    const vendedoresDaLista = vendedorIds.length
+      ? await db.select({ id: usuarios.id, nome: usuarios.nome }).from(usuarios).where(and(inArray(usuarios.id, vendedorIds), eq(usuarios.tipo, "vendedor")))
+      : [];
+    const vendedorMap = new Map(vendedoresDaLista.map((vendedor) => [vendedor.id, vendedor.nome]));
     const pagamentosRecentes = ids.length ? await db.select({ reserva_id: pagamentos.reserva_id, status: pagamentos.status, status_reconciliado: pagamentos.status_reconciliado, metodo: pagamentos.metodo, valor_centavos: pagamentos.valor_centavos, valor_pago_centavos: pagamentos.valor_pago_centavos, atualizado_em: pagamentos.atualizado_em }).from(pagamentos).where(inArray(pagamentos.reserva_id, ids)).orderBy(desc(pagamentos.atualizado_em)) : [];
     const documentos = ids.length ? await db.select({ reserva_id: contratosDocumentos.reserva_id, versao: contratosDocumentos.versao, status: contratosDocumentos.status, snapshot_sha256: contratosDocumentos.snapshot_sha256, pdf_sha256: contratosDocumentos.pdf_sha256, criado_em: contratosDocumentos.criado_em }).from(contratosDocumentos).where(inArray(contratosDocumentos.reserva_id, ids)).orderBy(desc(contratosDocumentos.versao)) : [];
     const pagamentoMap = new Map<string, typeof pagamentosRecentes[number]>();
     for (const pagamento of pagamentosRecentes) if (!pagamentoMap.has(pagamento.reserva_id)) pagamentoMap.set(pagamento.reserva_id, pagamento);
     const documentoMap = new Map<string, typeof documentos[number]>();
     for (const documento of documentos) if (!documentoMap.has(documento.reserva_id)) documentoMap.set(documento.reserva_id, documento);
-    return res.json({ total: linhas.length, reservas: linhas.map((linha) => ({ ...linha, pagamento: pagamentoMap.get(linha.id) || null, contrato: documentoMap.get(linha.id) || null })) });
+    return res.json({ total: linhas.length, reservas: linhas.map((linha) => ({ ...linha, vendedor_nome: linha.vendedor_id ? vendedorMap.get(linha.vendedor_id) || null : null, pagamento: pagamentoMap.get(linha.id) || null, contrato: documentoMap.get(linha.id) || null })) });
   } catch (error) {
     console.error("[ADMIN/VENDAS] Erro ao listar vendas:", error);
     return res.status(500).json({ erro: "Erro ao listar vendas internas" });
@@ -597,14 +611,18 @@ router.get("/vendas/reservas", async (req: Request, res: Response) => {
 router.get("/vendas/reservas/:reserva_id", async (req: Request, res: Response) => {
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
-    const reserva = (await db.select({ id: reservas.id, usuario_id: reservas.usuario_id, vendedor_id: reservas.vendedor_id, status: reservas.status, checkout_estado: reservas.checkout_estado, valor_total: reservas.valor_total, forma_pagamento: reservas.forma_pagamento, quantidade_parcelas: reservas.quantidade_parcelas, valor_parcela: reservas.valor_parcela, criado_em: reservas.criado_em, cliente_nome: usuarios.nome, cliente_email: usuarios.email, cliente_cpf: usuarios.cpf, cliente_telefone: usuarios.telefone, evento_nome: eventos.nome, lote_nome: lotes.nome, pacote_nome: pacotes.nome }).from(reservas).innerJoin(usuarios, eq(reservas.usuario_id, usuarios.id)).innerJoin(lotes, eq(reservas.lote_id, lotes.id)).innerJoin(eventos, eq(lotes.evento_id, eventos.id)).leftJoin(pacotes, eq(reservas.pacote_id, pacotes.id)).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
+    const filtroReserva = req.usuario.tipo === "dev" ? eq(reservas.id, req.params.reserva_id) : and(eq(reservas.id, req.params.reserva_id), eq(usuarios.tipo, "cliente"));
+    const reserva = (await db.select({ id: reservas.id, usuario_id: reservas.usuario_id, vendedor_id: reservas.vendedor_id, status: reservas.status, checkout_estado: reservas.checkout_estado, valor_total: reservas.valor_total, forma_pagamento: reservas.forma_pagamento, quantidade_parcelas: reservas.quantidade_parcelas, valor_parcela: reservas.valor_parcela, criado_em: reservas.criado_em, cliente_nome: usuarios.nome, cliente_email: usuarios.email, cliente_cpf: usuarios.cpf, cliente_telefone: usuarios.telefone, evento_nome: eventos.nome, lote_nome: lotes.nome, pacote_nome: pacotes.nome }).from(reservas).innerJoin(usuarios, eq(reservas.usuario_id, usuarios.id)).innerJoin(lotes, eq(reservas.lote_id, lotes.id)).innerJoin(eventos, eq(lotes.evento_id, eventos.id)).leftJoin(pacotes, eq(reservas.pacote_id, pacotes.id)).where(filtroReserva).limit(1))[0];
     if (!reserva) return res.status(404).json({ erro: "Venda não encontrada" });
     if (req.usuario.tipo === "vendedor" && reserva.vendedor_id !== req.usuario.id) return res.status(403).json({ erro: "Venda fora da sua carteira" });
+    const vendedor = reserva.vendedor_id
+      ? (await db.select({ id: usuarios.id, nome: usuarios.nome }).from(usuarios).where(and(eq(usuarios.id, reserva.vendedor_id), eq(usuarios.tipo, "vendedor"))).limit(1))[0] || null
+      : null;
     const [pagamentosDaReserva, contratosDaReserva] = await Promise.all([
       db.select({ id: pagamentos.id, status: pagamentos.status, status_reconciliado: pagamentos.status_reconciliado, metodo: pagamentos.metodo, valor: pagamentos.valor, valor_pago_centavos: pagamentos.valor_pago_centavos, gateway_id: pagamentos.gateway_id, atualizado_em: pagamentos.atualizado_em }).from(pagamentos).where(eq(pagamentos.reserva_id, reserva.id)).orderBy(desc(pagamentos.atualizado_em)),
       db.select({ id: contratosDocumentos.id, versao: contratosDocumentos.versao, status: contratosDocumentos.status, snapshot_sha256: contratosDocumentos.snapshot_sha256, pdf_sha256: contratosDocumentos.pdf_sha256, criado_em: contratosDocumentos.criado_em }).from(contratosDocumentos).where(eq(contratosDocumentos.reserva_id, reserva.id)).orderBy(desc(contratosDocumentos.versao)),
     ]);
-    return res.json({ reserva, pagamentos: pagamentosDaReserva, contratos: contratosDaReserva });
+    return res.json({ reserva: { ...reserva, vendedor_nome: vendedor?.nome || null }, pagamentos: pagamentosDaReserva, contratos: contratosDaReserva });
   } catch (error) {
     console.error("[ADMIN/VENDAS] Erro ao detalhar venda:", error);
     return res.status(500).json({ erro: "Erro ao detalhar venda" });
@@ -627,6 +645,7 @@ router.get("/reservas", async (req: Request, res: Response) => {
     ];
 
     const condicoes = [];
+    if (req.usuario?.tipo !== "dev") condicoes.push(sql`EXISTS (SELECT 1 FROM usuarios AS cliente_reserva WHERE cliente_reserva.id = ${reservas.usuario_id} AND cliente_reserva.tipo = 'cliente')`);
 
     if (evento_id) {
       // reservas não tem evento_id direto, só lote_id — buscar os lotes do evento primeiro
@@ -743,6 +762,8 @@ router.get("/relatorios/cupons/:evento_id", async (req: Request, res: Response) 
 router.post("/reenviar-contrato/:reserva_id", async (req: Request, res: Response) => {
   try {
     const { reserva_id } = req.params;
+    const reserva = (await db.select({ usuario_id: reservas.usuario_id, vendedor_id: reservas.vendedor_id }).from(reservas).where(eq(reservas.id, reserva_id)).limit(1))[0];
+    if (!reserva || !(await vendedorPodeOperarReserva(req, reserva))) return res.status(404).json({ erro: "Contrato não encontrado" });
 
     const enviado = await EmailService.reenviarContrato(reserva_id);
 
@@ -771,12 +792,9 @@ router.get("/exportar/reservas/:evento_id", async (req: Request, res: Response) 
     const loteIds = lotesResult.map((l) => l.id);
 
     // Buscar reservas
-    let query = db.select().from(reservas).$dynamic();
-    if (loteIds.length > 0) {
-      query = query.where(inArray(reservas.lote_id, loteIds));
-    }
-
-    const reservasResult = await query;
+    const reservasResult = loteIds.length > 0
+      ? await db.select().from(reservas).where(inArray(reservas.lote_id, loteIds))
+      : [];
 
     // Gerar CSV
     const headers = ["ID", "Usuário", "Email", "Status", "Valor Total", "Data Criação"];
@@ -784,10 +802,12 @@ router.get("/exportar/reservas/:evento_id", async (req: Request, res: Response) 
 
     for (const reserva of reservasResult) {
       const usuario = await db
-        .select()
+        .select({ nome: usuarios.nome, email: usuarios.email, tipo: usuarios.tipo })
         .from(usuarios)
         .where(eq(usuarios.id, reserva.usuario_id))
         .limit(1);
+
+      if (!usuario[0] || !podeExporUsuario(req.usuario?.tipo, usuario[0].tipo)) continue;
 
       rows.push([
         reserva.id,
@@ -823,14 +843,10 @@ const CAMPOS_PUBLICOS_USUARIO = {
   nome: usuarios.nome,
   email: usuarios.email,
   cpf: usuarios.cpf,
-  rg: usuarios.rg,
   telefone: usuarios.telefone,
   tipo: usuarios.tipo,
   data_nascimento: usuarios.data_nascimento,
-  estado_civil: usuarios.estado_civil,
-  profissao: usuarios.profissao,
   endereco: usuarios.endereco,
-  nacionalidade: usuarios.nacionalidade,
   ativo: usuarios.ativo,
   cadastro_status: usuarios.cadastro_status,
   aprovado_em: usuarios.aprovado_em,
@@ -868,10 +884,11 @@ router.get("/usuarios", requireRole("admin"), async (req: Request, res: Response
     }
 
     const offset = (parseInt(pagina as string) - 1) * parseInt(limite as string);
-    const resultado = await query
+    const resultado = (await query
       .orderBy(desc(usuarios.criado_em))
       .limit(parseInt(limite as string))
-      .offset(offset);
+      .offset(offset))
+      .filter((usuario) => podeExporUsuario(req.usuario?.tipo, usuario.tipo));
 
     res.json({
       total: resultado.length,
@@ -895,7 +912,7 @@ router.get("/usuarios/:id", requireRole("admin"), async (req: Request, res: Resp
       .where(eq(usuarios.id, id))
       .limit(1);
 
-    if (usuarioResult.length === 0 || (usuarioResult[0]?.tipo === "dev" && req.usuario?.tipo !== "dev")) {
+    if (usuarioResult.length === 0 || !podeExporUsuario(req.usuario?.tipo, usuarioResult[0]?.tipo) || (usuarioResult[0]?.tipo === "admin" && req.usuario?.tipo !== "dev")) {
       return res.status(404).json({ erro: "Usuário não encontrado" });
     }
 
@@ -915,8 +932,8 @@ router.get("/usuarios/:id", requireRole("admin"), async (req: Request, res: Resp
 router.post("/usuarios", requireRole("admin"), async (req: Request, res: Response) => {
   try {
     const {
-      nome, email, cpf, rg, telefone, tipo,
-      data_nascimento, estado_civil, profissao, endereco, nacionalidade,
+      nome, email, cpf, telefone, tipo,
+      data_nascimento, endereco,
       senha,
     } = req.body ?? {};
 
@@ -942,8 +959,14 @@ router.post("/usuarios", requireRole("admin"), async (req: Request, res: Respons
     }
 
     const dataNascimento = data_nascimento ? new Date(data_nascimento) : null;
-    if (data_nascimento && Number.isNaN(dataNascimento?.getTime())) {
+    if (data_nascimento && (Number.isNaN(dataNascimento?.getTime()) || dataNascimento!.getTime() >= Date.now())) {
       return res.status(400).json({ erro: "Data de nascimento inválida" });
+    }
+    const enderecoNormalizado = String(endereco || "").trim();
+    if (telefoneNormalizado && (telefoneNormalizado.length < 10 || telefoneNormalizado.length > 13)) return res.status(400).json({ erro: "Informe um telefone com DDD válido" });
+    if (tipoNormalizado === "cliente") {
+      const faltantes = camposFaltantesCadastroMinimo({ nome: nomeNormalizado, email: emailNormalizado, cpf: cpfNormalizado, telefone: telefoneNormalizado, data_nascimento: dataNascimento, endereco: enderecoNormalizado });
+      if (faltantes.length) return res.status(400).json({ erro: `Complete os dados essenciais do cliente: ${faltantes.join(", ")}` });
     }
 
     const senhaTemporaria = String(senha || "").trim() || gerarSenhaTemporaria();
@@ -959,14 +982,10 @@ router.post("/usuarios", requireRole("admin"), async (req: Request, res: Respons
           nome: nomeNormalizado,
           email: emailNormalizado,
           cpf: cpfNormalizado || null,
-          rg: String(rg || "").trim() || null,
           telefone: telefoneNormalizado || null,
           tipo: tipoNormalizado,
           data_nascimento: dataNascimento,
-          estado_civil: String(estado_civil || "").trim() || null,
-          profissao: String(profissao || "").trim() || null,
-          endereco: String(endereco || "").trim() || null,
-          nacionalidade: String(nacionalidade || "").trim() || "Brasileira",
+          endereco: enderecoNormalizado || null,
           senha_hash: senhaHash,
           cadastro_status: tipoNormalizado === "cliente" ? "pendente" : "aprovado",
           aprovado_em: tipoNormalizado === "cliente" ? null : new Date(),
@@ -997,13 +1016,13 @@ router.put("/usuarios/:id", requireRole("admin"), async (req: Request, res: Resp
   try {
     const { id } = req.params;
     const {
-      nome, email, cpf, rg, telefone, tipo,
-      data_nascimento, estado_civil, profissao, endereco, nacionalidade,
+      nome, email, cpf, telefone, tipo,
+      data_nascimento, endereco,
       senha,
     } = req.body ?? {};
 
     const existente = await db.select().from(usuarios).where(eq(usuarios.id, id)).limit(1);
-    if (existente.length === 0 || (existente[0]?.tipo === "dev" && req.usuario?.tipo !== "dev")) {
+    if (existente.length === 0 || !podeExporUsuario(req.usuario?.tipo, existente[0]?.tipo) || (existente[0]?.tipo === "admin" && req.usuario?.tipo !== "dev")) {
       return res.status(404).json({ erro: "Usuário não encontrado" });
     }
 
@@ -1029,8 +1048,11 @@ router.put("/usuarios/:id", requireRole("admin"), async (req: Request, res: Resp
       }
       atualizacoes.cpf = cpfNormalizado || null;
     }
-    if (rg !== undefined) atualizacoes.rg = String(rg).trim() || null;
-    if (telefone !== undefined) atualizacoes.telefone = somenteDigitos(telefone) || null;
+    if (telefone !== undefined) {
+      const telefoneNormalizado = somenteDigitos(telefone);
+      if (telefoneNormalizado && (telefoneNormalizado.length < 10 || telefoneNormalizado.length > 13)) return res.status(400).json({ erro: "Informe um telefone com DDD válido" });
+      atualizacoes.telefone = telefoneNormalizado || null;
+    }
     if (tipo !== undefined) {
       const permitido = req.usuario?.tipo === "dev" ? ["cliente", "vendedor", "admin", "dev"].includes(String(tipo)) : ["cliente", "vendedor"].includes(String(tipo));
       if (!permitido) return res.status(403).json({ erro: "Você não pode atribuir este nível de acesso" });
@@ -1039,15 +1061,24 @@ router.put("/usuarios/:id", requireRole("admin"), async (req: Request, res: Resp
     }
     if (data_nascimento !== undefined) {
       const dataNascimento = data_nascimento ? new Date(data_nascimento) : null;
-      if (data_nascimento && Number.isNaN(dataNascimento?.getTime())) {
+      if (data_nascimento && (Number.isNaN(dataNascimento?.getTime()) || dataNascimento!.getTime() >= Date.now())) {
         return res.status(400).json({ erro: "Data de nascimento inválida" });
       }
       atualizacoes.data_nascimento = dataNascimento;
     }
-    if (estado_civil !== undefined) atualizacoes.estado_civil = String(estado_civil).trim() || null;
-    if (profissao !== undefined) atualizacoes.profissao = String(profissao).trim() || null;
     if (endereco !== undefined) atualizacoes.endereco = String(endereco).trim() || null;
-    if (nacionalidade !== undefined) atualizacoes.nacionalidade = String(nacionalidade).trim() || "Brasileira";
+    const tipoFinal = atualizacoes.tipo || existente[0].tipo;
+    if (tipoFinal === "cliente") {
+      const faltantes = camposFaltantesCadastroMinimo({
+        nome: atualizacoes.nome ?? existente[0].nome,
+        email: atualizacoes.email ?? existente[0].email,
+        cpf: atualizacoes.cpf === undefined ? existente[0].cpf : atualizacoes.cpf,
+        telefone: atualizacoes.telefone === undefined ? existente[0].telefone : atualizacoes.telefone,
+        data_nascimento: atualizacoes.data_nascimento === undefined ? existente[0].data_nascimento : atualizacoes.data_nascimento,
+        endereco: atualizacoes.endereco === undefined ? existente[0].endereco : atualizacoes.endereco,
+      });
+      if (faltantes.length) return res.status(400).json({ erro: `Complete os dados essenciais do cliente: ${faltantes.join(", ")}` });
+    }
     if (senha) {
       if (String(senha).length < 8) {
         return res.status(400).json({ erro: "Senha deve ter no mínimo 8 caracteres" });
@@ -1090,8 +1121,9 @@ router.patch("/usuarios/:id/status", requireRole("admin"), async (req: Request, 
     if (typeof ativo !== "boolean") {
       return res.status(400).json({ erro: "Informe o campo 'ativo' (true/false)" });
     }
+    if (id === req.usuario?.id && !ativo) return res.status(409).json({ erro: "Não é possível desativar o próprio acesso" });
     const alvo = (await db.select({ tipo: usuarios.tipo }).from(usuarios).where(eq(usuarios.id, id)).limit(1))[0];
-    if (!alvo || (alvo.tipo === "dev" && req.usuario?.tipo !== "dev")) return res.status(404).json({ erro: "Usuário não encontrado" });
+    if (!alvo || !podeExporUsuario(req.usuario?.tipo, alvo.tipo) || (alvo.tipo === "admin" && req.usuario?.tipo !== "dev")) return res.status(404).json({ erro: "Usuário não encontrado" });
 
     const atualizado = await db
       .update(usuarios)
@@ -1120,21 +1152,73 @@ router.patch("/usuarios/:id/status", requireRole("admin"), async (req: Request, 
 router.delete("/usuarios/:id", requireRole("admin"), async (req: Request, res: Response) => {
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
-    if (req.params.id === req.usuario.id) return res.status(400).json({ erro: "Não é permitido excluir a própria conta" });
-    const alvo = (await db.select({ id: usuarios.id, tipo: usuarios.tipo, nome: usuarios.nome }).from(usuarios).where(eq(usuarios.id, req.params.id)).limit(1))[0];
-    if (!alvo || alvo.tipo === "dev" || (alvo.tipo === "admin" && req.usuario.tipo !== "dev")) return res.status(404).json({ erro: "Usuário não encontrado ou protegido" });
-    await AuditService.registrar(req, "usuario_exclusao_solicitada", "usuario", alvo.id, { tipo: alvo.tipo, nome: alvo.nome });
-    const removido = await db.delete(usuarios).where(eq(usuarios.id, alvo.id)).returning({ id: usuarios.id });
-    if (!removido[0]) return res.status(404).json({ erro: "Usuário não encontrado" });
-    return res.json({ mensagem: "Usuário excluído definitivamente", id: alvo.id });
+    if (req.params.id === req.usuario.id) return res.status(409).json({ erro: "Não é possível excluir ou arquivar o próprio acesso" });
+
+    const alvo = (await db.select(CAMPOS_PUBLICOS_USUARIO).from(usuarios).where(eq(usuarios.id, req.params.id)).limit(1))[0];
+    if (!alvo || !podeExporUsuario(req.usuario.tipo, alvo.tipo) || (alvo.tipo === "admin" && req.usuario.tipo !== "dev")) return res.status(404).json({ erro: "Usuário não encontrado" });
+
+    const dependencias = await db.execute(sql`
+      SELECT EXISTS (
+        SELECT 1 FROM reservas WHERE usuario_id = ${alvo.id} OR vendedor_id = ${alvo.id} OR boleto_liberado_por = ${alvo.id}
+        UNION ALL SELECT 1 FROM leads_origem WHERE usuario_id = ${alvo.id} OR vendedor_id = ${alvo.id}
+        UNION ALL SELECT 1 FROM contratos_documentos WHERE aprovado_admin_por = ${alvo.id}
+        UNION ALL SELECT 1 FROM contrato_validacoes WHERE usuario_id = ${alvo.id}
+        UNION ALL SELECT 1 FROM otp_desafios WHERE usuario_id = ${alvo.id}
+        UNION ALL SELECT 1 FROM contrato_eventos WHERE ator_id = ${alvo.id}
+        UNION ALL SELECT 1 FROM consentimentos_imagem WHERE usuario_id = ${alvo.id}
+        UNION ALL SELECT 1 FROM precos_ledger WHERE criado_por = ${alvo.id}
+        UNION ALL SELECT 1 FROM descontos_administrativos WHERE administrador_id = ${alvo.id}
+        UNION ALL SELECT 1 FROM comissao_regras WHERE vendedor_id = ${alvo.id}
+        UNION ALL SELECT 1 FROM comissoes WHERE vendedor_id = ${alvo.id}
+        UNION ALL SELECT 1 FROM cupons_utilizacoes WHERE usuario_id = ${alvo.id}
+        UNION ALL SELECT 1 FROM cupons WHERE vendedor_id = ${alvo.id}
+        UNION ALL SELECT 1 FROM cliente_documentos WHERE usuario_id = ${alvo.id} OR criado_por = ${alvo.id} OR removido_por = ${alvo.id}
+        UNION ALL SELECT 1 FROM cliente_historico WHERE usuario_id = ${alvo.id} OR criado_por = ${alvo.id}
+        UNION ALL SELECT 1 FROM convites_acesso WHERE criado_por = ${alvo.id} OR usado_por = ${alvo.id}
+        UNION ALL SELECT 1 FROM auditoria_admin WHERE ator_id = ${alvo.id}
+        UNION ALL SELECT 1 FROM gateway_credenciais WHERE atualizado_por = ${alvo.id}
+        UNION ALL SELECT 1 FROM pagamento_parcelas WHERE pago_confirmado_por = ${alvo.id}
+        UNION ALL SELECT 1 FROM avaliacoes WHERE usuario_id = ${alvo.id}
+        UNION ALL SELECT 1 FROM usuarios WHERE aprovado_por = ${alvo.id}
+      ) AS possui_dependencias
+    `);
+    let arquivar = Boolean((dependencias.rows[0] as { possui_dependencias?: boolean } | undefined)?.possui_dependencias);
+
+    if (!arquivar) {
+      try {
+        await db.transaction(async (tx) => {
+          await tx.delete(passwordResetTokens).where(eq(passwordResetTokens.usuario_id, alvo.id));
+          await tx.delete(verificacoesEmail).where(eq(verificacoesEmail.usuario_id, alvo.id));
+          await tx.delete(sessoes).where(eq(sessoes.usuario_id, alvo.id));
+          const removido = await tx.delete(usuarios).where(eq(usuarios.id, alvo.id)).returning({ id: usuarios.id });
+          if (!removido[0]) throw new Error("Usuário não encontrado");
+          await tx.insert(auditoriaAdmin).values({ id: createId(), ator_id: req.usuario!.id, ator_tipo: req.usuario!.tipo, acao: "usuario_excluido", entidade: "usuario", entidade_id: alvo.id, antes: { tipo: alvo.tipo, ativo: alvo.ativo }, depois: { modo: "exclusao_definitiva" }, ip: req.ip || null, user_agent: req.get("user-agent") || null, criado_em: new Date() });
+        });
+        return res.json({ modo: "excluido", mensagem: "Usuário excluído com segurança." });
+      } catch (error: any) {
+        if (error?.code !== "23503") throw error;
+        arquivar = true;
+      }
+    }
+
+    if (arquivar) {
+      await db.transaction(async (tx) => {
+        const agora = new Date();
+        await tx.update(usuarios).set({ ativo: false, atualizado_em: agora, session_version: sql`COALESCE(${usuarios.session_version}, 1) + 1` }).where(eq(usuarios.id, alvo.id));
+        if (alvo.tipo === "cliente") {
+          await tx.insert(clienteHistorico).values({ id: createId(), usuario_id: alvo.id, tipo: "arquivamento", titulo: "Cliente arquivado", descricao: "Acesso desativado para preservar os registros existentes", criado_por: req.usuario!.id, criado_em: agora });
+        }
+        await tx.insert(auditoriaAdmin).values({ id: createId(), ator_id: req.usuario!.id, ator_tipo: req.usuario!.tipo, acao: "usuario_arquivado", entidade: "usuario", entidade_id: alvo.id, antes: { ativo: alvo.ativo }, depois: { ativo: false }, ip: req.ip || null, user_agent: req.get("user-agent") || null, criado_em: agora });
+      });
+      return res.json({ modo: "arquivado", mensagem: "Este usuário possui registros no sistema e foi arquivado para preservar o histórico." });
+    }
   } catch (error: any) {
-    if (String(error?.code) === "23503") return res.status(409).json({ erro: "Este usuário possui vendas, reservas ou documentos vinculados. Desative o acesso para preservar o histórico." });
-    console.error("[ADMIN] Erro ao excluir usuário:", error);
-    return res.status(500).json({ erro: "Não foi possível excluir o usuário" });
+    console.error("[ADMIN] Erro ao excluir ou arquivar usuário:", error);
+    return res.status(400).json({ erro: error.message || "Não foi possível excluir ou arquivar o usuário" });
   }
 });
 
-// ===========================================================================
+// ==========================================================================
 // Ficha 360º de clientes: dados, histórico, documentos, contratos e relatórios
 // ==========================================================================
 
@@ -1153,8 +1237,8 @@ router.get("/clientes/exportar", requireRole("admin"), async (req: Request, res:
     }
     const clientes = await db.select(CAMPOS_PUBLICOS_USUARIO).from(usuarios).where(and(...condicoes)).orderBy(desc(usuarios.criado_em));
     const linhas = [
-      ["Nome", "E-mail", "CPF", "RG", "Telefone", "Nascimento", "Estado civil", "Profissão", "Endereço", "Nacionalidade", "Status", "Criado em"],
-      ...clientes.map((cliente) => [cliente.nome, cliente.email, cliente.cpf, cliente.rg, cliente.telefone, cliente.data_nascimento?.toISOString?.() || cliente.data_nascimento, cliente.estado_civil, cliente.profissao, cliente.endereco, cliente.nacionalidade, cliente.ativo ? "Ativo" : "Inativo", cliente.criado_em?.toISOString?.() || cliente.criado_em]),
+      ["Nome", "E-mail", "CPF", "Telefone", "Nascimento", "Endereço", "Status", "Criado em"],
+      ...clientes.map((cliente) => [cliente.nome, cliente.email, cliente.cpf, cliente.telefone, cliente.data_nascimento?.toISOString?.() || cliente.data_nascimento, cliente.endereco, cliente.ativo ? "Ativo" : "Inativo", cliente.criado_em?.toISOString?.() || cliente.criado_em]),
     ];
     const csv = `\uFEFF${linhas.map((linha) => linha.map(csvCampo).join(";")).join("\n")}`;
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -1180,7 +1264,7 @@ router.get("/clientes/:id/ficha", requireRole("admin"), async (req: Request, res
 router.post("/clientes/:id/historico", requireRole("admin"), async (req: Request, res: Response) => {
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
-    const cliente = (await db.select({ id: usuarios.id }).from(usuarios).where(eq(usuarios.id, req.params.id)).limit(1))[0];
+    const cliente = (await db.select({ id: usuarios.id }).from(usuarios).where(and(eq(usuarios.id, req.params.id), eq(usuarios.tipo, "cliente"))).limit(1))[0];
     if (!cliente) return res.status(404).json({ erro: "Cliente não encontrado" });
     const titulo = String(req.body?.titulo || "Anotação").trim().slice(0, 255);
     const descricao = String(req.body?.descricao || "").trim();
@@ -1218,7 +1302,7 @@ function detectarMimeDocumento(buffer: Buffer, extensao: string): string | null 
 router.post("/clientes/:id/documentos", requireRole("admin"), uploadDocumentoCliente, async (req: Request, res: Response) => {
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
-    const cliente = (await db.select({ id: usuarios.id }).from(usuarios).where(eq(usuarios.id, req.params.id)).limit(1))[0];
+    const cliente = (await db.select({ id: usuarios.id }).from(usuarios).where(and(eq(usuarios.id, req.params.id), eq(usuarios.tipo, "cliente"))).limit(1))[0];
     if (!cliente) return res.status(404).json({ erro: "Cliente não encontrado" });
     if (!Buffer.isBuffer(req.body) || req.body.length === 0) return res.status(400).json({ erro: "Arquivo não recebido" });
 
@@ -1298,6 +1382,8 @@ router.post("/clientes/:id/documentos", requireRole("admin"), uploadDocumentoCli
 router.get("/clientes/:id/documentos/:documentoId", requireRole("admin"), async (req: Request, res: Response) => {
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const cliente = (await db.select({ id: usuarios.id }).from(usuarios).where(and(eq(usuarios.id, req.params.id), eq(usuarios.tipo, "cliente"))).limit(1))[0];
+    if (!cliente) return res.status(404).json({ erro: "Cliente não encontrado" });
     const documento = (await db.select().from(clienteDocumentos).where(and(eq(clienteDocumentos.id, req.params.documentoId), eq(clienteDocumentos.usuario_id, req.params.id), isNull(clienteDocumentos.removido_em))).limit(1))[0];
     if (!documento) return res.status(404).json({ erro: "Documento não encontrado" });
     const base = nodePath.resolve(process.env.STORAGE_PATH || "./uploads");
@@ -1318,10 +1404,11 @@ router.get("/clientes/:id/documentos/:documentoId", requireRole("admin"), async 
 router.delete("/clientes/:id/documentos/:documentoId", requireRole("admin"), async (req: Request, res: Response) => {
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const cliente = (await db.select({ id: usuarios.id }).from(usuarios).where(and(eq(usuarios.id, req.params.id), eq(usuarios.tipo, "cliente"))).limit(1))[0];
+    if (!cliente) return res.status(404).json({ erro: "Cliente não encontrado" });
     const documento = (await db.select().from(clienteDocumentos).where(and(eq(clienteDocumentos.id, req.params.documentoId), eq(clienteDocumentos.usuario_id, req.params.id), isNull(clienteDocumentos.removido_em))).limit(1))[0];
     if (!documento) return res.status(404).json({ erro: "Documento não encontrado" });
-    await db.update(clienteDocumentos).set({ removido_em: new Date(), atualizado_em: new Date() }).where(eq(clienteDocumentos.id, documento.id));
-    await fs.unlink(documento.arquivo).catch((erro) => console.warn("[ADMIN/CLIENTES] Arquivo já ausente ou não removido:", erro));
+    await db.update(clienteDocumentos).set({ removido_em: new Date(), removido_por: req.usuario.id, atualizado_em: new Date() }).where(eq(clienteDocumentos.id, documento.id));
     await registrarHistoricoCliente(documento.usuario_id, "documento_removido", "Documento removido", documento.nome, req.usuario.id, { documento_id: documento.id, sha256: documento.sha256 });
     return res.status(204).send();
   } catch (error) {
@@ -1338,8 +1425,8 @@ router.get("/clientes/:id/relatorio", requireRole("admin"), async (req: Request,
     if (String(req.query.formato || "").toLowerCase() === "csv") {
       const linhas: unknown[][] = [
         ["FICHA DO CLIENTE", usuario.nome],
-        ["E-mail", usuario.email], ["CPF", usuario.cpf], ["RG", usuario.rg], ["Telefone", usuario.telefone],
-        ["Nascimento", usuario.data_nascimento], ["Estado civil", usuario.estado_civil], ["Profissão", usuario.profissao], ["Endereço", usuario.endereco],
+        ["E-mail", usuario.email], ["CPF", usuario.cpf], ["Telefone", usuario.telefone],
+        ["Nascimento", usuario.data_nascimento], ["Endereço", usuario.endereco],
         [], ["RESUMO"], ["Reservas", resumo.reservas], ["Reservas confirmadas", resumo.reservas_confirmadas], ["Contratos", resumo.contratos], ["Documentos", resumo.documentos], ["Valor contratado", resumo.valor_contratado], ["Valor pago", resumo.valor_pago],
         [], ["RESERVAS"], ["ID", "Evento", "Lote", "Pacote", "Status", "Valor", "Criado em"],
         ...ficha.reservas.map((item) => [item.id, item.evento_nome, item.lote_nome, item.pacote_nome, item.status, item.valor_total, item.criado_em]),
@@ -1358,7 +1445,7 @@ router.get("/clientes/:id/relatorio", requireRole("admin"), async (req: Request,
     const linhasContratos = ficha.contratos.map((item) => `<tr><td>${escaparHtml(item.reserva_id)}</td><td>v${item.versao}</td><td>${escaparHtml(item.status)}</td><td>${item.validado_em ? new Date(item.validado_em).toLocaleString("pt-BR") : "—"}</td><td>${escaparHtml(item.pdf_sha256 || "—")}</td></tr>`).join("") || '<tr><td colspan="5">Nenhum contrato.</td></tr>';
     const linhasDocumentos = ficha.documentos.map((item) => `<tr><td>${escaparHtml(item.categoria)}</td><td>${escaparHtml(item.nome)}</td><td>${escaparHtml(item.nome_original)}</td><td>${new Date(item.criado_em).toLocaleString("pt-BR")}</td></tr>`).join("") || '<tr><td colspan="4">Nenhum documento adicional.</td></tr>';
     const linhasHistorico = ficha.historico.slice(0, 80).map((item: any) => `<tr><td>${new Date(item.criado_em).toLocaleString("pt-BR")}</td><td>${escaparHtml(item.tipo)}</td><td>${escaparHtml(item.titulo)}</td><td>${escaparHtml(item.descricao || "")}</td></tr>`).join("");
-    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Ficha de ${escaparHtml(usuario.nome)}</title><style>body{font-family:Arial,sans-serif;color:#182d3b;margin:32px;font-size:12px}h1{font-family:Georgia,serif;font-size:28px;margin:0 0 4px}h2{font-family:Georgia,serif;font-size:18px;margin-top:26px;border-bottom:1px solid #ddd;padding-bottom:6px}.muted{color:#667085}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.box{border:1px solid #ddd;border-radius:10px;padding:12px}.box strong{display:block;font-size:18px;color:#851f32}table{width:100%;border-collapse:collapse;margin-top:8px}th,td{border-bottom:1px solid #e5e7eb;text-align:left;padding:7px;vertical-align:top}th{background:#f8f5ef}.dados{display:grid;grid-template-columns:1fr 1fr;gap:6px 24px}.dados div{padding:4px 0}.label{font-size:10px;text-transform:uppercase;color:#667085}@media print{body{margin:10mm}}</style></head><body><h1>${escaparHtml(usuario.nome)}</h1><p class="muted">Ficha completa do cliente · gerada em ${new Date().toLocaleString("pt-BR")}</p><section class="dados"><div><span class="label">E-mail</span><br>${escaparHtml(usuario.email)}</div><div><span class="label">Telefone</span><br>${escaparHtml(usuario.telefone || "—")}</div><div><span class="label">CPF</span><br>${escaparHtml(usuario.cpf || "—")}</div><div><span class="label">RG</span><br>${escaparHtml(usuario.rg || "—")}</div><div><span class="label">Nascimento</span><br>${usuario.data_nascimento ? new Date(usuario.data_nascimento).toLocaleDateString("pt-BR") : "—"}</div><div><span class="label">Estado civil / profissão</span><br>${escaparHtml(usuario.estado_civil || "—")} · ${escaparHtml(usuario.profissao || "—")}</div><div><span class="label">Endereço</span><br>${escaparHtml(usuario.endereco || "—")}</div><div><span class="label">Cliente desde</span><br>${new Date(usuario.criado_em).toLocaleDateString("pt-BR")}</div></section><h2>Resumo</h2><div class="grid"><div class="box"><span>Reservas</span><strong>${resumo.reservas}</strong></div><div class="box"><span>Contratos</span><strong>${resumo.contratos}</strong></div><div class="box"><span>Documentos</span><strong>${resumo.documentos}</strong></div><div class="box"><span>Valor contratado</span><strong>R$ ${Number(resumo.valor_contratado).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</strong></div><div class="box"><span>Valor pago</span><strong>R$ ${Number(resumo.valor_pago).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</strong></div><div class="box"><span>Status</span><strong>${usuario.ativo ? "Ativo" : "Inativo"}</strong></div></div><h2>Reservas e viagens</h2><table><thead><tr><th>Evento</th><th>Lote</th><th>Pacote</th><th>Status</th><th>Valor</th><th>Data</th></tr></thead><tbody>${linhasReservas}</tbody></table><h2>Contratos</h2><table><thead><tr><th>Reserva</th><th>Versão</th><th>Status</th><th>Validação</th><th>Hash PDF</th></tr></thead><tbody>${linhasContratos}</tbody></table><h2>Documentos</h2><table><thead><tr><th>Categoria</th><th>Nome</th><th>Arquivo</th><th>Data</th></tr></thead><tbody>${linhasDocumentos}</tbody></table><h2>Histórico</h2><table><thead><tr><th>Quando</th><th>Tipo</th><th>Evento</th><th>Detalhe</th></tr></thead><tbody>${linhasHistorico}</tbody></table></body></html>`;
+    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Ficha de ${escaparHtml(usuario.nome)}</title><style>body{font-family:Arial,sans-serif;color:#182d3b;margin:32px;font-size:12px}h1{font-family:Georgia,serif;font-size:28px;margin:0 0 4px}h2{font-family:Georgia,serif;font-size:18px;margin-top:26px;border-bottom:1px solid #ddd;padding-bottom:6px}.muted{color:#667085}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.box{border:1px solid #ddd;border-radius:10px;padding:12px}.box strong{display:block;font-size:18px;color:#851f32}table{width:100%;border-collapse:collapse;margin-top:8px}th,td{border-bottom:1px solid #e5e7eb;text-align:left;padding:7px;vertical-align:top}th{background:#f8f5ef}.dados{display:grid;grid-template-columns:1fr 1fr;gap:6px 24px}.dados div{padding:4px 0}.label{font-size:10px;text-transform:uppercase;color:#667085}@media print{body{margin:10mm}}</style></head><body><h1>${escaparHtml(usuario.nome)}</h1><p class="muted">Ficha completa do cliente · gerada em ${new Date().toLocaleString("pt-BR")}</p><section class="dados"><div><span class="label">E-mail</span><br>${escaparHtml(usuario.email)}</div><div><span class="label">Telefone</span><br>${escaparHtml(usuario.telefone || "—")}</div><div><span class="label">CPF</span><br>${escaparHtml(usuario.cpf || "—")}</div><div><span class="label">Nascimento</span><br>${usuario.data_nascimento ? new Date(usuario.data_nascimento).toLocaleDateString("pt-BR") : "—"}</div><div><span class="label">Endereço</span><br>${escaparHtml(usuario.endereco || "—")}</div><div><span class="label">Cliente desde</span><br>${new Date(usuario.criado_em).toLocaleDateString("pt-BR")}</div></section><h2>Resumo</h2><div class="grid"><div class="box"><span>Reservas</span><strong>${resumo.reservas}</strong></div><div class="box"><span>Contratos</span><strong>${resumo.contratos}</strong></div><div class="box"><span>Documentos</span><strong>${resumo.documentos}</strong></div><div class="box"><span>Valor contratado</span><strong>R$ ${Number(resumo.valor_contratado).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</strong></div><div class="box"><span>Valor pago</span><strong>R$ ${Number(resumo.valor_pago).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</strong></div><div class="box"><span>Status</span><strong>${usuario.ativo ? "Ativo" : "Inativo"}</strong></div></div><h2>Reservas e viagens</h2><table><thead><tr><th>Evento</th><th>Lote</th><th>Pacote</th><th>Status</th><th>Valor</th><th>Data</th></tr></thead><tbody>${linhasReservas}</tbody></table><h2>Contratos</h2><table><thead><tr><th>Reserva</th><th>Versão</th><th>Status</th><th>Validação</th><th>Hash PDF</th></tr></thead><tbody>${linhasContratos}</tbody></table><h2>Documentos</h2><table><thead><tr><th>Categoria</th><th>Nome</th><th>Arquivo</th><th>Data</th></tr></thead><tbody>${linhasDocumentos}</tbody></table><h2>Histórico</h2><table><thead><tr><th>Quando</th><th>Tipo</th><th>Evento</th><th>Detalhe</th></tr></thead><tbody>${linhasHistorico}</tbody></table></body></html>`;
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.send(html);
   } catch (error) {
@@ -1526,7 +1613,7 @@ router.post("/contratos/preview/:reserva_id", async (req: Request, res: Response
   try {
     const reserva = (await db.select({ id: reservas.id, usuario_id: reservas.usuario_id, vendedor_id: reservas.vendedor_id }).from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
-    if (!vendedorPodeOperarReserva(req, reserva)) return res.status(403).json({ erro: "Reserva fora da sua carteira" });
+    if (!(await vendedorPodeOperarReserva(req, reserva))) return res.status(403).json({ erro: "Reserva fora da sua carteira" });
     const snapshot = await ContratoService.gerarSnapshot({ reserva_id: reserva.id, formulario: req.body?.formulario });
     const html = await ContratoService.gerarContratoHTML({ reserva_id: reserva.id, snapshot });
     return res.json({ snapshot, html, template: "2026.1-oficial", editavel: ["contratante", "hospedagem", "transporte", "bagagem", "seguro", "uso_imagem", "observacoes_especificas"] });
@@ -1565,21 +1652,53 @@ router.get("/contratos", async (req: Request, res: Response) => {
       .innerJoin(eventos, eq(lotes.evento_id, eventos.id))
       .$dynamic();
 
-    if (req.usuario?.tipo === "vendedor") query.where(eq(reservas.vendedor_id, req.usuario.id));
+    if (req.usuario?.tipo === "vendedor") query.where(and(eq(reservas.vendedor_id, req.usuario.id), eq(usuarios.tipo, "cliente")));
+    else if (req.usuario?.tipo !== "dev") query.where(eq(usuarios.tipo, "cliente"));
     const linhas = await query.orderBy(desc(reservas.criado_em));
+    const reservaIds = linhas.map((linha) => linha.reserva_id);
+    const documentos = reservaIds.length
+      ? await db.select({
+        id: contratosDocumentos.id,
+        reserva_id: contratosDocumentos.reserva_id,
+        versao: contratosDocumentos.versao,
+        status: contratosDocumentos.status,
+        validado_em: contratosDocumentos.validado_em,
+        aprovado_admin_em: contratosDocumentos.aprovado_admin_em,
+        pdf_sha256: contratosDocumentos.pdf_sha256,
+        arquivo: contratosDocumentos.arquivo,
+      }).from(contratosDocumentos)
+        .where(and(inArray(contratosDocumentos.reserva_id, reservaIds), ne(contratosDocumentos.status, "invalidado")))
+        .orderBy(desc(contratosDocumentos.versao))
+      : [];
+    const documentoPorReserva = new Map<string, typeof documentos[number]>();
+    for (const documento of documentos) {
+      if (!documentoPorReserva.has(documento.reserva_id)) documentoPorReserva.set(documento.reserva_id, documento);
+    }
 
     const filtradas = status === "gerados"
-      ? linhas.filter((linha) => Boolean(linha.contrato_pdf_url))
+      ? linhas.filter((linha) => documentoPorReserva.has(linha.reserva_id) || Boolean(linha.contrato_pdf_url))
       : status === "pendentes"
-        ? linhas.filter((linha) => !linha.contrato_pdf_url)
+        ? linhas.filter((linha) => !documentoPorReserva.has(linha.reserva_id) && !linha.contrato_pdf_url)
         : linhas;
 
     res.json({
       total: filtradas.length,
-      contratos: filtradas.map((linha) => ({
-        ...linha,
-        contrato_gerado: Boolean(linha.contrato_pdf_url),
-      })),
+      contratos: filtradas.map((linha) => {
+        const documento = documentoPorReserva.get(linha.reserva_id);
+        return {
+          ...linha,
+          contrato_gerado: Boolean(documento || linha.contrato_pdf_url),
+          pdf_disponivel: Boolean(documento?.arquivo || linha.contrato_pdf_url),
+          documento: documento ? {
+            id: documento.id,
+            versao: documento.versao,
+            status: documento.status,
+            validado_em: documento.validado_em,
+            aprovado_admin_em: documento.aprovado_admin_em,
+            pdf_sha256: documento.pdf_sha256,
+          } : null,
+        };
+      }),
     });
   } catch (error: any) {
     console.error("[ADMIN] Erro ao listar contratos:", error);
@@ -1598,7 +1717,11 @@ router.post("/contratos/gerar/:reserva_id", async (req: Request, res: Response) 
       return res.status(404).json({ erro: "Reserva não encontrada" });
     }
     const reserva = reservaResult[0];
-    if (!vendedorPodeOperarReserva(req, reserva)) return res.status(403).json({ erro: "Reserva fora da sua carteira" });
+    if (!(await vendedorPodeOperarReserva(req, reserva))) return res.status(403).json({ erro: "Reserva fora da sua carteira" });
+    const cliente = (await db.select({ ativo: usuarios.ativo, cadastro_status: usuarios.cadastro_status, aprovado_em: usuarios.aprovado_em, aprovado_por: usuarios.aprovado_por, nome: usuarios.nome, email: usuarios.email, cpf: usuarios.cpf, telefone: usuarios.telefone, data_nascimento: usuarios.data_nascimento, endereco: usuarios.endereco }).from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0];
+    if (!cadastroAprovadoComEvidencia(cliente)) return res.status(409).json({ erro: "O cadastro do cliente precisa de aprovação registrada antes da geração do contrato" });
+    const faltantes = camposFaltantesCadastroMinimo(cliente);
+    if (faltantes.length) return res.status(409).json({ erro: `Complete os dados essenciais antes do contrato: ${faltantes.join(", ")}` });
 
     const metodoPagamento = req.body?.metodo_pagamento ?? reserva.forma_pagamento;
     const quantidadeParcelas = req.body?.quantidade_parcelas ?? reserva.quantidade_parcelas;
@@ -1617,10 +1740,11 @@ router.post("/contratos/gerar/:reserva_id", async (req: Request, res: Response) 
         .where(eq(lotes.id, reserva.lote_id))
         .limit(1);
       const pacote = reserva.pacote_id ? (await db.select({ data_limite_pagamento: pacotes.data_limite_pagamento, configuracao_pagamento: pacotes.configuracao_pagamento }).from(pacotes).where(eq(pacotes.id, reserva.pacote_id)).limit(1))[0] : undefined;
-      const regrasPacote = pacote?.configuracao_pagamento && typeof pacote.configuracao_pagamento === "object" ? pacote.configuracao_pagamento as { boleto_parcelas_maximo?: unknown; formas_permitidas?: unknown } : {};
+      const regrasPacote = pacote?.configuracao_pagamento && typeof pacote.configuracao_pagamento === "object" ? pacote.configuracao_pagamento as Record<string, unknown> : {};
       const formasPermitidas = Array.isArray(regrasPacote.formas_permitidas) ? regrasPacote.formas_permitidas.map(String) : ["pix", "boleto"];
       if (!formasPermitidas.includes(String(metodoPagamento))) throw new Error("A forma de pagamento não está disponível para este pacote");
-      const dataLimitePagamento = pacote?.data_limite_pagamento || loteResult[0]?.data_embarque || loteResult[0]?.data_inicio;
+      const prazoSegurancaDias = Number.isInteger(Number(regrasPacote.prazo_seguranca_dias)) ? Math.max(0, Number(regrasPacote.prazo_seguranca_dias)) : 0;
+      const dataLimitePagamento = ContratoService.calcularDataLimiteEfetiva(pacote?.data_limite_pagamento, loteResult[0]?.data_embarque || loteResult[0]?.data_inicio, prazoSegurancaDias);
       const configPagamento = await ConfiguracaoService.obterConfiguracoesPagamento();
       const parcelasPorData = ContratoService.calcularParcelasMaximasBoleto(
         dataLimitePagamento,
@@ -1629,6 +1753,8 @@ router.post("/contratos/gerar/:reserva_id", async (req: Request, res: Response) 
       );
       const tetoPacote = Number(regrasPacote.boleto_parcelas_maximo);
       const parcelasMaximasBoleto = Math.min(parcelasPorData, Number.isInteger(tetoPacote) && tetoPacote > 0 ? tetoPacote : parcelasPorData);
+      const tetoCredito = Number(regrasPacote.credito_parcelas_maximo);
+      const parcelasMaximasCredito = Math.min(parcelasPorData, Number.isInteger(tetoCredito) && tetoCredito > 0 ? tetoCredito : configPagamento.credito_parcelas_maximo, configPagamento.credito_parcelas_maximo);
 
       const valorBaseSemDescontoPagamento = Number(reserva.valor_total) + Number(reserva.desconto_pagamento || 0);
       condicaoPagamento = ContratoService.calcularCondicaoPagamento(
@@ -1638,7 +1764,9 @@ router.post("/contratos/gerar/:reserva_id", async (req: Request, res: Response) 
         parcelasMaximasBoleto,
         {
           percentualDescontoPix: configPagamento.pix_desconto_percentual,
-          parcelasMaximasCredito: configPagamento.credito_parcelas_maximo,
+          parcelasMaximasCredito,
+          percentualTaxaCredito: Number(regrasPacote.credito_taxa_percentual) || 0,
+          percentualJurosMensalCredito: Number(regrasPacote.credito_juros_mensal_percentual) || 0,
         },
       );
     } catch (error: any) {
@@ -1658,7 +1786,7 @@ router.post("/contratos/gerar/:reserva_id", async (req: Request, res: Response) 
       })
       .where(eq(reservas.id, reserva_id));
 
-    await ContratoService.registrarAceiteContrato(reserva_id, `gerado-pelo-admin:${req.usuario.id}`, req.body?.formulario);
+    await ContratoService.registrarAceiteContrato(reserva_id, `gerado-pelo-admin:${req.usuario.id}`, req.body?.formulario, condicaoPagamento);
 
     res.json({
       mensagem: "Contrato preparado e aguardando validação eletrônica do cliente",
@@ -1669,6 +1797,56 @@ router.post("/contratos/gerar/:reserva_id", async (req: Request, res: Response) 
   } catch (error: any) {
     console.error("[ADMIN] Erro ao gerar contrato:", error);
     res.status(500).json({ erro: error.message || "Erro ao gerar contrato" });
+  }
+});
+
+async function aprovarContratoAdministrativamente(contratoId: string, req: Request) {
+  if (!req.usuario) throw new Error("Não autenticado");
+  return db.transaction(async (tx) => {
+    const referencia = (await tx.select({ reserva_id: contratosDocumentos.reserva_id, perfil_cliente: usuarios.tipo }).from(contratosDocumentos).innerJoin(reservas, eq(contratosDocumentos.reserva_id, reservas.id)).innerJoin(usuarios, eq(reservas.usuario_id, usuarios.id)).where(eq(contratosDocumentos.id, contratoId)).limit(1))[0];
+    if (!referencia) throw new Error("Contrato não encontrado");
+    if (req.usuario!.tipo !== "dev" && referencia.perfil_cliente !== "cliente") throw new Error("Contrato não encontrado");
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`contrato-admin:${referencia.reserva_id}`}))`);
+
+    const contrato = (await tx.select().from(contratosDocumentos).where(eq(contratosDocumentos.id, contratoId)).for("update").limit(1))[0];
+    if (!contrato || contrato.status === "invalidado") throw new Error("Contrato não encontrado");
+    const vigente = (await tx.select({ id: contratosDocumentos.id }).from(contratosDocumentos)
+      .where(and(eq(contratosDocumentos.reserva_id, contrato.reserva_id), ne(contratosDocumentos.status, "invalidado")))
+      .orderBy(desc(contratosDocumentos.versao)).limit(1))[0];
+    if (!vigente || vigente.id !== contrato.id) throw new Error("Apenas a versão vigente do contrato pode ser aprovada");
+
+    const validacao = (await tx.select().from(contratoValidacoes)
+      .where(and(eq(contratoValidacoes.reserva_id, contrato.reserva_id), eq(contratoValidacoes.contrato_id, contrato.id)))
+      .orderBy(desc(contratoValidacoes.confirmado_em)).limit(1))[0];
+    const evidenciasValidas = Boolean(
+      contrato.validado_em
+        && validacao?.aceite_contrato
+        && validacao.aceite_regras
+        && validacao.snapshot_sha256 === contrato.snapshot_sha256
+        && (!contrato.pdf_sha256 || validacao.pdf_sha256 === contrato.pdf_sha256),
+    );
+    if (!evidenciasValidas) throw new Error("O cliente precisa concluir a validação eletrônica da versão vigente antes da aprovação administrativa");
+
+    const jaAprovado = contrato.status === "aprovado_admin" && Boolean(contrato.aprovado_admin_em && contrato.aprovado_admin_por);
+    if (!jaAprovado) {
+      const agora = new Date();
+      await tx.update(contratosDocumentos).set({ status: "aprovado_admin", aprovado_admin_em: agora, aprovado_admin_por: req.usuario!.id }).where(eq(contratosDocumentos.id, contrato.id));
+      await tx.update(reservas).set({ checkout_estado: "contrato_aprovado_admin", atualizado_em: agora }).where(eq(reservas.id, contrato.reserva_id));
+      await tx.insert(clienteHistorico).values({ id: createId(), usuario_id: validacao!.usuario_id, tipo: "contrato_aprovado_admin", titulo: "Contrato aprovado pela administração", descricao: `Versão ${contrato.versao} aprovada sob protocolo ${validacao!.protocolo}.`, criado_por: req.usuario!.id, metadados: { reserva_id: contrato.reserva_id, contrato_id: contrato.id, protocolo: validacao!.protocolo }, criado_em: agora });
+      await tx.insert(auditoriaAdmin).values({ id: createId(), ator_id: req.usuario!.id, ator_tipo: req.usuario!.tipo, acao: "contrato_aprovado_admin", entidade: "contrato", entidade_id: contrato.id, depois: { reserva_id: contrato.reserva_id, versao: contrato.versao, protocolo: validacao!.protocolo }, ip: req.ip || null, user_agent: req.get("user-agent") || null, criado_em: agora });
+    }
+    return { contrato, validacao: validacao!, jaAprovado };
+  });
+}
+
+router.post("/contratos/:contratoId/aprovar", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const resultado = await aprovarContratoAdministrativamente(req.params.contratoId, req);
+    return res.json({ mensagem: resultado.jaAprovado ? "Contrato já estava aprovado" : "Contrato aprovado pela administração", contrato_id: resultado.contrato.id, protocolo: resultado.validacao.protocolo });
+  } catch (error: any) {
+    console.error("[CONTRATOS] Erro ao aprovar administrativamente:", error);
+    return res.status(409).json({ erro: error.message || "Não foi possível aprovar o contrato" });
   }
 });
 
@@ -1699,6 +1877,7 @@ router.get("/contratos/modelos", async (_req: Request, res: Response) => {
 router.get("/pagamentos", requireRole("admin"), async (req: Request, res: Response) => {
   try {
     const condicoes = [];
+    if (req.usuario?.tipo !== "dev") condicoes.push(eq(usuarios.tipo, "cliente"));
     if (req.query.status) condicoes.push(eq(pagamentos.status, String(req.query.status) as any));
     if (req.query.reconciliado) condicoes.push(eq(pagamentos.status_reconciliado, String(req.query.reconciliado)));
     if (req.query.busca) {
@@ -1862,32 +2041,14 @@ async function reconciliarPagamentoManual(pagamentoId: string): Promise<{ quitad
   });
 }
 
-router.post("/dev/bootstrap", requireRole("admin"), async (req: Request, res: Response) => {
-  try {
-    if (!req.usuario || req.usuario.tipo !== "admin") return res.status(403).json({ erro: "Bootstrap disponível apenas para um administrador existente" });
-    const resultado = await db.transaction(async (tx) => {
-      // Serializa o primeiro bootstrap no PostgreSQL. Dois administradores
-      // clicando ao mesmo tempo não conseguem criar dois super acessos DEV.
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('comitivas-dev-bootstrap'))`);
-      const existente = (await tx.select({ id: usuarios.id }).from(usuarios).where(eq(usuarios.tipo, "dev")).limit(1))[0];
-      if (existente) return { jaExiste: true as const };
-      const promovido = (await tx.update(usuarios).set({ tipo: "dev", session_version: sql`COALESCE(${usuarios.session_version}, 1) + 1`, atualizado_em: new Date() }).where(and(eq(usuarios.id, req.usuario!.id), eq(usuarios.tipo, "admin"))).returning({ id: usuarios.id }))[0];
-      if (!promovido) throw new Error("Administrador não está mais elegível para o bootstrap");
-      return { jaExiste: false as const };
-    });
-    if (resultado.jaExiste) return res.status(409).json({ erro: "O super acesso DEV já foi inicializado" });
-    await AuditService.registrar(req, "dev_bootstrap", "usuario", req.usuario.id, { tipo: "admin" }, { tipo: "dev" });
-    return res.json({ mensagem: "Super acesso DEV ativado. Entre novamente para atualizar a sessão.", relogin: true });
-  } catch (error: any) {
-    console.error("[DEV] Erro no bootstrap:", error);
-    return res.status(400).json({ erro: error.message || "Não foi possível ativar o DEV" });
-  }
+router.post("/dev/bootstrap", requireRole("dev"), (_req: Request, res: Response) => {
+  return res.status(410).json({ erro: "Bootstrap remoto desativado. O acesso DEV deve ser provisionado por procedimento operacional seguro." });
 });
 
 router.get("/dev/equipe", requireRole("admin"), async (req: Request, res: Response) => {
-  const tiposVisiveis = req.usuario?.tipo === "dev" ? ["dev", "admin", "vendedor"] : ["admin", "vendedor"];
-  const equipe = await db.select(CAMPOS_PUBLICOS_USUARIO).from(usuarios).where(inArray(usuarios.tipo, tiposVisiveis as any)).orderBy(desc(usuarios.criado_em));
-  const convites = await db.select().from(convitesAcesso).orderBy(desc(convitesAcesso.criado_em)).limit(200);
+  const solicitanteDev = req.usuario?.tipo === "dev";
+  const equipe = await db.select(CAMPOS_PUBLICOS_USUARIO).from(usuarios).where(inArray(usuarios.tipo, (solicitanteDev ? ["dev", "admin", "vendedor"] : ["admin", "vendedor"]) as any)).orderBy(desc(usuarios.criado_em));
+  const convites = await db.select().from(convitesAcesso).where(solicitanteDev ? undefined : ne(convitesAcesso.papel, "dev")).orderBy(desc(convitesAcesso.criado_em)).limit(200);
   return res.json({ equipe, convites });
 });
 
@@ -1897,8 +2058,8 @@ router.post("/dev/convites", requireRole("admin"), async (req: Request, res: Res
     const papel = String(req.body?.papel || "").trim();
     const email = String(req.body?.email || "").trim().toLowerCase() || null;
     const horas = Math.min(168, Math.max(1, Number(req.body?.horas_validade || 72)));
-    if (!["admin", "vendedor"].includes(papel)) return res.status(400).json({ erro: "Convites podem criar administrador ou vendedor" });
-    if (papel === "admin" && req.usuario.tipo !== "dev") return res.status(403).json({ erro: "Somente DEV pode convidar outro administrador" });
+    const papeisPermitidos = req.usuario.tipo === "dev" ? ["dev", "admin", "vendedor"] : ["vendedor"];
+    if (!papeisPermitidos.includes(papel)) return res.status(403).json({ erro: req.usuario.tipo === "dev" ? "Perfil de convite inválido" : "Administradores podem convidar somente vendedores" });
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ erro: "E-mail do convite inválido" });
     const token = randomBytes(32).toString("base64url");
     const convite = (await db.insert(convitesAcesso).values({ id: createId(), token_hash: hashConvite(token), papel, email_destino: email, criado_por: req.usuario.id, expira_em: new Date(Date.now() + horas * 3600_000), criado_em: new Date() }).returning())[0];
@@ -1912,7 +2073,9 @@ router.post("/dev/convites", requireRole("admin"), async (req: Request, res: Res
 });
 
 router.patch("/dev/convites/:id/revogar", requireRole("admin"), async (req: Request, res: Response) => {
-  const convite = (await db.update(convitesAcesso).set({ revogado_em: new Date() }).where(and(eq(convitesAcesso.id, req.params.id), isNull(convitesAcesso.usado_em))).returning())[0];
+  const condicoes = [eq(convitesAcesso.id, req.params.id), isNull(convitesAcesso.usado_em)];
+  if (req.usuario?.tipo !== "dev") condicoes.push(eq(convitesAcesso.papel, "vendedor"));
+  const convite = (await db.update(convitesAcesso).set({ revogado_em: new Date() }).where(and(...condicoes)).returning())[0];
   if (!convite) return res.status(404).json({ erro: "Convite não encontrado ou já utilizado" });
   await AuditService.registrar(req, "convite_revogado", "convite_acesso", convite.id);
   return res.json({ convite });
@@ -1990,18 +2153,22 @@ router.patch("/clientes/:id/aprovacao", requireRole("admin"), async (req: Reques
 router.get("/boletos", requireRole("admin"), async (_req: Request, res: Response) => {
   try {
     const linhas = await db.select({
-      reserva_id: reservas.id, usuario_id: usuarios.id, cliente_nome: usuarios.nome, cliente_email: usuarios.email, cliente_telefone: usuarios.telefone, cadastro_status: usuarios.cadastro_status,
+      reserva_id: reservas.id, usuario_id: usuarios.id, cliente_nome: usuarios.nome, cliente_email: usuarios.email, cliente_telefone: usuarios.telefone, cliente_ativo: usuarios.ativo, cadastro_status: usuarios.cadastro_status, aprovado_em: usuarios.aprovado_em, aprovado_por: usuarios.aprovado_por,
       evento_nome: eventos.nome, lote_nome: lotes.nome, forma_pagamento: reservas.forma_pagamento, quantidade_parcelas: reservas.quantidade_parcelas, valor_total: reservas.valor_total, checkout_estado: reservas.checkout_estado, status_reserva: reservas.status, boleto_liberado_em: reservas.boleto_liberado_em,
-    }).from(reservas).innerJoin(usuarios, eq(reservas.usuario_id, usuarios.id)).innerJoin(lotes, eq(reservas.lote_id, lotes.id)).innerJoin(eventos, eq(lotes.evento_id, eventos.id)).where(eq(reservas.forma_pagamento, "boleto")).orderBy(desc(reservas.criado_em));
+    }).from(reservas).innerJoin(usuarios, eq(reservas.usuario_id, usuarios.id)).innerJoin(lotes, eq(reservas.lote_id, lotes.id)).innerJoin(eventos, eq(lotes.evento_id, eventos.id)).where(and(eq(reservas.forma_pagamento, "boleto"), eq(usuarios.tipo, "cliente"))).orderBy(desc(reservas.criado_em));
     const reservaIds = linhas.map((item) => item.reserva_id);
     const parcelas = reservaIds.length ? await db.select().from(pagamentoParcelas).where(inArray(pagamentoParcelas.reserva_id, reservaIds)).orderBy(pagamentoParcelas.reserva_id, pagamentoParcelas.sequencia) : [];
-    const contratosValidados = reservaIds.length ? await db.select({ id: contratosDocumentos.id, reserva_id: contratosDocumentos.reserva_id, versao: contratosDocumentos.versao, aprovado_admin_em: contratosDocumentos.aprovado_admin_em, aprovado_admin_por: contratosDocumentos.aprovado_admin_por }).from(contratosDocumentos).where(and(inArray(contratosDocumentos.reserva_id, reservaIds), eq(contratosDocumentos.status, "validado"))).orderBy(desc(contratosDocumentos.versao)) : [];
-    const validacoes = reservaIds.length ? await db.select({ reserva_id: contratoValidacoes.reserva_id, contrato_id: contratoValidacoes.contrato_id, protocolo: contratoValidacoes.protocolo, confirmado_em: contratoValidacoes.confirmado_em, aceite_contrato: contratoValidacoes.aceite_contrato, aceite_regras: contratoValidacoes.aceite_regras }).from(contratoValidacoes).where(inArray(contratoValidacoes.reserva_id, reservaIds)).orderBy(desc(contratoValidacoes.confirmado_em)) : [];
-    const pagamentosLista = reservaIds.length ? await db.select({ id: pagamentos.id, reserva_id: pagamentos.reserva_id, status_reconciliado: pagamentos.status_reconciliado, valor_pago_centavos: pagamentos.valor_pago_centavos }).from(pagamentos).where(inArray(pagamentos.reserva_id, reservaIds)) : [];
+    const contratos = reservaIds.length ? await db.select({ id: contratosDocumentos.id, reserva_id: contratosDocumentos.reserva_id, versao: contratosDocumentos.versao, status: contratosDocumentos.status, snapshot_sha256: contratosDocumentos.snapshot_sha256, pdf_sha256: contratosDocumentos.pdf_sha256, validado_em: contratosDocumentos.validado_em, aprovado_admin_em: contratosDocumentos.aprovado_admin_em, aprovado_admin_por: contratosDocumentos.aprovado_admin_por }).from(contratosDocumentos).where(and(inArray(contratosDocumentos.reserva_id, reservaIds), ne(contratosDocumentos.status, "invalidado"))).orderBy(desc(contratosDocumentos.versao)) : [];
+    const validacoes = reservaIds.length ? await db.select({ reserva_id: contratoValidacoes.reserva_id, contrato_id: contratoValidacoes.contrato_id, protocolo: contratoValidacoes.protocolo, confirmado_em: contratoValidacoes.confirmado_em, aceite_contrato: contratoValidacoes.aceite_contrato, aceite_regras: contratoValidacoes.aceite_regras, snapshot_sha256: contratoValidacoes.snapshot_sha256, pdf_sha256: contratoValidacoes.pdf_sha256 }).from(contratoValidacoes).where(inArray(contratoValidacoes.reserva_id, reservaIds)).orderBy(desc(contratoValidacoes.confirmado_em)) : [];
+    const pagamentosLista = reservaIds.length ? await db.select({ id: pagamentos.id, reserva_id: pagamentos.reserva_id, status_reconciliado: pagamentos.status_reconciliado, valor_pago_centavos: pagamentos.valor_pago_centavos }).from(pagamentos).where(inArray(pagamentos.reserva_id, reservaIds)).orderBy(desc(pagamentos.criado_em)) : [];
     return res.json({ boletos: linhas.map((item) => {
-      const contrato = contratosValidados.find((c) => c.reserva_id === item.reserva_id);
-      const validacao = contrato ? validacoes.find((v) => v.reserva_id === item.reserva_id && v.contrato_id === contrato.id && v.aceite_contrato && v.aceite_regras) : undefined;
-      return { ...item, contrato_validado: Boolean(contrato && validacao), contrato_aprovado_admin: Boolean(contrato?.aprovado_admin_em), contrato_aprovado_admin_em: contrato?.aprovado_admin_em || null, protocolo: validacao?.protocolo || null, pagamento: pagamentosLista.find((p) => p.reserva_id === item.reserva_id) || null, parcelas: parcelas.filter((p) => p.reserva_id === item.reserva_id) };
+      const contrato = contratos.find((c) => c.reserva_id === item.reserva_id);
+      const validacao = contrato ? validacoes.find((v) => v.reserva_id === item.reserva_id && v.contrato_id === contrato.id && v.aceite_contrato && v.aceite_regras && v.snapshot_sha256 === contrato.snapshot_sha256 && (!contrato.pdf_sha256 || v.pdf_sha256 === contrato.pdf_sha256)) : undefined;
+      const cadastroAprovado = cadastroAprovadoComEvidencia(item);
+      const contratoValidado = Boolean(contrato?.validado_em && validacao);
+      const contratoAprovadoAdmin = Boolean(contrato?.status === "aprovado_admin" && contrato.aprovado_admin_em && contrato.aprovado_admin_por);
+      const bloqueioMotivo = motivoBloqueioBoleto({ clienteAtivo: Boolean(item.cliente_ativo), cadastroStatus: item.cadastro_status, cadastroAprovadoComEvidencia: cadastroAprovado, contratoExiste: Boolean(contrato), contratoValidado, contratoAprovadoAdmin, formaPagamento: item.forma_pagamento });
+      return { ...item, cadastro_aprovado: cadastroAprovado, contrato_validado: contratoValidado, contrato_aprovado_admin: contratoAprovadoAdmin, contrato_aprovado_admin_em: contrato?.aprovado_admin_em || null, bloqueio_motivo: bloqueioMotivo, protocolo: validacao?.protocolo || null, pagamento: pagamentosLista.find((p) => p.reserva_id === item.reserva_id) || null, parcelas: parcelas.filter((p) => p.reserva_id === item.reserva_id) };
     }) });
   } catch (error: any) {
     console.error("[BOLETOS] Erro ao listar:", error);
@@ -2014,16 +2181,10 @@ router.post("/boletos/:reservaId/validar-contrato", requireRole("admin"), async 
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reservaId)).limit(1))[0];
     if (!reserva || reserva.forma_pagamento !== "boleto") return res.status(404).json({ erro: "Reserva por boleto não encontrada" });
-    const contrato = (await db.select().from(contratosDocumentos).where(and(eq(contratosDocumentos.reserva_id, reserva.id), eq(contratosDocumentos.status, "validado"))).orderBy(desc(contratosDocumentos.versao)).limit(1))[0];
-    const validacao = contrato ? (await db.select().from(contratoValidacoes).where(and(eq(contratoValidacoes.reserva_id, reserva.id), eq(contratoValidacoes.contrato_id, contrato.id))).orderBy(desc(contratoValidacoes.confirmado_em)).limit(1))[0] : null;
-    if (!contrato || !validacao?.aceite_contrato || !validacao.aceite_regras) return res.status(409).json({ erro: "O cliente precisa concluir a validação eletrônica do contrato antes da conferência administrativa" });
-    if (!contrato.aprovado_admin_em) {
-      const agora = new Date();
-      await db.update(contratosDocumentos).set({ aprovado_admin_em: agora, aprovado_admin_por: req.usuario.id }).where(eq(contratosDocumentos.id, contrato.id));
-      await registrarHistoricoCliente(reserva.usuario_id, "contrato_aprovado_admin", "Contrato conferido pela administração", `Versão ${contrato.versao} validada para o financeiro sob protocolo ${validacao.protocolo}.`, req.usuario.id, { reserva_id: reserva.id, contrato_id: contrato.id, protocolo: validacao.protocolo });
-      await AuditService.registrar(req, "contrato_aprovado_admin", "contrato", contrato.id, undefined, { reserva_id: reserva.id, versao: contrato.versao, protocolo: validacao.protocolo });
-    }
-    return res.json({ mensagem: "Contrato conferido e aprovado pela administração para o fluxo financeiro", contrato_id: contrato.id, protocolo: validacao.protocolo });
+    const contrato = (await db.select({ id: contratosDocumentos.id }).from(contratosDocumentos).where(and(eq(contratosDocumentos.reserva_id, reserva.id), ne(contratosDocumentos.status, "invalidado"))).orderBy(desc(contratosDocumentos.versao)).limit(1))[0];
+    if (!contrato) return res.status(409).json({ erro: "O contrato ainda não foi gerado" });
+    const resultado = await aprovarContratoAdministrativamente(contrato.id, req);
+    return res.json({ mensagem: resultado.jaAprovado ? "Contrato já estava aprovado" : "Contrato conferido e aprovado pela administração para o fluxo financeiro", contrato_id: resultado.contrato.id, protocolo: resultado.validacao.protocolo });
   } catch (error: any) {
     console.error("[BOLETOS] Erro ao validar contrato administrativamente:", error);
     return res.status(400).json({ erro: error.message || "Não foi possível validar o contrato" });
@@ -2036,35 +2197,48 @@ router.post("/boletos/:reservaId/liberar", requireRole("admin"), async (req: Req
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reservaId)).limit(1))[0];
     if (!reserva || reserva.forma_pagamento !== "boleto") return res.status(404).json({ erro: "Reserva por boleto não encontrada" });
     const cliente = (await db.select().from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0];
-    if (!cliente || cliente.cadastro_status !== "aprovado") return res.status(409).json({ erro: "Aprove o cadastro do cliente antes de liberar os boletos" });
-    const contrato = (await db.select().from(contratosDocumentos).where(and(eq(contratosDocumentos.reserva_id, reserva.id), eq(contratosDocumentos.status, "validado"))).orderBy(desc(contratosDocumentos.versao)).limit(1))[0];
+    const contrato = (await db.select().from(contratosDocumentos).where(and(eq(contratosDocumentos.reserva_id, reserva.id), ne(contratosDocumentos.status, "invalidado"))).orderBy(desc(contratosDocumentos.versao)).limit(1))[0];
     const validacao = contrato ? (await db.select().from(contratoValidacoes).where(and(eq(contratoValidacoes.reserva_id, reserva.id), eq(contratoValidacoes.contrato_id, contrato.id))).orderBy(desc(contratoValidacoes.confirmado_em)).limit(1))[0] : null;
-    if (!contrato || !validacao?.aceite_contrato || !validacao.aceite_regras) return res.status(409).json({ erro: "O contrato precisa estar validado eletronicamente antes da liberação financeira" });
-    if (!contrato.aprovado_admin_em) return res.status(409).json({ erro: "A administração precisa conferir e aprovar a versão validada do contrato antes de liberar os boletos" });
+    const contratoValidado = Boolean(contrato?.validado_em && validacao?.aceite_contrato && validacao.aceite_regras && validacao.snapshot_sha256 === contrato.snapshot_sha256 && (!contrato.pdf_sha256 || validacao.pdf_sha256 === contrato.pdf_sha256));
+    const contratoAprovadoAdmin = Boolean(contrato?.status === "aprovado_admin" && contrato.aprovado_admin_em && contrato.aprovado_admin_por);
+    const bloqueio = motivoBloqueioBoleto({ clienteAtivo: Boolean(cliente?.ativo), cadastroStatus: cliente?.cadastro_status, cadastroAprovadoComEvidencia: cadastroAprovadoComEvidencia(cliente), contratoExiste: Boolean(contrato), contratoValidado, contratoAprovadoAdmin, formaPagamento: reserva.forma_pagamento });
+    if (bloqueio) return res.status(409).json({ erro: bloqueio });
+
     await garantirInventarioBoletoManual(reserva);
-    let pagamento = (await db.select().from(pagamentos).where(and(eq(pagamentos.reserva_id, reserva.id), eq(pagamentos.metodo, "boleto"))).orderBy(desc(pagamentos.criado_em)).limit(1))[0];
-    if (!pagamento) {
-      pagamento = (await db.insert(pagamentos).values({ id: createId(), reserva_id: reserva.id, status: "pendente", valor: reserva.valor_total, metodo: "boleto", gateway_id: null, gateway_resposta: { modo: "manual", contrato_protocolo: validacao.protocolo }, idempotency_key: `boleto-manual:${reserva.id}`, valor_centavos: Number(reserva.valor_total_centavos || Math.round(Number(reserva.valor_total) * 100)), valor_pago_centavos: 0, status_reconciliado: "pendente", criado_em: new Date(), atualizado_em: new Date() }).returning())[0];
-    }
-    const existentes = await db.select().from(pagamentoParcelas).where(eq(pagamentoParcelas.pagamento_id, pagamento.id));
-    if (!existentes.length) {
-      const cronograma = Array.isArray(reserva.cronograma_pagamento) ? reserva.cronograma_pagamento as Array<any> : [];
-      const qtd = Math.max(1, Number(reserva.quantidade_parcelas || cronograma.length || 1));
-      const totalCentavos = Number(reserva.valor_total_centavos || Math.round(Number(reserva.valor_total) * 100));
-      const base = Math.floor(totalCentavos / qtd);
-      const resto = totalCentavos - base * qtd;
-      const inicio = new Date();
-      await db.insert(pagamentoParcelas).values(Array.from({ length: qtd }, (_, index) => {
-        const item = cronograma[index] || {};
-        const venc = item.vencimento || new Date(inicio.getFullYear(), inicio.getMonth() + index + 1, Math.min(28, inicio.getDate())).toISOString().slice(0, 10);
-        const valorCentavos = Number(item.valor_centavos || (base + (index === qtd - 1 ? resto : 0)));
-        return { id: createId(), pagamento_id: pagamento!.id, reserva_id: reserva.id, sequencia: index + 1, valor: (valorCentavos / 100).toFixed(2), vencimento: venc, valor_centavos: valorCentavos, valor_pago_centavos: 0, status: "pendente", criado_em: new Date(), atualizado_em: new Date() };
-      }));
-    }
-    await db.update(reservas).set({ boleto_liberado_em: new Date(), boleto_liberado_por: req.usuario.id, checkout_estado: "boletos_em_preparacao", status: "aguardando_pagamento", atualizado_em: new Date() }).where(eq(reservas.id, reserva.id));
-    await registrarHistoricoCliente(reserva.usuario_id, "boleto_liberado", "Boleto liberado para emissão manual", `Contrato validado sob protocolo ${validacao.protocolo}. Parcelas liberadas para anexação e envio pela administração.`, req.usuario.id, { reserva_id: reserva.id, pagamento_id: pagamento.id });
-    await AuditService.registrar(req, "boleto_liberado", "reserva", reserva.id, undefined, { pagamento_id: pagamento.id, protocolo: validacao.protocolo });
-    return res.json({ mensagem: "Financeiro por boleto liberado", pagamento_id: pagamento.id, parcelas: await db.select().from(pagamentoParcelas).where(eq(pagamentoParcelas.pagamento_id, pagamento.id)).orderBy(pagamentoParcelas.sequencia) });
+    const liberacao = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`boleto-manual:${reserva.id}`}))`);
+      const reservaAtual = (await tx.select().from(reservas).where(eq(reservas.id, reserva.id)).for("update").limit(1))[0];
+      if (!reservaAtual) throw new Error("Reserva não encontrada");
+      let pagamento = (await tx.select().from(pagamentos).where(and(eq(pagamentos.reserva_id, reserva.id), eq(pagamentos.metodo, "boleto"))).orderBy(desc(pagamentos.criado_em)).limit(1))[0];
+      if (!pagamento) {
+        pagamento = (await tx.insert(pagamentos).values({ id: createId(), reserva_id: reserva.id, status: "pendente", valor: reservaAtual.valor_total, metodo: "boleto", gateway_id: null, gateway_resposta: { modo: "manual", contrato_protocolo: validacao!.protocolo }, idempotency_key: `boleto-manual:${reserva.id}`, valor_centavos: Number(reservaAtual.valor_total_centavos || Math.round(Number(reservaAtual.valor_total) * 100)), valor_pago_centavos: 0, status_reconciliado: "pendente", criado_em: new Date(), atualizado_em: new Date() }).returning())[0];
+      }
+      if (!pagamento) throw new Error("Não foi possível criar o controle financeiro do boleto");
+      let parcelas = await tx.select().from(pagamentoParcelas).where(eq(pagamentoParcelas.pagamento_id, pagamento.id)).orderBy(pagamentoParcelas.sequencia);
+      if (!parcelas.length) {
+        const cronograma = Array.isArray(reservaAtual.cronograma_pagamento) ? reservaAtual.cronograma_pagamento as Array<any> : [];
+        const qtd = Math.max(1, Number(reservaAtual.quantidade_parcelas || cronograma.length || 1));
+        const totalCentavos = Number(reservaAtual.valor_total_centavos || Math.round(Number(reservaAtual.valor_total) * 100));
+        const base = Math.floor(totalCentavos / qtd);
+        const resto = totalCentavos - base * qtd;
+        const inicio = new Date();
+        parcelas = await tx.insert(pagamentoParcelas).values(Array.from({ length: qtd }, (_, index) => {
+          const item = cronograma[index] || {};
+          const venc = item.vencimento || new Date(inicio.getFullYear(), inicio.getMonth() + index + 1, Math.min(28, inicio.getDate())).toISOString().slice(0, 10);
+          const valorCentavos = Number(item.valor_centavos || (base + (index === qtd - 1 ? resto : 0)));
+          return { id: createId(), pagamento_id: pagamento!.id, reserva_id: reserva.id, sequencia: index + 1, valor: (valorCentavos / 100).toFixed(2), vencimento: venc, valor_centavos: valorCentavos, valor_pago_centavos: 0, status: "pendente", criado_em: new Date(), atualizado_em: new Date() };
+        })).returning();
+      }
+      const primeiraLiberacao = !reservaAtual.boleto_liberado_em;
+      if (primeiraLiberacao) {
+        const agora = new Date();
+        await tx.update(reservas).set({ boleto_liberado_em: agora, boleto_liberado_por: req.usuario!.id, checkout_estado: "boletos_em_preparacao", status: "aguardando_pagamento", atualizado_em: agora }).where(eq(reservas.id, reserva.id));
+        await tx.insert(clienteHistorico).values({ id: createId(), usuario_id: reserva.usuario_id, tipo: "boleto_liberado", titulo: "Boleto liberado para emissão manual", descricao: `Contrato validado sob protocolo ${validacao!.protocolo}. Parcelas liberadas para anexação e envio pela administração.`, criado_por: req.usuario!.id, metadados: { reserva_id: reserva.id, pagamento_id: pagamento.id }, criado_em: agora });
+        await tx.insert(auditoriaAdmin).values({ id: createId(), ator_id: req.usuario!.id, ator_tipo: req.usuario!.tipo, acao: "boleto_liberado", entidade: "reserva", entidade_id: reserva.id, depois: { pagamento_id: pagamento.id, protocolo: validacao!.protocolo }, ip: req.ip || null, user_agent: req.get("user-agent") || null, criado_em: agora });
+      }
+      return { pagamento, parcelas, primeiraLiberacao };
+    });
+    return res.json({ mensagem: liberacao.primeiraLiberacao ? "Financeiro por boleto liberado" : "Financeiro por boleto já estava liberado", pagamento_id: liberacao.pagamento.id, parcelas: liberacao.parcelas });
   } catch (error: any) {
     console.error("[BOLETOS] Erro ao liberar:", error);
     return res.status(400).json({ erro: error.message || "Não foi possível liberar os boletos" });
@@ -2202,13 +2376,17 @@ router.patch("/boletos/:reservaId/parcelas/:parcelaId/pagamento", requireRole("a
     const parcela = (await db.select().from(pagamentoParcelas).where(and(eq(pagamentoParcelas.id, req.params.parcelaId), eq(pagamentoParcelas.reserva_id, req.params.reservaId))).limit(1))[0];
     if (!parcela) return res.status(404).json({ erro: "Parcela não encontrada" });
     const valorPago = pago ? Number(req.body?.valor_pago_centavos || parcela.valor_centavos || Math.round(Number(parcela.valor) * 100)) : 0;
-    await db.update(pagamentoParcelas).set({ status: pago ? "aprovado" : "pendente", valor_pago_centavos: valorPago, pago_confirmado_em: pago ? new Date() : null, pago_confirmado_por: pago ? req.usuario.id : null, atualizado_em: new Date() }).where(eq(pagamentoParcelas.id, parcela.id));
+    const statusDesejado = pago ? "aprovado" : "pendente";
+    const alterado = parcela.status !== statusDesejado || Number(parcela.valor_pago_centavos || 0) !== valorPago;
+    if (alterado) {
+      await db.update(pagamentoParcelas).set({ status: statusDesejado, valor_pago_centavos: valorPago, pago_confirmado_em: pago ? new Date() : null, pago_confirmado_por: pago ? req.usuario.id : null, atualizado_em: new Date() }).where(eq(pagamentoParcelas.id, parcela.id));
+    }
     const reconciliado = await reconciliarPagamentoManual(parcela.pagamento_id);
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reservaId)).limit(1))[0];
-    if (reserva) await registrarHistoricoCliente(reserva.usuario_id, pago ? "pagamento_confirmado" : "pagamento_reaberto", `${pago ? "Pagamento confirmado" : "Pagamento reaberto"} — parcela ${parcela.sequencia}`, `R$ ${(valorPago / 100).toFixed(2)}`, req.usuario.id, { reserva_id: reserva.id, parcela_id: parcela.id, quitado: reconciliado.quitado });
-    await AuditService.registrar(req, pago ? "pagamento_manual_confirmado" : "pagamento_manual_reaberto", "pagamento_parcela", parcela.id, undefined, { valor_pago_centavos: valorPago, quitado: reconciliado.quitado });
-    if (reconciliado.quitado) await EmailService.enviarConfirmacaoPagamento(req.params.reservaId).catch(() => false);
-    return res.json({ mensagem: pago ? "Pagamento confirmado" : "Parcela reaberta", reconciliado });
+    if (alterado && reserva) await registrarHistoricoCliente(reserva.usuario_id, pago ? "pagamento_confirmado" : "pagamento_reaberto", `${pago ? "Pagamento confirmado" : "Pagamento reaberto"} — parcela ${parcela.sequencia}`, `R$ ${(valorPago / 100).toFixed(2)}`, req.usuario.id, { reserva_id: reserva.id, parcela_id: parcela.id, quitado: reconciliado.quitado });
+    if (alterado) await AuditService.registrar(req, pago ? "pagamento_manual_confirmado" : "pagamento_manual_reaberto", "pagamento_parcela", parcela.id, undefined, { valor_pago_centavos: valorPago, quitado: reconciliado.quitado });
+    if (alterado && reconciliado.quitado) await EmailService.enviarConfirmacaoPagamento(req.params.reservaId).catch(() => false);
+    return res.json({ mensagem: alterado ? (pago ? "Pagamento confirmado" : "Parcela reaberta") : "Pagamento já estava atualizado", reconciliado, duplicado: !alterado });
   } catch (error: any) { return res.status(400).json({ erro: error.message || "Não foi possível atualizar o pagamento" }); }
 });
 

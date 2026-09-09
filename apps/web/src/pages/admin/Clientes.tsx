@@ -9,14 +9,10 @@ interface Usuario {
   nome: string;
   email: string;
   cpf: string | null;
-  rg: string | null;
   telefone: string | null;
   tipo: 'cliente' | 'vendedor' | 'admin' | 'dev';
   data_nascimento: string | null;
-  estado_civil: string | null;
-  profissao: string | null;
   endereco: string | null;
-  nacionalidade: string | null;
   ativo: boolean;
   criado_em: string;
 }
@@ -32,14 +28,10 @@ const FORM_VAZIO = {
   nome: '',
   email: '',
   cpf: '',
-  rg: '',
   telefone: '',
   tipo: 'cliente' as 'cliente' | 'vendedor' | 'admin' | 'dev',
   data_nascimento: '',
-  estado_civil: '',
-  profissao: '',
   endereco: '',
-  nacionalidade: 'Brasileira',
   senha: '',
 };
 
@@ -100,14 +92,10 @@ export default function Clientes() {
       nome: usuario.nome,
       email: usuario.email,
       cpf: usuario.cpf || '',
-      rg: usuario.rg || '',
       telefone: usuario.telefone || '',
       tipo: usuario.tipo,
       data_nascimento: usuario.data_nascimento ? usuario.data_nascimento.substring(0, 10) : '',
-      estado_civil: usuario.estado_civil || '',
-      profissao: usuario.profissao || '',
       endereco: usuario.endereco || '',
-      nacionalidade: usuario.nacionalidade || 'Brasileira',
       senha: '',
     });
     setFormErro(null);
@@ -149,6 +137,10 @@ export default function Clientes() {
       setFormErro('Nome e e-mail são obrigatórios.');
       return;
     }
+    if (form.tipo === 'cliente' && (!form.cpf.trim() || !form.telefone.trim() || !form.data_nascimento || !form.endereco.trim())) {
+      setFormErro('Para clientes, informe CPF, telefone, data de nascimento e endereço.');
+      return;
+    }
 
     setSalvando(true);
     try {
@@ -156,14 +148,10 @@ export default function Clientes() {
         nome: form.nome.trim(),
         email: form.email.trim(),
         cpf: form.cpf.trim() || undefined,
-        rg: form.rg.trim() || undefined,
         telefone: form.telefone.trim() || undefined,
         tipo: form.tipo,
         data_nascimento: form.data_nascimento || undefined,
-        estado_civil: form.estado_civil.trim() || undefined,
-        profissao: form.profissao.trim() || undefined,
         endereco: form.endereco.trim() || undefined,
-        nacionalidade: form.nacionalidade.trim() || undefined,
       };
       if (form.senha.trim()) payload.senha = form.senha.trim();
 
@@ -198,12 +186,17 @@ export default function Clientes() {
   };
 
   const handleExcluir = async (usuario: Usuario) => {
-    if (!confirm(`Excluir definitivamente o cadastro de ${usuario.nome}? Esta ação não pode ser desfeita.`)) return;
+    if (!confirm(`Excluir ${usuario.nome}? Se houver registros, o usuário será arquivado para preservar o histórico.`)) return;
     try {
-      await api.delete(`/admin/usuarios/${usuario.id}`);
-      setUsuarios((prev) => prev.filter((u) => u.id !== usuario.id));
+      const response = await api.delete(`/admin/usuarios/${usuario.id}`);
+      if (response.data.modo === 'excluido') {
+        setUsuarios((prev) => prev.filter((item) => item.id !== usuario.id));
+      } else {
+        setUsuarios((prev) => prev.map((item) => item.id === usuario.id ? { ...item, ativo: false } : item));
+      }
+      alert(response.data.mensagem || 'Operação concluída.');
     } catch (err: any) {
-      alert(err.response?.data?.erro || 'Não foi possível excluir o usuário.');
+      alert(err.response?.data?.erro || 'Não foi possível excluir ou arquivar o usuário.');
     }
   };
 
@@ -292,11 +285,6 @@ export default function Clientes() {
                       placeholder="Somente números"
                     />
                     <Input
-                      label="RG"
-                      value={form.rg}
-                      onChange={(e) => setForm((f) => ({ ...f, rg: e.target.value }))}
-                    />
-                    <Input
                       label="Telefone / WhatsApp"
                       value={form.telefone}
                       onChange={(e) => setForm((f) => ({ ...f, telefone: e.target.value }))}
@@ -319,21 +307,6 @@ export default function Clientes() {
                       type="date"
                       value={form.data_nascimento}
                       onChange={(e) => setForm((f) => ({ ...f, data_nascimento: e.target.value }))}
-                    />
-                    <Input
-                      label="Estado civil"
-                      value={form.estado_civil}
-                      onChange={(e) => setForm((f) => ({ ...f, estado_civil: e.target.value }))}
-                    />
-                    <Input
-                      label="Profissão"
-                      value={form.profissao}
-                      onChange={(e) => setForm((f) => ({ ...f, profissao: e.target.value }))}
-                    />
-                    <Input
-                      label="Nacionalidade"
-                      value={form.nacionalidade}
-                      onChange={(e) => setForm((f) => ({ ...f, nacionalidade: e.target.value }))}
                     />
                     <Input
                       label="Endereço"
@@ -424,7 +397,7 @@ export default function Clientes() {
                         <button
                           onClick={() => void handleExcluir(usuario)}
                           className="p-1 text-gray-500 transition-colors hover:text-red-700"
-                          title="Excluir definitivamente"
+                          title="Excluir ou arquivar"
                         >
                           <Trash2 size={18} />
                         </button>

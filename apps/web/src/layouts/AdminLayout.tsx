@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   X,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { clsx } from 'clsx';
 import iconUrl from '../assets/brand/icon.svg';
 
@@ -31,7 +32,7 @@ type Papel = 'cliente' | 'vendedor' | 'admin' | 'dev';
 type NavItem = {
   name: string;
   path: string;
-  icon: React.ComponentType<any>;
+  icon: LucideIcon;
   roles: Papel[];
 };
 
