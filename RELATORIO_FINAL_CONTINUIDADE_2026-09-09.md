@@ -109,6 +109,8 @@ Arquivo: `drizzle/0013_operacao_onibus_equipe.sql`.
 
 - `apps/web/src/App.tsx`
 - `apps/web/src/index.css`
+- `apps/web/src/components/admin/AdminModal.tsx` (novo)
+- `apps/web/src/components/admin/DataVisuals.tsx` (novo)
 - `apps/web/src/layouts/AdminLayout.tsx`
 - `apps/web/src/pages/admin/Boletos.tsx`
 - `apps/web/src/pages/admin/ClienteFicha.tsx`
@@ -120,6 +122,7 @@ Arquivo: `drizzle/0013_operacao_onibus_equipe.sql`.
 - `apps/web/src/pages/admin/EquipeAcessos.tsx`
 - `apps/web/src/pages/admin/Eventos.tsx`
 - `apps/web/src/pages/admin/Jornada.tsx`
+- `apps/web/src/pages/admin/MinhaContaAdmin.tsx` (novo)
 - `apps/web/src/pages/admin/OperacaoOnibus.tsx` (novo)
 - `apps/web/src/pages/admin/Pagamentos.tsx`
 - `apps/web/src/pages/admin/Relatorios.tsx`
@@ -141,6 +144,7 @@ Arquivo: `drizzle/0013_operacao_onibus_equipe.sql`.
 - `server/services/operacaoOnibusService.ts` (novo)
 - `tests/contratoHtml.spec.ts`
 - `tests/operacaoOnibus.spec.ts` (novo)
+- `tests/criticalRoutes.spec.ts` (novo)
 
 ## 6. Validação automatizada
 
@@ -157,7 +161,7 @@ Resultado final:
 
 - `npm run typecheck:server`: aprovado.
 - `npm run lint`: aprovado.
-- `npm test -- --run`: 8 arquivos e 49 testes aprovados.
+- `npm test -- --run`: 9 arquivos e 52 testes aprovados.
 - `npm run build`: aprovado (`build:server`, `build:seed`, `build:web`).
 - `npm --prefix apps/mobile run build`: aprovado.
 - `npm run test:a11y`: aprovado para estrutura, foco e metadados verificáveis no build.
@@ -177,6 +181,8 @@ No Coolify:
 5. implantar o novo commit/ZIP e acompanhar a aplicação automática da migration `0013`;
 6. confirmar `/api/health` antes de trocar o tráfego.
 
+A migration não exige execução manual no fluxo atual: o `Dockerfile` inclui a pasta `drizzle` na imagem e `initializeDatabase()` executa `migrate()` antes de abrir a porta HTTP. Se qualquer migration falhar, o processo encerra e o healthcheck não libera a versão. Ainda assim, o backup do PostgreSQL antes do deploy permanece obrigatório como medida operacional.
+
 ## 8. Validação manual recomendada
 
 1. Entrar como ADMIN e confirmar que nenhum DEV aparece em equipe, busca, ID direto ou exportação.
@@ -188,8 +194,19 @@ No Coolify:
 7. Em Viagens e pacotes, anexar JPG/PNG/WEBP pelo seletor e confirmar site público; tentar formato inválido e arquivo maior que 10 MB.
 8. Simular boleto/cartão em início, meio e fim da oferta; tentar alterar parcelas no request e confirmar rejeição do backend.
 9. Validar visualmente as telas em 320, 360, 390, 430, 768 e desktop com dados reais do ambiente de homologação.
+10. Entrar como DEV, abrir **Minha conta**, alterar nome/telefone, trocar o e-mail de login e alterar a senha informando a senha atual.
 
-## 9. Limitações reais
+## 9. Segunda passagem visual e de navegação
+
+- Dashboard alinhado aos mockups com evolução de vendas, funil comercial e ocupação por veículo usando exclusivamente dados reais do backend.
+- Relatórios com visualizações de ocupação, faturamento e itens vendidos; tabelas detalhadas permanecem disponíveis sob demanda.
+- Cadastros de clientes, usuários, convites, saídas, veículos e pontos de embarque passaram a abrir em modal, deixando as páginas limpas.
+- A navegação ganhou rota protegida `admin/minha-conta`, acesso no menu e no cartão do usuário.
+- O próprio DEV pode atualizar dados pessoais, e-mail usado no login e senha.
+- Alterações de login e senha exigem a senha atual, renovam a sessão corrente, revogam as anteriores e registram auditoria sem armazenar senhas.
+- Foi adicionado fallback interno para rotas administrativas inexistentes, evitando telas vazias e preservando o contexto do painel.
+
+## 10. Limitações reais
 
 - Não foi aplicada migration nem executado teste E2E contra o banco de produção, pois nenhuma credencial de produção foi usada nesta tarefa. A migration foi verificada estaticamente e toda a aplicação compilou.
 - Fotos e documentos exigem volume persistente no Coolify. Sem volume, um novo container perde arquivos locais mesmo que o banco preserve os metadados.
@@ -197,11 +214,11 @@ No Coolify:
 - A alocação de transporte/lugar entra em novos contratos gerados depois da atribuição. Documentos assinados antigos não são alterados, por integridade jurídica.
 - A validação visual autenticada com dados de produção deve ser repetida após o deploy; nesta entrega foram validados TypeScript, Tailwind, grids responsivos e os builds web/mobile, sem usar credenciais reais.
 
-## 10. Commit sugerido
+## 11. Commit sugerido
 
 Mensagem:
 
-`feat: concluir operação e aplicar novo padrão visual do sistema`
+`feat: finalizar operação, conta DEV e interface visual do sistema`
 
 Resumo:
 
@@ -210,4 +227,5 @@ Resumo:
 - troca URL de foto por upload validado;
 - integra operação a dashboard, reservas, cliente e contratos;
 - aplica o padrão visual dos mockups nas telas administrativas e do cliente;
+- adiciona gráficos reais, formulários em modal e edição segura da conta DEV;
 - preserva cadastro mínimo, vendas atribuídas, pagamentos e contratos imutáveis.

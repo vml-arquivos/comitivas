@@ -384,6 +384,145 @@ router.put("/perfil", authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
+// Alteração do identificador de login exige a senha atual e renova somente a
+// sessão corrente. As demais sessões são invalidadas por session_version.
+router.post("/alterar-login", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const novoEmail = String(req.body?.novo_email || "").trim().toLowerCase();
+    const senhaAtual = String(req.body?.senha_atual || "");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(novoEmail) || !senhaAtual) {
+      return res.status(400).json({ erro: "Informe o novo e-mail e a senha atual" });
+    }
+
+    const atual = (await db.select({
+      id: usuarios.id,
+      nome: usuarios.nome,
+      email: usuarios.email,
+      tipo: usuarios.tipo,
+      senha_hash: usuarios.senha_hash,
+      session_version: usuarios.session_version,
+    }).from(usuarios).where(eq(usuarios.id, req.usuario.id)).limit(1))[0];
+    if (!atual) return res.status(404).json({ erro: "Usuário não encontrado" });
+    if (!(await AuthService.verifyPassword(senhaAtual, atual.senha_hash))) {
+      return res.status(403).json({ erro: "Senha atual incorreta" });
+    }
+    if (atual.email.toLowerCase() === novoEmail) {
+      return res.json({ mensagem: "Este já é o seu e-mail de acesso", usuario: { id: atual.id, nome: atual.nome, email: atual.email, tipo: atual.tipo } });
+    }
+
+    const agora = new Date();
+    const atualizado = await db.transaction(async (tx) => {
+      const usuario = (await tx.update(usuarios).set({
+        email: novoEmail,
+        session_version: sql`COALESCE(${usuarios.session_version}, 1) + 1`,
+        atualizado_em: agora,
+      }).where(eq(usuarios.id, atual.id)).returning({
+        id: usuarios.id,
+        nome: usuarios.nome,
+        email: usuarios.email,
+        tipo: usuarios.tipo,
+        session_version: usuarios.session_version,
+      }))[0];
+      if (!usuario) return null;
+      await tx.update(leads_origem).set({ email: novoEmail, atualizado_em: agora }).where(eq(leads_origem.usuario_id, atual.id));
+      await tx.insert(auditoriaAdmin).values({
+        id: createId(),
+        ator_id: atual.id,
+        ator_tipo: String(atual.tipo || "usuario"),
+        acao: "login_alterado",
+        entidade: "usuario",
+        entidade_id: atual.id,
+        antes: { email: atual.email },
+        depois: { email: novoEmail },
+        ip: req.ip || null,
+        user_agent: req.get("user-agent") || null,
+        criado_em: agora,
+      });
+      return usuario;
+    });
+    if (!atualizado) return res.status(404).json({ erro: "Usuário não encontrado" });
+    const token = AuthService.generateToken({
+      id: atualizado.id,
+      email: atualizado.email,
+      tipo: (atualizado.tipo || "cliente") as any,
+      session_version: Number(atualizado.session_version || 1),
+    });
+    definirCookieAuth(res, token);
+    return res.json({ mensagem: "E-mail de acesso alterado com sucesso", usuario: atualizado });
+  } catch (error) {
+    console.error("[AUTH] Erro ao alterar login:", error);
+    if (erroDeUnicidade(error)) return res.status(409).json({ erro: "Este e-mail já está em uso" });
+    return res.status(500).json({ erro: "Não foi possível alterar o e-mail de acesso" });
+  }
+});
+
+router.post("/alterar-senha", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const senhaAtual = String(req.body?.senha_atual || "");
+    const novaSenha = String(req.body?.nova_senha || "");
+    if (!senhaAtual || novaSenha.length < 8) {
+      return res.status(400).json({ erro: "Informe a senha atual e uma nova senha com pelo menos 8 caracteres" });
+    }
+    if (senhaAtual === novaSenha) return res.status(400).json({ erro: "A nova senha deve ser diferente da atual" });
+
+    const atual = (await db.select({
+      id: usuarios.id,
+      nome: usuarios.nome,
+      email: usuarios.email,
+      tipo: usuarios.tipo,
+      senha_hash: usuarios.senha_hash,
+    }).from(usuarios).where(eq(usuarios.id, req.usuario.id)).limit(1))[0];
+    if (!atual) return res.status(404).json({ erro: "Usuário não encontrado" });
+    if (!(await AuthService.verifyPassword(senhaAtual, atual.senha_hash))) {
+      return res.status(403).json({ erro: "Senha atual incorreta" });
+    }
+
+    const agora = new Date();
+    const senhaHash = await AuthService.hashPassword(novaSenha);
+    const atualizado = await db.transaction(async (tx) => {
+      const usuario = (await tx.update(usuarios).set({
+        senha_hash: senhaHash,
+        session_version: sql`COALESCE(${usuarios.session_version}, 1) + 1`,
+        atualizado_em: agora,
+      }).where(eq(usuarios.id, atual.id)).returning({
+        id: usuarios.id,
+        nome: usuarios.nome,
+        email: usuarios.email,
+        tipo: usuarios.tipo,
+        session_version: usuarios.session_version,
+      }))[0];
+      if (!usuario) return null;
+      await tx.insert(auditoriaAdmin).values({
+        id: createId(),
+        ator_id: atual.id,
+        ator_tipo: String(atual.tipo || "usuario"),
+        acao: "senha_alterada",
+        entidade: "usuario",
+        entidade_id: atual.id,
+        depois: { sessoes_anteriores_revogadas: true },
+        ip: req.ip || null,
+        user_agent: req.get("user-agent") || null,
+        criado_em: agora,
+      });
+      return usuario;
+    });
+    if (!atualizado) return res.status(404).json({ erro: "Usuário não encontrado" });
+    const token = AuthService.generateToken({
+      id: atualizado.id,
+      email: atualizado.email,
+      tipo: (atualizado.tipo || "cliente") as any,
+      session_version: Number(atualizado.session_version || 1),
+    });
+    definirCookieAuth(res, token);
+    return res.json({ mensagem: "Senha alterada com sucesso. As outras sessões foram encerradas." });
+  } catch (error) {
+    console.error("[AUTH] Erro ao alterar senha:", error);
+    return res.status(500).json({ erro: "Não foi possível alterar a senha" });
+  }
+});
+
 router.post("/esqueci-senha", async (req: Request, res: Response) => {
   const respostaNeutra = { mensagem: "Se o e-mail estiver cadastrado, você receberá instruções para redefinir a senha." };
   try {

@@ -2,11 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../../contexts/AuthContext';
 import { Card, CardContent } from '@ui/index';
 import { BadgeDollarSign, BarChart3, Percent, Ticket } from 'lucide-react';
+import { HorizontalBars } from '../../components/admin/DataVisuals';
 
 interface Evento {
   id: string;
   nome: string;
 }
+
+const moeda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
 export default function Relatorios() {
   const [eventos, setEventos] = useState<Evento[]>([]);
@@ -126,6 +129,27 @@ export default function Relatorios() {
             </div>
           )}
 
+          <div className="grid gap-5 xl:grid-cols-3">
+            <section className="admin-card p-5 sm:p-6">
+              <p className="admin-eyebrow">Capacidade</p>
+              <h2 className="mb-5 text-lg font-black text-[#073F50]">Ocupação por lote</h2>
+              <HorizontalBars itens={ocupacao.map((lote: any) => ({ label: lote.lote_nome, value: Number(lote.percentual_ocupacao || 0), detail: `${lote.vagas_ocupadas}/${lote.vagas_totais} · ${lote.percentual_ocupacao}%` }))} />
+            </section>
+            <section className="admin-card p-5 sm:p-6">
+              <p className="admin-eyebrow">Receita</p>
+              <h2 className="mb-5 text-lg font-black text-[#073F50]">Faturamento por lote</h2>
+              <HorizontalBars itens={(faturamento?.relatorio || []).map((lote: any) => ({ label: lote.lote_nome, value: Number(lote.faturamento || 0), detail: moeda.format(Number(lote.faturamento || 0)) }))} />
+            </section>
+            <section className="admin-card p-5 sm:p-6">
+              <p className="admin-eyebrow">Preferência</p>
+              <h2 className="mb-5 text-lg font-black text-[#073F50]">Itens mais vendidos</h2>
+              <HorizontalBars itens={pacotesVendidos.map((item: any) => ({ label: item.pacote, value: Number(item.quantidade_vendida || 0), detail: `${item.quantidade_vendida} venda(s)` }))} />
+            </section>
+          </div>
+
+          <details className="admin-card group overflow-hidden">
+            <summary className="cursor-pointer list-none px-5 py-4 font-bold text-[#073F50] marker:hidden">Ver tabelas detalhadas <span className="float-right text-[#DF6248] transition group-open:rotate-180">⌄</span></summary>
+            <div className="space-y-5 border-t border-slate-100 p-4 sm:p-5">
           {/* Ocupação por lote */}
           <Card className="admin-card">
             <CardContent className="p-6">
@@ -278,6 +302,8 @@ export default function Relatorios() {
               </div>
             </CardContent>
           </Card>
+            </div>
+          </details>
         </>
       )}
     </div>

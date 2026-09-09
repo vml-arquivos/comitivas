@@ -133,6 +133,8 @@ app.use("/api/auth/login", limiteLogin);
 app.use("/api/auth/cadastro", limiteCadastro);
 app.use("/api/auth/esqueci-senha", limiteRecuperacaoSenha);
 app.use("/api/auth/redefinir-senha", limiteRecuperacaoSenha);
+app.use("/api/auth/alterar-login", limiteRecuperacaoSenha);
+app.use("/api/auth/alterar-senha", limiteRecuperacaoSenha);
 app.use("/api/auth/confirmar-email", limiteConfirmacaoEmail);
 app.use("/api/auth/reenviar-confirmacao", limiteConfirmacaoEmail);
 app.use("/api/auth/convite", limiteConvite);

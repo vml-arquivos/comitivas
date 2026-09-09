@@ -15,6 +15,7 @@ interface AuthContextType {
   isLoading: boolean;
   login: (user: User) => void;
   logout: () => void;
+  refreshUser: () => Promise<User | null>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -36,6 +37,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     delete api.defaults.headers.common['Authorization'];
     void api.post('/auth/logout').catch(() => undefined);
+  }, []);
+
+  const refreshUser = useCallback(async () => {
+    const response = await api.get('/auth/perfil');
+    const currentUser = response.data.usuario as User;
+    if (!currentUser?.id || !currentUser?.tipo) throw new Error('Sessão inválida');
+    setUser(currentUser);
+    return currentUser;
   }, []);
 
   useEffect(() => {
@@ -85,7 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = clearSession;
 
-  return <AuthContext.Provider value={{ user, token, isLoading, login, logout }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user, token, isLoading, login, logout, refreshUser }}>{children}</AuthContext.Provider>;
 }
 
 export const useAuth = () => {

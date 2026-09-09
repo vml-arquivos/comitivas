@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, useAuth } from '../../contexts/AuthContext';
 import { Card, CardContent, Button, Input } from '@ui/index';
-import { Download, Eye, Plus, X, Pencil, Power, Search, Trash2 } from 'lucide-react';
+import { Download, Eye, Plus, Pencil, Power, Search, Trash2 } from 'lucide-react';
+import { AdminModal } from '../../components/admin/AdminModal';
 
 interface Usuario {
   id: string;
@@ -215,17 +216,16 @@ export default function Clientes() {
     <div className="admin-page">
       <div className="admin-page-header">
         <div>
-          <p className="admin-eyebrow">Relacionamento e cadastro</p>
-          <h1 className="admin-title">Clientes e negociações</h1>
-          <p className="admin-subtitle">Consulte cadastros, abra a ficha completa e acompanhe cada cliente em um só lugar.</p>
+          <p className="admin-eyebrow">Cadastros</p>
+          <h1 className="admin-title">Clientes</h1>
+          <p className="admin-subtitle">Consulte cadastros, abra a ficha completa e mantenha os dados atualizados.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" onClick={exportarClientes} className="flex items-center gap-2">
             <Download size={16} /> Exportar clientes
           </Button>
-          <Button onClick={mostrarForm ? fecharForm : abrirNovo} className="flex items-center gap-2">
-            {mostrarForm ? <X size={16} /> : <Plus size={16} />}
-            {mostrarForm ? 'Cancelar' : 'Novo cadastro'}
+          <Button onClick={abrirNovo} className="flex items-center gap-2">
+            <Plus size={16} /> Novo cadastro
           </Button>
         </div>
       </div>
@@ -248,12 +248,8 @@ export default function Clientes() {
 
       {error && <div className="bg-red-50 text-red-700 p-4 rounded-lg">{error}</div>}
 
-      {mostrarForm && (
-        <Card className="admin-card">
-          <CardContent className="p-6">
+      <AdminModal aberto={mostrarForm} titulo={editandoId ? 'Editar cadastro' : 'Novo cadastro'} descricao="Informe somente os dados necessários para o acesso e a contratação." fechar={fecharForm} largura="ampla">
             <form onSubmit={handleSalvar} className="space-y-4">
-              <h2 className="font-semibold text-gray-900">{editandoId ? 'Editar cadastro' : 'Novo cadastro'}</h2>
-
               {formErro && <div className="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{formErro}</div>}
               {avisoSenhaGerada && (
                 <div className="bg-blue-50 text-blue-800 p-3 rounded-lg text-sm">
@@ -318,9 +314,7 @@ export default function Clientes() {
                 </>
               )}
             </form>
-          </CardContent>
-        </Card>
-      )}
+      </AdminModal>
 
       <Card className="admin-card overflow-hidden">
         <CardContent className="p-0">

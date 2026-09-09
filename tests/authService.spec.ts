@@ -13,6 +13,14 @@ afterEach(() => {
 });
 
 describe("AuthService.validarConfiguracaoSegura", () => {
+  it("gera hash de senha e rejeita uma senha diferente", async () => {
+    const hash = await AuthService.hashPassword("SenhaSegura@2026");
+
+    expect(hash).not.toContain("SenhaSegura@2026");
+    await expect(AuthService.verifyPassword("SenhaSegura@2026", hash)).resolves.toBe(true);
+    await expect(AuthService.verifyPassword("SenhaIncorreta", hash)).resolves.toBe(false);
+  });
+
   it("rejeita a inicialização em produção sem JWT_SECRET", () => {
     process.env.NODE_ENV = "production";
     delete process.env.JWT_SECRET;

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { LayoutDashboard, CalendarDays, Ticket, Users, UserCog, FileText, ImagePlus, Settings, LogOut, ArrowLeft, PartyPopper, BarChart3, Percent, ShoppingCart, CreditCard, WalletCards, KeyRound, Menu, ShieldCheck, X, BusFront } from 'lucide-react';
+import { LayoutDashboard, CalendarDays, Ticket, Users, UserCog, FileText, ImagePlus, Settings, LogOut, ArrowLeft, PartyPopper, BarChart3, Percent, ShoppingCart, CreditCard, WalletCards, KeyRound, Menu, ShieldCheck, X, BusFront, UserRoundCog } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { clsx } from 'clsx';
 import iconUrl from '../assets/brand/icon.svg';
@@ -140,6 +140,12 @@ const navGroups: NavGroup[] = [
     label: 'Sistema & segurança',
     items: [
       {
+        name: 'Minha conta',
+        path: '/admin/minha-conta',
+        icon: UserRoundCog,
+        roles: ['admin', 'dev', 'vendedor'],
+      },
+      {
         name: 'Equipe & Acessos',
         path: '/admin/equipe',
         icon: ShieldCheck,
@@ -218,13 +224,14 @@ export function AdminLayout() {
         </div>
 
         <div className="shrink-0 border-t border-white/10 bg-black/5 p-3">
-          <div className="mb-2 flex items-center gap-3 px-3 py-2">
+          <Link to="/admin/minha-conta" className="mb-2 flex items-center gap-3 rounded-xl px-3 py-2 transition hover:bg-white/[0.08]" title="Editar minha conta">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#DF6248] font-bold">{user?.nome.charAt(0)}</div>
             <div className="flex-1 overflow-hidden">
               <p className="truncate text-sm font-medium">{user?.nome}</p>
               <p className="truncate text-xs text-gray-400">{user?.email}</p>
             </div>
-          </div>
+            <UserRoundCog size={16} className="text-white/45" />
+          </Link>
           <Link to="/" className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-gray-300 transition-colors hover:bg-white/5 hover:text-white">
             <ArrowLeft size={20} />
             Voltar ao site

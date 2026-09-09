@@ -20,6 +20,7 @@ import {
   Input,
 } from "@ui/index";
 import { api } from "../../contexts/AuthContext";
+import { AdminModal } from "../../components/admin/AdminModal";
 
 type Evento = { id: string; nome: string };
 type Lote = {
@@ -109,6 +110,7 @@ export default function OperacaoOnibus() {
   const [reservaId, setReservaId] = useState("");
   const [pontoId, setPontoId] = useState("");
   const [movendoAlocacao, setMovendoAlocacao] = useState<string | null>(null);
+  const [modal, setModal] = useState<"saida" | "onibus" | "ponto" | null>(null);
   const [saidaForm, setSaidaForm] = useState({
     lote_id: "",
     nome: "",
@@ -194,10 +196,12 @@ export default function OperacaoOnibus() {
       await acao();
       setMensagem(sucesso);
       await carregar();
+      return true;
     } catch (error: any) {
       setErro(
         error.response?.data?.erro || "Não foi possível concluir a ação.",
       );
+      return false;
     } finally {
       setSalvando(false);
     }
@@ -229,6 +233,7 @@ export default function OperacaoOnibus() {
       setSaidas(saidasResposta.data.saidas || []);
       setSaidaId(novaSaidaId);
       await carregarMapa(novaSaidaId);
+      setModal(null);
       setMensagem(
         "Saída operacional criada. Agora cadastre os transportes e pontos de embarque.",
       );
@@ -239,23 +244,23 @@ export default function OperacaoOnibus() {
     }
   };
 
-  const criarOnibus = (event: React.FormEvent) => {
+  const criarOnibus = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!saidaId) return;
-    void executar(
+        if (!saidaId) return;
+    if (await executar(
       () =>
         api.post(`/operacao/saidas/${saidaId}/onibus`, {
           ...onibusForm,
           capacidade: Number(onibusForm.capacidade),
         }),
       "Transporte e mapa de lugares criados.",
-    );
+    )) setModal(null);
   };
 
-  const criarPonto = (event: React.FormEvent) => {
+  const criarPonto = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!saidaId) return;
-    void executar(async () => {
+    if (await executar(async () => {
       await api.post(`/operacao/saidas/${saidaId}/pontos-embarque`, {
         ...pontoForm,
         horario: pontoForm.horario
@@ -263,7 +268,7 @@ export default function OperacaoOnibus() {
           : null,
       });
       setPontoForm({ nome: "", endereco: "", horario: "" });
-    }, "Ponto de embarque cadastrado.");
+    }, "Ponto de embarque cadastrado.")) setModal(null);
   };
 
   const clicarAssento = (assento: Assento) => {
@@ -327,7 +332,11 @@ export default function OperacaoOnibus() {
             embarque e check-in.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => setModal("saida")}>
+            <Plus size={16} className="mr-2" />
+            Nova saída
+          </Button>
           <Button variant="outline" onClick={() => void carregar()}>
             <RefreshCw size={16} className="mr-2" />
             Atualizar
@@ -350,77 +359,6 @@ export default function OperacaoOnibus() {
           {mensagem}
         </div>
       )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Plus size={19} />
-            Nova saída operacional
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form
-            onSubmit={criarSaida}
-            className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.2fr_1fr_1fr_1fr_auto] xl:items-end"
-          >
-            <div>
-              <label className="mb-1 block text-sm font-medium">
-                Viagem e lote
-              </label>
-              <select
-                required
-                value={saidaForm.lote_id}
-                onChange={(e) => {
-                  const lote = lotesComEvento.find(
-                    (item) => item.id === e.target.value,
-                  );
-                  setSaidaForm({
-                    lote_id: e.target.value,
-                    nome: lote ? `${lote.evento_nome} — ${lote.nome}` : "",
-                    data_partida: dataParaInput(lote?.data_embarque),
-                    data_retorno: dataParaInput(lote?.data_retorno),
-                  });
-                }}
-                className={inputClass}
-              >
-                <option value="">Selecione</option>
-                {lotesComEvento.map((lote) => (
-                  <option key={lote.id} value={lote.id}>
-                    {lote.evento_nome} · {lote.nome}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <Input
-              required
-              label="Nome da saída"
-              value={saidaForm.nome}
-              onChange={(e) =>
-                setSaidaForm({ ...saidaForm, nome: e.target.value })
-              }
-            />
-            <Input
-              label="Partida"
-              type="datetime-local"
-              value={saidaForm.data_partida}
-              onChange={(e) =>
-                setSaidaForm({ ...saidaForm, data_partida: e.target.value })
-              }
-            />
-            <Input
-              label="Retorno"
-              type="datetime-local"
-              value={saidaForm.data_retorno}
-              onChange={(e) =>
-                setSaidaForm({ ...saidaForm, data_retorno: e.target.value })
-              }
-            />
-            <Button type="submit" disabled={salvando}>
-              Criar saída
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
 
       <Card>
         <CardContent className="p-5">
@@ -506,156 +444,17 @@ export default function OperacaoOnibus() {
             </div>
           )}
 
-          <div className="grid gap-6 xl:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <BusFront size={19} />
-                  Cadastrar transporte
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <form
-                  onSubmit={criarOnibus}
-                  className="grid gap-3 sm:grid-cols-2"
-                >
-                  <Input
-                    required
-                    label="Nome / identificação"
-                    value={onibusForm.nome}
-                    onChange={(e) =>
-                      setOnibusForm({ ...onibusForm, nome: e.target.value })
-                    }
-                  />
-                  <Input
-                    required
-                    label="Quantidade de lugares"
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={onibusForm.capacidade}
-                    onChange={(e) =>
-                      setOnibusForm({
-                        ...onibusForm,
-                        capacidade: e.target.value,
-                      })
-                    }
-                  />
-                  <Input
-                    label="Prefixo / referência"
-                    value={onibusForm.identificacao}
-                    onChange={(e) =>
-                      setOnibusForm({
-                        ...onibusForm,
-                        identificacao: e.target.value,
-                      })
-                    }
-                  />
-                  <Input
-                    label="Placa, quando aplicável"
-                    value={onibusForm.placa}
-                    onChange={(e) =>
-                      setOnibusForm({ ...onibusForm, placa: e.target.value })
-                    }
-                  />
-                  <Input
-                    label="Motorista / condutor"
-                    value={onibusForm.motorista_nome}
-                    onChange={(e) =>
-                      setOnibusForm({
-                        ...onibusForm,
-                        motorista_nome: e.target.value,
-                      })
-                    }
-                  />
-                  <Input
-                    label="Telefone do condutor"
-                    value={onibusForm.motorista_telefone}
-                    onChange={(e) =>
-                      setOnibusForm({
-                        ...onibusForm,
-                        motorista_telefone: e.target.value,
-                      })
-                    }
-                  />
-                  <Input
-                    label="Responsável pelo transporte"
-                    value={onibusForm.responsavel_nome}
-                    onChange={(e) =>
-                      setOnibusForm({
-                        ...onibusForm,
-                        responsavel_nome: e.target.value,
-                      })
-                    }
-                  />
-                  <div className="flex items-end">
-                    <Button
-                      type="submit"
-                      disabled={salvando}
-                      className="w-full"
-                    >
-                      Criar mapa
-                    </Button>
-                  </div>
-                </form>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <MapPin size={19} />
-                  Ponto de embarque
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={criarPonto} className="space-y-3">
-                  <Input
-                    required
-                    label="Nome do ponto"
-                    value={pontoForm.nome}
-                    onChange={(e) =>
-                      setPontoForm({ ...pontoForm, nome: e.target.value })
-                    }
-                  />
-                  <Input
-                    label="Endereço"
-                    value={pontoForm.endereco}
-                    onChange={(e) =>
-                      setPontoForm({ ...pontoForm, endereco: e.target.value })
-                    }
-                  />
-                  <Input
-                    label="Horário"
-                    type="datetime-local"
-                    value={pontoForm.horario}
-                    onChange={(e) =>
-                      setPontoForm({ ...pontoForm, horario: e.target.value })
-                    }
-                  />
-                  <Button type="submit" disabled={salvando}>
-                    Adicionar ponto
-                  </Button>
-                </form>
-                {mapa.pontos.length > 0 && (
-                  <div className="mt-4 space-y-2">
-                    {mapa.pontos.map((ponto) => (
-                      <div
-                        key={ponto.id}
-                        className="rounded-lg bg-gray-50 p-3 text-sm"
-                      >
-                        <strong>{ponto.nome}</strong>
-                        {ponto.endereco && (
-                          <span className="block text-gray-500">
-                            {ponto.endereco}
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+          <section className="admin-card flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="font-black text-[#073F50]">Estrutura da saída</h2>
+              <p className="mt-1 text-sm text-slate-500">Cadastre os veículos e os locais de embarque somente quando necessário.</p>
+              {mapa.pontos.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{mapa.pontos.map((ponto) => <span key={ponto.id} className="admin-status bg-slate-100 text-slate-600"><MapPin size={12} />{ponto.nome}</span>)}</div>}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" onClick={() => setModal("ponto")}><MapPin size={16} className="mr-2" />Novo ponto</Button>
+              <Button type="button" onClick={() => setModal("onibus")}><BusFront size={16} className="mr-2" />Novo veículo</Button>
+            </div>
+          </section>
 
           <Card>
             <CardHeader>
@@ -923,6 +722,38 @@ export default function OperacaoOnibus() {
           )}
         </>
       )}
+
+      <AdminModal aberto={modal === "saida"} titulo="Nova saída operacional" descricao="Vincule a operação a uma viagem e lote já cadastrados." fechar={() => setModal(null)} largura="ampla">
+        <form onSubmit={criarSaida} className="grid gap-4 md:grid-cols-2">
+          <div className="md:col-span-2"><label className="mb-1 block text-sm font-medium">Viagem e lote</label><select required value={saidaForm.lote_id} onChange={(e) => { const lote = lotesComEvento.find((item) => item.id === e.target.value); setSaidaForm({ lote_id: e.target.value, nome: lote ? `${lote.evento_nome} — ${lote.nome}` : "", data_partida: dataParaInput(lote?.data_embarque), data_retorno: dataParaInput(lote?.data_retorno) }); }} className={inputClass}><option value="">Selecione</option>{lotesComEvento.map((lote) => <option key={lote.id} value={lote.id}>{lote.evento_nome} · {lote.nome}</option>)}</select></div>
+          <div className="md:col-span-2"><Input required label="Nome da saída" value={saidaForm.nome} onChange={(e) => setSaidaForm({ ...saidaForm, nome: e.target.value })} /></div>
+          <Input label="Partida" type="datetime-local" value={saidaForm.data_partida} onChange={(e) => setSaidaForm({ ...saidaForm, data_partida: e.target.value })} />
+          <Input label="Retorno" type="datetime-local" value={saidaForm.data_retorno} onChange={(e) => setSaidaForm({ ...saidaForm, data_retorno: e.target.value })} />
+          <div className="flex justify-end gap-2 md:col-span-2"><Button type="button" variant="outline" onClick={() => setModal(null)}>Cancelar</Button><Button type="submit" disabled={salvando}>{salvando ? "Criando..." : "Criar saída"}</Button></div>
+        </form>
+      </AdminModal>
+
+      <AdminModal aberto={modal === "onibus"} titulo="Novo veículo" descricao="A capacidade informada gera automaticamente o mapa de lugares." fechar={() => setModal(null)} largura="ampla">
+        <form onSubmit={criarOnibus} className="grid gap-4 sm:grid-cols-2">
+          <Input required label="Nome / identificação" value={onibusForm.nome} onChange={(e) => setOnibusForm({ ...onibusForm, nome: e.target.value })} />
+          <Input required label="Quantidade de lugares" type="number" min={1} max={100} value={onibusForm.capacidade} onChange={(e) => setOnibusForm({ ...onibusForm, capacidade: e.target.value })} />
+          <Input label="Prefixo / referência" value={onibusForm.identificacao} onChange={(e) => setOnibusForm({ ...onibusForm, identificacao: e.target.value })} />
+          <Input label="Placa, quando aplicável" value={onibusForm.placa} onChange={(e) => setOnibusForm({ ...onibusForm, placa: e.target.value })} />
+          <Input label="Motorista / condutor" value={onibusForm.motorista_nome} onChange={(e) => setOnibusForm({ ...onibusForm, motorista_nome: e.target.value })} />
+          <Input label="Telefone do condutor" value={onibusForm.motorista_telefone} onChange={(e) => setOnibusForm({ ...onibusForm, motorista_telefone: e.target.value })} />
+          <div className="sm:col-span-2"><Input label="Responsável pelo transporte" value={onibusForm.responsavel_nome} onChange={(e) => setOnibusForm({ ...onibusForm, responsavel_nome: e.target.value })} /></div>
+          <div className="flex justify-end gap-2 sm:col-span-2"><Button type="button" variant="outline" onClick={() => setModal(null)}>Cancelar</Button><Button type="submit" disabled={salvando}>{salvando ? "Criando..." : "Criar mapa"}</Button></div>
+        </form>
+      </AdminModal>
+
+      <AdminModal aberto={modal === "ponto"} titulo="Novo ponto de embarque" descricao="Defina o local e o horário vinculados a esta saída." fechar={() => setModal(null)}>
+        <form onSubmit={criarPonto} className="space-y-4">
+          <Input required label="Nome do ponto" value={pontoForm.nome} onChange={(e) => setPontoForm({ ...pontoForm, nome: e.target.value })} />
+          <Input label="Endereço" value={pontoForm.endereco} onChange={(e) => setPontoForm({ ...pontoForm, endereco: e.target.value })} />
+          <Input label="Horário" type="datetime-local" value={pontoForm.horario} onChange={(e) => setPontoForm({ ...pontoForm, horario: e.target.value })} />
+          <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setModal(null)}>Cancelar</Button><Button type="submit" disabled={salvando}>{salvando ? "Salvando..." : "Adicionar ponto"}</Button></div>
+        </form>
+      </AdminModal>
     </div>
   );
 }

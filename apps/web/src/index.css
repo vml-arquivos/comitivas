@@ -104,7 +104,7 @@
   }
 
   .admin-page {
-    @apply mx-auto w-full max-w-[1640px] space-y-6;
+    @apply mx-auto w-full max-w-[1720px] space-y-5;
   }
 
   .admin-page-header {
@@ -129,14 +129,14 @@
   .admin-card {
     border-color: var(--admin-line);
     background: var(--admin-surface);
-    box-shadow: 0 10px 32px rgba(7, 63, 80, 0.055);
+    box-shadow: 0 12px 36px rgba(7, 63, 80, 0.06);
     @apply rounded-2xl border;
   }
 
   .admin-metric-card {
     border-color: var(--admin-line);
     background: var(--admin-surface);
-    box-shadow: 0 8px 26px rgba(7, 63, 80, 0.05);
+    box-shadow: 0 9px 28px rgba(7, 63, 80, 0.055);
     @apply rounded-2xl border p-5;
   }
 
@@ -182,6 +182,31 @@
     @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold;
   }
 
+  .admin-icon-button {
+    border-color: var(--admin-line);
+    color: var(--admin-teal);
+    @apply inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border bg-white transition hover:border-[#DF6248]/40 hover:text-[#DF6248];
+  }
+
+  .admin-row-action {
+    color: #6f7c84;
+    @apply inline-flex h-9 w-9 items-center justify-center rounded-lg transition hover:bg-[#fff0eb] hover:text-[#DF6248];
+  }
+
+  .admin-tab {
+    color: #718087;
+    @apply relative flex items-center gap-2 border-b-2 border-transparent px-1 pb-3 pt-2 text-sm font-bold transition;
+  }
+
+  .admin-tab span {
+    @apply rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500;
+  }
+
+  .admin-tab-active {
+    border-color: var(--admin-coral);
+    color: var(--admin-teal);
+  }
+
   .admin-scrollbar {
     scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
     scrollbar-width: thin;
@@ -214,6 +239,11 @@
 
 .admin-shell .text-primary {
   color: var(--admin-coral);
+}
+.admin-shell main {
+  background:
+    radial-gradient(circle at 90% 2%, rgba(223, 98, 72, 0.055), transparent 24rem),
+    #f8f6f1;
 }
 .admin-shell button.bg-primary,
 .admin-shell a.bg-primary {

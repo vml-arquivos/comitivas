@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, Armchair, BusFront, CheckCircle2, CircleDollarSign, Clock3, FileCheck2, FileText, RefreshCw, Ticket, UserPlus, Users, WalletCards } from 'lucide-react';
+import { AlertTriangle, Armchair, BusFront, CheckCircle2, CircleDollarSign, Clock3, RefreshCw, Ticket, UserPlus, Users, WalletCards } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { api, useAuth } from '../../contexts/AuthContext';
 import { Button } from '@ui/index';
+import { FunnelChart, HorizontalBars, LineTrend } from '../../components/admin/DataVisuals';
 
 type DashboardData = {
   resumo: Record<string, number | string>;
@@ -20,6 +21,9 @@ type DashboardData = {
     aguardando_admin: number;
     aprovados: number;
   };
+  serie_vendas: Array<{ data: string; label: string; valor_centavos: number; reservas: number }>;
+  funil: Array<{ label: string; valor: number }>;
+  ocupacao_onibus: Array<{ id: string; nome: string; saida_nome: string; capacidade: number; ocupadas: number; bloqueadas: number }>;
   reservas_status: Record<string, number>;
   operacao: {
     saidas: number;
@@ -43,18 +47,6 @@ const moeda = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
   currency: 'BRL',
 });
-const statusLabel: Record<string, string> = {
-  visitante: 'Iniciadas',
-  cadastrado: 'Cadastradas',
-  pacote_montado: 'Pacote escolhido',
-  checkout_iniciado: 'Em contratação',
-  aguardando_pagamento: 'Aguardando pagamento',
-  contrato_gerado: 'Contrato gerado',
-  cliente_confirmado: 'Confirmadas',
-  abandonado: 'Interrompidas',
-};
-const coresStatus = ['#DF6248', '#EBA24D', '#437E8E', '#51A37B', '#7E6EB0', '#C76C8B'];
-
 function Stat({ titulo, valor, apoio, icon: Icon, tom }: { titulo: string; valor: string | number; apoio?: string; icon: LucideIcon; tom: 'coral' | 'teal' | 'green' | 'amber' }) {
   const tons = {
     coral: 'bg-[#fff0eb] text-[#d75439]',
@@ -106,9 +98,6 @@ export default function Dashboard() {
   const capacidade = data?.operacao.capacidade || 0;
   const ocupadas = data?.operacao.ocupadas || 0;
   const ocupacao = capacidade > 0 ? Math.min(100, Math.round((ocupadas / capacidade) * 100)) : 0;
-  const contratosTotal = data?.contratos.total || 0;
-  const contratosAprovados = data?.contratos.aprovados || 0;
-  const contratosPercentual = contratosTotal > 0 ? Math.min(100, Math.round((contratosAprovados / contratosTotal) * 100)) : 0;
   const alertas = Object.entries(data?.alertas || {}).filter(([, total]) => Number(total) > 0);
   const alertaLabel: Record<string, string> = {
     cadastros_sem_reserva: 'Cadastros ainda sem reserva',
@@ -167,112 +156,40 @@ export default function Dashboard() {
         <Stat titulo="Conversão" valor={`${resumo.taxa_conversao || 0}%`} icon={CircleDollarSign} tom="green" />
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[1.25fr_1fr_1fr]">
+      <div className="grid gap-5 xl:grid-cols-[1.35fr_1fr_1fr]">
         <section className="admin-card p-5 sm:p-6">
           <div className="mb-5 flex items-center justify-between">
             <div>
               <p className="admin-eyebrow">Comercial</p>
-              <h2 className="text-lg font-black text-[#073F50]">Situação das reservas</h2>
+              <h2 className="text-lg font-black text-[#073F50]">Evolução das vendas</h2>
             </div>
-            <Ticket size={20} className="text-[#DF6248]" />
+            <span className="admin-status bg-[#eaf4f5] text-[#176477]">Últimos 30 dias</span>
           </div>
-          <div className="space-y-4">
-            {Object.entries(data?.reservas_status || {})
-              .filter(([, total]) => total > 0)
-              .map(([status, total], indice) => (
-                <div key={status}>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-slate-600">{statusLabel[status] || status}</span>
-                    <strong className="text-[#073F50]">{total}</strong>
-                  </div>
-                  <div className="mt-2 h-2 rounded-full bg-slate-100">
-                    <div
-                      className="h-2 rounded-full"
-                      style={{
-                        width: `${totalReservas ? Math.max(3, (total / totalReservas) * 100) : 0}%`,
-                        backgroundColor: coresStatus[indice % coresStatus.length],
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
-            {totalReservas === 0 && <p className="text-sm text-slate-500">Nenhuma reserva no período.</p>}
-          </div>
-        </section>
-
-        <section className="admin-card p-5 sm:p-6">
-          <div className="mb-5 flex items-center justify-between">
-            <div>
-              <p className="admin-eyebrow">Documentos</p>
-              <h2 className="text-lg font-black text-[#073F50]">Contratos</h2>
-            </div>
-            <FileText size={20} className="text-[#DF6248]" />
-          </div>
-          <div className="flex items-center gap-5">
-            <div
-              className="relative grid h-24 w-24 shrink-0 place-items-center rounded-full"
-              style={{
-                background: `conic-gradient(#DF6248 ${contratosPercentual}%, #EDF1F1 0)`,
-              }}
-            >
-              <div className="grid h-16 w-16 place-items-center rounded-full bg-white text-lg font-black text-[#073F50]">{contratosPercentual}%</div>
-            </div>
-            <div className="space-y-2 text-sm">
-              <p className="flex items-center gap-2 text-slate-600">
-                <CheckCircle2 size={15} className="text-emerald-600" />
-                {contratosAprovados} aprovados
-              </p>
-              <p className="flex items-center gap-2 text-slate-600">
-                <Clock3 size={15} className="text-amber-600" />
-                {data?.contratos.aguardando_cliente || 0} aguardando cliente
-              </p>
-              <p className="flex items-center gap-2 text-slate-600">
-                <FileCheck2 size={15} className="text-sky-700" />
-                {data?.contratos.aguardando_admin || 0} aguardando equipe
-              </p>
-            </div>
-          </div>
-          <Link to="/admin/contratos" className="mt-5 inline-block text-sm font-bold text-[#DF6248]">
-            Ver contratos →
-          </Link>
+          <LineTrend dados={(data?.serie_vendas || []).map((item) => ({ label: item.label, value: item.valor_centavos / 100 }))} formatar={(valor) => moeda.format(valor)} />
         </section>
 
         <section className="admin-card p-5 sm:p-6">
           <div className="mb-5 flex items-center justify-between">
             <div>
               <p className="admin-eyebrow">Operação</p>
-              <h2 className="text-lg font-black text-[#073F50]">Transporte</h2>
+              <h2 className="text-lg font-black text-[#073F50]">Ocupação dos veículos</h2>
             </div>
             <BusFront size={20} className="text-[#DF6248]" />
           </div>
-          <div className="space-y-3">
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-500">Capacidade utilizada</span>
-              <strong>{ocupacao}%</strong>
+          <HorizontalBars itens={(data?.ocupacao_onibus || []).map((item) => ({ label: item.nome, value: item.capacidade ? Math.round((item.ocupadas / item.capacidade) * 100) : 0, detail: `${item.ocupadas}/${item.capacidade} · ${item.saida_nome}` }))} />
+          {['admin', 'dev'].includes(user?.tipo || '') && <Link to="/admin/onibus" className="mt-5 inline-block text-sm font-bold text-[#DF6248]">Abrir mapa de lugares →</Link>}
+        </section>
+
+        <section className="admin-card p-5 sm:p-6">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <p className="admin-eyebrow">Conversão</p>
+              <h2 className="text-lg font-black text-[#073F50]">Funil comercial</h2>
             </div>
-            <div className="h-2.5 rounded-full bg-slate-100">
-              <div className="h-2.5 rounded-full bg-[#DF6248]" style={{ width: `${ocupacao}%` }} />
-            </div>
-            <div className="grid grid-cols-3 gap-2 pt-2 text-center">
-              <div className="rounded-xl bg-slate-50 p-2">
-                <strong className="block text-lg text-[#073F50]">{data?.operacao.onibus || 0}</strong>
-                <span className="text-[10px] uppercase text-slate-400">Veículos</span>
-              </div>
-              <div className="rounded-xl bg-slate-50 p-2">
-                <strong className="block text-lg text-[#073F50]">{data?.operacao.livres || 0}</strong>
-                <span className="text-[10px] uppercase text-slate-400">Livres</span>
-              </div>
-              <div className="rounded-xl bg-slate-50 p-2">
-                <strong className="block text-lg text-[#073F50]">{data?.operacao.presentes || 0}</strong>
-                <span className="text-[10px] uppercase text-slate-400">Embarcados</span>
-              </div>
-            </div>
+            <Users size={20} className="text-[#DF6248]" />
           </div>
-          {['admin', 'dev'].includes(user?.tipo || '') && (
-            <Link to="/admin/onibus" className="mt-5 inline-block text-sm font-bold text-[#DF6248]">
-              Abrir mapa de lugares →
-            </Link>
-          )}
+          <FunnelChart etapas={(data?.funil || []).map((item) => ({ label: item.label, value: item.valor }))} />
+          <Link to="/admin/jornada" className="mt-5 inline-block text-sm font-bold text-[#DF6248]">Ver negociações →</Link>
         </section>
       </div>
 

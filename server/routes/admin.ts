@@ -381,6 +381,49 @@ router.get("/dashboard", requireRole("admin", "vendedor"), async (req: Request, 
         (SELECT COUNT(*)::int FROM saidas_filtradas sf WHERE (SELECT COALESCE(SUM(o.capacidade), 0) FROM onibus_operacionais o WHERE o.saida_id = sf.id AND o.ativo) <> sf.vagas_totais) AS divergencias
     `) : { rows: [] };
     const operacao = (operacaoResultado.rows[0] as any) || { saidas: 0, onibus: 0, capacidade: 0, ocupadas: 0, bloqueadas: 0, em_hold: 0, presentes: 0, divergencias: 0 };
+    const ocupacaoVeiculosResultado = isAdminOrDev(req.usuario.tipo) ? await db.execute(sql`
+      SELECT o.id, o.nome, o.capacidade, s.nome AS saida_nome, l.nome AS lote_nome,
+        COUNT(DISTINCT aa.id) FILTER (WHERE aa.status = 'ativa')::int AS ocupadas,
+        COUNT(DISTINCT a.id) FILTER (WHERE a.status = 'bloqueado')::int AS bloqueadas
+      FROM onibus_operacionais o
+      JOIN saidas_operacionais s ON s.id = o.saida_id AND s.ativa = true
+      JOIN lotes l ON l.id = s.lote_id
+      LEFT JOIN assentos_onibus a ON a.onibus_id = o.id
+      LEFT JOIN assento_alocacoes aa ON aa.assento_id = a.id AND aa.status = 'ativa'
+      WHERE o.ativo = true ${eventoId ? sql`AND l.evento_id = ${eventoId}` : sql``}
+      GROUP BY o.id, o.nome, o.capacidade, s.nome, l.nome
+      ORDER BY ocupadas DESC, o.nome ASC
+      LIMIT 6
+    `) : { rows: [] };
+    const ocupacaoVeiculos = ocupacaoVeiculosResultado.rows.map((linha: any) => ({
+      id: String(linha.id),
+      nome: String(linha.nome),
+      saida_nome: String(linha.saida_nome || linha.lote_nome || "Saída"),
+      capacidade: Number(linha.capacidade || 0),
+      ocupadas: Number(linha.ocupadas || 0),
+      bloqueadas: Number(linha.bloqueadas || 0),
+    }));
+    const inicioSerie = new Date();
+    inicioSerie.setUTCHours(0, 0, 0, 0);
+    inicioSerie.setUTCDate(inicioSerie.getUTCDate() - 29);
+    const vendasPorDia = new Map<string, { valor_centavos: number; reservas: number }>();
+    for (const reserva of totalReservas) {
+      if (reserva.status === "abandonado" || !reserva.criado_em) continue;
+      const dataReserva = new Date(reserva.criado_em);
+      if (dataReserva < inicioSerie) continue;
+      const chave = dataReserva.toISOString().slice(0, 10);
+      const atual = vendasPorDia.get(chave) || { valor_centavos: 0, reservas: 0 };
+      atual.valor_centavos += Number(reserva.valor_total_centavos || Math.round(Number(reserva.valor_total || 0) * 100));
+      atual.reservas += 1;
+      vendasPorDia.set(chave, atual);
+    }
+    const serieVendas = Array.from({ length: 30 }, (_, indice) => {
+      const data = new Date(inicioSerie);
+      data.setUTCDate(inicioSerie.getUTCDate() + indice);
+      const chave = data.toISOString().slice(0, 10);
+      const registro = vendasPorDia.get(chave) || { valor_centavos: 0, reservas: 0 };
+      return { data: chave, label: `${String(data.getUTCDate()).padStart(2, "0")}/${String(data.getUTCMonth() + 1).padStart(2, "0")}`, ...registro };
+    });
     const aprovacaoInconsistente = isAdminOrDev(req.usuario.tipo) ? Number(((await db.execute(sql`SELECT COUNT(*)::int AS total FROM usuarios WHERE tipo = 'cliente' AND cadastro_status = 'aprovado' AND (aprovado_em IS NULL OR aprovado_por IS NULL OR ativo = false)`)).rows[0] as any)?.total || 0) : 0;
     const aguardandoCliente = contratosGerados.filter((contrato) => ["rascunho", "preparado", "aguardando_validacao"].includes(contrato.status)).length;
     const aguardandoAdmin = contratosGerados.filter((contrato) => ["validado", "aguardando_aprovacao_admin"].includes(contrato.status)).length;
@@ -404,8 +447,17 @@ router.get("/dashboard", requireRole("admin", "vendedor"), async (req: Request, 
       },
       financeiro: { contratado_centavos: contratadoCentavos, recebido_centavos: recebidoCentavos, a_receber_centavos: Math.max(0, contratadoCentavos - recebidoCentavos), vencido_centavos: valorVencidoCentavos, parcelas_vencidas: vencidas.length },
       contratos: { total: contratosGerados.length, aguardando_cliente: aguardandoCliente, aguardando_admin: aguardandoAdmin, aprovados: contratosGerados.filter((contrato) => contrato.status === "aprovado_admin").length },
+      serie_vendas: serieVendas,
+      funil: [
+        { label: "Contatos", valor: totalLeads.length },
+        { label: "Cadastros", valor: totalClientes.length },
+        { label: "Reservas", valor: totalReservas.length },
+        { label: "Contratos", valor: contratosGerados.length },
+        { label: "Confirmadas", valor: reservasConfirmadas.length },
+      ],
       reservas_status: statusReservas,
       operacao: { saidas: Number(operacao.saidas || 0), onibus: Number(operacao.onibus || 0), capacidade: Number(operacao.capacidade || 0), ocupadas: Number(operacao.ocupadas || 0), bloqueadas: Number(operacao.bloqueadas || 0), em_hold: Number(operacao.em_hold || 0), livres: Math.max(0, Number(operacao.capacidade || 0) - Number(operacao.ocupadas || 0) - Number(operacao.bloqueadas || 0) - Number(operacao.em_hold || 0)), presentes: Number(operacao.presentes || 0), divergencias: Number(operacao.divergencias || 0) },
+      ocupacao_onibus: ocupacaoVeiculos,
       alertas: { cadastros_sem_reserva: cadastrosSemReserva, aprovacoes_inconsistentes: aprovacaoInconsistente, contratos_aguardando_cliente: aguardandoCliente, contratos_aguardando_admin: aguardandoAdmin, parcelas_vencidas: vencidas.length, divergencias_capacidade: Number(operacao.divergencias || 0) },
       filtros: { eventos: totalEventos.map((evento) => ({ id: evento.id, nome: evento.nome })), evento_id: eventoId || null },
     });
