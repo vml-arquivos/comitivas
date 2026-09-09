@@ -31,6 +31,12 @@ export type ContratoModeloSnapshot = {
     horario_saida: string | null;
     horario_retorno: string | null;
     veiculo: string | null;
+    saida_id?: string | null;
+    onibus_id?: string | null;
+    onibus_nome?: string | null;
+    onibus_identificacao?: string | null;
+    poltrona?: number | null;
+    ponto_embarque_id?: string | null;
   };
   bagagem?: { limite_kg: number | null };
   seguro?: { seguradora: string | null; apolice: string | null; cobertura: string | null; telefone: string | null };
@@ -173,6 +179,8 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
   const checkout = formatDate(snapshot.periodo?.check_out);
   const localHospedagem = valueOrBlank(h.local, "Chácara Recanto Novo Encantado ou Santa Thereza");
   const limiteBagagem = bagagem.limite_kg ? `${bagagem.limite_kg} kg` : "________ kg";
+  const poltronaRegistrada = Number.isInteger(Number(t.poltrona)) && Number(t.poltrona) > 0;
+  const identificacaoOnibus = [t.onibus_nome, t.onibus_identificacao].filter(Boolean).join(" · ");
   const imagemTexto = usoImagem.autorizado === false
     ? "O contratante não autoriza o uso de sua imagem para divulgação institucional da excursão."
     : `O contratante autoriza o uso de sua imagem pelo prazo de ${usoImagem.prazo_anos || 3} (três) anos para divulgação institucional da excursão, podendo manifestar oposição por escrito antes do início do evento.`;
@@ -186,7 +194,7 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
 <p><strong>10.1.</strong> O presente contrato compreende o transporte rodoviário interestadual de passageiros, com saída da cidade de Brasília/DF e destino à cidade de Barretos/SP, bem como o respectivo retorno ao local de origem, conforme programação previamente divulgada pela <strong>CONTRATADA.</strong></p>
 <p><strong>10.2.</strong> O transporte será realizado por empresa regularmente habilitada junto aos órgãos competentes, especialmente à Agência Nacional de Transportes Terrestres – ANTT, observadas as normas de segurança e a legislação vigente.</p>
 <p><strong>10.3.</strong> As informações referentes ao transporte</p>
-<ul class="model-list"><li>• Local de embarque: ${transportValue(t.local_embarque, "SAMAMBAIA AO LADO DO MERCADO DIA A DIA, ESTACIONAMENTO DO POSTO IPIRANGA.")}</li><li>• PONTO DE REFERÊNCIA: ${transportValue(t.ponto_referencia, "DISTRIBUIDORA ROIAL-SAIDA DA BR 060")}</li><li>• Data da saída: ${escapeHtml(formatDate(t.data_saida))}</li></ul><div class="page-break"></div><ul class="model-list"><li>• Horário previsto da saída: ${escapeHtml(valueOrBlank(t.horario_saida, "___/___/____"))}</li><li>• Data prevista para retorno: ${escapeHtml(formatDate(t.data_retorno))}</li><li>• Horário previsto do retorno: ${escapeHtml(valueOrBlank(t.horario_retorno, "___/___/____"))}</li><li>• Tipo do veículo:</li>${vehicle(t.veiculo, "Ônibus", "Ônibus")}${vehicle(t.veiculo, "Micro-ônibus", "Micro-ônibus")}${vehicle(t.veiculo, "Van", "Van")}</ul>` : "";
+<ul class="model-list"><li>• Local de embarque: ${transportValue(t.local_embarque, "SAMAMBAIA AO LADO DO MERCADO DIA A DIA, ESTACIONAMENTO DO POSTO IPIRANGA.")}</li><li>• PONTO DE REFERÊNCIA: ${transportValue(t.ponto_referencia, "DISTRIBUIDORA ROIAL-SAIDA DA BR 060")}</li><li>• Data da saída: ${escapeHtml(formatDate(t.data_saida))}</li></ul><div class="page-break"></div><ul class="model-list"><li>• Horário previsto da saída: ${escapeHtml(valueOrBlank(t.horario_saida, "___/___/____"))}</li><li>• Data prevista para retorno: ${escapeHtml(formatDate(t.data_retorno))}</li><li>• Horário previsto do retorno: ${escapeHtml(valueOrBlank(t.horario_retorno, "___/___/____"))}</li><li>• Tipo do veículo:</li>${vehicle(t.veiculo, "Ônibus", "Ônibus")}${vehicle(t.veiculo, "Micro-ônibus", "Micro-ônibus")}${vehicle(t.veiculo, "Van", "Van")}${identificacaoOnibus ? `<li>• Veículo designado: ${escapeHtml(identificacaoOnibus)}</li>` : ""}${poltronaRegistrada ? `<li>• Poltrona designada: ${escapeHtml(t.poltrona)}</li>` : ""}</ul>` : "";
 
   return `<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>CONTRATO DE PACOTE DE VIAGEM- EXCURSÃO DAS COMITIVAS 2026</title>
@@ -295,7 +303,7 @@ ${blocoTransporte}${t.rodoviario_incluido ? `
 <p><strong>12.4.</strong> Não será permitido o transporte de:</p>
 <ul class="model-list"><li>• armas de fogo sem autorização legal;</li></ul><div class="page-break"></div><ul class="model-list"><li>• explosivos;</li><li>• materiais inflamáveis;</li><li>• substâncias ilícitas;</li><li>• animais, salvo nas hipóteses previstas em lei.</li></ul>
 <h2>CLÁUSULA DÉCIMA TERCEIRA<br/>DA POLTRONA</h2>
-<p><strong>13.1.</strong> A poltrona destinada ao <strong>CONTRATANTE</strong> será indicada pela organização da excursão, na hora do embarque.</p>
+<p><strong>13.1.</strong> ${poltronaRegistrada ? `A poltrona destinada ao <strong>CONTRATANTE</strong> é a de número <strong>${escapeHtml(t.poltrona)}</strong>${identificacaoOnibus ? `, no veículo <strong>${escapeHtml(identificacaoOnibus)}</strong>` : ""}, conforme registro operacional vigente na geração deste contrato.` : "A poltrona destinada ao <strong>CONTRATANTE</strong> será indicada pela organização da excursão antes do embarque."}</p>
 <p><strong>13.2.</strong> Havendo necessidade operacional, manutenção do veículo, substituição da frota ou qualquer situação superveniente, a <strong>CONTRATADA</strong> poderá alterar a poltrona inicialmente designada, preservando, sempre que possível, categoria equivalente.</p>
 <p><strong>13.3.</strong> Não será permitida a ocupação de poltrona diversa daquela indicada sem autorização da organização.</p>
 <h2>CLÁUSULA DÉCIMA QUARTA<br/>DO SEGURO DE VIAGEM</h2>

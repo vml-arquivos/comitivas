@@ -17,6 +17,12 @@ import {
   pagamentos,
   reservas,
   usuarios,
+  assentoAlocacoes,
+  assentosOnibus,
+  onibusOperacionais,
+  pontosEmbarqueOperacao,
+  saidasOperacionais,
+  checkinsOperacao,
 } from "../db/schema.js";
 import { EmailService } from "../services/emailService.js";
 import { InventoryService } from "../services/inventoryService.js";
@@ -165,6 +171,26 @@ router.get("/portal", async (req: Request, res: Response) => {
       .orderBy(desc(reservas.criado_em));
 
     const reservaIds = reservasLista.map((item) => item.id);
+    const operacaoLista = reservaIds.length ? await db.select({
+      reserva_id: assentoAlocacoes.reserva_id,
+      saida_nome: saidasOperacionais.nome,
+      data_partida: saidasOperacionais.data_partida,
+      data_retorno: saidasOperacionais.data_retorno,
+      onibus_nome: onibusOperacionais.nome,
+      onibus_identificacao: onibusOperacionais.identificacao,
+      poltrona: assentosOnibus.numero,
+      ponto_embarque_nome: pontosEmbarqueOperacao.nome,
+      ponto_embarque_endereco: pontosEmbarqueOperacao.endereco,
+      ponto_embarque_horario: pontosEmbarqueOperacao.horario,
+      checkin_status: checkinsOperacao.status,
+    }).from(assentoAlocacoes)
+      .innerJoin(assentosOnibus, eq(assentoAlocacoes.assento_id, assentosOnibus.id))
+      .innerJoin(onibusOperacionais, eq(assentosOnibus.onibus_id, onibusOperacionais.id))
+      .innerJoin(saidasOperacionais, eq(onibusOperacionais.saida_id, saidasOperacionais.id))
+      .leftJoin(pontosEmbarqueOperacao, eq(assentoAlocacoes.ponto_embarque_id, pontosEmbarqueOperacao.id))
+      .leftJoin(checkinsOperacao, and(eq(checkinsOperacao.saida_id, saidasOperacionais.id), eq(checkinsOperacao.reserva_id, assentoAlocacoes.reserva_id)))
+      .where(and(inArray(assentoAlocacoes.reserva_id, reservaIds), eq(assentoAlocacoes.status, "ativa"))) : [];
+    const operacaoPorReserva = new Map(operacaoLista.map((item) => [item.reserva_id, item]));
     const pagamentosLista = reservaIds.length ? await db.select({
       id: pagamentos.id,
       reserva_id: pagamentos.reserva_id,
@@ -262,6 +288,7 @@ router.get("/portal", async (req: Request, res: Response) => {
       const pagamentoConfirmado = pagamentosDaReserva.some((item) => item.status === "aprovado" || Number(item.valor_pago_centavos || 0) > 0 || ["parcial", "quitado"].includes(String(item.status_reconciliado || "").toLowerCase()));
       return {
         ...reserva,
+        operacao: operacaoPorReserva.get(reserva.id) || null,
         contrato_validado: contratoValidado,
         pagamento_confirmado: pagamentoConfirmado,
         cancelamento_imediato_permitido: !contratoValidado && !pagamentoConfirmado && reserva.status !== "abandonado",

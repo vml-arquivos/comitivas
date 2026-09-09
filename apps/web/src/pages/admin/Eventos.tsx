@@ -117,7 +117,8 @@ export default function EventosAdmin() {
     quarto_ventilador: { valor: '2200', disponibilidade: 'disponivel' as Pacote['disponibilidade'] },
     quarto_ar_condicionado: { valor: '2600', disponibilidade: 'disponivel' as Pacote['disponibilidade'] },
   });
-  const [fotoForm, setFotoForm] = useState({ url: '', legenda: '' });
+  const [fotoForm, setFotoForm] = useState<{ arquivo: File | null; legenda: string }>({ arquivo: null, legenda: '' });
+  const [fotoInputKey, setFotoInputKey] = useState(0);
   const [salvando, setSalvando] = useState(false);
   const [erroForm, setErroForm] = useState<string | null>(null);
 
@@ -166,18 +167,23 @@ export default function EventosAdmin() {
   const handleAdicionarFoto = async (e: React.FormEvent, eventoId: string) => {
     e.preventDefault();
     setErroForm(null);
-    if (!fotoForm.url.trim()) {
-      setErroForm('Informe o caminho ou a URL real da foto.');
+    if (!fotoForm.arquivo) {
+      setErroForm('Selecione uma foto do seu dispositivo.');
       return;
     }
     setSalvando(true);
     try {
-      await api.post(`/eventos/${eventoId}/fotos`, {
-        url_foto: fotoForm.url.trim(),
-        legenda: fotoForm.legenda.trim() || undefined,
+      await api.post(`/eventos/${eventoId}/fotos`, fotoForm.arquivo, {
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'X-File-Name': encodeURIComponent(fotoForm.arquivo.name),
+          'X-File-Mime': fotoForm.arquivo.type,
+          'X-File-Caption': encodeURIComponent(fotoForm.legenda.trim()),
+        },
       });
       await carregarFotos(eventoId);
-      setFotoForm({ url: '', legenda: '' });
+      setFotoForm({ arquivo: null, legenda: '' });
+      setFotoInputKey((atual) => atual + 1);
     } catch (err: any) {
       setErroForm(err.response?.data?.erro || 'Erro ao vincular foto.');
     } finally {
@@ -186,7 +192,7 @@ export default function EventosAdmin() {
   };
 
   const removerFoto = async (eventoId: string, fotoId: string) => {
-    if (!window.confirm('Remover esta foto do álbum do evento? O arquivo original não será apagado.')) return;
+    if (!window.confirm('Remover esta foto do álbum do evento?')) return;
     try {
       await api.delete(`/eventos/${eventoId}/fotos/${fotoId}`);
       await carregarFotos(eventoId);
@@ -611,14 +617,14 @@ export default function EventosAdmin() {
                   <section className="mt-8 border-t border-gray-200 pt-6">
                     <div className="mb-4">
                       <h3 className="flex items-center gap-2 font-bold text-gray-900"><ImagePlus size={18} className="text-primary" /> Galeria deste evento</h3>
-                      <p className="mt-1 text-xs text-gray-500">Vincule fotos reais já publicadas em <code>/images/</code> ou em uma URL HTTPS. Elas aparecem automaticamente na História e na Galeria pública.</p>
+                      <p className="mt-1 text-xs text-gray-500">Escolha uma foto do dispositivo. O sistema fará o envio e publicará a imagem na História e na Galeria.</p>
                     </div>
                     <form onSubmit={(e) => handleAdicionarFoto(e, evento.id)} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                       {erroForm && <div className="mb-3 rounded bg-red-50 p-2 text-sm text-red-700">{erroForm}</div>}
                       <div className="grid gap-3 md:grid-cols-[1.2fr_1fr_auto] md:items-end">
-                        <Input label="Caminho ou URL da foto" value={fotoForm.url} onChange={(e) => setFotoForm({ ...fotoForm, url: e.target.value })} placeholder="/images/gallery/nome-da-foto.jpg" />
+                        <div><label className="mb-1 block text-sm font-medium text-gray-700" htmlFor={`foto-${evento.id}`}>Foto</label><input key={fotoInputKey} id={`foto-${evento.id}`} type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => setFotoForm({ ...fotoForm, arquivo: e.target.files?.[0] || null })} className="block h-10 w-full rounded-md border border-gray-300 bg-white text-sm file:mr-3 file:h-full file:border-0 file:bg-gray-100 file:px-4 file:font-semibold" /></div>
                         <Input label="Legenda acessível" value={fotoForm.legenda} onChange={(e) => setFotoForm({ ...fotoForm, legenda: e.target.value })} placeholder="Ex.: Arena de Barretos, edição 2025" />
-                        <Button type="submit" disabled={salvando}>{salvando ? 'Vinculando...' : 'Vincular foto'}</Button>
+                        <Button type="submit" disabled={salvando}>{salvando ? 'Enviando...' : 'Anexar foto'}</Button>
                       </div>
                     </form>
                     <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -626,7 +632,7 @@ export default function EventosAdmin() {
                         <article key={foto.id} className="group overflow-hidden rounded-xl border border-gray-200 bg-white">
                           <div className="relative aspect-video bg-slate-100">
                             <img src={foto.url_foto} alt={foto.legenda || `Foto de ${evento.nome}`} className="h-full w-full object-cover" loading="lazy" />
-                            <button type="button" onClick={() => removerFoto(evento.id, foto.id)} className="absolute right-2 top-2 rounded-full bg-black/60 p-2 text-white opacity-0 transition hover:bg-red-600 group-hover:opacity-100 focus:opacity-100" title="Remover vínculo"><Trash2 size={14} /></button>
+                            <button type="button" onClick={() => removerFoto(evento.id, foto.id)} className="absolute right-2 top-2 rounded-full bg-black/60 p-2 text-white opacity-0 transition hover:bg-red-600 group-hover:opacity-100 focus:opacity-100" title="Remover foto"><Trash2 size={14} /></button>
                           </div>
                           <p className="line-clamp-2 p-3 text-xs text-gray-600">{foto.legenda || 'Sem legenda cadastrada'}</p>
                         </article>

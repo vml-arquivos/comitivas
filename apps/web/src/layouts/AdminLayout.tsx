@@ -22,6 +22,7 @@ import {
   Menu,
   ShieldCheck,
   X,
+  BusFront,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { clsx } from 'clsx';
@@ -53,14 +54,15 @@ const navGroups: NavGroup[] = [
     items: [
       { name: 'Vendas internas', path: '/admin/vendas', icon: ShoppingCart, roles: ['admin', 'dev', 'vendedor'] },
       { name: 'Clientes', path: '/admin/clientes', icon: UserCog, roles: ['admin', 'dev'] },
-      { name: 'Jornada (CRM)', path: '/admin/jornada', icon: Users, roles: ['admin', 'dev', 'vendedor'] },
+      { name: 'Clientes e negociações', path: '/admin/jornada', icon: Users, roles: ['admin', 'dev', 'vendedor'] },
       { name: 'Cupons', path: '/admin/cupons', icon: Ticket, roles: ['admin', 'dev'] },
     ],
   },
   {
     label: 'Operação da excursão',
     items: [
-      { name: 'Eventos & Lotes', path: '/admin/eventos', icon: PartyPopper, roles: ['admin', 'dev'] },
+      { name: 'Viagens e pacotes', path: '/admin/eventos', icon: PartyPopper, roles: ['admin', 'dev'] },
+      { name: 'Ônibus & vagas', path: '/admin/onibus', icon: BusFront, roles: ['admin', 'dev'] },
       { name: 'Reservas', path: '/admin/reservas', icon: CalendarDays, roles: ['admin', 'dev', 'vendedor'] },
       { name: 'Contratos', path: '/admin/contratos', icon: FileText, roles: ['admin', 'dev', 'vendedor'] },
       { name: 'Galeria e vídeos', path: '/admin/conteudo', icon: ImagePlus, roles: ['admin', 'dev'] },

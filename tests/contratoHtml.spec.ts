@@ -10,6 +10,8 @@ vi.mock("../server/db/index.js", () => ({
     select: () => {
       const chain: any = {};
       chain.from = () => chain;
+      chain.innerJoin = () => chain;
+      chain.leftJoin = () => chain;
       chain.where = () => chain;
       chain.limit = async () => banco.resultados.shift() || [];
       return chain;

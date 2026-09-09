@@ -10,7 +10,7 @@ import { AuditService } from "../services/auditService.js";
 import { CoraPaymentProvider } from "../services/coraPaymentProvider.js";
 import { PacoteService, ConfiguracaoPacote } from "../services/pacoteService.js";
 import { db } from "../db/index.js";
-import { reservas, eventos, lotes, pacotes, usuarios, leads_origem, descontosAdministrativos, pagamentos, contratosDocumentos, contratoValidacoes, pagamentoParcelas, emails_enviados, clienteDocumentos, clienteHistorico, videosEvento, fotos_evento, comissaoRegras, comissoes, convitesAcesso, auditoriaAdmin, inventarioHolds, sessoes, passwordResetTokens, verificacoesEmail } from "../db/schema.js";
+import { reservas, eventos, lotes, pacotes, usuarios, leads_origem, descontosAdministrativos, pagamentos, contratosDocumentos, contratoValidacoes, pagamentoParcelas, emails_enviados, clienteDocumentos, clienteHistorico, videosEvento, fotos_evento, comissaoRegras, comissoes, convitesAcesso, auditoriaAdmin, inventarioHolds, sessoes, passwordResetTokens, verificacoesEmail, assentoAlocacoes, assentosOnibus, onibusOperacionais, pontosEmbarqueOperacao, saidasOperacionais, checkinsOperacao } from "../db/schema.js";
 import { eq, and, inArray, or, sql, desc, isNull, ne } from "drizzle-orm";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
@@ -186,6 +186,30 @@ async function obterFichaCliente(usuarioId: string) {
     invalidado_em: contratosDocumentos.invalidado_em,
   }).from(contratosDocumentos).where(inArray(contratosDocumentos.reserva_id, reservaIds)).orderBy(desc(contratosDocumentos.criado_em)) : [];
 
+  const operacaoLista = reservaIds.length ? await db.select({
+    reserva_id: assentoAlocacoes.reserva_id,
+    saida_id: saidasOperacionais.id,
+    saida_nome: saidasOperacionais.nome,
+    data_partida: saidasOperacionais.data_partida,
+    data_retorno: saidasOperacionais.data_retorno,
+    onibus_nome: onibusOperacionais.nome,
+    onibus_identificacao: onibusOperacionais.identificacao,
+    poltrona: assentosOnibus.numero,
+    ponto_embarque_nome: pontosEmbarqueOperacao.nome,
+    ponto_embarque_endereco: pontosEmbarqueOperacao.endereco,
+    ponto_embarque_horario: pontosEmbarqueOperacao.horario,
+    checkin_status: checkinsOperacao.status,
+  }).from(assentoAlocacoes)
+    .innerJoin(assentosOnibus, eq(assentoAlocacoes.assento_id, assentosOnibus.id))
+    .innerJoin(onibusOperacionais, eq(assentosOnibus.onibus_id, onibusOperacionais.id))
+    .innerJoin(saidasOperacionais, eq(onibusOperacionais.saida_id, saidasOperacionais.id))
+    .leftJoin(pontosEmbarqueOperacao, eq(assentoAlocacoes.ponto_embarque_id, pontosEmbarqueOperacao.id))
+    .leftJoin(checkinsOperacao, and(eq(checkinsOperacao.saida_id, saidasOperacionais.id), eq(checkinsOperacao.reserva_id, assentoAlocacoes.reserva_id)))
+    .where(and(inArray(assentoAlocacoes.reserva_id, reservaIds), eq(assentoAlocacoes.status, "ativa"))) : [];
+  const operacaoPorReserva = new Map(operacaoLista.map((item) => [item.reserva_id, item]));
+  const contratoPorReserva = new Map<string, typeof contratosLista[number]>();
+  for (const contrato of contratosLista) if (contrato.status !== "invalidado" && !contratoPorReserva.has(contrato.reserva_id)) contratoPorReserva.set(contrato.reserva_id, contrato);
+
   const validacoesLista = reservaIds.length ? await db.select({
     id: contratoValidacoes.id,
     protocolo: contratoValidacoes.protocolo,
@@ -273,7 +297,11 @@ async function obterFichaCliente(usuarioId: string) {
       valor_pago: valorPagoCentavos / 100,
       ultima_interacao_em: linhaTempo[0]?.criado_em || usuario.atualizado_em,
     },
-    reservas: reservasLista,
+    reservas: reservasLista.map((reserva) => ({
+      ...reserva,
+      contrato_disponivel: contratoPorReserva.has(reserva.id),
+      operacao: operacaoPorReserva.get(reserva.id) || null,
+    })),
     pagamentos: pagamentosLista,
     parcelas: parcelasLista,
     contratos: contratosLista,
@@ -299,12 +327,8 @@ router.use(authMiddleware);
 router.get("/dashboard", requireRole("admin", "vendedor"), async (req: Request, res: Response) => {
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
-
-    // Total de eventos
+    const eventoId = String(req.query.evento_id || "").trim();
     const totalEventos = await db.select().from(eventos);
-
-    // Admin vê a operação inteira. Vendedor vê apenas contatos atribuídos a
-    // ele e as reservas desses clientes, evitando exposição entre carteiras.
     const leadsConsultados = isAdminOrDev(req.usuario.tipo)
       ? await db.select().from(leads_origem)
       : await db.select().from(leads_origem)
@@ -316,20 +340,54 @@ router.get("/dashboard", requireRole("admin", "vendedor"), async (req: Request, 
       ? todosClientes.map((cliente) => cliente.id)
       : Array.from(new Set(totalLeads.flatMap((lead) => lead.usuario_id ? [lead.usuario_id] : [])));
     const totalClientes = isAdminOrDev(req.usuario.tipo) ? todosClientes : clienteIds.map((id) => ({ id }));
-    const totalReservas = clienteIds.length > 0
+    const reservasConsultadas = clienteIds.length > 0
       ? await db.select().from(reservas).where(inArray(reservas.usuario_id, clienteIds))
       : [];
+    const lotesConsultados = reservasConsultadas.length ? await db.select({ id: lotes.id, evento_id: lotes.evento_id }).from(lotes).where(inArray(lotes.id, Array.from(new Set(reservasConsultadas.map((reserva) => reserva.lote_id))))) : [];
+    const eventoPorLote = new Map(lotesConsultados.map((lote) => [lote.id, lote.evento_id]));
+    const totalReservas = eventoId ? reservasConsultadas.filter((reserva) => eventoPorLote.get(reserva.lote_id) === eventoId) : reservasConsultadas;
+    const reservaIds = totalReservas.map((reserva) => reserva.id);
     const reservasConfirmadas = totalReservas.filter((reserva) => reserva.status === "cliente_confirmado");
-    const reservasPendentes = totalReservas.filter((reserva) => reserva.status === "aguardando_pagamento");
-    const contratosGerados = totalReservas.filter((reserva) => Boolean(reserva.contrato_pdf_url));
+    const reservasPendentes = totalReservas.filter((reserva) => reserva.status !== "cliente_confirmado" && reserva.status !== "abandonado");
+    const documentos = reservaIds.length ? await db.select({ reserva_id: contratosDocumentos.reserva_id, status: contratosDocumentos.status, versao: contratosDocumentos.versao, criado_em: contratosDocumentos.criado_em }).from(contratosDocumentos).where(and(inArray(contratosDocumentos.reserva_id, reservaIds), ne(contratosDocumentos.status, "invalidado"))).orderBy(desc(contratosDocumentos.versao)) : [];
+    const documentoPorReserva = new Map<string, typeof documentos[number]>();
+    for (const documento of documentos) if (!documentoPorReserva.has(documento.reserva_id)) documentoPorReserva.set(documento.reserva_id, documento);
+    const contratosGerados = Array.from(documentoPorReserva.values());
+    const pagamentosLista = reservaIds.length ? await db.select({ reserva_id: pagamentos.reserva_id, valor_centavos: pagamentos.valor_centavos, valor: pagamentos.valor, valor_pago_centavos: pagamentos.valor_pago_centavos, status_reconciliado: pagamentos.status_reconciliado }).from(pagamentos).where(inArray(pagamentos.reserva_id, reservaIds)) : [];
+    const parcelasLista = reservaIds.length ? await db.select({ status: pagamentoParcelas.status, vencimento: pagamentoParcelas.vencimento, valor_centavos: pagamentoParcelas.valor_centavos, valor: pagamentoParcelas.valor }).from(pagamentoParcelas).where(inArray(pagamentoParcelas.reserva_id, reservaIds)) : [];
     const clientesComReserva = new Set(totalReservas.map((reserva) => reserva.usuario_id));
     const cadastrosSemReserva = totalClientes.filter((cliente) => !clientesComReserva.has(cliente.id)).length;
     const leadsNovos = totalLeads.filter((l) => l.status === "novo").length;
     const leadsCadastrados = totalLeads.filter((l) => l.status === "cadastrado").length;
+    const contratadoCentavos = totalReservas.filter((reserva) => reserva.status !== "abandonado").reduce((total, reserva) => total + Number(reserva.valor_total_centavos || Math.round(Number(reserva.valor_total || 0) * 100)), 0);
+    const recebidoCentavos = pagamentosLista.reduce((total, pagamento) => total + Number(pagamento.valor_pago_centavos || 0), 0);
+    const hoje = new Date().toISOString().slice(0, 10);
+    const vencidas = parcelasLista.filter((parcela) => parcela.status !== "aprovado" && String(parcela.vencimento) < hoje);
+    const valorVencidoCentavos = vencidas.reduce((total, parcela) => total + Number(parcela.valor_centavos || Math.round(Number(parcela.valor || 0) * 100)), 0);
+    const statusReservas = Object.fromEntries(["visitante", "cadastrado", "pacote_montado", "checkout_iniciado", "aguardando_pagamento", "contrato_gerado", "cliente_confirmado", "abandonado"].map((status) => [status, totalReservas.filter((reserva) => reserva.status === status).length]));
+    const operacaoResultado = isAdminOrDev(req.usuario.tipo) ? await db.execute(sql`
+      WITH saidas_filtradas AS (
+        SELECT s.id, l.vagas_totais FROM saidas_operacionais s JOIN lotes l ON l.id = s.lote_id
+        WHERE s.ativa = true ${eventoId ? sql`AND l.evento_id = ${eventoId}` : sql``}
+      )
+      SELECT
+        (SELECT COUNT(*)::int FROM saidas_filtradas) AS saidas,
+        (SELECT COUNT(*)::int FROM onibus_operacionais o JOIN saidas_filtradas sf ON sf.id = o.saida_id WHERE o.ativo) AS onibus,
+        (SELECT COALESCE(SUM(o.capacidade), 0)::int FROM onibus_operacionais o JOIN saidas_filtradas sf ON sf.id = o.saida_id WHERE o.ativo) AS capacidade,
+        (SELECT COUNT(*)::int FROM assento_alocacoes aa JOIN assentos_onibus a ON a.id = aa.assento_id JOIN onibus_operacionais o ON o.id = a.onibus_id JOIN saidas_filtradas sf ON sf.id = o.saida_id WHERE aa.status = 'ativa' AND o.ativo) AS ocupadas,
+        (SELECT COUNT(*)::int FROM assentos_onibus a JOIN onibus_operacionais o ON o.id = a.onibus_id JOIN saidas_filtradas sf ON sf.id = o.saida_id WHERE a.status = 'bloqueado' AND o.ativo) AS bloqueadas,
+        (SELECT COUNT(*)::int FROM assento_holds h JOIN assentos_onibus a ON a.id = h.assento_id JOIN onibus_operacionais o ON o.id = a.onibus_id JOIN saidas_filtradas sf ON sf.id = o.saida_id WHERE h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP AND o.ativo) AS em_hold,
+        (SELECT COUNT(*)::int FROM checkins_operacao c JOIN saidas_filtradas sf ON sf.id = c.saida_id WHERE c.status = 'presente') AS presentes,
+        (SELECT COUNT(*)::int FROM saidas_filtradas sf WHERE (SELECT COALESCE(SUM(o.capacidade), 0) FROM onibus_operacionais o WHERE o.saida_id = sf.id AND o.ativo) <> sf.vagas_totais) AS divergencias
+    `) : { rows: [] };
+    const operacao = (operacaoResultado.rows[0] as any) || { saidas: 0, onibus: 0, capacidade: 0, ocupadas: 0, bloqueadas: 0, em_hold: 0, presentes: 0, divergencias: 0 };
+    const aprovacaoInconsistente = isAdminOrDev(req.usuario.tipo) ? Number(((await db.execute(sql`SELECT COUNT(*)::int AS total FROM usuarios WHERE tipo = 'cliente' AND cadastro_status = 'aprovado' AND (aprovado_em IS NULL OR aprovado_por IS NULL OR ativo = false)`)).rows[0] as any)?.total || 0) : 0;
+    const aguardandoCliente = contratosGerados.filter((contrato) => ["rascunho", "preparado", "aguardando_validacao"].includes(contrato.status)).length;
+    const aguardandoAdmin = contratosGerados.filter((contrato) => ["validado", "aguardando_aprovacao_admin"].includes(contrato.status)).length;
 
     res.json({
       resumo: {
-        total_eventos: totalEventos.length,
+        total_eventos: eventoId ? totalEventos.filter((evento) => evento.id === eventoId).length : totalEventos.length,
         total_clientes: totalClientes.length,
         total_leads_crm: totalLeads.length,
         total_leads: totalLeads.length,
@@ -344,6 +402,12 @@ router.get("/dashboard", requireRole("admin", "vendedor"), async (req: Request, 
           ? ((reservasConfirmadas.length / totalReservas.length) * 100).toFixed(2)
           : 0,
       },
+      financeiro: { contratado_centavos: contratadoCentavos, recebido_centavos: recebidoCentavos, a_receber_centavos: Math.max(0, contratadoCentavos - recebidoCentavos), vencido_centavos: valorVencidoCentavos, parcelas_vencidas: vencidas.length },
+      contratos: { total: contratosGerados.length, aguardando_cliente: aguardandoCliente, aguardando_admin: aguardandoAdmin, aprovados: contratosGerados.filter((contrato) => contrato.status === "aprovado_admin").length },
+      reservas_status: statusReservas,
+      operacao: { saidas: Number(operacao.saidas || 0), onibus: Number(operacao.onibus || 0), capacidade: Number(operacao.capacidade || 0), ocupadas: Number(operacao.ocupadas || 0), bloqueadas: Number(operacao.bloqueadas || 0), em_hold: Number(operacao.em_hold || 0), livres: Math.max(0, Number(operacao.capacidade || 0) - Number(operacao.ocupadas || 0) - Number(operacao.bloqueadas || 0) - Number(operacao.em_hold || 0)), presentes: Number(operacao.presentes || 0), divergencias: Number(operacao.divergencias || 0) },
+      alertas: { cadastros_sem_reserva: cadastrosSemReserva, aprovacoes_inconsistentes: aprovacaoInconsistente, contratos_aguardando_cliente: aguardandoCliente, contratos_aguardando_admin: aguardandoAdmin, parcelas_vencidas: vencidas.length, divergencias_capacidade: Number(operacao.divergencias || 0) },
+      filtros: { eventos: totalEventos.map((evento) => ({ id: evento.id, nome: evento.nome })), evento_id: eventoId || null },
     });
   } catch (error: any) {
     console.error("[ADMIN] Erro no dashboard:", error);
@@ -677,12 +741,33 @@ router.get("/reservas", async (req: Request, res: Response) => {
 
     const offset = (parseInt(pagina as string) - 1) * parseInt(limite as string);
     const resultado = await query.limit(parseInt(limite as string)).offset(offset);
+    const reservaIds = resultado.map((reserva) => reserva.id);
+    const documentos = reservaIds.length ? await db.select({ reserva_id: contratosDocumentos.reserva_id })
+      .from(contratosDocumentos)
+      .where(and(inArray(contratosDocumentos.reserva_id, reservaIds), ne(contratosDocumentos.status, "invalidado"))) : [];
+    const reservasComContrato = new Set(documentos.map((documento) => documento.reserva_id));
+    const alocacoes = reservaIds.length ? await db.select({
+      reserva_id: assentoAlocacoes.reserva_id,
+      onibus_nome: onibusOperacionais.nome,
+      onibus_identificacao: onibusOperacionais.identificacao,
+      poltrona: assentosOnibus.numero,
+      ponto_embarque: pontosEmbarqueOperacao.nome,
+    }).from(assentoAlocacoes)
+      .innerJoin(assentosOnibus, eq(assentoAlocacoes.assento_id, assentosOnibus.id))
+      .innerJoin(onibusOperacionais, eq(assentosOnibus.onibus_id, onibusOperacionais.id))
+      .leftJoin(pontosEmbarqueOperacao, eq(assentoAlocacoes.ponto_embarque_id, pontosEmbarqueOperacao.id))
+      .where(and(inArray(assentoAlocacoes.reserva_id, reservaIds), eq(assentoAlocacoes.status, "ativa"))) : [];
+    const alocacaoPorReserva = new Map(alocacoes.map((alocacao) => [alocacao.reserva_id, alocacao]));
 
     res.json({
       total: resultado.length,
       pagina: parseInt(pagina as string),
       limite: parseInt(limite as string),
-      reservas: resultado,
+      reservas: resultado.map((reserva) => ({
+        ...reserva,
+        contrato_disponivel: reservasComContrato.has(reserva.id),
+        operacao: alocacaoPorReserva.get(reserva.id) || null,
+      })),
     });
   } catch (error: any) {
     console.error("[ADMIN] Erro ao listar reservas:", error);
@@ -851,6 +936,9 @@ const CAMPOS_PUBLICOS_USUARIO = {
   cadastro_status: usuarios.cadastro_status,
   aprovado_em: usuarios.aprovado_em,
   aprovado_por: usuarios.aprovado_por,
+  gestor_id: usuarios.gestor_id,
+  equipe_nome: usuarios.equipe_nome,
+  ultimo_acesso_em: usuarios.ultimo_acesso_em,
   criado_em: usuarios.criado_em,
   atualizado_em: usuarios.atualizado_em,
 };
@@ -934,7 +1022,7 @@ router.post("/usuarios", requireRole("admin"), async (req: Request, res: Respons
     const {
       nome, email, cpf, telefone, tipo,
       data_nascimento, endereco,
-      senha,
+      senha, equipe_nome, gestor_id,
     } = req.body ?? {};
 
     const nomeNormalizado = String(nome || "").trim();
@@ -974,6 +1062,14 @@ router.post("/usuarios", requireRole("admin"), async (req: Request, res: Respons
       return res.status(400).json({ erro: "Senha deve ter no mínimo 8 caracteres" });
     }
     const senhaHash = await AuthService.hashPassword(senhaTemporaria);
+    let gestorId: string | null = null;
+    if (tipoNormalizado === "vendedor") {
+      gestorId = req.usuario?.tipo === "dev" && gestor_id ? String(gestor_id) : (req.usuario?.id || null);
+      if (gestorId) {
+        const gestor = (await db.select({ id: usuarios.id, tipo: usuarios.tipo, ativo: usuarios.ativo }).from(usuarios).where(eq(usuarios.id, gestorId)).limit(1))[0];
+        if (!gestor || !["admin", "dev"].includes(String(gestor.tipo)) || gestor.ativo === false || (gestor.tipo === "dev" && req.usuario?.tipo !== "dev")) return res.status(400).json({ erro: "Gestor inválido" });
+      }
+    }
 
     try {
       const criado = await db
@@ -990,6 +1086,8 @@ router.post("/usuarios", requireRole("admin"), async (req: Request, res: Respons
           cadastro_status: tipoNormalizado === "cliente" ? "pendente" : "aprovado",
           aprovado_em: tipoNormalizado === "cliente" ? null : new Date(),
           aprovado_por: tipoNormalizado === "cliente" ? null : (req.usuario?.id || null),
+          gestor_id: gestorId,
+          equipe_nome: tipoNormalizado === "vendedor" ? String(equipe_nome || "").trim().slice(0, 120) || null : null,
         })
         .returning(CAMPOS_PUBLICOS_USUARIO);
 
@@ -1018,7 +1116,7 @@ router.put("/usuarios/:id", requireRole("admin"), async (req: Request, res: Resp
     const {
       nome, email, cpf, telefone, tipo,
       data_nascimento, endereco,
-      senha,
+      senha, equipe_nome, gestor_id,
     } = req.body ?? {};
 
     const existente = await db.select().from(usuarios).where(eq(usuarios.id, id)).limit(1);
@@ -1067,6 +1165,15 @@ router.put("/usuarios/:id", requireRole("admin"), async (req: Request, res: Resp
       atualizacoes.data_nascimento = dataNascimento;
     }
     if (endereco !== undefined) atualizacoes.endereco = String(endereco).trim() || null;
+    if (existente[0].tipo === "vendedor" && equipe_nome !== undefined) atualizacoes.equipe_nome = String(equipe_nome).trim().slice(0, 120) || null;
+    if (existente[0].tipo === "vendedor" && gestor_id !== undefined) {
+      const gestorId = req.usuario?.tipo === "dev" ? String(gestor_id || "").trim() || null : req.usuario?.id || null;
+      if (gestorId) {
+        const gestor = (await db.select({ id: usuarios.id, tipo: usuarios.tipo, ativo: usuarios.ativo }).from(usuarios).where(eq(usuarios.id, gestorId)).limit(1))[0];
+        if (!gestor || !["admin", "dev"].includes(String(gestor.tipo)) || gestor.ativo === false || (gestor.tipo === "dev" && req.usuario?.tipo !== "dev")) return res.status(400).json({ erro: "Gestor inválido" });
+      }
+      atualizacoes.gestor_id = gestorId;
+    }
     const tipoFinal = atualizacoes.tipo || existente[0].tipo;
     if (tipoFinal === "cliente") {
       const faltantes = camposFaltantesCadastroMinimo({
@@ -1179,7 +1286,11 @@ router.delete("/usuarios/:id", requireRole("admin"), async (req: Request, res: R
         UNION ALL SELECT 1 FROM gateway_credenciais WHERE atualizado_por = ${alvo.id}
         UNION ALL SELECT 1 FROM pagamento_parcelas WHERE pago_confirmado_por = ${alvo.id}
         UNION ALL SELECT 1 FROM avaliacoes WHERE usuario_id = ${alvo.id}
-        UNION ALL SELECT 1 FROM usuarios WHERE aprovado_por = ${alvo.id}
+        UNION ALL SELECT 1 FROM usuarios WHERE aprovado_por = ${alvo.id} OR gestor_id = ${alvo.id}
+        UNION ALL SELECT 1 FROM saidas_operacionais WHERE criado_por = ${alvo.id}
+        UNION ALL SELECT 1 FROM assento_alocacoes WHERE usuario_id = ${alvo.id} OR alocado_por = ${alvo.id}
+        UNION ALL SELECT 1 FROM checkins_operacao WHERE confirmado_por = ${alvo.id}
+        UNION ALL SELECT 1 FROM operacao_historico WHERE ator_id = ${alvo.id}
       ) AS possui_dependencias
     `);
     let arquivar = Boolean((dependencias.rows[0] as { possui_dependencias?: boolean } | undefined)?.possui_dependencias);
@@ -1636,6 +1747,7 @@ router.get("/contratos", async (req: Request, res: Response) => {
         valor_total: reservas.valor_total,
         forma_pagamento: reservas.forma_pagamento,
         quantidade_parcelas: reservas.quantidade_parcelas,
+        vendedor_id: reservas.vendedor_id,
         contrato_pdf_url: reservas.contrato_pdf_url,
         aceite_timestamp: reservas.aceite_timestamp,
         aceite_ip: reservas.aceite_ip,
@@ -1656,6 +1768,16 @@ router.get("/contratos", async (req: Request, res: Response) => {
     else if (req.usuario?.tipo !== "dev") query.where(eq(usuarios.tipo, "cliente"));
     const linhas = await query.orderBy(desc(reservas.criado_em));
     const reservaIds = linhas.map((linha) => linha.reserva_id);
+    const vendedorIds = Array.from(new Set(linhas.flatMap((linha) => linha.vendedor_id ? [linha.vendedor_id] : [])));
+    const vendedores = vendedorIds.length ? await db.select({ id: usuarios.id, nome: usuarios.nome }).from(usuarios).where(and(inArray(usuarios.id, vendedorIds), eq(usuarios.tipo, "vendedor"))) : [];
+    const vendedorPorId = new Map(vendedores.map((vendedor) => [vendedor.id, vendedor.nome]));
+    const alocacoes = reservaIds.length ? await db.select({ reserva_id: assentoAlocacoes.reserva_id, onibus_nome: onibusOperacionais.nome, poltrona: assentosOnibus.numero, ponto_embarque: pontosEmbarqueOperacao.nome })
+      .from(assentoAlocacoes)
+      .innerJoin(assentosOnibus, eq(assentoAlocacoes.assento_id, assentosOnibus.id))
+      .innerJoin(onibusOperacionais, eq(assentosOnibus.onibus_id, onibusOperacionais.id))
+      .leftJoin(pontosEmbarqueOperacao, eq(assentoAlocacoes.ponto_embarque_id, pontosEmbarqueOperacao.id))
+      .where(and(inArray(assentoAlocacoes.reserva_id, reservaIds), eq(assentoAlocacoes.status, "ativa"))) : [];
+    const alocacaoPorReserva = new Map(alocacoes.map((alocacao) => [alocacao.reserva_id, alocacao]));
     const documentos = reservaIds.length
       ? await db.select({
         id: contratosDocumentos.id,
@@ -1687,6 +1809,8 @@ router.get("/contratos", async (req: Request, res: Response) => {
         const documento = documentoPorReserva.get(linha.reserva_id);
         return {
           ...linha,
+          vendedor_nome: linha.vendedor_id ? vendedorPorId.get(linha.vendedor_id) || null : null,
+          operacao: alocacaoPorReserva.get(linha.reserva_id) || null,
           contrato_gerado: Boolean(documento || linha.contrato_pdf_url),
           pdf_disponivel: Boolean(documento?.arquivo || linha.contrato_pdf_url),
           documento: documento ? {
@@ -2048,7 +2172,16 @@ router.post("/dev/bootstrap", requireRole("dev"), (_req: Request, res: Response)
 router.get("/dev/equipe", requireRole("admin"), async (req: Request, res: Response) => {
   const solicitanteDev = req.usuario?.tipo === "dev";
   const equipe = await db.select(CAMPOS_PUBLICOS_USUARIO).from(usuarios).where(inArray(usuarios.tipo, (solicitanteDev ? ["dev", "admin", "vendedor"] : ["admin", "vendedor"]) as any)).orderBy(desc(usuarios.criado_em));
-  const convites = await db.select().from(convitesAcesso).where(solicitanteDev ? undefined : ne(convitesAcesso.papel, "dev")).orderBy(desc(convitesAcesso.criado_em)).limit(200);
+  const convites = await db.select({
+    id: convitesAcesso.id,
+    papel: convitesAcesso.papel,
+    email_destino: convitesAcesso.email_destino,
+    criado_por: convitesAcesso.criado_por,
+    expira_em: convitesAcesso.expira_em,
+    usado_em: convitesAcesso.usado_em,
+    revogado_em: convitesAcesso.revogado_em,
+    criado_em: convitesAcesso.criado_em,
+  }).from(convitesAcesso).where(solicitanteDev ? undefined : ne(convitesAcesso.papel, "dev")).orderBy(desc(convitesAcesso.criado_em)).limit(200);
   return res.json({ equipe, convites });
 });
 
@@ -2079,6 +2212,26 @@ router.patch("/dev/convites/:id/revogar", requireRole("admin"), async (req: Requ
   if (!convite) return res.status(404).json({ erro: "Convite não encontrado ou já utilizado" });
   await AuditService.registrar(req, "convite_revogado", "convite_acesso", convite.id);
   return res.json({ convite });
+});
+
+router.post("/dev/convites/:id/reemitir", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const anterior = (await db.select().from(convitesAcesso).where(eq(convitesAcesso.id, req.params.id)).limit(1))[0];
+    if (!anterior || anterior.usado_em) return res.status(404).json({ erro: "Convite não encontrado ou já utilizado" });
+    if (req.usuario.tipo !== "dev" && anterior.papel !== "vendedor") return res.status(403).json({ erro: "Administradores podem reemitir somente convites de vendedor" });
+    const token = randomBytes(32).toString("base64url");
+    const horas = Math.min(168, Math.max(1, Number(req.body?.horas_validade || 72)));
+    const novo = await db.transaction(async (tx) => {
+      await tx.update(convitesAcesso).set({ revogado_em: new Date() }).where(and(eq(convitesAcesso.id, anterior.id), isNull(convitesAcesso.usado_em)));
+      return (await tx.insert(convitesAcesso).values({ id: createId(), token_hash: hashConvite(token), papel: anterior.papel, email_destino: anterior.email_destino, criado_por: req.usuario!.id, expira_em: new Date(Date.now() + horas * 3600_000), criado_em: new Date() }).returning())[0];
+    });
+    await AuditService.registrar(req, "convite_reemitido", "convite_acesso", novo.id, { convite_anterior_id: anterior.id }, { papel: novo.papel, email_destino: novo.email_destino, expira_em: novo.expira_em });
+    const base = String(process.env.WEB_URL || "https://excursaodascomitivas.com.br").split(",")[0].replace(/\/$/, "");
+    return res.status(201).json({ convite: { id: novo.id, papel: novo.papel, email_destino: novo.email_destino, expira_em: novo.expira_em, criado_em: novo.criado_em, link: `${base}/convite/${token}` } });
+  } catch (error: any) {
+    return res.status(400).json({ erro: error.message || "Não foi possível reemitir o convite" });
+  }
 });
 
 router.get("/dev/auditoria", requireRole("dev"), async (_req: Request, res: Response) => {

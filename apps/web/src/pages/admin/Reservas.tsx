@@ -4,6 +4,14 @@ import { api } from '../../contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, Button, Input } from '@ui/index';
 import { Download, Eye, Mail, FileSignature } from 'lucide-react';
 
+const statusReserva: Record<string, string> = {
+  visitante: 'Visitante', cadastrado: 'Cadastrado', pacote_montado: 'Pacote montado',
+  checkout_iniciado: 'Checkout iniciado', aguardando_pagamento: 'Aguardando pagamento',
+  contrato_gerado: 'Contrato gerado', cliente_confirmado: 'Cliente confirmado', abandonado: 'Abandonada',
+};
+
+const formatarMoeda = (valor: string | number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor || 0));
+
 export default function Reservas() {
   const [reservas, setReservas] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -68,7 +76,7 @@ export default function Reservas() {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">Gestão de Reservas</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Reservas</h1>
         <Button onClick={handleExport} variant="outline" className="flex items-center gap-2">
           <Download size={16} /> Exportar CSV
         </Button>
@@ -83,7 +91,7 @@ export default function Reservas() {
       )}
 
       <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
-        A geração de contrato agora é feita exclusivamente no <button type="button" className="font-semibold underline" onClick={() => navigate('/admin/contratos')}>Editor de contrato padrão</button>, que permite revisar os campos editáveis do modelo anexado antes de congelar a versão.
+        Gere e revise contratos na área de <button type="button" className="font-semibold underline" onClick={() => navigate('/admin/contratos')}>Contratos</button>. Versões já validadas permanecem preservadas.
       </div>
 
       <Card>
@@ -110,12 +118,13 @@ export default function Reservas() {
                         reserva.status === 'aguardando_pagamento' ? 'bg-yellow-100 text-yellow-800' : 
                         'bg-gray-100 text-gray-800'
                       }`}>
-                        {reserva.status}
+                        {statusReserva[reserva.status] || reserva.status || 'Sem situação'}
                       </span>
+                      {reserva.operacao && <div className="mt-1 text-xs text-gray-500">{reserva.operacao.onibus_nome} · poltrona {reserva.operacao.poltrona}{reserva.operacao.ponto_embarque ? ` · ${reserva.operacao.ponto_embarque}` : ''}</div>}
                     </td>
-                    <td className="px-6 py-4">R$ {reserva.valor_total}</td>
+                    <td className="px-6 py-4">{formatarMoeda(reserva.valor_total)}</td>
                     <td className="px-6 py-4 text-right space-x-2">
-                      {!reserva.contrato_pdf_url && (
+                      {!reserva.contrato_disponivel && !reserva.contrato_pdf_url && (
                         <button
                           onClick={() => abrirGerarContrato(reserva)}
                           className="text-gray-500 hover:text-primary transition-colors p-1"
@@ -154,4 +163,3 @@ export default function Reservas() {
     </div>
   );
 }
-

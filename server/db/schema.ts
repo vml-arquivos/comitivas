@@ -54,6 +54,9 @@ export const usuarios = pgTable("usuarios", {
   cadastro_status: varchar("cadastro_status", { length: 30 }).notNull().default("aprovado"),
   aprovado_em: timestamp("aprovado_em"),
   aprovado_por: text("aprovado_por"),
+  gestor_id: text("gestor_id"),
+  equipe_nome: varchar("equipe_nome", { length: 120 }),
+  ultimo_acesso_em: timestamp("ultimo_acesso_em"),
   criado_em: timestamp("criado_em").defaultNow().notNull(),
   atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
 }, (table) => ({
@@ -184,6 +187,8 @@ export const reservas = pgTable("reservas", {
   aceite_ip: varchar("aceite_ip", { length: 45 }),
   boleto_liberado_em: timestamp("boleto_liberado_em"),
   boleto_liberado_por: text("boleto_liberado_por"),
+  saida_operacional_id: text("saida_operacional_id"),
+  ponto_embarque_id: text("ponto_embarque_id"),
   criado_em: timestamp("criado_em").defaultNow().notNull(),
   atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
 }, (table) => ({
@@ -414,6 +419,108 @@ export const inventarioHolds = pgTable("inventario_holds", {
   liberado_em: timestamp("liberado_em"),
   motivo_liberacao: text("motivo_liberacao"),
 }, (table) => ({ loteIdx: index("inventario_holds_lote_ativos_idx").on(table.lote_id, table.status, table.expira_em), expiracaoIdx: index("inventario_holds_expiracao_idx").on(table.status, table.expira_em) }));
+
+// Operação física da excursão. O inventário comercial continua em lotes e
+// inventario_holds; estas tabelas controlam veículo, poltrona e embarque sem
+// alterar reservas ou contratos históricos.
+export const saidasOperacionais = pgTable("saidas_operacionais", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  lote_id: text("lote_id").notNull().references(() => lotes.id),
+  nome: varchar("nome", { length: 160 }).notNull(),
+  data_partida: timestamp("data_partida"),
+  data_retorno: timestamp("data_retorno"),
+  status: varchar("status", { length: 30 }).notNull().default("planejamento"),
+  ativa: boolean("ativa").notNull().default(true),
+  criado_por: text("criado_por").references(() => usuarios.id),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+  atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
+}, (table) => ({ loteIdx: index("saidas_operacionais_lote_idx").on(table.lote_id, table.ativa) }));
+
+export const onibusOperacionais = pgTable("onibus_operacionais", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  saida_id: text("saida_id").notNull().references(() => saidasOperacionais.id),
+  nome: varchar("nome", { length: 120 }).notNull(),
+  identificacao: varchar("identificacao", { length: 120 }),
+  placa: varchar("placa", { length: 12 }),
+  capacidade: integer("capacidade").notNull(),
+  motorista_nome: varchar("motorista_nome", { length: 160 }),
+  motorista_telefone: varchar("motorista_telefone", { length: 20 }),
+  responsavel_nome: varchar("responsavel_nome", { length: 160 }),
+  status: varchar("status", { length: 30 }).notNull().default("planejamento"),
+  ativo: boolean("ativo").notNull().default(true),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+  atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
+}, (table) => ({ saidaIdx: index("onibus_operacionais_saida_idx").on(table.saida_id, table.ativo) }));
+
+export const assentosOnibus = pgTable("assentos_onibus", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  onibus_id: text("onibus_id").notNull().references(() => onibusOperacionais.id),
+  numero: integer("numero").notNull(),
+  fileira: integer("fileira").notNull(),
+  posicao: varchar("posicao", { length: 10 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("disponivel"),
+  motivo_bloqueio: text("motivo_bloqueio"),
+  atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
+}, (table) => ({ onibusIdx: index("assentos_onibus_onibus_idx").on(table.onibus_id, table.numero) }));
+
+export const pontosEmbarqueOperacao = pgTable("pontos_embarque_operacao", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  saida_id: text("saida_id").notNull().references(() => saidasOperacionais.id),
+  nome: varchar("nome", { length: 160 }).notNull(),
+  endereco: text("endereco"),
+  horario: timestamp("horario"),
+  ordem: integer("ordem").notNull().default(0),
+  ativo: boolean("ativo").notNull().default(true),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+}, (table) => ({ saidaIdx: index("pontos_embarque_operacao_saida_idx").on(table.saida_id, table.ativo, table.ordem) }));
+
+export const assentoHolds = pgTable("assento_holds", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  assento_id: text("assento_id").notNull().references(() => assentosOnibus.id),
+  reserva_id: text("reserva_id").references(() => reservas.id),
+  usuario_id: text("usuario_id").references(() => usuarios.id),
+  status: varchar("status", { length: 20 }).notNull().default("ativo"),
+  expira_em: timestamp("expira_em").notNull(),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+  convertido_em: timestamp("convertido_em"),
+  liberado_em: timestamp("liberado_em"),
+}, (table) => ({ assentoIdx: index("assento_holds_assento_idx").on(table.assento_id, table.status, table.expira_em) }));
+
+export const assentoAlocacoes = pgTable("assento_alocacoes", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  assento_id: text("assento_id").notNull().references(() => assentosOnibus.id),
+  reserva_id: text("reserva_id").notNull().references(() => reservas.id),
+  usuario_id: text("usuario_id").notNull().references(() => usuarios.id),
+  ponto_embarque_id: text("ponto_embarque_id").references(() => pontosEmbarqueOperacao.id),
+  status: varchar("status", { length: 20 }).notNull().default("ativa"),
+  alocado_por: text("alocado_por").references(() => usuarios.id),
+  alocado_em: timestamp("alocado_em").defaultNow().notNull(),
+  encerrado_em: timestamp("encerrado_em"),
+  motivo: text("motivo"),
+}, (table) => ({ assentoIdx: index("assento_alocacoes_assento_idx").on(table.assento_id, table.status), reservaIdx: index("assento_alocacoes_reserva_idx").on(table.reserva_id, table.status) }));
+
+export const checkinsOperacao = pgTable("checkins_operacao", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  saida_id: text("saida_id").notNull().references(() => saidasOperacionais.id),
+  reserva_id: text("reserva_id").notNull().references(() => reservas.id),
+  status: varchar("status", { length: 20 }).notNull().default("pendente"),
+  confirmado_em: timestamp("confirmado_em"),
+  confirmado_por: text("confirmado_por").references(() => usuarios.id),
+  observacoes: text("observacoes"),
+  atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
+}, (table) => ({ saidaIdx: index("checkins_operacao_saida_idx").on(table.saida_id, table.status) }));
+
+export const operacaoHistorico = pgTable("operacao_historico", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  saida_id: text("saida_id").references(() => saidasOperacionais.id),
+  entidade: varchar("entidade", { length: 50 }).notNull(),
+  entidade_id: text("entidade_id"),
+  acao: varchar("acao", { length: 80 }).notNull(),
+  ator_id: text("ator_id").references(() => usuarios.id),
+  antes: jsonb("antes"),
+  depois: jsonb("depois"),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+}, (table) => ({ saidaIdx: index("operacao_historico_saida_idx").on(table.saida_id, table.criado_em) }));
 
 export const notificacoesOutbox = pgTable("notificacoes_outbox", {
   id: text("id").primaryKey().$defaultFn(() => createId()),

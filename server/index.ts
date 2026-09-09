@@ -21,6 +21,7 @@ import cupomsRoutes from "./routes/cupons.js";
 import jornadadRoutes from "./routes/jornada.js";
 import adminRoutes from "./routes/admin.js";
 import clienteRoutes from "./routes/cliente.js";
+import operacaoRoutes from "./routes/operacao.js";
 
 dotenv.config();
 AuthService.validarConfiguracaoSegura();
@@ -176,6 +177,10 @@ app.use("/api/jornada", jornadadRoutes);
 // O router administrativo aplica autenticação e escopo por rota: vendedor
 // acessa apenas o dashboard da própria carteira; demais endpoints são admin.
 app.use("/api/admin", adminRoutes);
+
+// Mapa físico de ônibus, poltronas, passageiros e check-in. Somente a
+// administração pode consultar ou alterar a operação.
+app.use("/api/operacao", authMiddleware, requireRole("admin"), operacaoRoutes);
 
 // Fallback de SPA: qualquer rota GET que não seja /api/* devolve o index.html,
 // deixando o React Router decidir a tela (ex.: /eventos, /login, /minhas-reservas)

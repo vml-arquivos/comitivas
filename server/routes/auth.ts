@@ -486,6 +486,7 @@ router.post("/convite/:token", async (req: Request, res: Response) => {
       const senhaHash = await AuthService.hashPassword(senha);
       const usuario = (await tx.insert(usuarios).values({
         id: createId(), nome, email, cpf, telefone: telefone || null, senha_hash: senhaHash, tipo: convite.papel as "dev" | "admin" | "vendedor",
+        gestor_id: convite.papel === "vendedor" ? convite.criado_por : null,
         email_confirmado: true, email_confirmado_em: agora, cadastro_status: "aprovado", aprovado_em: agora, aprovado_por: convite.criado_por, ativo: true, criado_em: agora, atualizado_em: agora,
       }).returning({ id: usuarios.id, nome: usuarios.nome, email: usuarios.email, tipo: usuarios.tipo, session_version: usuarios.session_version }))[0];
       if (!usuario) throw new Error("Não foi possível criar a conta");
@@ -566,6 +567,8 @@ router.post("/login", async (req: Request<{}, {}, LoginRequest>, res: Response) 
       tipo: usuario.tipo || "cliente",
       session_version: Number(usuario.session_version || 1),
     });
+
+    await db.update(usuarios).set({ ultimo_acesso_em: new Date(), atualizado_em: new Date() }).where(eq(usuarios.id, usuario.id));
 
     definirCookieAuth(res, token);
     res.json({
