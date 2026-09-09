@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../contexts/AuthContext';
 import { Card, CardContent } from '@ui/index';
+import { BadgeDollarSign, BarChart3, Percent, Ticket } from 'lucide-react';
 
 interface Evento {
   id: string;
@@ -41,12 +42,7 @@ export default function Relatorios() {
       setIsLoading(true);
       setError(null);
       try {
-        const [ocupacaoRes, faturamentoRes, pacotesRes, cuponsRes] = await Promise.all([
-          api.get(`/admin/relatorios/ocupacao/${eventoId}`),
-          api.get(`/admin/relatorios/faturamento/${eventoId}`),
-          api.get(`/admin/relatorios/pacotes/${eventoId}`),
-          api.get(`/admin/relatorios/cupons/${eventoId}`),
-        ]);
+        const [ocupacaoRes, faturamentoRes, pacotesRes, cuponsRes] = await Promise.all([api.get(`/admin/relatorios/ocupacao/${eventoId}`), api.get(`/admin/relatorios/faturamento/${eventoId}`), api.get(`/admin/relatorios/pacotes/${eventoId}`), api.get(`/admin/relatorios/cupons/${eventoId}`)]);
         setOcupacao(ocupacaoRes.data.relatorio || []);
         setFaturamento(faturamentoRes.data);
         setPacotesVendidos(pacotesRes.data.relatorio || []);
@@ -61,21 +57,23 @@ export default function Relatorios() {
   }, [eventoId]);
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">Relatórios</h1>
+    <div className="admin-page">
+      <div className="admin-page-header">
+        <div>
+          <p className="admin-eyebrow">Análise da operação</p>
+          <h1 className="admin-title">Relatórios e métricas</h1>
+          <p className="admin-subtitle">Indicadores financeiros, ocupação, pacotes e cupons com dados do sistema.</p>
+        </div>
       </div>
 
       {eventos.length > 1 && (
-        <div className="max-w-xs">
+        <div className="admin-card max-w-sm p-4">
           <label className="mb-1 block text-sm font-medium text-gray-700">Evento</label>
-          <select
-            value={eventoId}
-            onChange={(e) => setEventoId(e.target.value)}
-            className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-          >
+          <select value={eventoId} onChange={(e) => setEventoId(e.target.value)} className="admin-field">
             {eventos.map((ev) => (
-              <option key={ev.id} value={ev.id}>{ev.nome}</option>
+              <option key={ev.id} value={ev.id}>
+                {ev.nome}
+              </option>
             ))}
           </select>
         </div>
@@ -83,9 +81,7 @@ export default function Relatorios() {
 
       {error && <div className="bg-red-50 text-red-700 p-4 rounded-lg">{error}</div>}
 
-      {eventos.length === 0 && !isLoading && !error && (
-        <div className="bg-yellow-50 text-yellow-800 p-4 rounded-lg">Crie um evento primeiro para ver relatórios.</div>
-      )}
+      {eventos.length === 0 && !isLoading && !error && <div className="bg-yellow-50 text-yellow-800 p-4 rounded-lg">Crie um evento primeiro para ver relatórios.</div>}
 
       {isLoading && <p className="text-gray-500">Carregando relatórios...</p>}
 
@@ -93,30 +89,45 @@ export default function Relatorios() {
         <>
           {/* Faturamento resumo */}
           {faturamento && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Card>
-                <CardContent className="p-6">
-                  <p className="text-sm text-gray-500">Faturamento Total</p>
-                  <p className="text-2xl font-bold text-gray-900">R$ {Number(faturamento.resumo?.faturamento_total ?? 0).toFixed(2)}</p>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <Card className="admin-card">
+                <CardContent className="flex items-start gap-4 p-6">
+                  <div className="admin-icon-bubble bg-[#eaf7f0] text-emerald-700">
+                    <BadgeDollarSign size={21} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Faturamento total</p>
+                    <p className="text-2xl font-black text-[#073F50]">R$ {Number(faturamento.resumo?.faturamento_total ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                  </div>
                 </CardContent>
               </Card>
-              <Card>
-                <CardContent className="p-6">
-                  <p className="text-sm text-gray-500">Descontos Aplicados</p>
-                  <p className="text-2xl font-bold text-gray-900">R$ {Number(faturamento.resumo?.desconto_total ?? 0).toFixed(2)}</p>
+              <Card className="admin-card">
+                <CardContent className="flex items-start gap-4 p-6">
+                  <div className="admin-icon-bubble bg-[#fff5df] text-amber-700">
+                    <Percent size={21} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Descontos aplicados</p>
+                    <p className="text-2xl font-black text-[#073F50]">R$ {Number(faturamento.resumo?.desconto_total ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                  </div>
                 </CardContent>
               </Card>
-              <Card>
-                <CardContent className="p-6">
-                  <p className="text-sm text-gray-500">Valor Líquido</p>
-                  <p className="text-2xl font-bold text-primary">R$ {Number(faturamento.resumo?.valor_liquido ?? 0).toFixed(2)}</p>
+              <Card className="admin-card">
+                <CardContent className="flex items-start gap-4 p-6">
+                  <div className="admin-icon-bubble bg-[#fff0eb] text-[#DF6248]">
+                    <BarChart3 size={21} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Valor líquido</p>
+                    <p className="text-2xl font-black text-[#DF6248]">R$ {Number(faturamento.resumo?.valor_liquido ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                  </div>
                 </CardContent>
               </Card>
             </div>
           )}
 
           {/* Ocupação por lote */}
-          <Card>
+          <Card className="admin-card">
             <CardContent className="p-6">
               <h2 className="font-bold text-gray-900 mb-4">Ocupação por Lote</h2>
               <div className="overflow-x-auto">
@@ -137,11 +148,27 @@ export default function Relatorios() {
                         <td className="px-4 py-2">{lote.vagas_totais}</td>
                         <td className="px-4 py-2">{lote.vagas_ocupadas}</td>
                         <td className="px-4 py-2">{lote.vagas_disponiveis}</td>
-                        <td className="px-4 py-2">{lote.percentual_ocupacao}%</td>
+                        <td className="min-w-40 px-4 py-2">
+                          <div className="flex items-center gap-2">
+                            <div className="h-2 flex-1 rounded-full bg-slate-100">
+                              <div
+                                className="h-2 rounded-full bg-[#DF6248]"
+                                style={{
+                                  width: `${Math.min(100, Number(lote.percentual_ocupacao || 0))}%`,
+                                }}
+                              />
+                            </div>
+                            <strong className="w-11 text-right text-xs">{lote.percentual_ocupacao}%</strong>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                     {ocupacao.length === 0 && (
-                      <tr><td colSpan={5} className="px-4 py-6 text-center text-gray-500">Sem lotes cadastrados</td></tr>
+                      <tr>
+                        <td colSpan={5} className="px-4 py-6 text-center text-gray-500">
+                          Sem lotes cadastrados
+                        </td>
+                      </tr>
                     )}
                   </tbody>
                 </table>
@@ -150,7 +177,7 @@ export default function Relatorios() {
           </Card>
 
           {/* Faturamento por lote */}
-          <Card>
+          <Card className="admin-card">
             <CardContent className="p-6">
               <h2 className="font-bold text-gray-900 mb-4">Faturamento por Lote</h2>
               <div className="overflow-x-auto">
@@ -173,7 +200,11 @@ export default function Relatorios() {
                       </tr>
                     ))}
                     {(!faturamento || (faturamento.relatorio || []).length === 0) && (
-                      <tr><td colSpan={4} className="px-4 py-6 text-center text-gray-500">Sem dados</td></tr>
+                      <tr>
+                        <td colSpan={4} className="px-4 py-6 text-center text-gray-500">
+                          Sem dados
+                        </td>
+                      </tr>
                     )}
                   </tbody>
                 </table>
@@ -182,9 +213,12 @@ export default function Relatorios() {
           </Card>
 
           {/* Pacotes mais vendidos */}
-          <Card>
+          <Card className="admin-card">
             <CardContent className="p-6">
-              <h2 className="font-bold text-gray-900 mb-4">Itens Mais Vendidos</h2>
+              <h2 className="mb-4 flex items-center gap-2 font-bold text-gray-900">
+                <Ticket size={18} className="text-[#DF6248]" />
+                Itens mais vendidos
+              </h2>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
                   <thead className="bg-gray-50 text-gray-700 uppercase">
@@ -201,7 +235,11 @@ export default function Relatorios() {
                       </tr>
                     ))}
                     {pacotesVendidos.length === 0 && (
-                      <tr><td colSpan={2} className="px-4 py-6 text-center text-gray-500">Sem vendas registradas</td></tr>
+                      <tr>
+                        <td colSpan={2} className="px-4 py-6 text-center text-gray-500">
+                          Sem vendas registradas
+                        </td>
+                      </tr>
                     )}
                   </tbody>
                 </table>
@@ -210,7 +248,7 @@ export default function Relatorios() {
           </Card>
 
           {/* Uso de cupons */}
-          <Card>
+          <Card className="admin-card">
             <CardContent className="p-6">
               <h2 className="font-bold text-gray-900 mb-4">Uso de Cupons</h2>
               <div className="overflow-x-auto">
@@ -229,7 +267,11 @@ export default function Relatorios() {
                       </tr>
                     ))}
                     {usoCupons.length === 0 && (
-                      <tr><td colSpan={2} className="px-4 py-6 text-center text-gray-500">Nenhum cupom usado</td></tr>
+                      <tr>
+                        <td colSpan={2} className="px-4 py-6 text-center text-gray-500">
+                          Nenhum cupom usado
+                        </td>
+                      </tr>
                     )}
                   </tbody>
                 </table>

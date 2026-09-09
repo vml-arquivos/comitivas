@@ -5,9 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle, Button, Input } from '@ui/ind
 import { Download, Eye, Mail, FileSignature } from 'lucide-react';
 
 const statusReserva: Record<string, string> = {
-  visitante: 'Visitante', cadastrado: 'Cadastrado', pacote_montado: 'Pacote montado',
-  checkout_iniciado: 'Checkout iniciado', aguardando_pagamento: 'Aguardando pagamento',
-  contrato_gerado: 'Contrato gerado', cliente_confirmado: 'Cliente confirmado', abandonado: 'Abandonada',
+  visitante: 'Visitante',
+  cadastrado: 'Cadastrado',
+  pacote_montado: 'Pacote montado',
+  checkout_iniciado: 'Checkout iniciado',
+  aguardando_pagamento: 'Aguardando pagamento',
+  contrato_gerado: 'Contrato gerado',
+  cliente_confirmado: 'Cliente confirmado',
+  abandonado: 'Abandonada',
 };
 
 const formatarMoeda = (valor: string | number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor || 0));
@@ -36,7 +41,9 @@ export default function Reservas() {
 
   const handleExport = async () => {
     try {
-      const response = await api.get('/admin/exportar/reservas/all', { responseType: 'blob' });
+      const response = await api.get('/admin/exportar/reservas/all', {
+        responseType: 'blob',
+      });
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
@@ -51,7 +58,9 @@ export default function Reservas() {
 
   const handleVerContrato = async (reservaId: string) => {
     try {
-      const response = await api.get(`/contratos/download/${reservaId}`, { responseType: 'blob' });
+      const response = await api.get(`/contratos/download/${reservaId}`, {
+        responseType: 'blob',
+      });
       const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
       window.open(url, '_blank');
     } catch (err: any) {
@@ -74,24 +83,28 @@ export default function Reservas() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">Reservas</h1>
+    <div className="admin-page">
+      <div className="admin-page-header">
+        <div>
+          <p className="admin-eyebrow">Operação comercial</p>
+          <h1 className="admin-title">Reservas</h1>
+          <p className="admin-subtitle">Acompanhe clientes, pacotes, contratos e lugares vinculados.</p>
+        </div>
         <Button onClick={handleExport} variant="outline" className="flex items-center gap-2">
           <Download size={16} /> Exportar CSV
         </Button>
       </div>
 
-      {error && (
-        <div className="bg-red-50 text-red-700 p-4 rounded-lg">{error}</div>
-      )}
+      {error && <div className="bg-red-50 text-red-700 p-4 rounded-lg">{error}</div>}
 
-      {acaoMsg && (
-        <div className="bg-blue-50 text-blue-700 p-4 rounded-lg">{acaoMsg}</div>
-      )}
+      {acaoMsg && <div className="bg-blue-50 text-blue-700 p-4 rounded-lg">{acaoMsg}</div>}
 
       <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
-        Gere e revise contratos na área de <button type="button" className="font-semibold underline" onClick={() => navigate('/admin/contratos')}>Contratos</button>. Versões já validadas permanecem preservadas.
+        Gere e revise contratos na área de{' '}
+        <button type="button" className="font-semibold underline" onClick={() => navigate('/admin/contratos')}>
+          Contratos
+        </button>
+        . Versões já validadas permanecem preservadas.
       </div>
 
       <Card>
@@ -113,38 +126,25 @@ export default function Reservas() {
                     <td className="px-6 py-4 font-medium text-gray-900">{reserva.id.substring(0, 8)}</td>
                     <td className="px-6 py-4">{new Date(reserva.criado_em).toLocaleDateString('pt-BR')}</td>
                     <td className="px-6 py-4">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        reserva.status === 'cliente_confirmado' ? 'bg-green-100 text-green-800' : 
-                        reserva.status === 'aguardando_pagamento' ? 'bg-yellow-100 text-yellow-800' : 
-                        'bg-gray-100 text-gray-800'
-                      }`}>
-                        {statusReserva[reserva.status] || reserva.status || 'Sem situação'}
-                      </span>
-                      {reserva.operacao && <div className="mt-1 text-xs text-gray-500">{reserva.operacao.onibus_nome} · poltrona {reserva.operacao.poltrona}{reserva.operacao.ponto_embarque ? ` · ${reserva.operacao.ponto_embarque}` : ''}</div>}
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${reserva.status === 'cliente_confirmado' ? 'bg-green-100 text-green-800' : reserva.status === 'aguardando_pagamento' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-800'}`}>{statusReserva[reserva.status] || reserva.status || 'Sem situação'}</span>
+                      {reserva.operacao && (
+                        <div className="mt-1 text-xs text-gray-500">
+                          {reserva.operacao.onibus_nome} · lugar {reserva.operacao.poltrona}
+                          {reserva.operacao.ponto_embarque ? ` · ${reserva.operacao.ponto_embarque}` : ''}
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4">{formatarMoeda(reserva.valor_total)}</td>
                     <td className="px-6 py-4 text-right space-x-2">
                       {!reserva.contrato_disponivel && !reserva.contrato_pdf_url && (
-                        <button
-                          onClick={() => abrirGerarContrato(reserva)}
-                          className="text-gray-500 hover:text-primary transition-colors p-1"
-                          title="Gerar contrato manualmente"
-                        >
+                        <button onClick={() => abrirGerarContrato(reserva)} className="text-gray-500 hover:text-primary transition-colors p-1" title="Gerar contrato manualmente">
                           <FileSignature size={18} />
                         </button>
                       )}
-                      <button
-                        onClick={() => handleVerContrato(reserva.id)}
-                        className="text-gray-500 hover:text-primary transition-colors p-1"
-                        title="Ver/baixar contrato"
-                      >
+                      <button onClick={() => handleVerContrato(reserva.id)} className="text-gray-500 hover:text-primary transition-colors p-1" title="Ver/baixar contrato">
                         <Eye size={18} />
                       </button>
-                      <button
-                        onClick={() => handleReenviarContrato(reserva.id)}
-                        className="text-gray-500 hover:text-primary transition-colors p-1"
-                        title="Reenviar E-mail"
-                      >
+                      <button onClick={() => handleReenviarContrato(reserva.id)} className="text-gray-500 hover:text-primary transition-colors p-1" title="Reenviar E-mail">
                         <Mail size={18} />
                       </button>
                     </td>
@@ -152,7 +152,9 @@ export default function Reservas() {
                 ))}
                 {reservas.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-6 py-8 text-center text-gray-500">Nenhuma reserva encontrada</td>
+                    <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
+                      Nenhuma reserva encontrada
+                    </td>
                   </tr>
                 )}
               </tbody>
