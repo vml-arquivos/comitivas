@@ -16,6 +16,8 @@ O sistema existente foi preservado e recebeu alterações direcionadas para comp
 
 A passagem final corrigiu o erro real mostrado no deploy ao excluir lotes: o backend não executa mais um `DELETE` cego nem devolve a consulta SQL ao navegador. Pacotes, períodos, excursões, saídas e ônibus agora são excluídos definitivamente quando não existe histórico; havendo reservas, contratos, pagamentos, passageiros ou auditoria, ficam arquivados e saem das telas ativas sem perda de dados.
 
+Para a limpeza controlada de cadastros de teste, foi adicionada uma segunda operação, separada do arquivamento comum: somente o DEV pode excluir definitivamente um cliente e toda a sua árvore vinculada, um por vez, após confirmar o e-mail completo. A transação remove reservas, contratos, pagamentos, documentos, CRM e lugares, devolve vagas retidas ao lote e apaga arquivos gerenciados. Se qualquer vínculo não puder ser removido, o banco desfaz toda a operação.
+
 Também foi aplicado o padrão visual fornecido nos mockups: fundo marfim, navegação azul-petróleo, ação principal coral, cards claros, tabelas mais leves, hierarquia tipográfica consistente e adaptação responsiva. Nenhum gráfico ou indicador fictício foi incluído; as novas apresentações consomem os dados reais já retornados pelo backend.
 
 Os fluxos já existentes de cadastro mínimo, referência assinada de vendedor, parcelamento dinâmico, contratos versionados, boletos manuais, pagamentos idempotentes, proteção do DEV, e-mail e redefinição de senha não foram reescritos. Foram inspecionados e preservados.
@@ -71,7 +73,11 @@ Os fluxos já existentes de cadastro mínimo, referência assinada de vendedor, 
 - Sem histórico obrigatório, a exclusão é definitiva e as configurações dependentes são removidas na ordem correta.
 - Com histórico, a ação arquiva a estrutura inteira, desativa sua publicação e mantém reservas, contratos, pagamentos, comissões e auditoria.
 - Os endpoints retornam mensagens simples e não expõem SQL, parâmetros, stack trace ou detalhes internos.
-- A exclusão de clientes/usuários já existente foi preservada: exclusão definitiva sem dependências e arquivamento quando há histórico.
+- A exclusão comum de clientes/usuários foi preservada para ADMIN: exclusão sem dependências e arquivamento quando há histórico.
+- O DEV possui uma ação explícita **Excluir definitivamente** para clientes de teste, disponível na lista e na Ficha 360.
+- A confirmação exige o e-mail completo do cliente; não há exclusão em massa nem possibilidade de o DEV apagar o próprio acesso.
+- A limpeza é transacional, remove a árvore relacional na ordem correta, libera poltronas, devolve ao lote apenas as vagas ainda retidas e elimina os arquivos do storage administrado.
+- A execução definitiva registra auditoria sem conservar nome, e-mail ou CPF do cadastro removido.
 
 ### Fotos e publicação
 
@@ -158,12 +164,14 @@ Arquivo: `drizzle/0013_operacao_onibus_equipe.sql`.
 - `server/routes/operacao.ts` (novo)
 - `server/routes/pacotes.ts`
 - `server/services/catalogoExclusaoService.ts` (novo)
+- `server/services/clienteExclusaoService.ts` (novo)
 - `server/services/contratoService.ts`
 - `server/services/operacaoOnibusService.ts` (novo)
 - `tests/contratoHtml.spec.ts`
 - `tests/operacaoOnibus.spec.ts` (novo)
 - `tests/criticalRoutes.spec.ts` (novo)
 - `tests/exclusaoSegura.spec.ts` (novo)
+- `tests/clienteExclusaoDefinitiva.spec.ts` (novo)
 - `tests/mobileViewport.spec.ts` (novo)
 
 ## 6. Validação automatizada
@@ -181,13 +189,13 @@ Resultado final:
 
 - `npm run typecheck:server`: aprovado.
 - `npm run lint`: aprovado.
-- `npm test -- --run`: 11 arquivos e 58 testes aprovados.
+- `npm test -- --run`: 12 arquivos e 62 testes aprovados.
 - `npm run build`: aprovado (`build:server`, `build:seed`, `build:web`).
 - `npm --prefix apps/mobile run build`: aprovado.
 - `npm run test:a11y`: aprovado para estrutura, foco e metadados verificáveis no build.
 - `git diff --check`: aprovado.
 - Testes cobrem autenticação segura, DEV invisível para ADMIN, IDOR entre clientes, contratos/PDF, referência assinada de vendedor, parcelamento dinâmico, configuração de gateway, mapa de 44 poltronas, limites de capacidade e caráter não destrutivo da migration.
-- Os testes adicionais cobrem arquivamento do catálogo, exclusão de ônibus/saídas sem perda histórica, respostas sem SQL e contenção horizontal do PWA instalado no iPhone.
+- Os testes adicionais cobrem arquivamento do catálogo, exclusão de ônibus/saídas sem perda histórica, exclusão definitiva de cliente restrita ao DEV, confirmação reforçada, ordem de remoção das FKs, devolução de vagas, respostas sem SQL e contenção horizontal do PWA instalado no iPhone.
 
 ## 7. Deploy Coolify
 
@@ -219,6 +227,8 @@ A migration não exige execução manual no fluxo atual: o `Dockerfile` inclui a
 11. Como DEV, excluir um pacote sem reserva e outro com reserva; confirmar exclusão definitiva no primeiro e arquivamento no segundo.
 12. Repetir para período/excursão e confirmar que não aparece consulta SQL nem erro de FK.
 13. No iPhone, remover a instalação anterior, instalar novamente, abrir em modo standalone e confirmar que a tela não desloca horizontalmente nem reduz por gesto de pinça.
+14. Como DEV, abrir um cliente de teste, clicar **Excluir definitivamente**, informar um e-mail incorreto e confirmar a rejeição; repetir com o e-mail correto e validar que cliente, reservas, contratos, pagamentos e alocação desapareceram e que a vaga retornou ao lote.
+15. Repetir o acesso como ADMIN e confirmar que a mesma ação apenas arquiva o cliente que possui histórico.
 
 ## 9. Segunda passagem visual e de navegação
 
@@ -238,12 +248,13 @@ A migration não exige execução manual no fluxo atual: o `Dockerfile` inclui a
 - A alocação de transporte/lugar entra em novos contratos gerados depois da atribuição. Documentos assinados antigos não são alterados, por integridade jurídica.
 - A validação visual autenticada com dados de produção deve ser repetida após o deploy; nesta entrega foram validados TypeScript, Tailwind, grids responsivos e os builds web/mobile, sem usar credenciais reais.
 - O ambiente local não recebeu `DATABASE_URL`; por isso a nova exclusão transacional foi validada por TypeScript, build e testes de contrato de código, mas o teste integrado deve ser repetido após a migration automática e o redeploy de homologação.
+- A exclusão definitiva é deliberadamente limitada a clientes e ao perfil DEV. Ela não cancela cobranças já enviadas ao provedor externo; antes de remover um cadastro que não seja de teste, eventuais cobranças reais devem ser canceladas no provedor.
 
 ## 11. Commit sugerido
 
 Mensagem:
 
-`feat: finalizar operação, exclusão segura e PWA no iPhone`
+`feat: finalizar operação e adicionar limpeza DEV de clientes de teste`
 
 Resumo:
 
@@ -257,3 +268,10 @@ Resumo:
 - corrige exclusão com dependências sem erro de FK ou vazamento de SQL;
 - adiciona edição de excursões, períodos e pacotes;
 - impede deslocamento horizontal do PWA instalado no iPhone.
+- adiciona exclusão definitiva, individual e transacional de clientes para o DEV.
+
+## 12. Pacote final
+
+- Arquivo: `comitivas-producao-final-pwa-exclusao-2026-09-09.zip`
+- SHA-256: `6c85a3820b5bcbe3d03133e6b2285be2b4014708f36d3bcf8e2096fe5f3972e8`
+- Conteúdo validado: 296 arquivos, sem `.git`, `node_modules`, `dist`, uploads, `.env` real, chaves ou tokens.

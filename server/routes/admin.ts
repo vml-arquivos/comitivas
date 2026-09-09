@@ -9,6 +9,7 @@ import { GatewayConfigService } from "../services/gatewayConfigService.js";
 import { AuditService } from "../services/auditService.js";
 import { CoraPaymentProvider } from "../services/coraPaymentProvider.js";
 import { PacoteService, ConfiguracaoPacote } from "../services/pacoteService.js";
+import { ClienteExclusaoService, ErroExclusaoCliente } from "../services/clienteExclusaoService.js";
 import { db } from "../db/index.js";
 import { reservas, eventos, lotes, pacotes, usuarios, leads_origem, descontosAdministrativos, pagamentos, contratosDocumentos, contratoValidacoes, pagamentoParcelas, emails_enviados, clienteDocumentos, clienteHistorico, videosEvento, fotos_evento, comissaoRegras, comissoes, convitesAcesso, auditoriaAdmin, inventarioHolds, sessoes, passwordResetTokens, verificacoesEmail, assentoAlocacoes, assentosOnibus, onibusOperacionais, pontosEmbarqueOperacao, saidasOperacionais, checkinsOperacao } from "../db/schema.js";
 import { eq, and, inArray, or, sql, desc, isNull, ne } from "drizzle-orm";
@@ -1378,6 +1379,27 @@ router.delete("/usuarios/:id", requireRole("admin"), async (req: Request, res: R
   } catch (error: any) {
     console.error("[ADMIN] Erro ao excluir ou arquivar usuário:", error);
     return res.status(400).json({ erro: error.message || "Não foi possível excluir ou arquivar o usuário" });
+  }
+});
+
+router.delete("/usuarios/:id/definitivo", requireRole("dev"), async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const resultado = await ClienteExclusaoService.excluirDefinitivamente(
+      req.params.id,
+      req.body?.confirmacao,
+      {
+        id: req.usuario.id,
+        tipo: req.usuario.tipo,
+        ip: req.ip || null,
+        userAgent: req.get("user-agent") || null,
+      },
+    );
+    return res.json(resultado);
+  } catch (error) {
+    console.error("[ADMIN] Erro ao excluir cliente definitivamente:", error);
+    if (error instanceof ErroExclusaoCliente) return res.status(error.status).json({ erro: error.message });
+    return res.status(409).json({ erro: "Não foi possível excluir definitivamente. Nenhum dado foi removido." });
   }
 });
 

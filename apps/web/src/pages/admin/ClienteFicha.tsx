@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api } from '../../contexts/AuthContext';
+import { api, useAuth } from '../../contexts/AuthContext';
 import { Button, Card, CardContent, Input } from '@ui/index';
 import { ArrowLeft, CalendarDays, ClipboardList, CreditCard, Download, Eye, FileDown, FileText, History, Mail, MapPin, Pencil, Phone, Plus, Printer, RefreshCw, ShieldCheck, Trash2, Upload, UserRound, Wallet } from 'lucide-react';
 
@@ -246,6 +246,7 @@ function Vazio({ children }: { children: React.ReactNode }) {
 export default function ClienteFicha() {
   const { clienteId } = useParams();
   const navigate = useNavigate();
+  const { user: usuarioLogado } = useAuth();
   const [ficha, setFicha] = useState<Ficha | null>(null);
   const [aba, setAba] = useState<Aba>('geral');
   const [carregando, setCarregando] = useState(true);
@@ -328,7 +329,25 @@ export default function ClienteFicha() {
   };
 
   const excluirOuArquivar = async () => {
-    if (!clienteId || !confirm('Excluir este cliente? Se houver registros, ele será arquivado para preservar o histórico.')) return;
+    if (!clienteId || !ficha) return;
+    if (usuarioLogado?.tipo === 'dev') {
+      const confirmacao = prompt(
+        `EXCLUSÃO DEFINITIVA\n\nEsta ação apagará o cliente e todos os testes vinculados: reservas, contratos, pagamentos, documentos e lugares. Não pode ser desfeita.\n\nDigite o e-mail completo para confirmar:\n${ficha.usuario.email}`,
+      );
+      if (confirmacao === null) return;
+      try {
+        const response = await api.delete(`/admin/usuarios/${clienteId}/definitivo`, {
+          data: { confirmacao },
+        });
+        alert(response.data.mensagem || 'Cliente excluído definitivamente.');
+        navigate('/admin/clientes');
+      } catch (err: any) {
+        setErro(err.response?.data?.erro || 'Não foi possível excluir definitivamente. Nenhum dado foi removido.');
+      }
+      return;
+    }
+
+    if (!confirm('Excluir este cliente? Se houver registros, ele será arquivado para preservar o histórico.')) return;
     try {
       const response = await api.delete(`/admin/usuarios/${clienteId}`);
       alert(response.data.mensagem || 'Operação concluída.');
@@ -508,7 +527,7 @@ export default function ClienteFicha() {
           </Button>
           <Button variant="outline" className="gap-2 !text-red-700" onClick={() => void excluirOuArquivar()}>
             <Trash2 size={16} />
-            Excluir
+            {usuarioLogado?.tipo === 'dev' ? 'Excluir definitivamente' : 'Excluir'}
           </Button>
           <Link to="/admin/boletos">
             <Button variant="outline" className="gap-2">

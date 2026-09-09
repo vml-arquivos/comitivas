@@ -198,6 +198,23 @@ export default function Clientes() {
   };
 
   const handleExcluir = async (usuario: Usuario) => {
+    if (user?.tipo === 'dev' && usuario.tipo === 'cliente') {
+      const confirmacao = prompt(
+        `EXCLUSÃO DEFINITIVA\n\nEsta ação apagará o cliente ${usuario.nome} e todos os testes vinculados: reservas, contratos, pagamentos, documentos e lugares. Não pode ser desfeita.\n\nDigite o e-mail completo para confirmar:\n${usuario.email}`,
+      );
+      if (confirmacao === null) return;
+      try {
+        const response = await api.delete(`/admin/usuarios/${usuario.id}/definitivo`, {
+          data: { confirmacao },
+        });
+        setUsuarios((prev) => prev.filter((item) => item.id !== usuario.id));
+        alert(response.data.mensagem || 'Cliente excluído definitivamente.');
+      } catch (err: any) {
+        alert(err.response?.data?.erro || 'Não foi possível excluir definitivamente. Nenhum dado foi removido.');
+      }
+      return;
+    }
+
     if (!confirm(`Excluir ${usuario.nome}? Se houver registros, o usuário será arquivado para preservar o histórico.`)) return;
     try {
       const response = await api.delete(`/admin/usuarios/${usuario.id}`);
@@ -371,7 +388,12 @@ export default function Clientes() {
                           <Power size={18} />
                         </button>
                         {usuario.tipo !== 'dev' && usuario.id !== user?.id && (usuario.tipo !== 'admin' || user?.tipo === 'dev') && (
-                          <button onClick={() => void handleExcluir(usuario)} className="p-1 text-gray-500 transition-colors hover:text-red-700" title="Excluir ou arquivar">
+                          <button
+                            onClick={() => void handleExcluir(usuario)}
+                            className="p-1 text-gray-500 transition-colors hover:text-red-700"
+                            title={user?.tipo === 'dev' && usuario.tipo === 'cliente' ? 'Excluir definitivamente (DEV)' : 'Excluir ou arquivar'}
+                            aria-label={user?.tipo === 'dev' && usuario.tipo === 'cliente' ? `Excluir definitivamente ${usuario.nome}` : `Excluir ou arquivar ${usuario.nome}`}
+                          >
                             <Trash2 size={18} />
                           </button>
                         )}
