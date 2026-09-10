@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
-import { gerarLayoutAssentos } from "../server/services/operacaoOnibusService.js";
+import { classificarFilaOnibus, gerarLayoutAssentos } from "../server/services/operacaoOnibusService.js";
 
 describe("mapa físico de ônibus", () => {
   it("gera todas as poltronas em fileiras de quatro posições", () => {
@@ -18,6 +18,15 @@ describe("mapa físico de ônibus", () => {
     expect(() => gerarLayoutAssentos(44.5)).toThrow("número inteiro");
   });
 
+  it("libera somente o primeiro ônibus com lugar disponível", () => {
+    const fila = classificarFilaOnibus([
+      { capacidade: 2, ocupadas: 2, bloqueadas: 0, em_hold: 0 },
+      { capacidade: 2, ocupadas: 1, bloqueadas: 0, em_hold: 0 },
+      { capacidade: 2, ocupadas: 0, bloqueadas: 0, em_hold: 0 },
+    ]);
+    expect(fila.map((item) => item.fila_status)).toEqual(["esgotado", "em_venda", "aguardando"]);
+  });
+
   it("mantém a migration operacional aditiva e protege alocações ativas", async () => {
     const migration = await readFile(new URL("../drizzle/0013_operacao_onibus_equipe.sql", import.meta.url), "utf8");
 
@@ -27,5 +36,14 @@ describe("mapa físico de ônibus", () => {
     expect(migration).toContain("assento_alocacoes_assento_ativo_unico");
     expect(migration).toContain("assento_alocacoes_reserva_ativa_unico");
     expect(migration).toContain("assento_holds_ativo_unico");
+  });
+
+  it("mantém a evolução da fila e dos quartos sem operações destrutivas", async () => {
+    const migration = await readFile(new URL("../drizzle/0014_fila_onibus_quartos_solicitacoes.sql", import.meta.url), "utf8");
+    expect(migration).not.toMatch(/\bDROP\s+(?:TABLE|COLUMN)\b/i);
+    expect(migration).not.toMatch(/\bTRUNCATE\b/i);
+    expect(migration).toContain("onibus_operacionais_venda_ordem_ativa_idx");
+    expect(migration).toContain("quarto_alocacoes_reserva_ativa_unica");
+    expect(migration).toContain("reserva_solicitacoes_aberta_unica");
   });
 });

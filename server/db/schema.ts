@@ -443,6 +443,7 @@ export const onibusOperacionais = pgTable("onibus_operacionais", {
   identificacao: varchar("identificacao", { length: 120 }),
   placa: varchar("placa", { length: 12 }),
   capacidade: integer("capacidade").notNull(),
+  venda_ordem: integer("venda_ordem").notNull().default(1),
   motorista_nome: varchar("motorista_nome", { length: 160 }),
   motorista_telefone: varchar("motorista_telefone", { length: 20 }),
   responsavel_nome: varchar("responsavel_nome", { length: 160 }),
@@ -521,6 +522,62 @@ export const operacaoHistorico = pgTable("operacao_historico", {
   depois: jsonb("depois"),
   criado_em: timestamp("criado_em").defaultNow().notNull(),
 }, (table) => ({ saidaIdx: index("operacao_historico_saida_idx").on(table.saida_id, table.criado_em) }));
+
+// Mapa operacional de hospedagem. O quarto pode atender todo o lote ou uma
+// modalidade específica; as alocações permanecem versionadas ao remanejar.
+export const quartosHospedagem = pgTable("quartos_hospedagem", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  lote_id: text("lote_id").notNull().references(() => lotes.id),
+  pacote_id: text("pacote_id").references(() => pacotes.id),
+  nome: varchar("nome", { length: 120 }).notNull(),
+  genero: varchar("genero", { length: 20 }).notNull(),
+  capacidade: integer("capacidade").notNull(),
+  observacoes: text("observacoes"),
+  ativo: boolean("ativo").notNull().default(true),
+  criado_por: text("criado_por").references(() => usuarios.id),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+  atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
+}, (table) => ({ loteIdx: index("quartos_hospedagem_lote_idx").on(table.lote_id, table.ativo) }));
+
+export const quartoAlocacoes = pgTable("quarto_alocacoes", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  quarto_id: text("quarto_id").notNull().references(() => quartosHospedagem.id),
+  reserva_id: text("reserva_id").notNull().references(() => reservas.id),
+  usuario_id: text("usuario_id").notNull().references(() => usuarios.id),
+  numero_vaga: integer("numero_vaga").notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("ativa"),
+  alocado_por: text("alocado_por").references(() => usuarios.id),
+  alocado_em: timestamp("alocado_em").defaultNow().notNull(),
+  encerrado_em: timestamp("encerrado_em"),
+  motivo: text("motivo"),
+}, (table) => ({
+  quartoIdx: index("quarto_alocacoes_quarto_idx").on(table.quarto_id, table.status),
+  reservaIdx: index("quarto_alocacoes_reserva_idx").on(table.reserva_id, table.status),
+}));
+
+// Solicitações nunca apagam contrato ou pagamento. Cancelamento, reinício e
+// troca de pacote são analisados e concluídos por usuário autorizado.
+export const reservaSolicitacoes = pgTable("reserva_solicitacoes", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  reserva_id: text("reserva_id").notNull().references(() => reservas.id),
+  usuario_id: text("usuario_id").notNull().references(() => usuarios.id),
+  solicitado_por: text("solicitado_por").references(() => usuarios.id),
+  solicitado_por_tipo: varchar("solicitado_por_tipo", { length: 20 }).notNull(),
+  tipo: varchar("tipo", { length: 30 }).notNull(),
+  pacote_destino_id: text("pacote_destino_id").references(() => pacotes.id),
+  motivo: text("motivo").notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("pendente"),
+  parecer: text("parecer"),
+  reembolso_status: varchar("reembolso_status", { length: 30 }).notNull().default("nao_aplicavel"),
+  valor_reembolso_centavos: integer("valor_reembolso_centavos"),
+  decidido_por: text("decidido_por").references(() => usuarios.id),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+  atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
+  concluido_em: timestamp("concluido_em"),
+}, (table) => ({
+  reservaIdx: index("reserva_solicitacoes_reserva_idx").on(table.reserva_id, table.status),
+  usuarioIdx: index("reserva_solicitacoes_usuario_idx").on(table.usuario_id, table.criado_em),
+}));
 
 export const notificacoesOutbox = pgTable("notificacoes_outbox", {
   id: text("id").primaryKey().$defaultFn(() => createId()),

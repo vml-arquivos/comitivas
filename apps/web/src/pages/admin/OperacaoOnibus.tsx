@@ -65,7 +65,7 @@ type Assento = {
 };
 type Mapa = {
   saida: Saida & { vagas_totais: number };
-  onibus: any[];
+  onibus: Array<any & { fila_status: "em_venda" | "aguardando" | "esgotado"; venda_ordem: number; vagas_venda: number }>;
   assentos: Assento[];
   pontos: any[];
   reservas_disponiveis: any[];
@@ -273,6 +273,7 @@ export default function OperacaoOnibus() {
   };
 
   const clicarAssento = (assento: Assento) => {
+    const onibus = mapa?.onibus.find((item) => item.id === assento.onibus_id);
     if (
       movendoAlocacao &&
       !assento.alocacao_id &&
@@ -288,6 +289,10 @@ export default function OperacaoOnibus() {
         "Passageiro movido para o novo lugar.",
       );
       setMovendoAlocacao(null);
+      return;
+    }
+    if (!assento.alocacao_id && onibus?.fila_status === "aguardando") {
+      setErro(`O ${onibus.nome} será liberado quando o ônibus atual estiver completo.`);
       return;
     }
     setAssentoSelecionado(assento);
@@ -522,10 +527,14 @@ export default function OperacaoOnibus() {
                           {onibus.nome}
                         </h3>
                         <p className="text-xs text-slate-500">
+                          Ordem de venda {onibus.venda_ordem} ·{" "}
                           {onibus.identificacao || "Sem prefixo"} ·{" "}
                           {onibus.placa || "placa não informada"} ·{" "}
                           {onibus.ocupadas}/{onibus.capacidade} ocupados
                         </p>
+                        <span className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${onibus.fila_status === "em_venda" ? "bg-emerald-100 text-emerald-800" : onibus.fila_status === "esgotado" ? "bg-slate-100 text-slate-600" : "bg-amber-100 text-amber-800"}`}>
+                          {onibus.fila_status === "em_venda" ? `Em venda · ${onibus.vagas_venda} lugares` : onibus.fila_status === "esgotado" ? "Esgotado" : "Aguardando liberação"}
+                        </span>
                       </div>
                       <Button
                         variant="outline"

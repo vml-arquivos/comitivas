@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useAuth } from '../../contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, Button, Input } from '@ui/index';
-import { Calculator, CheckCircle2, FileSignature, Plus, RefreshCw, Search, ShoppingCart, UserPlus } from 'lucide-react';
+import { Calculator, CheckCircle2, FileSignature, RefreshCw, Search, ShoppingCart, UserPlus } from 'lucide-react';
 
 type Cliente = {
   id: string;
@@ -40,6 +40,8 @@ type Item = {
 };
 type Venda = {
   id: string;
+  lote_id: string;
+  pacote_id: string | null;
   status: string;
   checkout_estado: string;
   valor_total: string;
@@ -258,6 +260,42 @@ export default function Vendas() {
       setErro(err.response?.data?.erro || 'Não foi possível registrar a venda.');
     } finally {
       setSalvando(false);
+    }
+  };
+
+  const solicitarPosVenda = async (venda: Venda, tipo: 'cancelamento' | 'troca_pacote') => {
+    let pacoteDestinoId: string | undefined;
+    if (tipo === 'troca_pacote') {
+      try {
+        const response = await api.get(`/pacotes/lotes/${venda.lote_id}/pacotes`);
+        const opcoes = (response.data.pacotes || []).filter((item: Pacote) => item.ativo && item.id !== venda.pacote_id);
+        if (opcoes.length === 0) {
+          setErro('Não existe outro pacote disponível nesta viagem.');
+          return;
+        }
+        const escolha = window.prompt(`Escolha o novo pacote:\n${opcoes.map((item: Pacote, indice: number) => `${indice + 1}. ${item.nome} · ${dinheiro(item.valor_total)}`).join('\n')}`, '1');
+        if (escolha === null) return;
+        const indice = Number(escolha) - 1;
+        if (!Number.isInteger(indice) || !opcoes[indice]) {
+          setErro('Escolha uma opção válida de pacote.');
+          return;
+        }
+        pacoteDestinoId = opcoes[indice].id;
+      } catch (error: any) {
+        setErro(error.response?.data?.erro || 'Não foi possível carregar os pacotes desta viagem.');
+        return;
+      }
+    }
+    const motivo = window.prompt(tipo === 'cancelamento' ? 'Motivo do cancelamento:' : 'Motivo da alteração do pacote:', '') || '';
+    if (motivo.trim().length < 5) {
+      setErro('Informe o motivo da solicitação.');
+      return;
+    }
+    try {
+      await api.post(`/solicitacoes/reservas/${venda.id}`, { tipo, motivo, pacote_destino_id: pacoteDestinoId });
+      setMensagem('Solicitação registrada para análise da administração.');
+    } catch (error: any) {
+      setErro(error.response?.data?.erro || 'Não foi possível registrar a solicitação.');
     }
   };
 
@@ -619,6 +657,8 @@ export default function Vendas() {
                             <FileSignature size={14} className="mr-1 inline" />
                             Contrato
                           </Link>
+                          <button type="button" className="font-semibold text-primary hover:underline" onClick={() => void solicitarPosVenda(venda, 'troca_pacote')}>Alterar</button>
+                          <button type="button" className="font-semibold text-red-700 hover:underline" onClick={() => void solicitarPosVenda(venda, 'cancelamento')}>Cancelar</button>
                           <span>{venda.pagamento?.status_reconciliado || 'sem pagamento'}</span>
                         </div>
                       </div>

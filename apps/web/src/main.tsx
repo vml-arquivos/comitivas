@@ -2,6 +2,11 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { App } from './App'
 import './index.css'
+import { guardarPromptInstalacao } from './utils/pwaInstall'
+
+// O evento pode ocorrer antes da página /aplicativo ser aberta. Capturá-lo no
+// bootstrap permite que qualquer CTA inicie imediatamente o diálogo do Android.
+window.addEventListener('beforeinstallprompt', guardarPromptInstalacao)
 
 const navigatorIOS = navigator as Navigator & { standalone?: boolean }
 const dispositivoIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)

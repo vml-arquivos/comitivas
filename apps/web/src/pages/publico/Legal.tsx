@@ -26,7 +26,7 @@ const PAGINAS: Record<string, { titulo: string; descricao: string; secoes: Array
     titulo: 'Cancelamento e Reembolso',
     descricao: 'Orientações para formalizar um pedido de cancelamento e consultar as condições do contrato.',
     secoes: [
-      { titulo: 'Como solicitar', texto: 'Envie a solicitação formal para excursaodascomitivas@gmail.com com nome, CPF, reserva e telefone de contato. A data de formalização será considerada para análise do pedido.' },
+      { titulo: 'Como solicitar', texto: 'Entre em Minha Conta, abra a viagem e escolha Cancelar contratação. Informe o motivo; o protocolo fica registrado para análise. Se não conseguir acessar, use o canal de atendimento informado nesta página.' },
       { titulo: 'Condições aplicáveis', texto: 'As retenções e os prazos são os que constam no contrato individual aceito. A fonte contratual vigente possui intervalos de dias que dependem de aprovação jurídica e empresarial; nenhuma faixa não aprovada é preenchida automaticamente.' },
       { titulo: 'Prazo de resposta', texto: 'Após a formalização, a equipe informará o cálculo aplicável, os valores eventualmente devidos e o prazo de processamento, preservando os comprovantes e a trilha de atendimento.' },
       { titulo: 'Dúvidas', texto: 'Para atendimento rápido, fale com a equipe pelo WhatsApp (61) 99445-9086 ou pelo e-mail informado acima.' },

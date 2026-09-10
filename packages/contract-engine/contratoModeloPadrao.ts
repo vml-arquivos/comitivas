@@ -9,7 +9,7 @@ export type ContratoModeloSnapshot = {
   cliente: Record<string, unknown>;
   vendedor?: { nome?: string; email?: string } | null;
   periodo: { check_in: string; check_out: string };
-  hospedagem: { modalidade: string | null; local: string };
+  hospedagem: { modalidade: string | null; local: string; quarto?: string | null; grupo?: string | null; vaga?: number | null };
   financeiro: {
     total: string;
     valor_base?: string;
@@ -247,7 +247,7 @@ ${vendedorResponsavel}
 <h2>CLÁUSULA TERCEIRA<br/>DA HOSPEDAGEM</h2>
 <div class="page-break"></div><p>Modalidade de hospedagem:</p>
 <div class="check-options">${modality(modalidade, "camping", "CAMPING")}${modality(modalidade, "quarto_ventilador", "QUARTO COM VENTILADOR COMPARTILHADO.")}${modality(modalidade, "quarto_ar_condicionado", "QUARTO COM CLIMATIZADOR COMPARTILHADO.")}</div>
-<p class="clause"><strong>3.1</strong> A hospedagem será realizada na ${escapeHtml(localHospedagem)}.</p>
+<p class="clause"><strong>3.1</strong> A hospedagem será realizada na ${escapeHtml(localHospedagem)}.${h.quarto ? ` Alocação operacional atual: quarto ${escapeHtml(h.quarto)}, grupo ${escapeHtml(h.grupo || "definido pela organização")}${h.vaga ? `, vaga ${escapeHtml(h.vaga)}` : ""}. Eventual remanejamento será registrado no histórico da operação.` : ""}</p>
 <p class="clause"><strong>3.2</strong> Havendo necessidade, a contratada poderá substituir a hospedagem por estabelecimento de padrão equivalente ou superior, preservando localização, segurança e estrutura semelhantes.</p>
 <p class="clause"><strong>3.3</strong> Os quartos são compartilhados, separados por masculino e feminino, com ocupação variável entre 5 e 10 pessoas.</p>
 <p class="clause"><strong>3.4</strong> Todos os quartos possuem banheiro privativo. A área de camping possui banheiros coletivo.</p>

@@ -6,6 +6,7 @@ import logoUrl from '../assets/brand/logo.png';
 import logoWebp from '../assets/brand/logo.webp';
 import logoBranca from '../assets/brand/logo-branca.png';
 import logoBrancaWebp from '../assets/brand/logo-branca.webp';
+import { PwaInstallButton } from '../components/PwaInstallButton';
 
 const WHATSAPP_NUMERO = import.meta.env.VITE_WHATSAPP_NUMERO || '5561994459086';
 
@@ -144,6 +145,10 @@ export function MainLayout() {
           )}
         </div>
       </header>
+
+      <div className="border-b border-[#851F32]/10 bg-white px-4 py-2.5 lg:hidden">
+        <PwaInstallButton className="mx-auto flex min-h-10 w-full max-w-md items-center justify-center gap-2 rounded-xl bg-[#851F32] px-4 text-sm font-semibold text-white shadow-sm" />
+      </div>
 
       <main id="conteudo-principal" className="min-w-0 flex-1" tabIndex={-1}>
         <Outlet />

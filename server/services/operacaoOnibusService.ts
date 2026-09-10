@@ -3,6 +3,24 @@ import { sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 
 export type AssentoLayout = { numero: number; fileira: number; posicao: "A" | "B" | "C" | "D" };
+export type StatusFilaOnibus = "em_venda" | "aguardando" | "esgotado";
+
+export function classificarFilaOnibus<T extends { total_assentos?: number; capacidade?: number; ocupadas?: number; bloqueadas?: number; em_hold?: number }>(onibus: T[]): Array<T & { fila_status: StatusFilaOnibus; vagas_venda: number }> {
+  const vagas = onibus.map((item) => Math.max(0,
+    Number(item.total_assentos ?? item.capacidade ?? 0)
+    - Number(item.ocupadas || 0)
+    - Number(item.bloqueadas || 0)
+    - Number(item.em_hold || 0),
+  ));
+  const indiceEmVenda = vagas.findIndex((total) => total > 0);
+  return onibus.map((item, indice) => ({
+    ...item,
+    vagas_venda: vagas[indice],
+    fila_status: vagas[indice] === 0 || indiceEmVenda === -1
+      ? "esgotado"
+      : indice === indiceEmVenda ? "em_venda" : "aguardando",
+  }));
+}
 
 export function gerarLayoutAssentos(capacidade: number): AssentoLayout[] {
   if (!Number.isInteger(capacidade) || capacidade < 1 || capacidade > 100) {
@@ -39,6 +57,29 @@ async function registrar(tx: any, saidaId: string | null, entidade: string, enti
 }
 
 export class OperacaoOnibusService {
+  static async alocarPrimeiroDisponivel(loteId: string, reservaId: string, atorId: string) {
+    for (let tentativa = 0; tentativa < 3; tentativa += 1) {
+      const livre = linhas(await db.execute(sql`SELECT a.id
+        FROM saidas_operacionais s
+        JOIN onibus_operacionais o ON o.saida_id = s.id AND o.ativo = true
+        JOIN assentos_onibus a ON a.onibus_id = o.id AND a.status = 'disponivel'
+        WHERE s.lote_id = ${loteId} AND s.ativa = true
+          AND NOT EXISTS (SELECT 1 FROM assento_alocacoes aa WHERE aa.assento_id = a.id AND aa.status = 'ativa')
+          AND NOT EXISTS (SELECT 1 FROM assento_holds h WHERE h.assento_id = a.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP)
+        ORDER BY o.venda_ordem, o.criado_em, a.numero LIMIT 1`))[0];
+      if (!livre) return null;
+      try {
+        return await this.alocarAssento(livre.id, reservaId, null, atorId);
+      } catch (error: any) {
+        const mensagem = String(error?.message || "");
+        if (!mensagem.includes("acabou de ser ocupada") && !mensagem.includes("aguarda liberação")) throw error;
+      }
+    }
+    // A reserva comercial já foi criada; em contenção extrema a operação pode
+    // atribuir depois pelo mapa, sem duplicar ou perder a venda.
+    return null;
+  }
+
   static async listar() {
     const saidas = linhas(await db.execute(sql`
       SELECT s.*, l.nome AS lote_nome, l.vagas_totais, l."vagas_disponíveis" AS vagas_disponiveis,
@@ -124,10 +165,11 @@ export class OperacaoOnibusService {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`saida:${saidaId}`}))`);
       const saida = linhas(await tx.execute(sql`SELECT id FROM saidas_operacionais WHERE id = ${saidaId} AND ativa = true FOR UPDATE`))[0];
       if (!saida) throw new Error("Saída não encontrada ou arquivada");
+      const proximaOrdem = Number(linhas(await tx.execute(sql`SELECT COALESCE(MAX(venda_ordem), 0)::int + 1 AS ordem FROM onibus_operacionais WHERE saida_id = ${saidaId} AND ativo = true`))[0]?.ordem || 1);
       const id = createId();
       const onibus = linhas(await tx.execute(sql`INSERT INTO onibus_operacionais
-        (id, saida_id, nome, identificacao, placa, capacidade, motorista_nome, motorista_telefone, responsavel_nome, status, ativo, criado_em, atualizado_em)
-        VALUES (${id}, ${saidaId}, ${nome}, ${texto(input?.identificacao, 120) || null}, ${texto(input?.placa, 12).toUpperCase() || null}, ${capacidade},
+        (id, saida_id, nome, identificacao, placa, capacidade, venda_ordem, motorista_nome, motorista_telefone, responsavel_nome, status, ativo, criado_em, atualizado_em)
+        VALUES (${id}, ${saidaId}, ${nome}, ${texto(input?.identificacao, 120) || null}, ${texto(input?.placa, 12).toUpperCase() || null}, ${capacidade}, ${proximaOrdem},
           ${texto(input?.motorista_nome, 160) || null}, ${texto(input?.motorista_telefone, 20) || null}, ${texto(input?.responsavel_nome, 160) || null},
           'planejamento', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING *`))[0];
       for (const assento of layout) {
@@ -243,13 +285,16 @@ export class OperacaoOnibusService {
     const saida = linhas(await db.execute(sql`SELECT s.*, l.nome AS lote_nome, l.vagas_totais, l."vagas_disponíveis" AS vagas_disponiveis, e.id AS evento_id, e.nome AS evento_nome
       FROM saidas_operacionais s JOIN lotes l ON l.id = s.lote_id JOIN eventos e ON e.id = l.evento_id WHERE s.id = ${saidaId}`))[0];
     if (!saida) throw new Error("Saída não encontrada");
-    const onibus = linhas(await db.execute(sql`SELECT o.*,
+    const onibusBrutos = linhas(await db.execute(sql`SELECT o.*,
       COUNT(a.id)::int AS total_assentos,
       COUNT(aa.id) FILTER (WHERE aa.status = 'ativa')::int AS ocupadas,
-      COUNT(a.id) FILTER (WHERE a.status = 'bloqueado')::int AS bloqueadas
+      COUNT(a.id) FILTER (WHERE a.status = 'bloqueado')::int AS bloqueadas,
+      COUNT(h.id) FILTER (WHERE h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP)::int AS em_hold
       FROM onibus_operacionais o LEFT JOIN assentos_onibus a ON a.onibus_id = o.id
       LEFT JOIN assento_alocacoes aa ON aa.assento_id = a.id AND aa.status = 'ativa'
-      WHERE o.saida_id = ${saidaId} AND o.ativo = true GROUP BY o.id ORDER BY o.criado_em`));
+      LEFT JOIN assento_holds h ON h.assento_id = a.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP
+      WHERE o.saida_id = ${saidaId} AND o.ativo = true GROUP BY o.id ORDER BY o.venda_ordem, o.criado_em`));
+    const onibus = classificarFilaOnibus(onibusBrutos);
     const assentos = linhas(await db.execute(sql`SELECT a.*, o.nome AS onibus_nome,
       aa.id AS alocacao_id, aa.reserva_id, aa.usuario_id, aa.ponto_embarque_id, aa.alocado_em,
       u.nome AS cliente_nome, u.telefone AS cliente_telefone, r.status AS reserva_status,
@@ -261,7 +306,7 @@ export class OperacaoOnibusService {
       LEFT JOIN usuarios u ON u.id = aa.usuario_id
       LEFT JOIN pontos_embarque_operacao p ON p.id = aa.ponto_embarque_id
       LEFT JOIN assento_holds h ON h.assento_id = a.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP
-      WHERE o.saida_id = ${saidaId} AND o.ativo = true ORDER BY o.criado_em, a.numero`));
+      WHERE o.saida_id = ${saidaId} AND o.ativo = true ORDER BY o.venda_ordem, o.criado_em, a.numero`));
     const pontos = linhas(await db.execute(sql`SELECT * FROM pontos_embarque_operacao WHERE saida_id = ${saidaId} AND ativo = true ORDER BY ordem, horario NULLS LAST, nome`));
     const reservasDisponiveis = linhas(await db.execute(sql`SELECT r.id, r.usuario_id, r.status, r.valor_total, u.nome AS cliente_nome, u.email AS cliente_email, p.nome AS pacote_nome
       FROM reservas r JOIN usuarios u ON u.id = r.usuario_id AND u.tipo = 'cliente'
@@ -307,6 +352,19 @@ export class OperacaoOnibusService {
       const ocupada = linhas(await tx.execute(sql`SELECT id FROM assento_alocacoes WHERE assento_id = ${assentoId} AND status = 'ativa'`))[0];
       const hold = linhas(await tx.execute(sql`SELECT id FROM assento_holds WHERE assento_id = ${assentoId} AND status = 'ativo' AND expira_em > CURRENT_TIMESTAMP`))[0];
       if (ocupada || hold) throw new Error("A poltrona acabou de ser ocupada; escolha outra");
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`fila-onibus:${alvo.saida_id}`}))`);
+      const onibusEmVenda = linhas(await tx.execute(sql`SELECT o.id, o.nome, o.venda_ordem
+        FROM onibus_operacionais o
+        WHERE o.saida_id = ${alvo.saida_id} AND o.ativo = true
+          AND EXISTS (
+            SELECT 1 FROM assentos_onibus livre
+            WHERE livre.onibus_id = o.id AND livre.status = 'disponivel'
+              AND NOT EXISTS (SELECT 1 FROM assento_alocacoes aa WHERE aa.assento_id = livre.id AND aa.status = 'ativa')
+              AND NOT EXISTS (SELECT 1 FROM assento_holds h WHERE h.assento_id = livre.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP)
+          )
+        ORDER BY o.venda_ordem, o.criado_em LIMIT 1`))[0];
+      if (!onibusEmVenda) throw new Error("Todos os ônibus desta saída estão esgotados");
+      if (onibusEmVenda.id !== alvo.onibus_id) throw new Error(`Este ônibus ainda aguarda liberação. Complete primeiro o ${onibusEmVenda.nome}`);
       if (pontoId) {
         const ponto = linhas(await tx.execute(sql`SELECT id FROM pontos_embarque_operacao WHERE id = ${pontoId} AND saida_id = ${alvo.saida_id} AND ativo = true`))[0];
         if (!ponto) throw new Error("Ponto de embarque inválido para esta saída");

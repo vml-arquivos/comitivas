@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, Armchair, BusFront, CheckCircle2, CircleDollarSign, Clock3, RefreshCw, Ticket, UserPlus, Users, WalletCards } from 'lucide-react';
+import { AlertTriangle, Armchair, BedDouble, BusFront, CheckCircle2, CircleDollarSign, ClipboardCheck, Clock3, RefreshCw, Ticket, UserPlus, Users, WalletCards } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { api, useAuth } from '../../contexts/AuthContext';
 import { Button } from '@ui/index';
@@ -36,6 +36,7 @@ type DashboardData = {
     presentes: number;
     divergencias: number;
   };
+  hospedagem: { quartos: number; capacidade: number; ocupadas: number; livres: number };
   alertas: Record<string, number>;
   filtros: {
     eventos: Array<{ id: string; nome: string }>;
@@ -106,6 +107,7 @@ export default function Dashboard() {
     contratos_aguardando_admin: 'Contratos aguardando aprovação',
     parcelas_vencidas: 'Parcelas vencidas',
     divergencias_capacidade: 'Diferenças entre vagas comerciais e físicas',
+    solicitacoes_pendentes: 'Solicitações de cancelamento ou alteração',
   };
 
   return (
@@ -155,6 +157,11 @@ export default function Dashboard() {
         <Stat titulo="Reservas" valor={totalReservas} icon={Ticket} tom="amber" />
         <Stat titulo="Conversão" valor={`${resumo.taxa_conversao || 0}%`} icon={CircleDollarSign} tom="green" />
       </div>
+
+      {['admin', 'dev'].includes(user?.tipo || '') && <div className="grid gap-4 sm:grid-cols-2">
+        <Link to="/admin/hospedagem"><Stat titulo="Hospedagem" valor={`${data?.hospedagem.ocupadas || 0} / ${data?.hospedagem.capacidade || 0}`} apoio={`${data?.hospedagem.quartos || 0} quarto(s) mapeado(s)`} icon={BedDouble} tom="teal" /></Link>
+        <Link to="/admin/solicitacoes"><Stat titulo="Pós-venda" valor={data?.alertas.solicitacoes_pendentes || 0} apoio="Solicitações aguardando conclusão" icon={ClipboardCheck} tom="amber" /></Link>
+      </div>}
 
       <div className="grid gap-5 xl:grid-cols-[1.35fr_1fr_1fr]">
         <section className="admin-card p-5 sm:p-6">

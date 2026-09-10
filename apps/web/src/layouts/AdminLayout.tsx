@@ -1,7 +1,7 @@
 import React from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { LayoutDashboard, CalendarDays, Ticket, Users, UserCog, FileText, ImagePlus, Settings, LogOut, ArrowLeft, PartyPopper, BarChart3, Percent, ShoppingCart, CreditCard, WalletCards, KeyRound, Menu, ShieldCheck, X, BusFront, UserRoundCog } from 'lucide-react';
+import { LayoutDashboard, CalendarDays, Ticket, Users, UserCog, FileText, ImagePlus, Settings, LogOut, ArrowLeft, PartyPopper, BarChart3, Percent, ShoppingCart, CreditCard, WalletCards, KeyRound, Menu, ShieldCheck, X, BusFront, UserRoundCog, ClipboardCheck, BedDouble } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { clsx } from 'clsx';
 import iconUrl from '../assets/brand/icon.svg';
@@ -54,6 +54,12 @@ const navGroups: NavGroup[] = [
         roles: ['admin', 'dev', 'vendedor'],
       },
       {
+        name: 'Solicitações',
+        path: '/admin/solicitacoes',
+        icon: ClipboardCheck,
+        roles: ['admin', 'dev', 'vendedor'],
+      },
+      {
         name: 'Cupons',
         path: '/admin/cupons',
         icon: Ticket,
@@ -74,6 +80,12 @@ const navGroups: NavGroup[] = [
         name: 'Transporte e lugares',
         path: '/admin/onibus',
         icon: BusFront,
+        roles: ['admin', 'dev'],
+      },
+      {
+        name: 'Hospedagem e quartos',
+        path: '/admin/hospedagem',
+        icon: BedDouble,
         roles: ['admin', 'dev'],
       },
       {

@@ -114,9 +114,13 @@ export default function MinhaConta() {
   );
 
   const executarCancelamento = async (reserva: any) => {
-    const aviso = reserva.cancelamento_imediato_permitido ? 'Esta reserva ainda não possui contrato validado nem pagamento confirmado. O cancelamento poderá ser concluído agora e o histórico será preservado. Deseja continuar?' : 'Esta reserva já possui contrato validado e/ou pagamento. O sistema registrará uma solicitação para análise da equipe. Deseja continuar?';
+    const aviso = 'O cancelamento será registrado para análise da equipe. A reserva e os valores não serão alterados automaticamente. Deseja continuar?';
     if (!window.confirm(aviso)) return;
-    const motivo = window.prompt('Motivo do cancelamento (opcional):', '') || '';
+    const motivo = window.prompt('Informe o motivo do cancelamento:', '') || '';
+    if (motivo.trim().length < 5) {
+      setErro('Informe o motivo do cancelamento para enviar a solicitação.');
+      return;
+    }
     setAcaoLoading(`cancel-${reserva.id}`);
     setErro('');
     setMensagem('');
@@ -135,11 +139,30 @@ export default function MinhaConta() {
   const reconfigurar = async (reserva: any, acao: 'troca_pacote' | 'reinicio') => {
     const texto = acao === 'troca_pacote' ? 'alterar o pacote' : 'reiniciar a contratação';
     if (!window.confirm(`Deseja ${texto}? Se houver contrato validado ou pagamento, a equipe precisará aprovar a alteração.`)) return;
+    let pacoteDestinoId: string | undefined;
+    if (acao === 'troca_pacote') {
+      const opcoes = pacotesPublicados.filter((pacote: any) => pacote.lote_id === reserva.lote_id && pacote.id !== reserva.pacote_id);
+      if (opcoes.length > 0) {
+        const escolha = window.prompt(`Escolha o novo pacote:\n${opcoes.map((pacote: any, indice: number) => `${indice + 1}. ${pacote.nome} · ${moeda(pacote.valor_total)}`).join('\n')}`, '1');
+        if (escolha === null) return;
+        const indice = Number(escolha) - 1;
+        if (!Number.isInteger(indice) || !opcoes[indice]) {
+          setErro('Escolha uma opção válida de pacote.');
+          return;
+        }
+        pacoteDestinoId = opcoes[indice].id;
+      }
+    }
+    const motivo = window.prompt(`Explique por que deseja ${texto}:`, '') || '';
+    if (motivo.trim().length < 5) {
+      setErro('Informe o motivo para enviar a solicitação.');
+      return;
+    }
     setAcaoLoading(`${acao}-${reserva.id}`);
     setErro('');
     setMensagem('');
     try {
-      const response = await api.post(`/cliente/reservas/${reserva.id}/reconfigurar`, { acao });
+      const response = await api.post(`/cliente/reservas/${reserva.id}/reconfigurar`, { acao, motivo, pacote_destino_id: pacoteDestinoId });
       if (response.data.redirect) {
         window.location.assign(response.data.redirect);
         return;
@@ -503,6 +526,7 @@ export default function MinhaConta() {
           <div className="grid gap-5 py-6 lg:grid-cols-2">
             {portal.reservas.map((reserva: any) => {
               const st = statusReserva(reserva);
+              const solicitacaoAberta = (portal.solicitacoes || []).find((item: any) => item.reserva_id === reserva.id && ['pendente', 'em_analise', 'aprovada'].includes(item.status));
               return (
                 <Card key={reserva.id} className="overflow-hidden">
                   <CardContent className="p-0">
@@ -526,6 +550,7 @@ export default function MinhaConta() {
                       </div>
                     </div>
                     <div className="space-y-4 p-5">
+                      {solicitacaoAberta && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><strong>Solicitação em andamento:</strong> {solicitacaoAberta.tipo === 'cancelamento' ? 'cancelamento' : solicitacaoAberta.tipo === 'troca_pacote' ? 'alteração de pacote' : 'reinício da contratação'} · {String(solicitacaoAberta.status).replace('_', ' ')}</div>}
                       {reserva.operacao && (
                         <div className="grid gap-2 rounded-xl border border-[#851F32]/15 bg-[#fffaf5] p-4 text-sm sm:grid-cols-2">
                           <p>
@@ -541,6 +566,13 @@ export default function MinhaConta() {
                           <p>
                             <strong>Situação:</strong> {reserva.operacao.checkin_status === 'presente' ? 'Embarque confirmado' : reserva.operacao.checkin_status === 'ausente' ? 'Ausente' : 'Aguardando embarque'}
                           </p>
+                        </div>
+                      )}
+                      {reserva.hospedagem_operacional && (
+                        <div className="grid gap-2 rounded-xl border border-sky-100 bg-sky-50 p-4 text-sm sm:grid-cols-3">
+                          <p><strong>Quarto:</strong> {reserva.hospedagem_operacional.quarto_nome}</p>
+                          <p><strong>Grupo:</strong> {reserva.hospedagem_operacional.grupo}</p>
+                          <p><strong>Vaga:</strong> {reserva.hospedagem_operacional.vaga}</p>
                         </div>
                       )}
                       <div className="flex items-end justify-between rounded-xl bg-slate-50 p-4">
@@ -565,20 +597,20 @@ export default function MinhaConta() {
                             Contrato
                           </Button>
                         ) : null}
-                        <Button variant="outline" onClick={() => void reconfigurar(reserva, 'troca_pacote')} isLoading={acaoLoading === `troca_pacote-${reserva.id}`}>
+                        <Button variant="outline" disabled={Boolean(solicitacaoAberta)} onClick={() => void reconfigurar(reserva, 'troca_pacote')} isLoading={acaoLoading === `troca_pacote-${reserva.id}`}>
                           <RefreshCcw size={15} />
                           Alterar pacote
                         </Button>
-                        <Button variant="outline" onClick={() => void reconfigurar(reserva, 'reinicio')} isLoading={acaoLoading === `reinicio-${reserva.id}`}>
+                        <Button variant="outline" disabled={Boolean(solicitacaoAberta)} onClick={() => void reconfigurar(reserva, 'reinicio')} isLoading={acaoLoading === `reinicio-${reserva.id}`}>
                           <RotateCcw size={15} />
                           Recomeçar
                         </Button>
-                        <Button variant="outline" onClick={() => void executarCancelamento(reserva)} isLoading={acaoLoading === `cancel-${reserva.id}`}>
+                        <Button variant="outline" disabled={Boolean(solicitacaoAberta)} onClick={() => void executarCancelamento(reserva)} isLoading={acaoLoading === `cancel-${reserva.id}`}>
                           <XCircle size={15} />
                           Cancelar contratação
                         </Button>
                       </div>
-                      <div className="rounded-xl border border-slate-200 bg-[#fffaf5] p-3 text-xs leading-5 text-slate-600">{reserva.cancelamento_imediato_permitido ? 'Ainda não há contrato validado nem pagamento confirmado: cancelamento ou troca podem encerrar esta configuração imediatamente.' : 'Como já existe contrato validado e/ou pagamento, cancelamento e troca são registrados para análise, preservando os documentos e valores.'}</div>
+                      <div className="rounded-xl border border-slate-200 bg-[#fffaf5] p-3 text-xs leading-5 text-slate-600">Cancelamento, troca de pacote e reinício são solicitações analisadas pela equipe. Contratos e pagamentos permanecem preservados até a decisão.</div>
                     </div>
                   </CardContent>
                 </Card>

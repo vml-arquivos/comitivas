@@ -10,6 +10,7 @@ import { AuditService } from "../services/auditService.js";
 import { CoraPaymentProvider } from "../services/coraPaymentProvider.js";
 import { PacoteService, ConfiguracaoPacote } from "../services/pacoteService.js";
 import { ClienteExclusaoService, ErroExclusaoCliente } from "../services/clienteExclusaoService.js";
+import { OperacaoOnibusService } from "../services/operacaoOnibusService.js";
 import { db } from "../db/index.js";
 import { reservas, eventos, lotes, pacotes, usuarios, leads_origem, descontosAdministrativos, pagamentos, contratosDocumentos, contratoValidacoes, pagamentoParcelas, emails_enviados, clienteDocumentos, clienteHistorico, videosEvento, fotos_evento, comissaoRegras, comissoes, convitesAcesso, auditoriaAdmin, inventarioHolds, sessoes, passwordResetTokens, verificacoesEmail, assentoAlocacoes, assentosOnibus, onibusOperacionais, pontosEmbarqueOperacao, saidasOperacionais, checkinsOperacao } from "../db/schema.js";
 import { eq, and, inArray, or, sql, desc, isNull, ne } from "drizzle-orm";
@@ -404,6 +405,17 @@ router.get("/dashboard", requireRole("admin", "vendedor"), async (req: Request, 
       ocupadas: Number(linha.ocupadas || 0),
       bloqueadas: Number(linha.bloqueadas || 0),
     }));
+    const hospedagemResultado = isAdminOrDev(req.usuario.tipo) ? await db.execute(sql`
+      WITH quartos_filtrados AS (
+        SELECT q.id, q.capacidade FROM quartos_hospedagem q JOIN lotes l ON l.id = q.lote_id
+        WHERE q.ativo = true ${eventoId ? sql`AND l.evento_id = ${eventoId}` : sql``}
+      )
+      SELECT COUNT(*)::int AS quartos, COALESCE(SUM(capacidade), 0)::int AS capacidade,
+        (SELECT COUNT(*)::int FROM quarto_alocacoes qa JOIN quartos_filtrados qf ON qf.id = qa.quarto_id WHERE qa.status = 'ativa') AS ocupadas
+      FROM quartos_filtrados
+    `) : { rows: [] };
+    const hospedagem = (hospedagemResultado.rows[0] as any) || { quartos: 0, capacidade: 0, ocupadas: 0 };
+    const solicitacoesPendentes = isAdminOrDev(req.usuario.tipo) ? Number(((await db.execute(sql`SELECT COUNT(*)::int AS total FROM reserva_solicitacoes WHERE status IN ('pendente', 'em_analise', 'aprovada')`)).rows[0] as any)?.total || 0) : 0;
     const inicioSerie = new Date();
     inicioSerie.setUTCHours(0, 0, 0, 0);
     inicioSerie.setUTCDate(inicioSerie.getUTCDate() - 29);
@@ -459,7 +471,8 @@ router.get("/dashboard", requireRole("admin", "vendedor"), async (req: Request, 
       reservas_status: statusReservas,
       operacao: { saidas: Number(operacao.saidas || 0), onibus: Number(operacao.onibus || 0), capacidade: Number(operacao.capacidade || 0), ocupadas: Number(operacao.ocupadas || 0), bloqueadas: Number(operacao.bloqueadas || 0), em_hold: Number(operacao.em_hold || 0), livres: Math.max(0, Number(operacao.capacidade || 0) - Number(operacao.ocupadas || 0) - Number(operacao.bloqueadas || 0) - Number(operacao.em_hold || 0)), presentes: Number(operacao.presentes || 0), divergencias: Number(operacao.divergencias || 0) },
       ocupacao_onibus: ocupacaoVeiculos,
-      alertas: { cadastros_sem_reserva: cadastrosSemReserva, aprovacoes_inconsistentes: aprovacaoInconsistente, contratos_aguardando_cliente: aguardandoCliente, contratos_aguardando_admin: aguardandoAdmin, parcelas_vencidas: vencidas.length, divergencias_capacidade: Number(operacao.divergencias || 0) },
+      hospedagem: { quartos: Number(hospedagem.quartos || 0), capacidade: Number(hospedagem.capacidade || 0), ocupadas: Number(hospedagem.ocupadas || 0), livres: Math.max(0, Number(hospedagem.capacidade || 0) - Number(hospedagem.ocupadas || 0)) },
+      alertas: { cadastros_sem_reserva: cadastrosSemReserva, aprovacoes_inconsistentes: aprovacaoInconsistente, contratos_aguardando_cliente: aguardandoCliente, contratos_aguardando_admin: aguardandoAdmin, parcelas_vencidas: vencidas.length, divergencias_capacidade: Number(operacao.divergencias || 0), solicitacoes_pendentes: solicitacoesPendentes },
       filtros: { eventos: totalEventos.map((evento) => ({ id: evento.id, nome: evento.nome })), evento_id: eventoId || null },
     });
   } catch (error: any) {
@@ -658,7 +671,8 @@ router.post("/vendas/reservar", async (req: Request, res: Response) => {
     }
     const config: ConfiguracaoPacote = { ...req.body, usuario_id: usuarioId, vendedor_id: origemFinal.vendedor_id };
     const resultado = await PacoteService.reservarPacote(usuarioId, String(req.body?.lote_id || ""), config, req.ip || req.socket.remoteAddress || "desconhecido", origemFinal);
-    return res.status(201).json({ mensagem: "Venda interna registrada e vaga reservada", reserva_id: resultado.reserva.id, status: resultado.reserva.status, calculo: resultado.calculo, aguardando_cliente: true });
+    const alocacaoOperacional = await OperacaoOnibusService.alocarPrimeiroDisponivel(String(req.body?.lote_id || ""), resultado.reserva.id, req.usuario.id);
+    return res.status(201).json({ mensagem: "Venda interna registrada e vaga reservada", reserva_id: resultado.reserva.id, status: resultado.reserva.status, calculo: resultado.calculo, aguardando_cliente: true, operacao: alocacaoOperacional ? { poltrona_atribuida: true, alocacao_id: alocacaoOperacional.id } : { poltrona_atribuida: false, motivo: "Atribuição pendente no mapa operacional" } });
   } catch (error: any) {
     console.error("[ADMIN/VENDAS] Erro ao reservar:", error);
     return res.status(400).json({ erro: error.message || "Não foi possível registrar a venda" });

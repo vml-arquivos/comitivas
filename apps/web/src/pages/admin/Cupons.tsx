@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../contexts/AuthContext';
 import { Card, CardContent, Button, Input } from '@ui/index';
-import { Plus, X, Trash2 } from 'lucide-react';
+import { Pencil, Plus, X, Trash2 } from 'lucide-react';
 
 interface Evento {
   id: string;
@@ -21,6 +21,7 @@ interface Cupom {
   uso_atual: number;
   validade: string | null;
   ativo: boolean;
+  valor_minimo?: string | null;
 }
 
 export default function Cupons() {
@@ -31,6 +32,7 @@ export default function Cupons() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mostrarForm, setMostrarForm] = useState(false);
+  const [editandoId, setEditandoId] = useState<string | null>(null);
 
   const [codigo, setCodigo] = useState('');
   const [tipoDesconto, setTipoDesconto] = useState<'percentual' | 'fixo'>('percentual');
@@ -94,6 +96,23 @@ export default function Cupons() {
     setValorMinimo('');
     setValidade('');
     setFormErro(null);
+    setEditandoId(null);
+  };
+
+  const editar = (cupom: Cupom) => {
+    setEditandoId(cupom.id);
+    setCodigo(cupom.codigo);
+    const percentual = cupom.desconto_percentual != null;
+    setTipoDesconto(percentual ? 'percentual' : 'fixo');
+    setValorDesconto(String(percentual ? cupom.desconto_percentual : cupom.desconto_fixo || ''));
+    setUsoMaximo(cupom.uso_maximo == null ? '' : String(cupom.uso_maximo));
+    setLimiteCliente(cupom.limite_por_cliente == null ? '' : String(cupom.limite_por_cliente));
+    setPacoteId(cupom.pacote_id || '');
+    setVendedorId(cupom.vendedor_id || '');
+    setCampanha(cupom.campanha || '');
+    setValorMinimo(cupom.valor_minimo || '');
+    setValidade(cupom.validade ? new Date(cupom.validade).toISOString().slice(0, 10) : '');
+    setMostrarForm(true);
   };
 
   const handleCriar = async (e: React.FormEvent) => {
@@ -108,24 +127,24 @@ export default function Cupons() {
     setSalvando(true);
     try {
       const payload: any = {
-        evento_id: eventoId,
-        codigo,
-        uso_maximo: usoMaximo ? parseInt(usoMaximo) : undefined,
-        limite_por_cliente: limiteCliente ? parseInt(limiteCliente) : undefined,
-        pacote_id: pacoteId || undefined,
-        vendedor_id: vendedorId || undefined,
-        campanha: campanha || undefined,
-        valor_minimo: valorMinimo ? parseFloat(valorMinimo) : undefined,
-        validade: validade || undefined,
+        evento_id: eventoId, codigo,
+        uso_maximo: usoMaximo ? parseInt(usoMaximo) : null,
+        limite_por_cliente: limiteCliente ? parseInt(limiteCliente) : null,
+        pacote_id: pacoteId || null, vendedor_id: vendedorId || null,
+        campanha: campanha || null,
+        valor_minimo: valorMinimo ? parseFloat(valorMinimo) : null,
+        validade: validade || null,
+        ativo: true,
       };
       if (tipoDesconto === 'percentual') {
         payload.desconto_percentual = parseFloat(valorDesconto);
+        payload.desconto_fixo = null;
       } else {
         payload.desconto_fixo = parseFloat(valorDesconto);
+        payload.desconto_percentual = null;
       }
-
-      const response = await api.post('/cupons/criar', payload);
-      setCupons((prev) => [...prev, response.data.cupom]);
+      const response = editandoId ? await api.put(`/cupons/${editandoId}`, payload) : await api.post('/cupons/criar', payload);
+      setCupons((prev) => editandoId ? prev.map((item) => item.id === editandoId ? response.data.cupom : item) : [...prev, response.data.cupom]);
       resetForm();
       setMostrarForm(false);
     } catch (err: any) {
@@ -152,12 +171,15 @@ export default function Cupons() {
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-gray-900">Cupons de Desconto</h1>
         <Button
-          onClick={() => setMostrarForm((v) => !v)}
+          onClick={() => {
+            if (mostrarForm) resetForm();
+            setMostrarForm((v) => !v);
+          }}
           className="flex items-center gap-2"
           disabled={!eventoId}
         >
           {mostrarForm ? <X size={16} /> : <Plus size={16} />}
-          {mostrarForm ? 'Cancelar' : 'Novo Cupom'}
+          {mostrarForm ? 'Cancelar' : 'Novo cupom'}
         </Button>
       </div>
 
@@ -196,6 +218,7 @@ export default function Cupons() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
                   label="Código do cupom"
+                  disabled={Boolean(editandoId)}
                   value={codigo}
                   onChange={(e) => setCodigo(e.target.value.toUpperCase())}
                   placeholder="EX: BARR2026"
@@ -239,7 +262,7 @@ export default function Cupons() {
                 <label className="text-sm font-medium text-gray-700">Vendedor (opcional)<select value={vendedorId} onChange={(e) => setVendedorId(e.target.value)} className="mt-1 flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"><option value="">Qualquer origem</option>{vendedores.map((vendedor) => <option key={vendedor.id} value={vendedor.id}>{vendedor.nome}</option>)}</select></label>
               </div>
               <Button type="submit" disabled={salvando}>
-                {salvando ? 'Salvando...' : 'Criar Cupom'}
+                {salvando ? 'Salvando...' : editandoId ? 'Salvar alterações' : 'Criar cupom'}
               </Button>
             </form>
           </CardContent>
@@ -290,6 +313,7 @@ export default function Cupons() {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">
+                      <button onClick={() => editar(cupom)} className="p-1 text-gray-500 transition-colors hover:text-primary" title="Editar ou prorrogar cupom"><Pencil size={18} /></button>
                       {cupom.ativo && (
                         <button
                           onClick={() => handleDesativar(cupom.id)}

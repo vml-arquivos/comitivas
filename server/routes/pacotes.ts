@@ -10,6 +10,7 @@ import { eventos, lotes, pacotes, itens_addon, reservas, usuarios, leads_origem,
 import { eq, and, desc, inArray, isNull, or, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { CatalogoExclusaoService } from "../services/catalogoExclusaoService.js";
+import { OperacaoOnibusService } from "../services/operacaoOnibusService.js";
 
 const router = Router();
 
@@ -177,6 +178,7 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
       ip,
       origem,
     );
+    const alocacaoOperacional = await OperacaoOnibusService.alocarPrimeiroDisponivel(config.lote_id, resultado.reserva.id, req.usuario.id);
 
     // Cadastro direto não possui lead_id no navegador. Atualiza o card ligado
     // à conta para que pacote e etapa também apareçam no CRM.
@@ -200,6 +202,7 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
       reserva_id: resultado.reserva.id,
       status: resultado.reserva.status,
       calculo: resultado.calculo,
+      operacao: alocacaoOperacional ? { poltrona_atribuida: true, alocacao_id: alocacaoOperacional.id } : { poltrona_atribuida: false, motivo: "Atribuição pendente no mapa operacional" },
     });
   } catch (error: any) {
     console.error("[PACOTES] Erro ao reservar:", error);

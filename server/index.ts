@@ -22,6 +22,8 @@ import jornadadRoutes from "./routes/jornada.js";
 import adminRoutes from "./routes/admin.js";
 import clienteRoutes from "./routes/cliente.js";
 import operacaoRoutes from "./routes/operacao.js";
+import solicitacoesRoutes from "./routes/solicitacoes.js";
+import hospedagemRoutes from "./routes/hospedagem.js";
 
 dotenv.config();
 AuthService.validarConfiguracaoSegura();
@@ -184,6 +186,10 @@ app.use("/api/admin", adminRoutes);
 // Mapa físico de ônibus, poltronas, passageiros e check-in. Somente a
 // administração pode consultar ou alterar a operação.
 app.use("/api/operacao", authMiddleware, requireRole("admin"), operacaoRoutes);
+app.use("/api/hospedagem", authMiddleware, requireRole("admin"), hospedagemRoutes);
+
+// Pós-venda auditável: vendedor solicita; somente ADMIN/DEV decide e conclui.
+app.use("/api/solicitacoes", authMiddleware, solicitacoesRoutes);
 
 // Fallback de SPA: qualquer rota GET que não seja /api/* devolve o index.html,
 // deixando o React Router decidir a tela (ex.: /eventos, /login, /minhas-reservas)

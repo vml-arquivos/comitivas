@@ -25,6 +25,8 @@ import {
   onibusOperacionais,
   pontosEmbarqueOperacao,
   saidasOperacionais,
+  quartoAlocacoes,
+  quartosHospedagem,
 } from "../db/schema.js";
 
 export type FormaPagamentoContrato = "pix" | "boleto" | "credito";
@@ -114,7 +116,7 @@ type SnapshotVenda = {
   lote: Record<string, unknown>;
   periodo: { check_in: string; check_out: string };
   pacote: Record<string, unknown>;
-  hospedagem: { modalidade: string | null; modalidade_nome: string; local: string };
+  hospedagem: { modalidade: string | null; modalidade_nome: string; local: string; quarto?: string | null; grupo?: string | null; vaga?: number | null };
   servicos_inclusos: string[];
   adicionais: Array<Record<string, unknown>>;
   quantidade: number;
@@ -470,6 +472,14 @@ export class ContratoService {
       .leftJoin(pontosEmbarqueOperacao, eq(assentoAlocacoes.ponto_embarque_id, pontosEmbarqueOperacao.id))
       .where(and(eq(assentoAlocacoes.reserva_id, reserva.id), eq(assentoAlocacoes.status, "ativa")))
       .limit(1))[0];
+    const quarto = (await db.select({
+      nome: quartosHospedagem.nome,
+      genero: quartosHospedagem.genero,
+      numero_vaga: quartoAlocacoes.numero_vaga,
+    }).from(quartoAlocacoes)
+      .innerJoin(quartosHospedagem, eq(quartoAlocacoes.quarto_id, quartosHospedagem.id))
+      .where(and(eq(quartoAlocacoes.reserva_id, reserva.id), eq(quartoAlocacoes.status, "ativa")))
+      .limit(1))[0];
     const dataLimite = this.calcularDataLimiteEfetiva(pacote?.data_limite_pagamento, lote.data_embarque || lote.data_inicio, prazoSegurancaDias);
     const servicos = ["Hospedagem", "Café da manhã", "Almoço", "Open Bar das 09h às 19h", "Translado entre a chácara e o Parque do Peão"];
     if (rodoviario) servicos.unshift("Transporte rodoviário de ida e volta, conforme programação previamente divulgada pela CONTRATADA");
@@ -482,7 +492,7 @@ export class ContratoService {
       lote: { id: lote.id, nome: lote.nome, descricao: lote.descricao },
       periodo: { check_in: dataISOouNulo(hospedagemForm.check_in) || formatarDataISO(lote.data_inicio) || "", check_out: dataISOouNulo(hospedagemForm.check_out) || formatarDataISO(lote.data_fim) || "" },
       pacote: { id: pacote?.id || null, nome: pacote?.nome || null, descricao: pacote?.descricao || null },
-      hospedagem: { modalidade: modalidadeHospedagem, modalidade_nome: MODALIDADES_HOSPEDAGEM[modalidadeHospedagem || ""] || "Conforme contratação registrada", local: localHospedagem },
+      hospedagem: { modalidade: modalidadeHospedagem, modalidade_nome: MODALIDADES_HOSPEDAGEM[modalidadeHospedagem || ""] || "Conforme contratação registrada", local: localHospedagem, quarto: quarto?.nome || null, grupo: quarto?.genero || null, vaga: quarto?.numero_vaga || null },
       servicos_inclusos: Array.isArray(formulario.servicos_inclusos) && formulario.servicos_inclusos.length > 0 ? formulario.servicos_inclusos.map((item) => String(item).trim()).filter(Boolean).slice(0, 30) : servicos,
       adicionais: adicionais.map((item) => ({ id: item.id, codigo: item.codigo, nome: item.nome, tipo: item.tipo, transporte_rodoviario: item.transporte_rodoviario, quantidade: item.quantidade, valor_unitario: item.valor.toFixed(2) })),
       quantidade: 1,
