@@ -16,10 +16,11 @@ describe("ligações dos fluxos críticos", () => {
   });
 
   it("mantém compra, contrato, operação e conta montados no backend", async () => {
-    const [servidor, pacotes, contratos, operacao, autenticacao] = await Promise.all([
+    const [servidor, pacotes, contratos, pagamentos, operacao, autenticacao] = await Promise.all([
       fonte("../server/index.ts"),
       fonte("../server/routes/pacotes.ts"),
       fonte("../server/routes/contratos.ts"),
+      fonte("../server/routes/pagamentos.ts"),
       fonte("../server/routes/operacao.ts"),
       fonte("../server/routes/auth.ts"),
     ]);
@@ -34,5 +35,16 @@ describe("ligações dos fluxos críticos", () => {
     expect(operacao).toContain('router.delete("/onibus/:onibusId"');
     expect(autenticacao).toContain('router.post("/alterar-login", authMiddleware');
     expect(autenticacao).toContain('router.post("/alterar-senha", authMiddleware');
+    expect(autenticacao).toContain('router.get("/oauth/:provider/iniciar"');
+    expect(autenticacao).toContain('router.get("/oauth/:provider/callback"');
+    expect(contratos).toContain("Confirme seu e-mail antes da validação contratual");
+    expect(pagamentos).toContain("Cobrança bloqueada: confirme o e-mail do cliente");
+  });
+
+  it("leva visitante ao login e nunca repete o cadastro durante a compra", async () => {
+    const configurador = await fonte("../apps/web/src/pages/cliente/ConfiguradorPacote.tsx");
+    expect(configurador).toContain('navigate(`/login?redirect=');
+    expect(configurador).not.toContain('navigate(`/cadastro?redirect=');
+    expect(configurador).toContain("isLoading: authLoading");
   });
 });

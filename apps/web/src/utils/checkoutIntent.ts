@@ -52,6 +52,6 @@ export function lerReferenciaVendedor() {
 }
 
 export function destinoSeguro(valor: string | null, fallback = '/') {
-  if (!valor || !valor.startsWith('/') || valor.startsWith('//')) return fallback;
+  if (!valor || !valor.startsWith('/') || valor.startsWith('//') || valor.includes('\\') || valor.length > 2048) return fallback;
   return valor;
 }

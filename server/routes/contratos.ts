@@ -59,6 +59,15 @@ async function cadastroAprovado(reservaId: string): Promise<boolean> {
   return cadastroAprovadoComEvidencia(registro);
 }
 
+async function emailConfirmado(reservaId: string): Promise<boolean> {
+  const registro = (await db.select({ email_confirmado: usuarios.email_confirmado })
+    .from(reservas)
+    .innerJoin(usuarios, eq(reservas.usuario_id, usuarios.id))
+    .where(eq(reservas.id, reservaId))
+    .limit(1))[0];
+  return registro?.email_confirmado === true;
+}
+
 async function camposCadastroFaltantes(reservaId: string): Promise<string[]> {
   const registro = (await db.select({ nome: usuarios.nome, email: usuarios.email, cpf: usuarios.cpf, telefone: usuarios.telefone, data_nascimento: usuarios.data_nascimento, endereco: usuarios.endereco })
     .from(reservas)
@@ -125,6 +134,7 @@ router.post("/preparar/:reserva_id", authMiddleware, async (req: Request, res: R
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
     if (!(await podeAcessarReserva(req, reserva))) return res.status(403).json({ erro: "Acesso negado" });
+    if (!(await emailConfirmado(reserva.id))) return res.status(409).json({ erro: "Confirme o e-mail do cliente antes de preparar o contrato" });
     if (!(await cadastroAprovado(reserva.id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes de preparar o contrato" });
     const faltantes = await camposCadastroFaltantes(reserva.id);
     if (faltantes.length) return res.status(409).json({ erro: `Complete os dados essenciais antes do contrato: ${faltantes.join(", ")}` });
@@ -143,6 +153,7 @@ router.get("/regras-convivencia", (_req: Request, res: Response) => {
 router.post("/otp/solicitar/:reserva_id", authMiddleware, async (req: Request, res: Response) => {
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    if (!(await emailConfirmado(req.params.reserva_id))) return res.status(409).json({ erro: "Confirme seu e-mail antes da validação contratual" });
     if (!(await cadastroAprovado(req.params.reserva_id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes da validação contratual" });
     const resultado = await OtpService.solicitar({ usuario_id: req.usuario.id, reserva_id: req.params.reserva_id, contrato_id: req.body?.contrato_id, canal: req.body?.canal });
     if (!resultado.enviado) return res.status(503).json({ erro: resultado.motivo || "Canal de validação não configurado", ...resultado });
@@ -156,6 +167,7 @@ router.post("/otp/solicitar/:reserva_id", authMiddleware, async (req: Request, r
 router.post("/otp/confirmar/:reserva_id", authMiddleware, async (req: Request, res: Response) => {
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    if (!(await emailConfirmado(req.params.reserva_id))) return res.status(409).json({ erro: "Confirme seu e-mail antes da validação contratual" });
     if (!(await cadastroAprovado(req.params.reserva_id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes da validação contratual" });
     const resultado = await OtpService.confirmar({
       usuario_id: req.usuario.id,
@@ -233,6 +245,7 @@ router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Re
     if (reserva.usuario_id !== req.usuario.id) {
       return res.status(403).json({ erro: "Acesso negado" });
     }
+    if (!(await emailConfirmado(reserva.id))) return res.status(409).json({ erro: "Confirme seu e-mail antes de aceitar o contrato" });
     if (!(await cadastroAprovado(reserva.id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes de aceitar o contrato" });
     const faltantes = await camposCadastroFaltantes(reserva.id);
     if (faltantes.length) return res.status(409).json({ erro: `Complete os dados essenciais antes do contrato: ${faltantes.join(", ")}` });

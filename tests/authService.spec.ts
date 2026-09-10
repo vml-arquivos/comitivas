@@ -45,4 +45,22 @@ describe("AuthService.validarConfiguracaoSegura", () => {
     expect(AuthService.verifyLeadIntentToken(token, "lead-456")).toBe(false);
     expect(AuthService.verifyLeadIntentToken("token-inválido", "lead-123")).toBe(false);
   });
+
+  it("protege estado, PKCE e destino do login social em token curto", () => {
+    process.env.NODE_ENV = "test";
+    process.env.JWT_SECRET = "segredo-de-teste-com-tamanho-suficiente";
+    const token = AuthService.generateOAuthFlowToken({
+      state: "estado-seguro",
+      verifier: "verificador-pkce",
+      provider: "google",
+      redirect: "/pacote/lote-1?retomar=1",
+    });
+
+    expect(AuthService.verifyOAuthFlowToken(token)).toMatchObject({
+      state: "estado-seguro",
+      provider: "google",
+      redirect: "/pacote/lote-1?retomar=1",
+    });
+    expect(AuthService.verifyOAuthFlowToken(`${token}alterado`)).toBeNull();
+  });
 });

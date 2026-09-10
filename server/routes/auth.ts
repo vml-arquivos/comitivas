@@ -7,10 +7,12 @@ import { createId } from "@paralleldrive/cuid2";
 import { AuthService } from "../services/authService.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 import { EmailProvider } from "../services/notificationProvider.js";
-import { cadastroAprovadoComEvidencia, camposFaltantesCadastroMinimo } from "../security/governance.js";
+import { camposFaltantesCadastroMinimo } from "../security/governance.js";
+import { OAuthProviderName, OAuthService } from "../services/oauthService.js";
 
 const router = Router();
 const AUTH_COOKIE = "auth_token";
+const OAUTH_COOKIE = "oauth_flow";
 
 function definirCookieAuth(res: Response, token: string) {
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
@@ -20,6 +22,80 @@ function definirCookieAuth(res: Response, token: string) {
 function limparCookieAuth(res: Response) {
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
   res.setHeader("Set-Cookie", `${AUTH_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
+}
+
+function lerCookie(req: Request, nome: string): string {
+  const prefixo = `${nome}=`;
+  const item = String(req.headers.cookie || "").split(";").map((parte) => parte.trim()).find((parte) => parte.startsWith(prefixo));
+  if (!item) return "";
+  try {
+    return decodeURIComponent(item.slice(prefixo.length));
+  } catch {
+    return "";
+  }
+}
+
+function definirCookieOAuth(res: Response, token: string) {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  res.setHeader("Set-Cookie", `${OAUTH_COOKIE}=${encodeURIComponent(token)}; Path=/api/auth/oauth; HttpOnly; SameSite=Lax; Max-Age=600${secure}`);
+}
+
+function limparCookieOAuth(res: Response) {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  res.append("Set-Cookie", `${OAUTH_COOKIE}=; Path=/api/auth/oauth; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
+}
+
+function destinoSeguroServidor(valor: unknown, padrao = "/minha-conta"): string {
+  const destino = String(valor || "").trim();
+  if (!destino.startsWith("/") || destino.startsWith("//") || destino.includes("\\") || destino.length > 2048) return padrao;
+  return destino;
+}
+
+function origemHttp(valor: string | undefined, padrao: string): string {
+  try {
+    const origem = new URL(String(valor || "").split(",")[0].trim() || padrao);
+    if (!["http:", "https:"].includes(origem.protocol)) return padrao;
+    return origem.origin;
+  } catch {
+    return padrao;
+  }
+}
+
+function origemDaRequisicao(req: Request): string {
+  return `${req.protocol}://${req.get("host")}`;
+}
+
+function callbackOAuth(req: Request, provider: OAuthProviderName): string {
+  const base = origemHttp(process.env.OAUTH_PUBLIC_BASE_URL, origemDaRequisicao(req));
+  return `${base}/api/auth/oauth/${provider}/callback`;
+}
+
+function urlWeb(req: Request, caminho: string): string {
+  const base = origemHttp(process.env.WEB_URL, origemDaRequisicao(req));
+  return new URL(caminho, `${base}/`).toString();
+}
+
+async function emitirConfirmacaoEmail(usuario: { id: string; email: string; nome: string }): Promise<boolean> {
+  const envioRecente = (await db.select({ id: verificacoesEmail.id })
+    .from(verificacoesEmail)
+    .where(and(
+      eq(verificacoesEmail.usuario_id, usuario.id),
+      isNull(verificacoesEmail.usado_em),
+      sql`${verificacoesEmail.criado_em} > CURRENT_TIMESTAMP - INTERVAL '60 seconds'`,
+    ))
+    .limit(1))[0];
+  if (envioRecente) return true;
+
+  const codigo = gerarCodigoEmail();
+  const agora = new Date();
+  await db.update(verificacoesEmail).set({ usado_em: agora }).where(and(eq(verificacoesEmail.usuario_id, usuario.id), isNull(verificacoesEmail.usado_em)));
+  await db.insert(verificacoesEmail).values({ id: createId(), usuario_id: usuario.id, codigo_hash: hashCodigo(codigo), expira_em: new Date(agora.getTime() + 30 * 60 * 1000), enviado_em: agora });
+  const envio = await new EmailProvider().sendEmailVerification(usuario.email, usuario.nome, codigo).catch((error: any) => ({ sent: false, reason: error?.message || "falha no provedor" }));
+  if (!envio.sent) {
+    await db.update(verificacoesEmail).set({ usado_em: new Date() }).where(and(eq(verificacoesEmail.usuario_id, usuario.id), isNull(verificacoesEmail.usado_em)));
+    console.error(`[AUTH] Confirmação OAuth não enviada: ${envio.reason || "provedor não confirmou o envio"}`);
+  }
+  return envio.sent;
 }
 
 interface CadastroRequest {
@@ -71,6 +147,122 @@ function hashCodigo(codigo: string): string {
 function gerarCodigoEmail(): string {
   return String(100000 + (randomBytes(4).readUInt32BE(0) % 900000));
 }
+
+router.get("/oauth/status", (_req: Request, res: Response) => {
+  return res.json(OAuthService.disponibilidade());
+});
+
+router.get("/oauth/:provider/iniciar", (req: Request, res: Response) => {
+  try {
+    const provider = String(req.params.provider) as OAuthProviderName;
+    if (!["google", "microsoft"].includes(provider) || !OAuthService.disponibilidade()[provider]) {
+      return res.status(404).json({ erro: "Provedor de acesso não configurado" });
+    }
+    const state = randomBytes(24).toString("base64url");
+    const pkce = OAuthService.criarPkce();
+    const fluxo = AuthService.generateOAuthFlowToken({
+      state,
+      verifier: pkce.verifier,
+      provider,
+      redirect: destinoSeguroServidor(req.query.redirect),
+      vendedor_ref: String(req.query.vendedor_ref || "").slice(0, 2048) || undefined,
+      lead_id: String(req.query.lead_id || "").slice(0, 200) || undefined,
+      lead_intent_token: String(req.query.lead_intent_token || "").slice(0, 2048) || undefined,
+    });
+    definirCookieOAuth(res, fluxo);
+    return res.redirect(302, OAuthService.criarUrlAutorizacao(provider, callbackOAuth(req, provider), state, pkce.challenge));
+  } catch (error) {
+    console.error("[AUTH] Não foi possível iniciar OAuth:", error instanceof Error ? error.message : "erro desconhecido");
+    return res.status(400).json({ erro: "Não foi possível iniciar o acesso" });
+  }
+});
+
+router.get("/oauth/:provider/callback", async (req: Request, res: Response) => {
+  const provider = String(req.params.provider) as OAuthProviderName;
+  const fluxo = AuthService.verifyOAuthFlowToken(lerCookie(req, OAUTH_COOKIE));
+  const destino = destinoSeguroServidor(fluxo?.redirect);
+  const falhar = (codigo: string) => {
+    limparCookieOAuth(res);
+    const params = new URLSearchParams({ oauth_erro: codigo, redirect: destino });
+    return res.redirect(302, urlWeb(req, `/login?${params.toString()}`));
+  };
+
+  try {
+    if (!["google", "microsoft"].includes(provider) || !fluxo || fluxo.provider !== provider || fluxo.state !== String(req.query.state || "")) {
+      return falhar("sessao_invalida");
+    }
+    const code = String(req.query.code || "").slice(0, 8192);
+    if (!code) return falhar("acesso_cancelado");
+    const identidade = await OAuthService.trocarCodigo(provider, callbackOAuth(req, provider), code, fluxo.verifier);
+    let usuario = (await db.select({ id: usuarios.id, email: usuarios.email, nome: usuarios.nome, cpf: usuarios.cpf, telefone: usuarios.telefone, data_nascimento: usuarios.data_nascimento, endereco: usuarios.endereco, tipo: usuarios.tipo, ativo: usuarios.ativo, session_version: usuarios.session_version, email_confirmado: usuarios.email_confirmado, cadastro_status: usuarios.cadastro_status })
+      .from(usuarios).where(eq(usuarios.email, identidade.email)).limit(1))[0];
+
+    if (usuario && usuario.tipo !== "cliente") return falhar("use_senha");
+    if (usuario && !usuario.ativo) return falhar("conta_indisponivel");
+
+    if (!usuario) {
+      const senhaAleatoria = await AuthService.hashPassword(randomBytes(48).toString("base64url"));
+      const vendedorId = AuthService.verifySellerReferralToken(fluxo.vendedor_ref || "");
+      const vendedorValido = vendedorId
+        ? (await db.select({ id: usuarios.id }).from(usuarios).where(and(eq(usuarios.id, vendedorId), eq(usuarios.tipo, "vendedor"), eq(usuarios.ativo, true))).limit(1))[0]?.id || null
+        : null;
+      const leadTokenValido = Boolean(fluxo.lead_id && AuthService.verifyLeadIntentToken(fluxo.lead_intent_token || "", fluxo.lead_id));
+
+      usuario = await db.transaction(async (tx) => {
+        const criado = (await tx.insert(usuarios).values({
+          nome: identidade.name,
+          email: identidade.email,
+          senha_hash: senhaAleatoria,
+          tipo: "cliente",
+          email_confirmado: false,
+          cadastro_status: "pendente",
+        }).returning({ id: usuarios.id, email: usuarios.email, nome: usuarios.nome, cpf: usuarios.cpf, telefone: usuarios.telefone, data_nascimento: usuarios.data_nascimento, endereco: usuarios.endereco, tipo: usuarios.tipo, ativo: usuarios.ativo, session_version: usuarios.session_version, email_confirmado: usuarios.email_confirmado, cadastro_status: usuarios.cadastro_status }))[0];
+        if (!criado) throw new Error("Não foi possível criar a conta");
+
+        const leadAtualizado = leadTokenValido
+          ? await tx.update(leads_origem).set({ usuario_id: criado.id, nome: criado.nome, email: criado.email, vendedor_id: vendedorValido ? sql`COALESCE(${leads_origem.vendedor_id}, ${vendedorValido})` : undefined, status: "cadastrado", atualizado_em: new Date() })
+            .where(and(eq(leads_origem.id, fluxo.lead_id!), isNull(leads_origem.usuario_id))).returning({ id: leads_origem.id })
+          : [];
+        if (!leadAtualizado[0]) {
+          await tx.insert(leads_origem).values({
+            id: createId(),
+            codigo_origem: `oauth-${provider}-${criado.id}`.slice(0, 100),
+            vendedor_id: vendedorValido,
+            usuario_id: criado.id,
+            nome: criado.nome,
+            email: criado.email,
+            origem: `oauth_${provider}`,
+            status: "cadastrado",
+            consentimento_whatsapp: false,
+            dados_contexto: { origem: `oauth_${provider}` },
+            atualizado_em: new Date(),
+          });
+        }
+        return criado;
+      });
+    }
+
+    if (!usuario.email_confirmado) {
+      await emitirConfirmacaoEmail(usuario);
+      limparCookieOAuth(res);
+      const faltantes = camposFaltantesCadastroMinimo(usuario);
+      const destinoDepoisDaConfirmacao = faltantes.length
+        ? `/meus-dados?redirect=${encodeURIComponent(destino)}`
+        : destino;
+      const params = new URLSearchParams({ email: usuario.email, redirect: destinoDepoisDaConfirmacao });
+      return res.redirect(302, urlWeb(req, `/confirmar-email?${params.toString()}`));
+    }
+
+    const token = AuthService.generateToken({ id: usuario.id, email: usuario.email, tipo: usuario.tipo || "cliente", session_version: Number(usuario.session_version || 1) });
+    await db.update(usuarios).set({ ultimo_acesso_em: new Date(), atualizado_em: new Date() }).where(eq(usuarios.id, usuario.id));
+    definirCookieAuth(res, token);
+    limparCookieOAuth(res);
+    return res.redirect(302, urlWeb(req, destino));
+  } catch (error) {
+    console.error("[AUTH] Falha no retorno OAuth:", error instanceof Error ? error.message : "erro desconhecido");
+    return falhar("falha_no_provedor");
+  }
+});
 
 router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Response) => {
   try {
@@ -247,12 +439,10 @@ router.post("/confirmar-email", async (req: Request, res: Response) => {
       return true;
     });
     if (!confirmado) return res.status(400).json({ erro: "Código inválido, expirado ou já utilizado" });
-    const aprovadoParaSessao = usuario.tipo !== "cliente" || cadastroAprovadoComEvidencia(usuario);
-    if (aprovadoParaSessao) {
-      const token = AuthService.generateToken({ id: usuario.id, email: usuario.email, tipo: usuario.tipo || "cliente", session_version: Number(usuario.session_version || 1) });
-      definirCookieAuth(res, token);
-    }
-    return res.json({ mensagem: "E-mail confirmado com sucesso", cadastro_aprovacao_necessaria: !aprovadoParaSessao, cadastro_status: usuario.cadastro_status, usuario: { id: usuario.id, email: usuario.email, nome: usuario.nome, tipo: usuario.tipo } });
+    const token = AuthService.generateToken({ id: usuario.id, email: usuario.email, tipo: usuario.tipo || "cliente", session_version: Number(usuario.session_version || 1) });
+    definirCookieAuth(res, token);
+    const cadastroAprovacaoNecessaria = usuario.tipo === "cliente" && usuario.cadastro_status !== "aprovado";
+    return res.json({ mensagem: "E-mail confirmado com sucesso", cadastro_aprovacao_necessaria: cadastroAprovacaoNecessaria, cadastro_status: usuario.cadastro_status, usuario: { id: usuario.id, email: usuario.email, nome: usuario.nome, tipo: usuario.tipo } });
   } catch (error) {
     console.error("[AUTH] Erro na confirmação de e-mail:", error);
     return res.status(400).json({ erro: "Não foi possível confirmar o e-mail" });
@@ -690,15 +880,6 @@ router.post("/login", async (req: Request<{}, {}, LoginRequest>, res: Response) 
     if (!usuario.email_confirmado) {
       return res.status(403).json({ erro: "Confirme seu e-mail antes de entrar", email_confirmacao_necessaria: true });
     }
-    if (usuario.tipo === "cliente" && !cadastroAprovadoComEvidencia(usuario)) {
-      const erro = usuario.cadastro_status === "rejeitado"
-        ? "Seu cadastro foi rejeitado. Consulte a equipe."
-        : usuario.cadastro_status === "aprovado"
-          ? "Seu cadastro precisa de uma nova aprovação administrativa."
-          : "Seu cadastro aguarda aprovação administrativa.";
-      return res.status(403).json({ erro, cadastro_aprovacao_necessaria: true, cadastro_status: usuario.cadastro_status });
-    }
-
     // Gerar token
     const token = AuthService.generateToken({
       id: usuario.id,

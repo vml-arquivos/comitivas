@@ -13,7 +13,16 @@ export default {
         accent: "#F8F5EF",
       },
       fontFamily: {
-        editorial: ['Georgia', 'Times New Roman', 'serif'],
+        sans: ['Montserrat', 'Poppins', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        editorial: ['Montserrat', 'Poppins', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+      },
+      fontWeight: {
+        normal: '400',
+        medium: '500',
+        semibold: '600',
+        bold: '600',
+        extrabold: '700',
+        black: '700',
       },
     },
   },

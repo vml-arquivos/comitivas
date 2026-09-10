@@ -17,7 +17,7 @@ export default function Cadastro() {
   });
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
+  const { user, isLoading: authLoading, login } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirect = destinoSeguro(searchParams.get('redirect'), '/');
@@ -26,6 +26,13 @@ export default function Cadastro() {
   useEffect(() => {
     if (referenciaVendedor) salvarReferenciaVendedor(referenciaVendedor);
   }, [referenciaVendedor]);
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      const destinoPadrao = ['admin', 'dev', 'vendedor'].includes(user.tipo) ? '/admin' : '/minha-conta';
+      navigate(redirect || destinoPadrao, { replace: true });
+    }
+  }, [authLoading, navigate, redirect, user]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -107,6 +114,10 @@ export default function Cadastro() {
     e.preventDefault();
     await finalizarCadastro();
   };
+
+  if (authLoading || user) {
+    return <div className="px-4 py-16 text-center text-sm text-slate-500">Verificando sua conta…</div>;
+  }
 
   return (
     <div className="flex justify-center items-center py-12 px-4">

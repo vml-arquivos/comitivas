@@ -99,7 +99,8 @@ router.post("/criar", authMiddleware, async (req: Request, res: Response) => {
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, reserva_id)).limit(1))[0];
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
     if (reserva.usuario_id !== req.usuario.id) return res.status(403).json({ erro: "Acesso negado" });
-    const cliente = (await db.select({ cadastro_status: usuarios.cadastro_status, aprovado_em: usuarios.aprovado_em, aprovado_por: usuarios.aprovado_por, ativo: usuarios.ativo }).from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0];
+    const cliente = (await db.select({ cadastro_status: usuarios.cadastro_status, aprovado_em: usuarios.aprovado_em, aprovado_por: usuarios.aprovado_por, ativo: usuarios.ativo, email_confirmado: usuarios.email_confirmado }).from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0];
+    if (!cliente?.email_confirmado) return res.status(409).json({ erro: "Cobrança bloqueada: confirme o e-mail do cliente" });
     if (!cadastroAprovadoComEvidencia(cliente)) return res.status(409).json({ erro: "Cobrança bloqueada: cadastro do cliente ainda não possui aprovação administrativa completa" });
     const contrato = (await db.select({ status: contratosDocumentos.status, validado_em: contratosDocumentos.validado_em, aprovado_admin_em: contratosDocumentos.aprovado_admin_em }).from(contratosDocumentos).where(eq(contratosDocumentos.reserva_id, reserva.id)).orderBy(desc(contratosDocumentos.versao)).limit(1))[0];
     if (!contrato?.validado_em) return res.status(409).json({ erro: "Cobrança bloqueada: contrato ainda não foi validado pelo cliente" });

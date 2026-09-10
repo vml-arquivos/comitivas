@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -48,7 +50,8 @@
     background: #f8f5ef;
     color: #182d3b;
     font-family:
-      Inter,
+      Montserrat,
+      Poppins,
       ui-sans-serif,
       system-ui,
       -apple-system,
@@ -128,7 +131,7 @@
 
 @layer utilities {
   .font-editorial {
-    font-family: Georgia, 'Times New Roman', serif;
+    font-family: Montserrat, Poppins, ui-sans-serif, system-ui, sans-serif;
   }
 
   .premium-panel {

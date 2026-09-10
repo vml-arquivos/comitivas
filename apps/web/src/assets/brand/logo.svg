@@ -12,6 +12,6 @@
     <path d="M40 25 C25 25, 25 60, 40 60" fill="none" stroke="#F1FAEE" stroke-width="8" stroke-linecap="round" />
   </g>
   <!-- Texto "Comitiva" -->
-  <text x="110" y="75" font-family="Montserrat, sans-serif" font-weight="800" font-size="48" fill="#1D3557" letter-spacing="-1">COMITIVA</text>
-  <text x="115" y="95" font-family="Inter, sans-serif" font-weight="500" font-size="12" fill="#6B7280" letter-spacing="3">EXCURSÕES E EVENTOS</text>
+  <text x="110" y="75" font-family="Montserrat, sans-serif" font-weight="700" font-size="48" fill="#1D3557" letter-spacing="-1">COMITIVA</text>
+  <text x="115" y="95" font-family="Montserrat, sans-serif" font-weight="500" font-size="12" fill="#6B7280" letter-spacing="3">EXCURSÕES E EVENTOS</text>
 </svg>

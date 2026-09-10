@@ -4,6 +4,16 @@ import { UsuarioPayload, JWTPayload } from "../types/index.js";
 
 const JWT_EXPIRY = "7d";
 
+export interface OAuthFlowPayload {
+  state: string;
+  verifier: string;
+  provider: "google" | "microsoft";
+  redirect: string;
+  vendedor_ref?: string;
+  lead_id?: string;
+  lead_intent_token?: string;
+}
+
 function obterJwtSecret(): string {
   const secretConfigurado = process.env.JWT_SECRET?.trim();
   if (secretConfigurado) return secretConfigurado;
@@ -77,6 +87,26 @@ export class AuthService {
       return payload.purpose === "seller-referral" && payload.vendedor_id
         ? payload.vendedor_id
         : null;
+    } catch {
+      return null;
+    }
+  }
+
+  static generateOAuthFlowToken(payload: OAuthFlowPayload): string {
+    return jwt.sign(
+      { ...payload, purpose: "oauth-login" },
+      obterJwtSecret(),
+      { expiresIn: "10m" },
+    );
+  }
+
+  static verifyOAuthFlowToken(token: string): OAuthFlowPayload | null {
+    if (!token) return null;
+    try {
+      const payload = jwt.verify(token, obterJwtSecret()) as OAuthFlowPayload & { purpose?: string };
+      if (payload.purpose !== "oauth-login") return null;
+      if (!payload.state || !payload.verifier || !["google", "microsoft"].includes(payload.provider)) return null;
+      return payload;
     } catch {
       return null;
     }

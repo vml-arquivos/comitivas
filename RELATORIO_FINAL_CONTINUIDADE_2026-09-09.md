@@ -1,6 +1,6 @@
 # Relatório final — continuidade técnica de produção
 
-Data da validação: 09/09/2026
+Data da validação final: 10/09/2026
 
 ## 1. Base utilizada
 
@@ -13,6 +13,8 @@ Data da validação: 09/09/2026
 ## 2. Resultado executivo
 
 O sistema existente foi preservado e recebeu alterações direcionadas para completar a operação comercial e física da excursão. A entrega inclui upload real de fotos, gestão completa da equipe, painel gerencial mais útil, informações operacionais nos contratos e áreas do cliente/admin e um novo controle normalizado de saídas, transportes, lugares, embarques e manifesto.
+
+A retomada de compra também foi corrigida na origem: o pacote agora espera a restauração da sessão e envia visitantes ao login, nunca diretamente a um segundo cadastro. A confirmação de e-mail passa a emitir uma sessão real mesmo enquanto a aprovação administrativa está pendente; contrato, OTP e pagamento continuam bloqueados pelas evidências obrigatórias. O login recebeu integração OAuth real e opcional com Google/Microsoft, protegida por PKCE, estado assinado e confirmação local de e-mail.
 
 A passagem final corrigiu o erro real mostrado no deploy ao excluir lotes: o backend não executa mais um `DELETE` cego nem devolve a consulta SQL ao navegador. Pacotes, períodos, excursões, saídas e ônibus agora são excluídos definitivamente quando não existe histórico; havendo reservas, contratos, pagamentos, passageiros ou auditoria, ficam arquivados e saem das telas ativas sem perda de dados.
 
@@ -126,8 +128,16 @@ Arquivo: `drizzle/0013_operacao_onibus_equipe.sql`.
 
 ## 5. Arquivos alterados
 
+- `.env.example`
 - `apps/web/src/App.tsx`
 - `apps/web/index.html`
+- `apps/web/public/offline.html`
+- `apps/web/src/assets/brand/logo.svg`
+- `apps/web/src/pages/Cadastro.tsx`
+- `apps/web/src/pages/Login.tsx`
+- `apps/web/src/pages/cliente/ConfiguradorPacote.tsx`
+- `apps/web/src/utils/checkoutIntent.ts`
+- `apps/web/tailwind.config.js`
 - `apps/web/src/index.css`
 - `apps/web/src/main.tsx`
 - `apps/web/src/components/admin/AdminModal.tsx` (novo)
@@ -161,11 +171,14 @@ Arquivo: `drizzle/0013_operacao_onibus_equipe.sql`.
 - `server/routes/cliente.ts`
 - `server/routes/eventos.ts`
 - `server/routes/lotes.ts`
+- `server/routes/pagamentos.ts`
 - `server/routes/operacao.ts` (novo)
 - `server/routes/pacotes.ts`
 - `server/services/catalogoExclusaoService.ts` (novo)
 - `server/services/clienteExclusaoService.ts` (novo)
 - `server/services/contratoService.ts`
+- `server/services/oauthService.ts` (novo)
+- `server/services/authService.ts`
 - `server/services/operacaoOnibusService.ts` (novo)
 - `tests/contratoHtml.spec.ts`
 - `tests/operacaoOnibus.spec.ts` (novo)
@@ -173,6 +186,7 @@ Arquivo: `drizzle/0013_operacao_onibus_equipe.sql`.
 - `tests/exclusaoSegura.spec.ts` (novo)
 - `tests/clienteExclusaoDefinitiva.spec.ts` (novo)
 - `tests/mobileViewport.spec.ts` (novo)
+- `tests/oauthService.spec.ts` (novo)
 
 ## 6. Validação automatizada
 
@@ -189,7 +203,7 @@ Resultado final:
 
 - `npm run typecheck:server`: aprovado.
 - `npm run lint`: aprovado.
-- `npm test -- --run`: 12 arquivos e 62 testes aprovados.
+- `npm test -- --run`: 13 arquivos e 66 testes aprovados.
 - `npm run build`: aprovado (`build:server`, `build:seed`, `build:web`).
 - `npm --prefix apps/mobile run build`: aprovado.
 - `npm run test:a11y`: aprovado para estrutura, foco e metadados verificáveis no build.
@@ -229,6 +243,10 @@ A migration não exige execução manual no fluxo atual: o `Dockerfile` inclui a
 13. No iPhone, remover a instalação anterior, instalar novamente, abrir em modo standalone e confirmar que a tela não desloca horizontalmente nem reduz por gesto de pinça.
 14. Como DEV, abrir um cliente de teste, clicar **Excluir definitivamente**, informar um e-mail incorreto e confirmar a rejeição; repetir com o e-mail correto e validar que cliente, reservas, contratos, pagamentos e alocação desapareceram e que a vaga retornou ao lote.
 15. Repetir o acesso como ADMIN e confirmar que a mesma ação apenas arquiva o cliente que possui histórico.
+16. Em sessão anônima, selecionar um pacote e confirmar que **Entrar** é exibido; após o login, validar o retorno ao mesmo lote/modalidade sem um segundo cadastro.
+17. Com conta já autenticada, abrir `/cadastro` e confirmar o redirecionamento automático para a conta ou destino seguro.
+18. Configurar Google e Microsoft em homologação, validar login, confirmação do e-mail, complemento de dados mínimos e retorno ao pacote. Repetir cancelamento e `state` inválido.
+19. Confirmar visualmente que site, painel, cliente e página offline usam Montserrat/sans-serif com pesos entre 400 e 700, sem Georgia ou Times New Roman.
 
 ## 9. Segunda passagem visual e de navegação
 
@@ -249,12 +267,14 @@ A migration não exige execução manual no fluxo atual: o `Dockerfile` inclui a
 - A validação visual autenticada com dados de produção deve ser repetida após o deploy; nesta entrega foram validados TypeScript, Tailwind, grids responsivos e os builds web/mobile, sem usar credenciais reais.
 - O ambiente local não recebeu `DATABASE_URL`; por isso a nova exclusão transacional foi validada por TypeScript, build e testes de contrato de código, mas o teste integrado deve ser repetido após a migration automática e o redeploy de homologação.
 - A exclusão definitiva é deliberadamente limitada a clientes e ao perfil DEV. Ela não cancela cobranças já enviadas ao provedor externo; antes de remover um cadastro que não seja de teste, eventuais cobranças reais devem ser canceladas no provedor.
+- Google/Microsoft exigem o cadastro prévio das credenciais e URLs de retorno no Coolify e nos consoles dos provedores. Sem ambos ID e segredo, o respectivo botão permanece oculto e o login por senha continua normal.
+- Não foi feita uma autenticação OAuth completa contra contas reais nesta máquina, pois não foram fornecidas credenciais dos provedores. Foram validados PKCE, estado assinado, redirects seguros, compilação e tratamento dos retornos.
 
 ## 11. Commit sugerido
 
 Mensagem:
 
-`feat: finalizar operação e adicionar limpeza DEV de clientes de teste`
+`feat: corrigir retomada de checkout e adicionar login social seguro`
 
 Resumo:
 
@@ -269,9 +289,12 @@ Resumo:
 - adiciona edição de excursões, períodos e pacotes;
 - impede deslocamento horizontal do PWA instalado no iPhone.
 - adiciona exclusão definitiva, individual e transacional de clientes para o DEV.
+- impede cadastro duplicado na retomada da compra e preserva a sessão após confirmação do e-mail;
+- adiciona Google/Microsoft opcionais com OAuth, PKCE e confirmação local;
+- aplica Montserrat e limita pesos tipográficos em todo o frontend e na página offline.
 
 ## 12. Pacote final
 
-- Arquivo: `comitivas-producao-final-pwa-exclusao-2026-09-09.zip`
-- SHA-256: `6c85a3820b5bcbe3d03133e6b2285be2b4014708f36d3bcf8e2096fe5f3972e8`
-- Conteúdo validado: 296 arquivos, sem `.git`, `node_modules`, `dist`, uploads, `.env` real, chaves ou tokens.
+- Arquivo: `comitivas-producao-final-login-checkout-2026-09-10.zip`
+- SHA-256: informado junto ao arquivo final, após a compactação.
+- Conteúdo: projeto completo sem `.git`, `node_modules`, `dist`, uploads, `.env` real, chaves ou tokens.

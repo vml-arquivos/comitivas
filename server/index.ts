@@ -92,7 +92,7 @@ app.use(helmet({
       objectSrc: ["'none'"],
       frameAncestors: ["'none'"],
       scriptSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       imgSrc: ["'self'", "data:", "https:"],
       fontSrc: ["'self'", "data:", "https:"],
       connectSrc: ["'self'", "https://api.cora.com.br", "https://matls-clients.api.cora.com.br"],
@@ -130,6 +130,7 @@ app.use(express.static(webDistPath));
 // bloqueio cruzado entre login, cadastro e recuperação de senha. Rotas como
 // perfil, logout e refresh não consomem esses contadores.
 app.use("/api/auth/login", limiteLogin);
+app.use("/api/auth/oauth", limiteLogin);
 app.use("/api/auth/cadastro", limiteCadastro);
 app.use("/api/auth/esqueci-senha", limiteRecuperacaoSenha);
 app.use("/api/auth/redefinir-senha", limiteRecuperacaoSenha);
