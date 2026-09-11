@@ -1,0 +1,234 @@
+import { useEffect, useState } from 'react';
+import { CheckCircle2, ExternalLink, FileUp, Mail, RefreshCw, RotateCcw, Send, WalletCards } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Button, Card, CardContent } from '@ui/index';
+import { api } from '../../contexts/AuthContext';
+
+const moeda = (v: unknown) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v || 0));
+const data = (v?: string | null) => (v ? new Date(v).toLocaleDateString('pt-BR') : '—');
+
+export default function Boletos() {
+  const [itens, setItens] = useState<any[]>([]);
+  const [erro, setErro] = useState('');
+  const [mensagem, setMensagem] = useState('');
+  const [ocupado, setOcupado] = useState('');
+  const carregar = async () => {
+    setErro('');
+    try {
+      const r = await api.get('/admin/boletos');
+      setItens(r.data.boletos || []);
+    } catch (e: any) {
+      setErro(e.response?.data?.erro || 'Não foi possível carregar os boletos.');
+    }
+  };
+  useEffect(() => {
+    void carregar();
+  }, []);
+  const acao = async (chave: string, fn: () => Promise<any>, msg?: string) => {
+    setOcupado(chave);
+    setErro('');
+    setMensagem('');
+    try {
+      const r = await fn();
+      setMensagem(msg || r.data?.mensagem || 'Operação concluída.');
+      await carregar();
+      return r;
+    } catch (e: any) {
+      setErro(e.response?.data?.erro || 'Não foi possível concluir a operação.');
+    } finally {
+      setOcupado('');
+    }
+  };
+  const upload = async (reservaId: string, parcelaId: string, file: File) =>
+    acao(
+      `up-${parcelaId}`,
+      () =>
+        api.post(`/admin/boletos/${reservaId}/parcelas/${parcelaId}/arquivo`, file, {
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'X-File-Name': encodeURIComponent(file.name),
+            'X-File-Mime': file.type || 'application/pdf',
+          },
+        }),
+      'Boleto anexado à ficha do cliente.'
+    );
+  const uploadComprovante = async (reservaId: string, parcelaId: string, file: File) =>
+    acao(
+      `comp-${parcelaId}`,
+      () =>
+        api.post(`/admin/boletos/${reservaId}/parcelas/${parcelaId}/comprovante`, file, {
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'X-File-Name': encodeURIComponent(file.name),
+            'X-File-Mime': file.type || 'application/octet-stream',
+          },
+        }),
+      'Comprovante anexado à Ficha 360 do cliente.'
+    );
+  const whatsapp = async (reservaId: string, parcelaId: string) => {
+    const r = await acao(`wa-${parcelaId}`, () => api.post(`/admin/boletos/${reservaId}/parcelas/${parcelaId}/whatsapp`));
+    if (r?.data?.url) window.open(r.data.url, '_blank', 'noopener,noreferrer');
+  };
+  const confirmarWhatsapp = async (reservaId: string, parcelaId: string) =>
+    acao(
+      `wac-${parcelaId}`,
+      () =>
+        api.post(`/admin/boletos/${reservaId}/parcelas/${parcelaId}/whatsapp`, {
+          confirmado: true,
+        }),
+      'Envio por WhatsApp confirmado e registrado.'
+    );
+  return (
+    <div className="admin-page">
+      <div className="admin-page-header">
+        <div>
+          <p className="admin-eyebrow">Financeiro operacional</p>
+          <h1 className="admin-title">Boletos bancários</h1>
+          <p className="admin-subtitle">Aprovação, contrato validado, anexação, envio e baixa manual de cada parcela.</p>
+        </div>
+        <Button variant="outline" onClick={() => void carregar()}>
+          <RefreshCw size={16} className="mr-2" />
+          Atualizar
+        </Button>
+      </div>
+      {erro && <div className="rounded-xl bg-red-50 p-4 text-red-700">{erro}</div>}
+      {mensagem && <div className="rounded-xl bg-blue-50 p-4 text-blue-700">{mensagem}</div>}
+      {itens.length === 0 ? (
+        <Card>
+          <CardContent className="p-10 text-center text-gray-500">Nenhuma reserva por boleto.</CardContent>
+        </Card>
+      ) : (
+        itens.map((item) => (
+          <Card key={item.reserva_id} className="admin-card overflow-hidden">
+            <div className="border-b border-slate-100 bg-[#f8faf9] p-5">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-primary">
+                    {item.evento_nome} · {item.lote_nome}
+                  </p>
+                  <h2 className="mt-1 text-xl font-bold text-secondary">{item.cliente_nome}</h2>
+                  <p className="text-sm text-gray-500">
+                    {item.cliente_email} · {item.cliente_telefone || 'sem WhatsApp'}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2 text-xs">
+                  <span className={`admin-status ${item.cadastro_aprovado ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>Cadastro: {item.cadastro_aprovado ? 'aprovado' : 'pendente'}</span>
+                  <span className={`admin-status ${item.contrato_validado ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>Assinatura: {item.contrato_validado ? 'validada' : 'pendente'}</span>
+                  <span className={`admin-status ${item.contrato_aprovado_admin ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>Conferência Admin: {item.contrato_aprovado_admin ? 'aprovada' : 'pendente'}</span>
+                  <span className="rounded-full bg-slate-100 px-3 py-1 font-bold text-slate-700">{moeda(item.valor_total)}</span>
+                </div>
+              </div>
+              {item.bloqueio_motivo && !item.boleto_liberado_em && <p className="mt-3 text-sm font-medium text-amber-800">{item.bloqueio_motivo}</p>}
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Link to={`/admin/clientes/${item.usuario_id}`}>
+                  <Button variant="outline">Abrir Ficha 360</Button>
+                </Link>
+                {!item.cadastro_aprovado && (
+                  <Button disabled={ocupado === `ap-${item.usuario_id}`} onClick={() => void acao(`ap-${item.usuario_id}`, () => api.patch(`/admin/clientes/${item.usuario_id}/aprovacao`, { status: 'aprovado' }), 'Cliente aprovado.')}>
+                    Aprovar cadastro
+                  </Button>
+                )}
+                {item.contrato_validado && !item.contrato_aprovado_admin && (
+                  <Button variant="outline" onClick={() => void acao(`cv-${item.reserva_id}`, () => api.post(`/admin/boletos/${item.reserva_id}/validar-contrato`), 'Contrato conferido e aprovado para o financeiro.')}>
+                    Conferir contrato
+                  </Button>
+                )}
+                {!item.boleto_liberado_em && (
+                  <Button disabled={Boolean(item.bloqueio_motivo) || ocupado === `lib-${item.reserva_id}`} onClick={() => void acao(`lib-${item.reserva_id}`, () => api.post(`/admin/boletos/${item.reserva_id}/liberar`))}>
+                    Liberar boletos
+                  </Button>
+                )}
+                {item.protocolo && <span className="self-center text-xs text-gray-500">Protocolo {item.protocolo}</span>}
+              </div>
+            </div>
+            <CardContent className="p-5">
+              <div className="grid gap-4 lg:grid-cols-2">
+                {(item.parcelas || []).map((p: any) => (
+                  <div key={p.id} className="rounded-xl border border-gray-200 p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-bold">Parcela {p.sequencia}</p>
+                        <p className="text-sm text-gray-500">
+                          Vencimento {data(p.vencimento)} · {moeda(p.valor)}
+                        </p>
+                      </div>
+                      <span className={`rounded-full px-2 py-1 text-xs font-bold ${p.status === 'aprovado' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>{p.status}</span>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-gray-500">
+                      <p>PDF: {p.boleto_documento_id ? 'anexado' : 'pendente'}</p>
+                      <p>E-mail: {p.enviado_email_em ? data(p.enviado_email_em) : 'pendente'}</p>
+                      <p>WhatsApp: {p.enviado_whatsapp_em ? data(p.enviado_whatsapp_em) : 'pendente'}</p>
+                      <p>Pagamento: {p.pago_confirmado_em ? data(p.pago_confirmado_em) : 'pendente'}</p>
+                      <p>Comprovante: {p.comprovante_documento_id ? 'anexado' : 'não anexado'}</p>
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <label className="inline-flex cursor-pointer items-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium hover:bg-gray-50">
+                        <FileUp size={15} className="mr-2" />
+                        {p.boleto_documento_id ? 'Atualizar boleto PDF' : 'Anexar boleto PDF'}
+                        <input
+                          type="file"
+                          accept="application/pdf,.pdf"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) void upload(item.reserva_id, p.id, f);
+                            e.currentTarget.value = '';
+                          }}
+                        />
+                      </label>
+                      <label className="inline-flex cursor-pointer items-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium hover:bg-gray-50">
+                        <FileUp size={15} className="mr-2" />
+                        {p.comprovante_documento_id ? 'Atualizar comprovante' : 'Anexar comprovante'}
+                        <input
+                          type="file"
+                          accept="application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.png,.webp"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) void uploadComprovante(item.reserva_id, p.id, f);
+                            e.currentTarget.value = '';
+                          }}
+                        />
+                      </label>
+                      <Button size="sm" variant="outline" disabled={!p.boleto_documento_id} onClick={() => void acao(`mail-${p.id}`, () => api.post(`/admin/boletos/${item.reserva_id}/parcelas/${p.id}/email`))}>
+                        <Mail size={14} className="mr-1" />
+                        E-mail
+                      </Button>
+                      <Button size="sm" variant="outline" disabled={!p.boleto_documento_id} onClick={() => void whatsapp(item.reserva_id, p.id)}>
+                        <Send size={14} className="mr-1" />
+                        Abrir WhatsApp
+                      </Button>
+                      {p.boleto_documento_id && !p.enviado_whatsapp_em && (
+                        <Button size="sm" variant="outline" onClick={() => void confirmarWhatsapp(item.reserva_id, p.id)}>
+                          <CheckCircle2 size={14} className="mr-1" />
+                          Confirmar envio WhatsApp
+                        </Button>
+                      )}
+                      {p.status !== 'aprovado' ? (
+                        <Button size="sm" onClick={() => void acao(`pay-${p.id}`, () => api.patch(`/admin/boletos/${item.reserva_id}/parcelas/${p.id}/pagamento`, { pago: true }))}>
+                          <CheckCircle2 size={14} className="mr-1" />
+                          Confirmar pago
+                        </Button>
+                      ) : (
+                        <Button size="sm" variant="outline" onClick={() => void acao(`open-${p.id}`, () => api.patch(`/admin/boletos/${item.reserva_id}/parcelas/${p.id}/pagamento`, { pago: false }))}>
+                          <RotateCcw size={14} className="mr-1" />
+                          Reabrir
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {item.boleto_liberado_em && (!item.parcelas || item.parcelas.length === 0) && <p className="text-sm text-gray-500">Atualize a página para carregar as parcelas liberadas.</p>}
+              </div>
+              <div className="mt-4 flex items-center gap-2 border-t pt-4 text-sm text-gray-500">
+                <WalletCards size={17} />
+                Estado: {item.checkout_estado} {item.pagamento?.status_reconciliado ? `· situação ${item.pagamento.status_reconciliado}` : ''}
+                <ExternalLink size={13} />
+              </div>
+            </CardContent>
+          </Card>
+        ))
+      )}
+    </div>
+  );
+}
