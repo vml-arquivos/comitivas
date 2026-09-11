@@ -752,6 +752,16 @@ export const clienteDocumentos = pgTable("cliente_documentos", {
   sha256: varchar("sha256", { length: 64 }).notNull(),
   arquivo: varchar("arquivo", { length: 500 }).notNull(),
   observacoes: text("observacoes"),
+  tipo_identidade: varchar("tipo_identidade", { length: 30 }),
+  validacao_status: varchar("validacao_status", { length: 30 }).notNull().default("nao_iniciada"),
+  dados_extraidos: jsonb("dados_extraidos").notNull().default({}),
+  validacao_resultado: jsonb("validacao_resultado").notNull().default({}),
+  validacao_provedor: varchar("validacao_provedor", { length: 40 }),
+  validacao_modelo: varchar("validacao_modelo", { length: 120 }),
+  leitura_iniciada_em: timestamp("leitura_iniciada_em"),
+  validado_em: timestamp("validado_em"),
+  erro_validacao: text("erro_validacao"),
+  leitura_tentativas: integer("leitura_tentativas").notNull().default(0),
   criado_por: text("criado_por").references(() => usuarios.id),
   criado_em: timestamp("criado_em").defaultNow().notNull(),
   atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
@@ -761,6 +771,7 @@ export const clienteDocumentos = pgTable("cliente_documentos", {
   usuarioIdx: index("cliente_documentos_usuario_idx").on(table.usuario_id, table.removido_em, table.criado_em),
   reservaIdx: index("cliente_documentos_reserva_idx").on(table.reserva_id),
   hashIdx: index("cliente_documentos_hash_idx").on(table.usuario_id, table.sha256),
+  validacaoIdx: index("cliente_documentos_validacao_idx").on(table.usuario_id, table.categoria, table.validacao_status),
 }));
 
 export const clienteHistorico = pgTable("cliente_historico", {

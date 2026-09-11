@@ -37,6 +37,13 @@ function eventoHash(metadados: unknown, anterior?: string | null): string {
   return createHash("sha256").update(`${anterior || ""}:${JSON.stringify(metadados)}`, "utf8").digest("hex");
 }
 
+export function dataBancoOuNula(valor: unknown): Date | null {
+  if (!valor) return null;
+  if (valor instanceof Date) return Number.isNaN(valor.getTime()) ? null : valor;
+  const data = new Date(String(valor));
+  return Number.isNaN(data.getTime()) ? null : data;
+}
+
 export interface SolicitarOtpInput {
   usuario_id: string;
   reserva_id: string;
@@ -195,7 +202,9 @@ export class OtpService {
           canal: String(desafio.canal),
           destinatario_mascarado: String(desafio.destinatario_mascarado),
           message_id: desafio.message_id || null,
-          enviado_em: desafio.enviado_em || null,
+          // O desafio vem de SQL bloqueado (FOR UPDATE). Alguns drivers
+          // devolvem timestamp como string; Drizzle exige Date ao persistir.
+          enviado_em: dataBancoOuNula(desafio.enviado_em),
           confirmado_em: agora,
           servidor_utc: agora,
           ip: input.ip || null,

@@ -101,6 +101,11 @@ describe("ContratoService.gerarContratoHTML", () => {
     expect(html).toContain("Check-in:");
     expect(html).toContain("Check-out:");
     expect(html).toContain("23/08/2026");
+    expect(html).toContain("RESUMO INDIVIDUAL DA CONTRATAÇÃO");
+    expect(html).toContain("Excursão das Comitivas — Festa do Peão de Barretos 2026");
+    expect(html).toContain("1º Fim de Semana — 20 a 23/08/2026");
+    expect(html).toContain("Parque do Peão — Barretos/SP");
+    expect(html).toContain("1.900,00");
     expect(html).toContain("CLÁUSULA SEGUNDA");
     expect(html).not.toContain("Brasília/DF, com embarque adicional em Goiânia/GO");
     expect(html).toContain("não abrangendo transporte rodoviário interestadual");

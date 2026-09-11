@@ -5,7 +5,7 @@ export type ContratoModeloSnapshot = {
   modelo_oficial?: "hospedagem" | "transporte";
   evento?: { nome?: string; local?: string; data_inicio?: string | null; data_fim?: string | null };
   lote?: { nome?: string; descricao?: string | null };
-  pacote?: { nome?: string; descricao?: string | null };
+  pacote?: { nome?: string; descricao?: string | null; valor_total?: string | null };
   cliente: Record<string, unknown>;
   vendedor?: { nome?: string; email?: string } | null;
   periodo: { check_in: string; check_out: string };
@@ -175,6 +175,10 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
     ? `<p class="qualification"><strong>Atendimento comercial:</strong> ${escapeHtml(snapshot.vendedor.nome)}.</p>`
     : "";
   const modalidade = h.modalidade || null;
+  const eventoNome = valueOrBlank(snapshot.evento?.nome, "Excursão contratada");
+  const eventoLocal = valueOrBlank(snapshot.evento?.local, "Local informado na reserva");
+  const loteNome = valueOrBlank(snapshot.lote?.nome, "Período contratado");
+  const pacoteNome = valueOrBlank(snapshot.pacote?.nome, "Pacote contratado");
   const checkin = formatDate(snapshot.periodo?.check_in);
   const checkout = formatDate(snapshot.periodo?.check_out);
   const localHospedagem = valueOrBlank(h.local, "Chácara Recanto Novo Encantado ou Santa Thereza");
@@ -185,19 +189,19 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
     ? "O contratante não autoriza o uso de sua imagem para divulgação institucional da excursão."
     : `O contratante autoriza o uso de sua imagem pelo prazo de ${usoImagem.prazo_anos || 3} (três) anos para divulgação institucional da excursão, podendo manifestar oposição por escrito antes do início do evento.`;
   const objetoTexto = t.rodoviario_incluido
-    ? "O presente contrato tem por objeto a prestação de serviços de hospedagem, alimentação, translado interno e transporte rodoviário interestadual durante a Festa do Peão de Barretos/SP, conforme os serviços expressamente descritos neste instrumento."
-    : "O presente contrato tem por objeto a prestação de serviços de hospedagem, alimentação e translado interno durante a Festa do Peão de Barretos/SP, conforme os serviços expressamente descritos neste instrumento, sem contratação de transporte rodoviário interestadual.";
+    ? `O presente contrato tem por objeto o pacote ${escapeHtml(pacoteNome)}, para ${escapeHtml(eventoNome)}, em ${escapeHtml(eventoLocal)}, com hospedagem, serviços descritos e transporte rodoviário conforme a programação registrada neste instrumento.`
+    : `O presente contrato tem por objeto o pacote ${escapeHtml(pacoteNome)}, para ${escapeHtml(eventoNome)}, em ${escapeHtml(eventoLocal)}, com hospedagem e serviços descritos neste instrumento, sem contratação de transporte rodoviário interestadual.`;
   const exclusaoTransporte = t.rodoviario_incluido
     ? "O transporte rodoviário contratado limita-se à programação e aos dados registrados neste instrumento, permanecendo excluídos serviços de terceiros não expressamente descritos."
     : "O presente contrato compreende exclusivamente os serviços expressamente previstos neste instrumento, não abrangendo transporte rodoviário interestadual ou qualquer outro serviço de transporte diverso do translado interno entre a chácara e o Parque do Peão.";
   const blocoTransporte = t.rodoviario_incluido ? `<h2>CLÁUSULA DÉCIMA<br/>DO TRANSPORTE RODOVIÁRIO</h2>
-<p><strong>10.1.</strong> O presente contrato compreende o transporte rodoviário interestadual de passageiros, com saída da cidade de Brasília/DF e destino à cidade de Barretos/SP, bem como o respectivo retorno ao local de origem, conforme programação previamente divulgada pela <strong>CONTRATADA.</strong></p>
+<p><strong>10.1.</strong> O presente contrato compreende o transporte rodoviário de passageiros entre o local de embarque registrado e ${escapeHtml(eventoLocal)}, bem como o respectivo retorno conforme programação divulgada pela <strong>CONTRATADA.</strong></p>
 <p><strong>10.2.</strong> O transporte será realizado por empresa regularmente habilitada junto aos órgãos competentes, especialmente à Agência Nacional de Transportes Terrestres – ANTT, observadas as normas de segurança e a legislação vigente.</p>
 <p><strong>10.3.</strong> As informações referentes ao transporte</p>
 <ul class="model-list"><li>• Local de embarque: ${transportValue(t.local_embarque, "SAMAMBAIA AO LADO DO MERCADO DIA A DIA, ESTACIONAMENTO DO POSTO IPIRANGA.")}</li><li>• PONTO DE REFERÊNCIA: ${transportValue(t.ponto_referencia, "DISTRIBUIDORA ROIAL-SAIDA DA BR 060")}</li><li>• Data da saída: ${escapeHtml(formatDate(t.data_saida))}</li></ul><div class="page-break"></div><ul class="model-list"><li>• Horário previsto da saída: ${escapeHtml(valueOrBlank(t.horario_saida, "___/___/____"))}</li><li>• Data prevista para retorno: ${escapeHtml(formatDate(t.data_retorno))}</li><li>• Horário previsto do retorno: ${escapeHtml(valueOrBlank(t.horario_retorno, "___/___/____"))}</li><li>• Tipo do veículo:</li>${vehicle(t.veiculo, "Ônibus", "Ônibus")}${vehicle(t.veiculo, "Micro-ônibus", "Micro-ônibus")}${vehicle(t.veiculo, "Van", "Van")}${identificacaoOnibus ? `<li>• Veículo designado: ${escapeHtml(identificacaoOnibus)}</li>` : ""}${poltronaRegistrada ? `<li>• Poltrona designada: ${escapeHtml(t.poltrona)}</li>` : ""}</ul>` : "";
 
   return `<!DOCTYPE html>
-<html lang="pt-BR"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>CONTRATO DE PACOTE DE VIAGEM- EXCURSÃO DAS COMITIVAS 2026</title>
+<html lang="pt-BR"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Contrato de pacote de viagem — ${escapeHtml(eventoNome)}</title>
 <style>
   @page { size: A4; margin: 11mm 12mm 14mm 12mm; }
   * { box-sizing: border-box; }
@@ -212,6 +216,10 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
   p { margin: 0 0 9px; text-align: justify; }
   .qualification { margin-bottom: 4px; }
   .qualification strong, .clause strong { font-weight: 700; }
+  .contract-summary { margin: 0 0 14px; border: 1px solid #8b1f32; border-radius: 7px; padding: 10px 12px; page-break-inside: avoid; background: rgba(255,255,255,.82); }
+  .contract-summary h2 { margin: 0 0 7px; color: #70182a; font-size: 9.5pt; }
+  .contract-summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 16px; font-size: 9pt; }
+  .contract-summary-grid p { margin: 0; text-align: left; }
   .check-options { margin: 5px 0 10px 19px; display: flex; flex-direction: column; gap: 2px; }
   .check-option { display: block; }
   ul.model-list { list-style: none; margin: 3px 0 8px 19px; padding: 0; }
@@ -230,7 +238,20 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
 </style></head><body>
 <div class="page-border"></div><div class="page-watermark" aria-hidden="true"></div>
 <main class="document">
-<h1>CONTRATO DE PACOTE DE VIAGEM- EXCURSÃO DAS COMITIVAS 2026</h1>
+<h1>CONTRATO DE PACOTE DE VIAGEM<br/>EXCURSÃO DAS COMITIVAS</h1>
+<section class="contract-summary">
+  <h2>RESUMO INDIVIDUAL DA CONTRATAÇÃO</h2>
+  <div class="contract-summary-grid">
+    <p><strong>Excursão:</strong> ${escapeHtml(eventoNome)}</p>
+    <p><strong>Destino/local:</strong> ${escapeHtml(eventoLocal)}</p>
+    <p><strong>Período:</strong> ${escapeHtml(loteNome)}</p>
+    <p><strong>Datas:</strong> ${escapeHtml(checkin)} a ${escapeHtml(checkout)}</p>
+    <p><strong>Pacote:</strong> ${escapeHtml(pacoteNome)}</p>
+    <p><strong>Valor contratado:</strong> ${escapeHtml(totalMoney)}</p>
+    <p><strong>Pagamento:</strong> ${escapeHtml(valueOrBlank(f.forma_pagamento, "A definir"))} · ${escapeHtml(f.parcelas || 1)} parcela(s)</p>
+    <p><strong>Reserva:</strong> ${escapeHtml(reservaId)}</p>
+  </div>
+</section>
 <h2>QUALIFICAÇÃO DAS PARTES:</h2>
 <p class="qualification">As partes qualificadas neste instrumento celebram, pelo presente, contrato para a prestação de serviços de <strong>HOSPEDAGEM/TRANSPORTE</strong></p>
 <p class="qualification"><strong>Contratada:</strong> ${escapeHtml(CONTRATADA_DADOS.razao_social)}, empresa inscrita no CNPJ ${escapeHtml(CONTRATADA_DADOS.cnpj)}, com sede na Qr 502 conjunto 20 – Samambaia Sul/DF, CEP 72.210-420, e-mail: ${escapeHtml(CONTRATADA_DADOS.email)}</p>
@@ -271,7 +292,7 @@ ${vendedorResponsavel}
 
 <h2>CLÁUSULA SÉTIMA<br/>DO CANCELAMENTO E DA POLÍTICA DE REEMBOLSO</h2>
 <div class="page-break"></div><p><strong>7.1.</strong> O <strong>CONTRATANTE</strong> poderá solicitar o cancelamento do presente contrato a qualquer tempo, mediante comunicação formal à <strong>CONTRATADA</strong>, por escrito ou por outro meio de comunicação disponibilizado pela empresa.</p>
-<p><strong>7.2.</strong> Considerando que o presente contrato tem por objeto a prestação de serviços de hospedagem temporária durante a Festa do Peão de Barretos/SP, evento de caráter regional realizado apenas uma vez ao ano, cuja organização demanda reservas antecipadas de hospedagem, contratação de fornecedores, aquisição de alimentos e bebidas, contratação de mão de obra, estrutura operacional e demais custos logísticos, o cancelamento da contratação sujeitará o <strong>CONTRATANTE</strong> às retenções abaixo especificadas, destinadas exclusivamente à compensação das despesas administrativas, operacionais e financeiras já assumidas pela <strong>CONTRATADA.</strong></p>
+<p><strong>7.2.</strong> Considerando que o pacote para ${escapeHtml(eventoNome)} demanda reservas antecipadas de hospedagem, fornecedores, alimentação, equipe e estrutura operacional, o cancelamento da contratação sujeitará o <strong>CONTRATANTE</strong> às retenções abaixo especificadas, destinadas exclusivamente à compensação das despesas administrativas, operacionais e financeiras já assumidas pela <strong>CONTRATADA.</strong></p>
 <p><strong>7.3.</strong> Em caso de cancelamento por iniciativa do <strong>CONTRATANTE</strong>, serão observados os seguintes percentuais de retenção sobre o valor total do contrato:</p>
 <p>I – Cancelamento realizado com antecedência superior a 90 (noventa) dias do início da hospedagem: retenção de 10% (dez por cento) do valor total contratado;<br/>II – Cancelamento realizado entre 80 (oitenta) e 60 (sessenta) dias antes do início da hospedagem: retenção de 20% (vinte por cento);<br/>III – Cancelamento realizado entre 50 (cinquenta) e 30 (trinta) dias antes do início da hospedagem: retenção de 30% (trinta por cento);<br/>IV – Cancelamento realizado entre 20 (vinte) e 15 (quinze) dias antes do início da hospedagem: retenção de 50% (cinquenta por cento);<br/>V – Cancelamento realizado com menos de 15 (quinze) dias de antecedência ao início da hospedagem: retenção de 80% (oitenta por cento) do valor total contratado, considerando a elevada dificuldade de reposição da vaga e as despesas operacionais já assumidas pela <strong>CONTRATADA.</strong><br/>VI – Na hipótese de não comparecimento do <strong>CONTRATANTE</strong> na data prevista para o início da hospedagem (no-show), sem comunicação prévia de cancelamento, ou de abandono voluntário da hospedagem após o início da prestação dos serviços, haverá retenção de 100% (cem por cento) do valor contratado, não sendo devido qualquer reembolso, em razão da efetiva disponibilização da vaga e da impossibilidade de sua comercialização a terceiros.</p>
 <p><strong>7.4.</strong> Os valores eventualmente devidos ao <strong>CONTRATANTE</strong> serão restituídos no prazo de até 30 (trinta) dias contados da formalização do pedido de cancelamento, mediante o mesmo meio de pagamento utilizado na contratação ou outro acordado entre as partes.</p>
@@ -280,7 +301,7 @@ ${vendedorResponsavel}
 <p><strong>7.7.</strong> Na hipótese de cancelamento do evento por determinação de autoridade pública, caso fortuito ou força maior que impeça sua realização, as partes buscarão, de comum acordo, a melhor solução para a execução ou encerramento do contrato, observada a legislação vigente.</p>
 <h2>CLÁUSULA OITAVA<br/>DAS EXCLUSÕES</h2>
 <p><strong>8.1.</strong> O valor do pacote contratado não inclui quaisquer serviços ou despesas que não estejam expressamente previstos neste instrumento, permanecendo de responsabilidade exclusiva do <strong>CONTRATANTE</strong>, dentre eles:</p>
-<p>I – Ingressos para a Festa do Peão de Barretos, shows, rodeios, camarotes, festas particulares ou quaisquer outros eventos;<br/>II – Despesas pessoais, tais como lavanderia, medicamentos, alimentação e bebidas não previstas no pacote, compras, transporte por aplicativos ou quaisquer outros gastos de natureza particular;<br/>III – Contratação de passeios opcionais ou serviços oferecidos por terceiros durante a estadia;<br/>IV – Despesas decorrentes de atendimento médico, hospitalar, odontológico ou farmacêutico, bem como seguros de qualquer natureza;<br/>V – Perdas, extravios ou danos causados a objetos de uso pessoal, ressalvadas as hipóteses previstas em lei;<br/>VI – Quaisquer outros serviços ou despesas não expressamente descritos como inclusos neste contrato.</p>
+<p>I – Ingressos, shows, áreas reservadas, festas particulares ou atividades não descritas no pacote;<br/>II – Despesas pessoais, tais como lavanderia, medicamentos, alimentação e bebidas não previstas no pacote, compras, transporte por aplicativos ou quaisquer outros gastos de natureza particular;<br/>III – Contratação de passeios opcionais ou serviços oferecidos por terceiros durante a estadia;<br/>IV – Despesas decorrentes de atendimento médico, hospitalar, odontológico ou farmacêutico, bem como seguros de qualquer natureza;<br/>V – Perdas, extravios ou danos causados a objetos de uso pessoal, ressalvadas as hipóteses previstas em lei;<br/>VI – Quaisquer outros serviços ou despesas não expressamente descritos como inclusos neste contrato.</p>
 <p><strong>8.2.</strong> ${exclusaoTransporte}</p>
 <p><strong>8.3.</strong> Eventuais serviços contratados diretamente pelo <strong>CONTRATANTE</strong> junto a terceiros durante a execução da excursão serão de sua exclusiva responsabilidade, não respondendo a <strong>CONTRATADA</strong> por sua prestação, qualidade, pontualidade ou eventuais prejuízos deles decorrentes.</p>
 

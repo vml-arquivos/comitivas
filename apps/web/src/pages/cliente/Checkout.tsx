@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../contexts/AuthContext';
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@ui/index';
-import { AlertCircle, FileCheck2, FileText, Landmark, Mail, QrCode, ShieldCheck, Smartphone, Tent, Wind, Snowflake, RefreshCw } from 'lucide-react';
+import { AlertCircle, Download, Eye, FileCheck2, FileText, Landmark, Mail, QrCode, ShieldCheck, Smartphone, Tent, Wind, Snowflake, RefreshCw } from 'lucide-react';
 
 type MetodoPagamento = 'pix' | 'boleto';
 type CanalOtp = 'email' | 'whatsapp';
@@ -492,7 +492,17 @@ export default function Checkout() {
           </CardHeader>
           <CardContent className="space-y-5 p-6">
             <iframe title="Contrato oficial da reserva" srcDoc={contratoHtml} className="h-[520px] w-full rounded-xl border border-gray-200 bg-white" />
-            <p className="text-xs text-gray-500">Versão {documento?.versao || 'atual'} · O documento final terá hash SHA-256 e certificado de validação.</p>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-gray-500">Versão {documento?.versao || 'atual'} · Esta minuta reproduz o conteúdo que será assinado. O documento final terá hash SHA-256 e certificado de validação.</p>
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <a href={`/api/contratos/download/${encodeURIComponent(reservaId || '')}?inline=1&contrato_id=${encodeURIComponent(documento?.id || '')}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-xs font-bold text-gray-700 hover:border-primary hover:text-primary">
+                  <Eye size={15} /> Abrir minuta
+                </a>
+                <a href={`/api/contratos/download/${encodeURIComponent(reservaId || '')}?contrato_id=${encodeURIComponent(documento?.id || '')}`} className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-xs font-bold text-gray-700 hover:border-primary hover:text-primary">
+                  <Download size={15} /> Baixar minuta
+                </a>
+              </div>
+            </div>
             <label className="flex cursor-pointer items-start gap-3 rounded-xl border p-4">
               <input type="checkbox" checked={aceiteContrato} onChange={(event) => setAceiteContrato(event.target.checked)} className="mt-1 h-5 w-5 text-primary" />
               <span className="text-sm">

@@ -11,6 +11,7 @@ import { CoraPaymentProvider } from "../services/coraPaymentProvider.js";
 import { PacoteService, ConfiguracaoPacote } from "../services/pacoteService.js";
 import { ClienteExclusaoService, ErroExclusaoCliente } from "../services/clienteExclusaoService.js";
 import { OperacaoOnibusService } from "../services/operacaoOnibusService.js";
+import { IdentityDocumentService, TipoIdentidade } from "../services/identityDocumentService.js";
 import { db } from "../db/index.js";
 import { reservas, eventos, lotes, pacotes, usuarios, leads_origem, descontosAdministrativos, pagamentos, contratosDocumentos, contratoValidacoes, pagamentoParcelas, emails_enviados, clienteDocumentos, clienteHistorico, videosEvento, fotos_evento, comissaoRegras, comissoes, convitesAcesso, auditoriaAdmin, inventarioHolds, sessoes, passwordResetTokens, verificacoesEmail, assentoAlocacoes, assentosOnibus, onibusOperacionais, pontosEmbarqueOperacao, saidasOperacionais, checkinsOperacao } from "../db/schema.js";
 import { eq, and, inArray, or, sql, desc, isNull, ne } from "drizzle-orm";
@@ -236,6 +237,11 @@ async function obterFichaCliente(usuarioId: string) {
     tamanho_bytes: clienteDocumentos.tamanho_bytes,
     sha256: clienteDocumentos.sha256,
     observacoes: clienteDocumentos.observacoes,
+    tipo_identidade: clienteDocumentos.tipo_identidade,
+    validacao_status: clienteDocumentos.validacao_status,
+    validacao_resultado: clienteDocumentos.validacao_resultado,
+    validado_em: clienteDocumentos.validado_em,
+    erro_validacao: clienteDocumentos.erro_validacao,
     criado_por: clienteDocumentos.criado_por,
     criado_em: clienteDocumentos.criado_em,
   }).from(clienteDocumentos)
@@ -1525,11 +1531,14 @@ router.post("/clientes/:id/documentos", requireRole("admin"), uploadDocumentoCli
     const id = createId();
     const nomeFisico = `${Date.now()}-${id}-${nomeArquivoSeguro(nodePath.basename(nomeOriginal, extensao))}${extensao}`;
     const arquivo = nodePath.join(pasta, nomeFisico);
-    await fs.writeFile(arquivo, req.body);
+    await fs.writeFile(arquivo, req.body, { mode: 0o600 });
 
     const categoriasPermitidas = new Set(["identidade", "cpf", "comprovante_residencia", "autorizacao", "comprovante_pagamento", "saude", "outros"]);
     const categoriaBruta = String(req.query.categoria || "outros").trim().slice(0, 60) || "outros";
     const categoria = categoriasPermitidas.has(categoriaBruta) ? categoriaBruta : "outros";
+    const tiposIdentidade = new Set<TipoIdentidade>(["rg", "cnh", "passaporte", "outro"]);
+    const tipoIdentidadeBruto = String(req.query.tipo_identidade || "").trim().toLocaleLowerCase("pt-BR") as TipoIdentidade;
+    const tipoIdentidade = categoria === "identidade" ? (tiposIdentidade.has(tipoIdentidadeBruto) ? tipoIdentidadeBruto : "outro") : null;
     const nome = String(req.query.nome || nodePath.basename(nomeOriginal, extensao)).trim().slice(0, 255) || "Documento";
     const observacoes = String(req.query.observacoes || "").trim().slice(0, 5000) || null;
     const reservaId = String(req.query.reserva_id || "").trim() || null;
@@ -1553,6 +1562,8 @@ router.post("/clientes/:id/documentos", requireRole("admin"), uploadDocumentoCli
       sha256: hash,
       arquivo,
       observacoes,
+      tipo_identidade: tipoIdentidade,
+      validacao_status: "nao_iniciada",
       criado_por: req.usuario.id,
       criado_em: new Date(),
       atualizado_em: new Date(),
@@ -1567,14 +1578,65 @@ router.post("/clientes/:id/documentos", requireRole("admin"), uploadDocumentoCli
       tamanho_bytes: clienteDocumentos.tamanho_bytes,
       sha256: clienteDocumentos.sha256,
       observacoes: clienteDocumentos.observacoes,
+      tipo_identidade: clienteDocumentos.tipo_identidade,
+      validacao_status: clienteDocumentos.validacao_status,
       criado_em: clienteDocumentos.criado_em,
     }))[0];
 
     await registrarHistoricoCliente(cliente.id, "documento", "Documento adicionado", `${categoria}: ${nome}`, req.usuario.id, { documento_id: id, sha256: hash, reserva_id: reservaId });
-    return res.status(201).json({ documento });
+    const validacao = categoria === "identidade" ? await IdentityDocumentService.validar(documento.id) : null;
+    return res.status(201).json({ documento: { ...documento, ...(validacao || {}) } });
   } catch (error: any) {
     console.error("[ADMIN/CLIENTES] Erro ao anexar documento:", error);
     return res.status(500).json({ erro: "Erro ao anexar documento" });
+  }
+});
+
+router.post("/clientes/:id/documentos/:documentoId/validar", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const documento = (await db.select({ id: clienteDocumentos.id }).from(clienteDocumentos).where(and(
+      eq(clienteDocumentos.id, req.params.documentoId),
+      eq(clienteDocumentos.usuario_id, req.params.id),
+      eq(clienteDocumentos.categoria, "identidade"),
+      isNull(clienteDocumentos.removido_em),
+    )).limit(1))[0];
+    if (!documento) return res.status(404).json({ erro: "Documento de identificação não encontrado" });
+    const validacao = await IdentityDocumentService.validar(documento.id, { forcar: true });
+    return res.json({ documento: { id: documento.id, ...validacao } });
+  } catch (error) {
+    console.error("[ADMIN/CLIENTES] Erro ao repetir validação documental");
+    return res.status(500).json({ erro: "Não foi possível validar o documento" });
+  }
+});
+
+router.patch("/clientes/:id/documentos/:documentoId/validacao", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const status = String(req.body?.status || "");
+    const motivo = String(req.body?.motivo || "").trim().slice(0, 1000);
+    if (!["aprovado", "rejeitado"].includes(status) || motivo.length < 5) return res.status(400).json({ erro: "Informe a decisão e o motivo da conferência" });
+    const documento = (await db.select({ id: clienteDocumentos.id, nome: clienteDocumentos.nome }).from(clienteDocumentos).where(and(
+      eq(clienteDocumentos.id, req.params.documentoId),
+      eq(clienteDocumentos.usuario_id, req.params.id),
+      eq(clienteDocumentos.categoria, "identidade"),
+      isNull(clienteDocumentos.removido_em),
+    )).limit(1))[0];
+    if (!documento) return res.status(404).json({ erro: "Documento de identificação não encontrado" });
+    const agora = new Date();
+    await db.update(clienteDocumentos).set({
+      validacao_status: status,
+      validacao_provedor: "manual",
+      validacao_modelo: null,
+      validado_em: status === "aprovado" ? agora : null,
+      erro_validacao: status === "rejeitado" ? motivo : null,
+      validacao_resultado: { decisao_manual: true, motivo, responsavel_id: req.usuario.id },
+      atualizado_em: agora,
+    }).where(eq(clienteDocumentos.id, documento.id));
+    await registrarHistoricoCliente(req.params.id, "documento_validado", status === "aprovado" ? "Documento conferido" : "Documento recusado", motivo, req.usuario.id, { documento_id: documento.id, status });
+    return res.json({ mensagem: status === "aprovado" ? "Documento aprovado após conferência" : "Documento recusado", status });
+  } catch (error) {
+    console.error("[ADMIN/CLIENTES] Erro ao registrar decisão documental");
+    return res.status(500).json({ erro: "Não foi possível registrar a decisão" });
   }
 });
 

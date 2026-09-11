@@ -1,0 +1,11 @@
+# Remetentes automáticos por finalidade — Coolify
+# Manter também as variáveis SMTP já configuradas.
+
+EMAIL_FROM_SYSTEM=Excursão das Comitivas <sistema@excursaodascomitivas.com.br>
+EMAIL_FROM_SUPPORT=Excursão das Comitivas | Atendimento <atendimento@excursaodascomitivas.com.br>
+EMAIL_FROM_CONTRACTS=Excursão das Comitivas | Contratos <contratos@excursaodascomitivas.com.br>
+EMAIL_FROM_FINANCE=Excursão das Comitivas | Financeiro <financeiro@excursaodascomitivas.com.br>
+EMAIL_REPLY_TO=atendimento@excursaodascomitivas.com.br
+
+# Fallback legado — manter
+SMTP_FROM=Excursão das Comitivas <sistema@excursaodascomitivas.com.br>

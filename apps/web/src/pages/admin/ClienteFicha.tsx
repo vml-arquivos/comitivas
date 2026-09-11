@@ -132,6 +132,11 @@ type Documento = {
   tamanho_bytes: number;
   sha256: string;
   observacoes: string | null;
+  tipo_identidade: string | null;
+  validacao_status: string;
+  validacao_resultado: Record<string, unknown> | null;
+  validado_em: string | null;
+  erro_validacao: string | null;
   criado_em: string;
 };
 
@@ -211,6 +216,15 @@ const statusContrato: Record<string, string> = {
   invalidado: 'Invalidado',
 };
 
+const statusDocumento: Record<string, string> = {
+  nao_iniciada: 'Aguardando leitura',
+  processando: 'Conferindo',
+  aprovado: 'Dados conferidos',
+  rejeitado: 'Dados divergentes',
+  analise_manual: 'Análise necessária',
+  erro: 'Falha na leitura',
+};
+
 const tipoHistorico: Record<string, string> = {
   cadastro: 'Cadastro',
   aprovacao_cadastro: 'Cadastro',
@@ -253,6 +267,7 @@ export default function ClienteFicha() {
   const [erro, setErro] = useState<string | null>(null);
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [categoria, setCategoria] = useState('identidade');
+  const [tipoIdentidade, setTipoIdentidade] = useState('rg');
   const [nomeDocumento, setNomeDocumento] = useState('');
   const [observacoesDocumento, setObservacoesDocumento] = useState('');
   const [reservaDocumento, setReservaDocumento] = useState('');
@@ -366,6 +381,7 @@ export default function ClienteFicha() {
       await api.post(`/admin/clientes/${clienteId}/documentos`, arquivo, {
         params: {
           categoria,
+          tipo_identidade: categoria === 'identidade' ? tipoIdentidade : undefined,
           nome: nomeDocumento.trim() || undefined,
           observacoes: observacoesDocumento.trim() || undefined,
           reserva_id: reservaDocumento || undefined,
@@ -397,6 +413,28 @@ export default function ClienteFicha() {
       await carregar();
     } catch (err: any) {
       setErro(err.response?.data?.erro || 'Não foi possível remover o documento.');
+    }
+  };
+
+  const validarDocumento = async (documento: Documento) => {
+    if (!clienteId) return;
+    try {
+      await api.post(`/admin/clientes/${clienteId}/documentos/${documento.id}/validar`);
+      await carregar();
+    } catch (err: any) {
+      setErro(err.response?.data?.erro || 'Não foi possível conferir o documento.');
+    }
+  };
+
+  const decidirDocumento = async (documento: Documento, status: 'aprovado' | 'rejeitado') => {
+    if (!clienteId) return;
+    const motivo = prompt(status === 'aprovado' ? 'Registre o motivo da aprovação manual:' : 'Informe a divergência encontrada:', '') || '';
+    if (motivo.trim().length < 5) return setErro('Informe um motivo com pelo menos 5 caracteres.');
+    try {
+      await api.patch(`/admin/clientes/${clienteId}/documentos/${documento.id}/validacao`, { status, motivo });
+      await carregar();
+    } catch (err: any) {
+      setErro(err.response?.data?.erro || 'Não foi possível registrar a decisão.');
     }
   };
 
@@ -933,6 +971,14 @@ export default function ClienteFicha() {
                     ))}
                   </select>
                 </div>
+                {categoria === 'identidade' && (
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700">Tipo de identificação</label>
+                    <select value={tipoIdentidade} onChange={(e) => setTipoIdentidade(e.target.value)} className="h-10 w-full rounded-md border border-gray-300 bg-white px-3 text-sm">
+                      <option value="rg">RG</option><option value="cnh">CNH</option><option value="passaporte">Passaporte</option><option value="outro">Outro documento oficial</option>
+                    </select>
+                  </div>
+                )}
                 <Input label="Nome para exibição" value={nomeDocumento} onChange={(e) => setNomeDocumento(e.target.value)} placeholder="Ex.: documento de identificação com foto" />
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">Vincular a uma reserva (opcional)</label>
@@ -990,6 +1036,7 @@ export default function ClienteFicha() {
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="font-semibold text-gray-900">{documento.nome}</p>
                             <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">{CATEGORIAS.find(([valor]) => valor === documento.categoria)?.[1] || documento.categoria}</span>
+                            {documento.categoria === 'identidade' && <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${documento.validacao_status === 'aprovado' ? 'bg-emerald-100 text-emerald-700' : documento.validacao_status === 'rejeitado' || documento.validacao_status === 'erro' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}`}>{statusDocumento[documento.validacao_status] || documento.validacao_status}</span>}
                           </div>
                           <p className="mt-1 truncate text-xs text-gray-500">
                             {documento.nome_original} · {formatarTamanho(documento.tamanho_bytes)} · {formatarDataHora(documento.criado_em)}
@@ -998,6 +1045,7 @@ export default function ClienteFicha() {
                             SHA-256 {documento.sha256}
                           </p>
                           {documento.observacoes && <p className="mt-1 text-sm text-gray-600">{documento.observacoes}</p>}
+                          {documento.erro_validacao && <p className="mt-1 text-xs text-amber-800">{documento.erro_validacao}</p>}
                         </div>
                       </div>
                       <div className="flex shrink-0 gap-1">
@@ -1007,6 +1055,9 @@ export default function ClienteFicha() {
                         <button onClick={() => baixarDocumento(documento.id)} className="rounded-md p-2 text-gray-500 hover:bg-gray-100 hover:text-primary" title="Baixar">
                           <Download size={17} />
                         </button>
+                        {documento.categoria === 'identidade' && documento.validacao_status !== 'aprovado' && <button onClick={() => void validarDocumento(documento)} className="rounded-md p-2 text-gray-500 hover:bg-gray-100 hover:text-primary" title="Repetir leitura"><RefreshCw size={17} /></button>}
+                        {documento.categoria === 'identidade' && documento.validacao_status !== 'aprovado' && <button onClick={() => void decidirDocumento(documento, 'aprovado')} className="rounded-md p-2 text-gray-500 hover:bg-emerald-50 hover:text-emerald-700" title="Aprovar após conferência"><ShieldCheck size={17} /></button>}
+                        {documento.categoria === 'identidade' && documento.validacao_status !== 'rejeitado' && <button onClick={() => void decidirDocumento(documento, 'rejeitado')} className="rounded-md p-2 text-gray-500 hover:bg-red-50 hover:text-red-600" title="Recusar após conferência">×</button>}
                         <button onClick={() => void removerDocumento(documento)} className="rounded-md p-2 text-gray-500 hover:bg-red-50 hover:text-red-600" title="Remover">
                           <Trash2 size={17} />
                         </button>

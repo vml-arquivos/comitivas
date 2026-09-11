@@ -83,6 +83,13 @@ const limiteIntencaoLead = rateLimit({
   legacyHeaders: false,
   message: { erro: "Muitas atualizações de intenção. Aguarde alguns minutos." },
 });
+const limiteDocumentoIdentidade = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === "production" ? 10 : 1_000,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { erro: "Muitos envios de documento. Aguarde alguns minutos." },
+});
 
 // Middleware
 app.disable("x-powered-by");
@@ -151,6 +158,7 @@ app.get("/api/health", (req, res) => {
 });
 
 // Área do cliente 360º (autenticada e sempre limitada ao próprio usuário)
+app.use("/api/cliente/documentos", limiteDocumentoIdentidade);
 app.use("/api/cliente", clienteRoutes);
 
 // Rotas de eventos (público para listar, admin para criar/editar)

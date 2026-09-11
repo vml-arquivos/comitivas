@@ -495,7 +495,7 @@ export class ContratoService {
       evento: { id: evento.id, nome: evento.nome, local: evento.local, data_inicio: formatarDataISO(evento.data_inicio), data_fim: formatarDataISO(evento.data_fim) },
       lote: { id: lote.id, nome: lote.nome, descricao: lote.descricao },
       periodo: { check_in: dataISOouNulo(hospedagemForm.check_in) || formatarDataISO(lote.data_inicio) || "", check_out: dataISOouNulo(hospedagemForm.check_out) || formatarDataISO(lote.data_fim) || "" },
-      pacote: { id: pacote?.id || null, nome: pacote?.nome || null, descricao: pacote?.descricao || null },
+      pacote: { id: pacote?.id || null, nome: pacote?.nome || null, descricao: pacote?.descricao || null, valor_total: pacote?.valor_total || null },
       hospedagem: { modalidade: modalidadeHospedagem, modalidade_nome: MODALIDADES_HOSPEDAGEM[modalidadeHospedagem || ""] || "Conforme contratação registrada", local: localHospedagem, quarto: quarto?.nome || null, grupo: quarto?.genero || null, vaga: quarto?.numero_vaga || null },
       servicos_inclusos: Array.isArray(formulario.servicos_inclusos) && formulario.servicos_inclusos.length > 0 ? formulario.servicos_inclusos.map((item) => String(item).trim()).filter(Boolean).slice(0, 30) : servicos,
       adicionais: adicionais.map((item) => ({ id: item.id, codigo: item.codigo, nome: item.nome, tipo: item.tipo, transporte_rodoviario: item.transporte_rodoviario, quantidade: item.quantidade, valor_unitario: item.valor.toFixed(2) })),

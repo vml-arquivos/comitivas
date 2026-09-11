@@ -3,8 +3,8 @@ import { authMiddleware, isAdminOrDev } from "../middleware/authMiddleware.js";
 import { ContratoService, REGRAS_CONVIVENCIA_OFICIAIS, REGRAS_CONVIVENCIA_VERSION } from "../services/contratoService.js";
 import { ConfiguracaoService } from "../services/configuracaoService.js";
 import { db } from "../db/index.js";
-import { eventos, lotes, pacotes, reservas, usuarios, pagamentos, contratosDocumentos, contratoValidacoes } from "../db/schema.js";
-import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { eventos, lotes, pacotes, reservas, usuarios, pagamentos, contratosDocumentos, contratoValidacoes, clienteDocumentos } from "../db/schema.js";
+import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import fs from "fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
@@ -77,6 +77,27 @@ async function camposCadastroFaltantes(reservaId: string): Promise<string[]> {
   return camposFaltantesCadastroMinimo(registro);
 }
 
+async function documentoIdentidadeValidado(reservaId: string): Promise<boolean> {
+  if (process.env.DOCUMENT_IDENTITY_REQUIRED_FOR_CONTRACT !== "true") return true;
+  const documento = (await db.select({ id: clienteDocumentos.id })
+    .from(reservas)
+    .innerJoin(clienteDocumentos, eq(reservas.usuario_id, clienteDocumentos.usuario_id))
+    .where(and(
+      eq(reservas.id, reservaId),
+      eq(clienteDocumentos.categoria, "identidade"),
+      eq(clienteDocumentos.validacao_status, "aprovado"),
+      isNull(clienteDocumentos.removido_em),
+    ))
+    .limit(1))[0];
+  return Boolean(documento);
+}
+
+async function exigirDocumentoIdentidade(reservaId: string, res: Response): Promise<boolean> {
+  if (await documentoIdentidadeValidado(reservaId)) return true;
+  res.status(409).json({ erro: "Envie e valide um documento de identificação com foto antes de concluir o contrato." });
+  return false;
+}
+
 async function lerArquivoContrato(caminhos: Array<string | null | undefined>): Promise<Buffer | null> {
   const base = path.resolve(process.env.STORAGE_PATH || "./uploads");
   const candidatos = new Set<string>();
@@ -138,6 +159,7 @@ router.post("/preparar/:reserva_id", authMiddleware, async (req: Request, res: R
     if (!(await cadastroAprovado(reserva.id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes de preparar o contrato" });
     const faltantes = await camposCadastroFaltantes(reserva.id);
     if (faltantes.length) return res.status(409).json({ erro: `Complete os dados essenciais antes do contrato: ${faltantes.join(", ")}` });
+    if (!(await exigirDocumentoIdentidade(reserva.id, res))) return;
     const documento = await ContratoService.prepararContrato(req.params.reserva_id);
     return res.json({ documento });
   } catch (error: any) {
@@ -155,6 +177,7 @@ router.post("/otp/solicitar/:reserva_id", authMiddleware, async (req: Request, r
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
     if (!(await emailConfirmado(req.params.reserva_id))) return res.status(409).json({ erro: "Confirme seu e-mail antes da validação contratual" });
     if (!(await cadastroAprovado(req.params.reserva_id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes da validação contratual" });
+    if (!(await exigirDocumentoIdentidade(req.params.reserva_id, res))) return;
     const resultado = await OtpService.solicitar({ usuario_id: req.usuario.id, reserva_id: req.params.reserva_id, contrato_id: req.body?.contrato_id, canal: req.body?.canal });
     if (!resultado.enviado) return res.status(503).json({ erro: resultado.motivo || "Canal de validação não configurado", ...resultado });
     return res.json(resultado);
@@ -169,6 +192,7 @@ router.post("/otp/confirmar/:reserva_id", authMiddleware, async (req: Request, r
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
     if (!(await emailConfirmado(req.params.reserva_id))) return res.status(409).json({ erro: "Confirme seu e-mail antes da validação contratual" });
     if (!(await cadastroAprovado(req.params.reserva_id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes da validação contratual" });
+    if (!(await exigirDocumentoIdentidade(req.params.reserva_id, res))) return;
     const resultado = await OtpService.confirmar({
       usuario_id: req.usuario.id,
       reserva_id: req.params.reserva_id,
@@ -249,6 +273,7 @@ router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Re
     if (!(await cadastroAprovado(reserva.id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes de aceitar o contrato" });
     const faltantes = await camposCadastroFaltantes(reserva.id);
     if (faltantes.length) return res.status(409).json({ erro: `Complete os dados essenciais antes do contrato: ${faltantes.join(", ")}` });
+    if (!(await exigirDocumentoIdentidade(reserva.id, res))) return;
 
     // Verificar status
     if (reserva.status !== "pacote_montado" && reserva.status !== "checkout_iniciado") {
@@ -370,19 +395,31 @@ router.get("/download/:reserva_id", authMiddleware, async (req: Request, res: Re
     const condicaoDocumento = contratoId
       ? and(eq(contratosDocumentos.reserva_id, reserva_id), eq(contratosDocumentos.id, contratoId), ne(contratosDocumentos.status, "invalidado"))
       : and(eq(contratosDocumentos.reserva_id, reserva_id), ne(contratosDocumentos.status, "invalidado"));
-    const documento = (await db.select({ id: contratosDocumentos.id, arquivo: contratosDocumentos.arquivo, pdf_sha256: contratosDocumentos.pdf_sha256, versao: contratosDocumentos.versao })
+    const documento = (await db.select({
+      id: contratosDocumentos.id,
+      arquivo: contratosDocumentos.arquivo,
+      pdf_sha256: contratosDocumentos.pdf_sha256,
+      versao: contratosDocumentos.versao,
+      status: contratosDocumentos.status,
+      snapshot: contratosDocumentos.snapshot,
+    })
       .from(contratosDocumentos)
       .where(condicaoDocumento)
       .orderBy(desc(contratosDocumentos.versao))
       .limit(1))[0];
 
     if (contratoId && !documento) return res.status(404).json({ erro: "Versão contratual não encontrada" });
-    if (documento && !documento.arquivo) return res.status(404).json({ erro: "O PDF da versão vigente ainda não está disponível" });
     if (!documento && !reserva.contrato_pdf_url) {
       return res.status(404).json({ erro: "Contrato não disponível" });
     }
 
-    const pdfBuffer = await lerArquivoContrato(documento ? [documento.arquivo] : [reserva.contrato_pdf_url]);
+    const statusMinuta = documento && ["rascunho", "aguardando_validacao", "preparado"].includes(documento.status);
+    if (documento && !documento.arquivo && !statusMinuta) {
+      return res.status(409).json({ erro: "O arquivo da versão validada não está disponível. Nenhuma regeneração foi realizada." });
+    }
+    const pdfBuffer = statusMinuta
+      ? await ContratoService.gerarContratoPDF({ reserva_id, contrato_id: documento.id, snapshot: documento.snapshot as any })
+      : await lerArquivoContrato(documento ? [documento.arquivo] : [reserva.contrato_pdf_url]);
     if (!pdfBuffer) return res.status(404).json({ erro: "Arquivo do contrato não encontrado. O registro e o histórico foram preservados." });
     if (documento?.pdf_sha256 && createHash("sha256").update(pdfBuffer).digest("hex") !== documento.pdf_sha256) {
       return res.status(409).json({ erro: "O arquivo do contrato não corresponde à versão validada. Nenhuma regeneração foi realizada." });
@@ -390,10 +427,11 @@ router.get("/download/:reserva_id", authMiddleware, async (req: Request, res: Re
 
     // Enviar arquivo
     res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("X-Contract-Document", statusMinuta ? "draft" : "final");
     const disposicao = req.query.inline === "1" ? "inline" : "attachment";
     res.setHeader(
       "Content-Disposition",
-      `${disposicao}; filename="contrato-${reserva_id}${documento ? `-v${documento.versao}` : ""}.pdf"`
+      `${disposicao}; filename="${statusMinuta ? "minuta" : "contrato"}-${reserva_id}${documento ? `-v${documento.versao}` : ""}.pdf"`
     );
     res.send(pdfBuffer);
   } catch (error: any) {

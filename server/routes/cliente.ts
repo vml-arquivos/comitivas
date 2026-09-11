@@ -1,4 +1,6 @@
-import { Router, Request, Response } from "express";
+import { Router, Request, Response, NextFunction, raw } from "express";
+import { createHash } from "node:crypto";
+import fs from "node:fs/promises";
 import path from "node:path";
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
@@ -28,6 +30,7 @@ import {
 } from "../db/schema.js";
 import { EmailService } from "../services/emailService.js";
 import { ReservaSolicitacaoService } from "../services/reservaSolicitacaoService.js";
+import { configuracaoValidacaoDocumental, IdentityDocumentService, TipoIdentidade } from "../services/identityDocumentService.js";
 
 const router = Router();
 router.use(authMiddleware);
@@ -243,6 +246,11 @@ router.get("/portal", async (req: Request, res: Response) => {
       tamanho_bytes: clienteDocumentos.tamanho_bytes,
       sha256: clienteDocumentos.sha256,
       observacoes: clienteDocumentos.observacoes,
+      tipo_identidade: clienteDocumentos.tipo_identidade,
+      validacao_status: clienteDocumentos.validacao_status,
+      validacao_resultado: clienteDocumentos.validacao_resultado,
+      validado_em: clienteDocumentos.validado_em,
+      erro_validacao: clienteDocumentos.erro_validacao,
       criado_em: clienteDocumentos.criado_em,
     }).from(clienteDocumentos)
       .where(and(eq(clienteDocumentos.usuario_id, usuarioId), isNull(clienteDocumentos.removido_em)))
@@ -317,12 +325,125 @@ router.get("/portal", async (req: Request, res: Response) => {
       contratos: contratosLista,
       validacoes: validacoesLista,
       documentos: documentosLista,
+      validacao_documental: configuracaoValidacaoDocumental(),
       historico: linhaTempo,
       solicitacoes,
     });
   } catch (error) {
     console.error("[CLIENTE] Erro ao montar portal:", error);
     return res.status(500).json({ erro: "Não foi possível carregar sua área do cliente" });
+  }
+});
+
+const parserDocumentoIdentidade = raw({ type: "application/octet-stream", limit: "12mb" });
+
+function uploadDocumentoIdentidade(req: Request, res: Response, next: NextFunction) {
+  parserDocumentoIdentidade(req, res, (error?: any) => {
+    if (error?.type === "entity.too.large") return res.status(413).json({ erro: "Arquivo excede o limite de 12 MB" });
+    if (error) return next(error);
+    return next();
+  });
+}
+
+function detectarMimeDocumento(buffer: Buffer, extensao: string): string | null {
+  const pdf = buffer.length >= 5 && buffer.subarray(0, 5).toString("ascii") === "%PDF-";
+  const jpeg = buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  const png = buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const webp = buffer.length >= 12 && buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP";
+  if (extensao === ".pdf" && pdf) return "application/pdf";
+  if ([".jpg", ".jpeg"].includes(extensao) && jpeg) return "image/jpeg";
+  if (extensao === ".png" && png) return "image/png";
+  if (extensao === ".webp" && webp) return "image/webp";
+  return null;
+}
+
+function nomeArquivoSeguro(valor: string): string {
+  return valor.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9._-]/g, "-").replace(/-+/g, "-").slice(0, 100) || "documento";
+}
+
+router.post("/documentos/identidade", uploadDocumentoIdentidade, async (req: Request, res: Response) => {
+  let arquivoCriado: string | null = null;
+  let documentoPersistido = false;
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) return res.status(400).json({ erro: "Selecione um documento" });
+    const tipos = new Set<TipoIdentidade>(["rg", "cnh", "passaporte", "outro"]);
+    const tipo = String(req.query.tipo_identidade || "").trim().toLocaleLowerCase("pt-BR") as TipoIdentidade;
+    if (!tipos.has(tipo)) return res.status(400).json({ erro: "Selecione o tipo de documento" });
+
+    const nomeOriginal = decodeURIComponent(String(req.get("x-file-name") || "documento")).slice(0, 255);
+    const extensao = path.extname(nomeOriginal).toLowerCase();
+    if (![".pdf", ".jpg", ".jpeg", ".png", ".webp"].includes(extensao)) return res.status(415).json({ erro: "Envie PDF, JPG, JPEG, PNG ou WEBP" });
+    const mimeType = detectarMimeDocumento(req.body, extensao);
+    if (!mimeType) return res.status(415).json({ erro: "O conteúdo não corresponde a um PDF ou imagem permitida" });
+    const mimeInformado = String(req.get("x-file-mime") || "").trim().toLowerCase();
+    if (mimeInformado && mimeInformado !== mimeType) return res.status(415).json({ erro: "O tipo do arquivo não corresponde ao conteúdo" });
+
+    const hash = createHash("sha256").update(req.body).digest("hex");
+    const duplicado = (await db.select({ id: clienteDocumentos.id, validacao_status: clienteDocumentos.validacao_status }).from(clienteDocumentos).where(and(
+      eq(clienteDocumentos.usuario_id, req.usuario.id),
+      eq(clienteDocumentos.sha256, hash),
+      isNull(clienteDocumentos.removido_em),
+    )).limit(1))[0];
+    if (duplicado) return res.status(409).json({ erro: "Este documento já foi enviado", documento: duplicado });
+
+    const base = path.resolve(process.env.STORAGE_PATH || "./uploads");
+    const pasta = path.resolve(base, "clientes", req.usuario.id);
+    if (!pasta.startsWith(`${base}${path.sep}`)) return res.status(400).json({ erro: "Caminho de armazenamento inválido" });
+    await fs.mkdir(pasta, { recursive: true });
+    const id = createId();
+    arquivoCriado = path.join(pasta, `${Date.now()}-${id}-${nomeArquivoSeguro(path.basename(nomeOriginal, extensao))}${extensao}`);
+    await fs.writeFile(arquivoCriado, req.body, { mode: 0o600 });
+
+    const documento = (await db.insert(clienteDocumentos).values({
+      id,
+      usuario_id: req.usuario.id,
+      categoria: "identidade",
+      nome: `Documento de identificação · ${tipo.toUpperCase()}`,
+      nome_original: nomeOriginal,
+      mime_type: mimeType,
+      tamanho_bytes: req.body.length,
+      sha256: hash,
+      arquivo: arquivoCriado,
+      tipo_identidade: tipo,
+      validacao_status: "nao_iniciada",
+      criado_por: req.usuario.id,
+      criado_em: new Date(),
+      atualizado_em: new Date(),
+    }).returning({ id: clienteDocumentos.id }))[0];
+    documentoPersistido = true;
+
+    const validacao = await IdentityDocumentService.validar(documento.id);
+    await registrarSolicitacao({
+      usuarioId: req.usuario.id,
+      tipo: "documento_identidade",
+      titulo: "Documento de identificação enviado",
+      descricao: validacao.status === "aprovado" ? "Dados conferidos com o cadastro." : "Documento encaminhado para conferência.",
+      metadados: { documento_id: documento.id, tipo_identidade: tipo, status: validacao.status },
+    });
+    return res.status(201).json({ documento: { id: documento.id, tipo_identidade: tipo, ...validacao } });
+  } catch (error) {
+    if (arquivoCriado && !documentoPersistido) await fs.unlink(arquivoCriado).catch(() => undefined);
+    console.error("[CLIENTE] Erro ao enviar documento de identificação");
+    return res.status(500).json({ erro: "Não foi possível enviar o documento" });
+  }
+});
+
+router.post("/documentos/:documentoId/validar", async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const documento = (await db.select({ id: clienteDocumentos.id }).from(clienteDocumentos).where(and(
+      eq(clienteDocumentos.id, req.params.documentoId),
+      eq(clienteDocumentos.usuario_id, req.usuario.id),
+      eq(clienteDocumentos.categoria, "identidade"),
+      isNull(clienteDocumentos.removido_em),
+    )).limit(1))[0];
+    if (!documento) return res.status(404).json({ erro: "Documento não encontrado" });
+    const validacao = await IdentityDocumentService.validar(documento.id, { forcar: true });
+    return res.json({ documento: { id: documento.id, ...validacao } });
+  } catch (error) {
+    console.error("[CLIENTE] Erro ao repetir validação documental");
+    return res.status(500).json({ erro: "Não foi possível validar o documento" });
   }
 });
 

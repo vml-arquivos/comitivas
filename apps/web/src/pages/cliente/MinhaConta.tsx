@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
-import { AlertCircle, ArrowRight, BedDouble, Calendar, CheckCircle2, CircleDollarSign, Clock3, Download, Eye, FileText, History, LifeBuoy, MapPin, Pencil, Plane, RefreshCcw, RotateCcw, ShieldCheck, Ticket, UserRound, XCircle } from 'lucide-react';
+import { AlertCircle, ArrowRight, BedDouble, Calendar, CheckCircle2, CircleDollarSign, Clock3, Download, Eye, FileText, History, LifeBuoy, MapPin, Pencil, Plane, RefreshCcw, RotateCcw, ScanLine, ShieldCheck, Ticket, UploadCloud, UserRound, XCircle } from 'lucide-react';
 import { Button, Card, CardContent } from '@ui/index';
 import { api } from '../../contexts/AuthContext';
 
@@ -53,6 +53,18 @@ function statusReserva(reserva: any) {
   return { label, classes };
 }
 
+function statusDocumento(status?: string) {
+  const mapa: Record<string, { texto: string; classes: string }> = {
+    nao_iniciada: { texto: 'Aguardando leitura', classes: 'bg-slate-100 text-slate-700' },
+    processando: { texto: 'Conferindo', classes: 'bg-blue-100 text-blue-700' },
+    aprovado: { texto: 'Dados conferidos', classes: 'bg-emerald-100 text-emerald-700' },
+    rejeitado: { texto: 'Dados divergentes', classes: 'bg-red-100 text-red-700' },
+    analise_manual: { texto: 'Em análise', classes: 'bg-amber-100 text-amber-800' },
+    erro: { texto: 'Tentar novamente', classes: 'bg-red-100 text-red-700' },
+  };
+  return mapa[status || 'nao_iniciada'] || mapa.nao_iniciada;
+}
+
 function TimelineIcon({ tipo }: { tipo: string }) {
   if (tipo.includes('pagamento')) return <CircleDollarSign size={16} />;
   if (tipo.includes('contrato')) return <FileText size={16} />;
@@ -73,6 +85,8 @@ export default function MinhaConta() {
   const [assunto, setAssunto] = useState('');
   const [textoAtendimento, setTextoAtendimento] = useState('');
   const [reservaAtendimento, setReservaAtendimento] = useState('');
+  const [tipoIdentidade, setTipoIdentidade] = useState('');
+  const [arquivoIdentidade, setArquivoIdentidade] = useState<File | null>(null);
 
   const carregar = async () => {
     setCarregando(true);
@@ -194,6 +208,51 @@ export default function MinhaConta() {
       await carregar();
     } catch (err: any) {
       setErro(err.response?.data?.erro || 'Não foi possível enviar sua mensagem.');
+    } finally {
+      setAcaoLoading('');
+    }
+  };
+
+  const enviarDocumentoIdentidade = async () => {
+    if (!arquivoIdentidade || !tipoIdentidade) {
+      setErro('Selecione o tipo e o arquivo do documento.');
+      return;
+    }
+    setAcaoLoading('documento-identidade');
+    setErro('');
+    setMensagem('');
+    try {
+      const response = await api.post(`/cliente/documentos/identidade?tipo_identidade=${encodeURIComponent(tipoIdentidade)}`, arquivoIdentidade, {
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'X-File-Name': encodeURIComponent(arquivoIdentidade.name),
+          'X-File-Mime': arquivoIdentidade.type,
+        },
+      });
+      const status = response.data?.documento?.status;
+      setMensagem(status === 'aprovado' ? 'Documento enviado. Os dados correspondem ao cadastro.' : 'Documento enviado para conferência.');
+      setArquivoIdentidade(null);
+      setTipoIdentidade('');
+      await carregar();
+      setTab('documentos');
+    } catch (err: any) {
+      setErro(err.response?.data?.erro || 'Não foi possível enviar o documento.');
+    } finally {
+      setAcaoLoading('');
+    }
+  };
+
+  const repetirValidacaoDocumento = async (documentoId: string) => {
+    setAcaoLoading(`validar-${documentoId}`);
+    setErro('');
+    setMensagem('');
+    try {
+      const response = await api.post(`/cliente/documentos/${documentoId}/validar`);
+      setMensagem(response.data?.documento?.status === 'aprovado' ? 'Dados do documento conferidos.' : 'Documento encaminhado para nova conferência.');
+      await carregar();
+      setTab('documentos');
+    } catch (err: any) {
+      setErro(err.response?.data?.erro || 'Não foi possível repetir a conferência.');
     } finally {
       setAcaoLoading('');
     }
@@ -711,14 +770,48 @@ export default function MinhaConta() {
 
         {tab === 'documentos' && (
           <div className="space-y-4 py-6">
+            <Card>
+              <CardContent className="p-5 sm:p-6">
+                <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr] lg:items-center">
+                  <div>
+                    <div className="flex items-center gap-2 text-[#851F32]"><ScanLine size={20} /><span className="text-xs font-bold uppercase tracking-[.15em]">Identificação</span></div>
+                    <h2 className="mt-2 text-xl font-semibold text-slate-900">Envie seu documento com foto</h2>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">Aceitamos RG, CNH, passaporte ou outro documento oficial. O sistema compara os dados visíveis com seu cadastro; a aprovação administrativa continua separada.</p>
+                    {portal.validacao_documental?.obrigatoriaContrato && <p className="mt-3 text-sm font-medium text-amber-800">A conferência é necessária antes de concluir o contrato.</p>}
+                  </div>
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4">
+                    <div className="grid gap-3 sm:grid-cols-[180px_1fr]">
+                      <select value={tipoIdentidade} onChange={(event) => setTipoIdentidade(event.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm" aria-label="Tipo do documento">
+                        <option value="">Tipo do documento</option>
+                        <option value="rg">RG</option>
+                        <option value="cnh">CNH</option>
+                        <option value="passaporte">Passaporte</option>
+                        <option value="outro">Outro documento</option>
+                      </select>
+                      <label className="flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:border-[#851F32]">
+                        <UploadCloud size={18} />
+                        <span className="truncate">{arquivoIdentidade?.name || 'Escolher PDF ou imagem'}</span>
+                        <input key={arquivoIdentidade?.name || 'vazio'} type="file" className="sr-only" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={(event) => setArquivoIdentidade(event.target.files?.[0] || null)} />
+                      </label>
+                    </div>
+                    <ul className="mt-3 grid gap-1 text-xs text-slate-500 sm:grid-cols-2">
+                      <li>• Mostre as quatro bordas</li><li>• Evite reflexos e cortes</li><li>• Deixe nome e foto legíveis</li><li>• Até 12 MB</li>
+                    </ul>
+                    <Button className="mt-4 w-full sm:w-auto" onClick={() => void enviarDocumentoIdentidade()} isLoading={acaoLoading === 'documento-identidade'} disabled={!arquivoIdentidade || !tipoIdentidade}>
+                      Enviar e conferir
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
             {portal.documentos.length === 0 ? (
-              <Card>
-                <CardContent className="p-8 text-center text-slate-500">Nenhum documento liberado na sua ficha.</CardContent>
-              </Card>
+              <Card><CardContent className="p-8 text-center text-slate-500">Nenhum documento enviado ainda.</CardContent></Card>
             ) : (
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {portal.documentos.map((doc: any) => {
                   const reserva = doc.reserva_id ? (reservaPorId.get(doc.reserva_id) as any) : null;
+                  const validacao = doc.categoria === 'identidade' ? statusDocumento(doc.validacao_status) : null;
                   return (
                     <Card key={doc.id}>
                       <CardContent className="p-5">
@@ -730,6 +823,8 @@ export default function MinhaConta() {
                         </div>
                         <h3 className="mt-4 font-black text-slate-900">{doc.nome}</h3>
                         <p className="mt-1 text-xs text-slate-500">{doc.nome_original}</p>
+                        {validacao && <span className={`mt-3 inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${validacao.classes}`}>{validacao.texto}</span>}
+                        {doc.erro_validacao && <p className="mt-2 text-xs leading-5 text-amber-800">{doc.erro_validacao}</p>}
                         {reserva && (
                           <p className="mt-3 text-sm text-slate-600">
                             {reserva.evento_nome} · {reserva.pacote_nome || reserva.lote_nome}
@@ -745,6 +840,11 @@ export default function MinhaConta() {
                             <Download size={15} />
                             Baixar
                           </Button>
+                          {validacao && ['erro', 'rejeitado', 'analise_manual'].includes(doc.validacao_status) && (
+                            <Button variant="outline" onClick={() => void repetirValidacaoDocumento(doc.id)} isLoading={acaoLoading === `validar-${doc.id}`}>
+                              <RefreshCcw size={15} /> Conferir
+                            </Button>
+                          )}
                         </div>
                       </CardContent>
                     </Card>
