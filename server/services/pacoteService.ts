@@ -12,6 +12,34 @@ export interface OrigemReserva { lead_id?: string; vendedor_id?: string; codigo_
 
 function dinheiro(valor: Decimal): number { return valor.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber(); }
 
+function cpfNormalizado(valor: unknown): string {
+  return String(valor ?? "").replace(/\D/g, "");
+}
+
+async function bloquearDuplicidadePorCpf(tx: any, loteId: string, usuarioId: string): Promise<void> {
+  const pessoa = (await tx.execute(sql`SELECT cpf FROM usuarios WHERE id = ${usuarioId} FOR SHARE`)).rows[0] as { cpf: string | null } | undefined;
+  const cpf = cpfNormalizado(pessoa?.cpf);
+  if (!cpf) return;
+
+  // O advisory lock serializa duas abas/contas concorrentes mesmo antes da consulta.
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`reserva:${loteId}:${cpf}`}))`);
+  const existente = (await tx.execute(sql`
+    SELECT r.id
+      FROM reservas r
+      JOIN usuarios u ON u.id = r.usuario_id
+     WHERE r.lote_id = ${loteId}
+       AND regexp_replace(COALESCE(u.cpf, ''), '[^0-9]', '', 'g') = ${cpf}
+       AND COALESCE(r.status::text, '') <> 'abandonado'
+       AND COALESCE(r.checkout_estado, '') NOT IN ('expirado', 'cancelado', 'cancelado_cliente', 'cancelamento_aprovado')
+     LIMIT 1
+  `)).rows[0] as { id: string } | undefined;
+  if (existente) {
+    const erro = new Error("DUPLICIDADE_RESERVA_ATIVA");
+    (erro as Error & { reservaId?: string }).reservaId = existente.id;
+    throw erro;
+  }
+}
+
 export class PacoteService {
   static async buscarItensDisponiveis(lote_id: string) {
     return db.select().from(itens_addon).where(and(eq(itens_addon.lote_id, lote_id), eq(itens_addon.ativo, true)));
@@ -100,6 +128,7 @@ export class PacoteService {
       const loteLock = await tx.execute(sql`SELECT id, "vagas_disponíveis" FROM lotes WHERE id = ${lote_id} FOR UPDATE`);
       const lote = loteLock.rows[0] as { id: string; vagas_disponíveis: number } | undefined;
       if (!lote || Number(lote.vagas_disponíveis) < 1) throw new Error("Vagas indisponíveis");
+      await bloquearDuplicidadePorCpf(tx, lote_id, usuario_id);
       const baixa = await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = "vagas_disponíveis" - 1, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${lote_id} AND "vagas_disponíveis" > 0 RETURNING id`);
       if (baixa.rows.length === 0) throw new Error("Vagas indisponíveis");
 

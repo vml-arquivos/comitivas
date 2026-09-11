@@ -1,6 +1,12 @@
 import { CONTRATADA_DADOS } from "./letterhead.js";
 import { COMITIVA_CONTRACT_WATERMARK_B64 } from "./logo_constants.js";
 
+const MODALIDADES_HOSPEDAGEM: Record<string, string> = {
+  camping: "Camping",
+  quarto_ventilador: "Quarto com ventilador compartilhado",
+  quarto_ar_condicionado: "Quarto com ar-condicionado compartilhado",
+};
+
 export type ContratoModeloSnapshot = {
   modelo_oficial?: "hospedagem" | "transporte";
   evento?: { nome?: string; local?: string; data_inicio?: string | null; data_fim?: string | null };
@@ -10,6 +16,7 @@ export type ContratoModeloSnapshot = {
   vendedor?: { nome?: string; email?: string } | null;
   periodo: { check_in: string; check_out: string };
   hospedagem: { modalidade: string | null; local: string; quarto?: string | null; grupo?: string | null; vaga?: number | null };
+  servicos_inclusos?: string[];
   financeiro: {
     total: string;
     valor_base?: string;
@@ -182,6 +189,16 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
   const checkin = formatDate(snapshot.periodo?.check_in);
   const checkout = formatDate(snapshot.periodo?.check_out);
   const localHospedagem = valueOrBlank(h.local, "Chácara Recanto Novo Encantado ou Santa Thereza");
+  const servicosSelecionados = (Array.isArray(snapshot.servicos_inclusos) ? snapshot.servicos_inclusos : [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(0, 30);
+  const servicosContrato = servicosSelecionados.length
+    ? servicosSelecionados
+    : [h.modalidade ? `Hospedagem: ${MODALIDADES_HOSPEDAGEM[h.modalidade] || h.modalidade}` : null, t.rodoviario_incluido ? "Transporte rodoviário conforme programação" : null].filter((item): item is string => Boolean(item));
+  const servicosInclusosHtml = servicosContrato.length
+    ? `<ul class="model-list">${servicosContrato.map((item) => `<li>• ${escapeHtml(item)}</li>`).join("")}</ul>`
+    : `<p>Os serviços inclusos são exclusivamente aqueles descritos no pacote contratado e no resumo desta contratação.</p>`;
   const limiteBagagem = bagagem.limite_kg ? `${bagagem.limite_kg} kg` : "________ kg";
   const poltronaRegistrada = Number.isInteger(Number(t.poltrona)) && Number(t.poltrona) > 0;
   const identificacaoOnibus = [t.onibus_nome, t.onibus_identificacao].filter(Boolean).join(" · ");
@@ -198,22 +215,22 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
 <p><strong>10.1.</strong> O presente contrato compreende o transporte rodoviário de passageiros entre o local de embarque registrado e ${escapeHtml(eventoLocal)}, bem como o respectivo retorno conforme programação divulgada pela <strong>CONTRATADA.</strong></p>
 <p><strong>10.2.</strong> O transporte será realizado por empresa regularmente habilitada junto aos órgãos competentes, especialmente à Agência Nacional de Transportes Terrestres – ANTT, observadas as normas de segurança e a legislação vigente.</p>
 <p><strong>10.3.</strong> As informações referentes ao transporte</p>
-<ul class="model-list"><li>• Local de embarque: ${transportValue(t.local_embarque, "SAMAMBAIA AO LADO DO MERCADO DIA A DIA, ESTACIONAMENTO DO POSTO IPIRANGA.")}</li><li>• PONTO DE REFERÊNCIA: ${transportValue(t.ponto_referencia, "DISTRIBUIDORA ROIAL-SAIDA DA BR 060")}</li><li>• Data da saída: ${escapeHtml(formatDate(t.data_saida))}</li></ul><div class="page-break"></div><ul class="model-list"><li>• Horário previsto da saída: ${escapeHtml(valueOrBlank(t.horario_saida, "___/___/____"))}</li><li>• Data prevista para retorno: ${escapeHtml(formatDate(t.data_retorno))}</li><li>• Horário previsto do retorno: ${escapeHtml(valueOrBlank(t.horario_retorno, "___/___/____"))}</li><li>• Tipo do veículo:</li>${vehicle(t.veiculo, "Ônibus", "Ônibus")}${vehicle(t.veiculo, "Micro-ônibus", "Micro-ônibus")}${vehicle(t.veiculo, "Van", "Van")}${identificacaoOnibus ? `<li>• Veículo designado: ${escapeHtml(identificacaoOnibus)}</li>` : ""}${poltronaRegistrada ? `<li>• Poltrona designada: ${escapeHtml(t.poltrona)}</li>` : ""}</ul>` : "";
+<ul class="model-list"><li>• Local de embarque: ${transportValue(t.local_embarque, "SAMAMBAIA AO LADO DO MERCADO DIA A DIA, ESTACIONAMENTO DO POSTO IPIRANGA.")}</li><li>• PONTO DE REFERÊNCIA: ${transportValue(t.ponto_referencia, "DISTRIBUIDORA ROIAL-SAIDA DA BR 060")}</li><li>• Data da saída: ${escapeHtml(formatDate(t.data_saida))}</li></ul><ul class="model-list"><li>• Horário previsto da saída: ${escapeHtml(valueOrBlank(t.horario_saida, "___/___/____"))}</li><li>• Data prevista para retorno: ${escapeHtml(formatDate(t.data_retorno))}</li><li>• Horário previsto do retorno: ${escapeHtml(valueOrBlank(t.horario_retorno, "___/___/____"))}</li><li>• Tipo do veículo:</li>${vehicle(t.veiculo, "Ônibus", "Ônibus")}${vehicle(t.veiculo, "Micro-ônibus", "Micro-ônibus")}${vehicle(t.veiculo, "Van", "Van")}${identificacaoOnibus ? `<li>• Veículo designado: ${escapeHtml(identificacaoOnibus)}</li>` : ""}${poltronaRegistrada ? `<li>• Poltrona designada: ${escapeHtml(t.poltrona)}</li>` : ""}</ul>` : "";
 
   return `<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Contrato de pacote de viagem — ${escapeHtml(eventoNome)}</title>
 <style>
-  @page { size: A4; margin: 11mm 12mm 14mm 12mm; }
+  @page { size: A4; margin: 13mm 14mm 16mm 14mm; }
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: #fff; color: #111; font-family: Arial, Helvetica, sans-serif; font-size: 10pt; line-height: 1.45; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  html, body { margin: 0; padding: 0; background: #fff; color: #17202a; font-family: Arial, Helvetica, sans-serif; font-size: 9.4pt; line-height: 1.38; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { position: relative; }
-  .page-border { position: fixed; z-index: 0; pointer-events: none; inset: 7mm; border: 0.8pt solid #111; }
-  .page-watermark { position: fixed; z-index: 0; pointer-events: none; left: 50%; top: 51%; width: 181mm; height: 173mm; transform: translate(-50%, -50%); background: center / contain no-repeat url('${COMITIVA_CONTRACT_WATERMARK_B64}'); opacity: .145; }
-  .document { position: relative; z-index: 1; padding: 5mm 8mm 3mm; }
+  .page-border { position: fixed; z-index: 0; pointer-events: none; inset: 9mm; border: 0.35pt solid #d9dee5; border-radius: 2mm; }
+  .page-watermark { position: fixed; z-index: 0; pointer-events: none; left: 50%; top: 53%; width: 130mm; height: 125mm; transform: translate(-50%, -50%); background: center / contain no-repeat url('${COMITIVA_CONTRACT_WATERMARK_B64}'); opacity: .045; }
+  .document { position: relative; z-index: 1; padding: 1mm 2mm 2mm; }
   h1, h2, h3, p, ul, table { position: relative; z-index: 1; }
-  h1 { margin: 0 0 17px; font-size: 13pt; line-height: 1.25; text-align: center; font-weight: 700; }
-  h2 { margin: 17px 0 7px; font-size: 10.2pt; line-height: 1.18; text-transform: uppercase; font-weight: 700; page-break-after: avoid; }
-  p { margin: 0 0 9px; text-align: justify; }
+  h1 { margin: 0 0 10px; font-size: 13pt; line-height: 1.2; text-align: center; font-weight: 700; color: #851f32; }
+  h2 { margin: 12px 0 5px; font-size: 9.8pt; line-height: 1.16; text-transform: uppercase; font-weight: 700; page-break-after: avoid; color: #182d3b; }
+  p { margin: 0 0 6px; text-align: justify; orphans: 3; widows: 3; }
   .qualification { margin-bottom: 4px; }
   .qualification strong, .clause strong { font-weight: 700; }
   .contract-summary { margin: 0 0 14px; border: 1px solid #8b1f32; border-radius: 7px; padding: 10px 12px; page-break-inside: avoid; background: rgba(255,255,255,.82); }
@@ -233,7 +250,7 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
   .signature-line { border-top: 1px solid #111; margin: 0 auto 5px; width: 90%; }
   .signature strong { font-weight: 700; }
   .metadata { display: none; }
-  .page-break { page-break-before: always; break-before: page; }
+  .page-break { page-break-before: auto; break-before: auto; }
   .avoid-break { page-break-inside: avoid; }
 </style></head><body>
 <div class="page-border"></div><div class="page-watermark" aria-hidden="true"></div>
@@ -266,7 +283,7 @@ ${vendedorResponsavel}
 <p>Check-in: ${escapeHtml(checkin)}.<br/>Check-out: ${escapeHtml(checkout)}.<br/>Os horários poderão sofrer pequenos ajustes por necessidade operacional.</p>
 
 <h2>CLÁUSULA TERCEIRA<br/>DA HOSPEDAGEM</h2>
-<div class="page-break"></div><p>Modalidade de hospedagem:</p>
+<p>Modalidade de hospedagem:</p>
 <div class="check-options">${modality(modalidade, "camping", "CAMPING")}${modality(modalidade, "quarto_ventilador", "QUARTO COM VENTILADOR COMPARTILHADO.")}${modality(modalidade, "quarto_ar_condicionado", "QUARTO COM CLIMATIZADOR COMPARTILHADO.")}</div>
 <p class="clause"><strong>3.1</strong> A hospedagem será realizada na ${escapeHtml(localHospedagem)}.${h.quarto ? ` Alocação operacional atual: quarto ${escapeHtml(h.quarto)}, grupo ${escapeHtml(h.grupo || "definido pela organização")}${h.vaga ? `, vaga ${escapeHtml(h.vaga)}` : ""}. Eventual remanejamento será registrado no histórico da operação.` : ""}</p>
 <p class="clause"><strong>3.2</strong> Havendo necessidade, a contratada poderá substituir a hospedagem por estabelecimento de padrão equivalente ou superior, preservando localização, segurança e estrutura semelhantes.</p>
@@ -275,12 +292,11 @@ ${vendedorResponsavel}
 <p class="clause"><strong>3.5</strong> A hospedagem dispõe de piscina, ventilador ou climatizador.</p>
 <p class="clause"><strong>3.6</strong> A roupa de cama é de responsabilidade exclusiva do hóspede bem como itens de higiene pessoal.</p>
 <h2>CLÁUSULA QUARTA<br/>DOS SERVIÇOS INCLUSOS</h2>
-<p>Hospedagem; café da manhã que será servido das 8:30hrs às 10hrs; almoço servido das 13hrs às 15hrs; Open Bar das 09h às 19h; translado entre a chácara e o Parque do Peão.</p>
-<p>O Open Bar é destinado exclusivamente a <strong>maiores de 18 anos.</strong> A empresa não se responsabiliza por embriaguez, mal súbito ou acidentes decorrentes do consumo excessivo de bebidas alcoólicas.</p>
+${servicosInclusosHtml}
 <h2>CLÁUSULA QUINTA<br/>DAS FORMAS DE PAGAMENTO</h2>
 <p><strong>5.1.</strong> O valor total do pacote turístico é de ${escapeHtml(totalMoney)} (${escapeHtml(totalWords)}), podendo ser pago por uma das seguintes modalidades:</p>
 <p><strong>I – Pagamento à vista via PIX:</strong> com desconto de 5% (cinco por cento), mediante utilização da chave PIX vinculada ao CNPJ da CONTRATADA, qual seja:<br/><strong>CHAVE: ${escapeHtml(CONTRATADA_DADOS.pix_chave)}</strong><br/><strong>BANCO: ${escapeHtml(CONTRATADA_DADOS.pix_banco)}</strong></p>
-<div class="page-break"></div><p><strong>II – Parcelamento por boleto bancário:</strong> sem incidência de juros, observado que a quantidade de parcelas disponíveis será definida de acordo com a data da contratação, devendo o valor integral do pacote estar obrigatoriamente quitado antes da data de início da hospedagem.<br/>Atentando-se as seguintes datas:</p>
+<p><strong>II – Parcelamento por boleto bancário:</strong> sem incidência de juros, observado que a quantidade de parcelas disponíveis será definida de acordo com a data da contratação, devendo o valor integral do pacote estar obrigatoriamente quitado antes da data de início da hospedagem.<br/>Atentando-se as seguintes datas:</p>
 <table class="installments"><tbody>${scheduleRows(snapshot)}</tbody></table>
 <p><strong>III – Parcelamento por cartão de crédito:</strong> na quantidade apresentada e aceita antes da confirmação, respeitados o limite do pacote, a data da viagem e a disponibilidade do provedor.${escapeHtml(detalhesEncargos)}</p>
 <p><strong>5.2.</strong> A confirmação da reserva somente ocorrerá após a comprovação do pagamento da primeira parcela ou do valor integral contratado, conforme a modalidade de pagamento escolhida.</p>
@@ -291,7 +307,7 @@ ${vendedorResponsavel}
 <p><strong>6.3.</strong> O atraso ou inadimplemento de 2 ou mais parcelas poderá acarretar a suspensão da reserva e impedir a participação do <strong>CONTRATANTE</strong> na excursão, caso o pagamento integral não seja efetuado até a data de início do evento, sem prejuízo da aplicação da política de cancelamento prevista neste contrato.</p>
 
 <h2>CLÁUSULA SÉTIMA<br/>DO CANCELAMENTO E DA POLÍTICA DE REEMBOLSO</h2>
-<div class="page-break"></div><p><strong>7.1.</strong> O <strong>CONTRATANTE</strong> poderá solicitar o cancelamento do presente contrato a qualquer tempo, mediante comunicação formal à <strong>CONTRATADA</strong>, por escrito ou por outro meio de comunicação disponibilizado pela empresa.</p>
+<p><strong>7.1.</strong> O <strong>CONTRATANTE</strong> poderá solicitar o cancelamento do presente contrato a qualquer tempo, mediante comunicação formal à <strong>CONTRATADA</strong>, por escrito ou por outro meio de comunicação disponibilizado pela empresa.</p>
 <p><strong>7.2.</strong> Considerando que o pacote para ${escapeHtml(eventoNome)} demanda reservas antecipadas de hospedagem, fornecedores, alimentação, equipe e estrutura operacional, o cancelamento da contratação sujeitará o <strong>CONTRATANTE</strong> às retenções abaixo especificadas, destinadas exclusivamente à compensação das despesas administrativas, operacionais e financeiras já assumidas pela <strong>CONTRATADA.</strong></p>
 <p><strong>7.3.</strong> Em caso de cancelamento por iniciativa do <strong>CONTRATANTE</strong>, serão observados os seguintes percentuais de retenção sobre o valor total do contrato:</p>
 <p>I – Cancelamento realizado com antecedência superior a 90 (noventa) dias do início da hospedagem: retenção de 10% (dez por cento) do valor total contratado;<br/>II – Cancelamento realizado entre 80 (oitenta) e 60 (sessenta) dias antes do início da hospedagem: retenção de 20% (vinte por cento);<br/>III – Cancelamento realizado entre 50 (cinquenta) e 30 (trinta) dias antes do início da hospedagem: retenção de 30% (trinta por cento);<br/>IV – Cancelamento realizado entre 20 (vinte) e 15 (quinze) dias antes do início da hospedagem: retenção de 50% (cinquenta por cento);<br/>V – Cancelamento realizado com menos de 15 (quinze) dias de antecedência ao início da hospedagem: retenção de 80% (oitenta por cento) do valor total contratado, considerando a elevada dificuldade de reposição da vaga e as despesas operacionais já assumidas pela <strong>CONTRATADA.</strong><br/>VI – Na hipótese de não comparecimento do <strong>CONTRATANTE</strong> na data prevista para o início da hospedagem (no-show), sem comunicação prévia de cancelamento, ou de abandono voluntário da hospedagem após o início da prestação dos serviços, haverá retenção de 100% (cem por cento) do valor contratado, não sendo devido qualquer reembolso, em razão da efetiva disponibilização da vaga e da impossibilidade de sua comercialização a terceiros.</p>
@@ -305,7 +321,7 @@ ${vendedorResponsavel}
 <p><strong>8.2.</strong> ${exclusaoTransporte}</p>
 <p><strong>8.3.</strong> Eventuais serviços contratados diretamente pelo <strong>CONTRATANTE</strong> junto a terceiros durante a execução da excursão serão de sua exclusiva responsabilidade, não respondendo a <strong>CONTRATADA</strong> por sua prestação, qualidade, pontualidade ou eventuais prejuízos deles decorrentes.</p>
 
-<div class="page-break"></div><h2>CLÁUSULA NONA<br/>DOS DANOS</h2>
+<h2>CLÁUSULA NONA<br/>DOS DANOS</h2>
 <p><strong>9.1.</strong> O <strong>CONTRATANTE</strong> compromete-se a zelar pela conservação das instalações da hospedagem, áreas comuns, equipamentos, mobiliários, veículos utilizados no translado interno e demais bens disponibilizados durante a execução do presente contrato.</p>
 <p><strong>9.2.</strong> Todo dano material causado pelo <strong>CONTRATANTE</strong>, às instalações da hospedagem ou aos bens disponibilizados para utilização durante a excursão será de sua exclusiva responsabilidade, obrigando-se ao ressarcimento integral dos prejuízos efetivamente apurados.</p>
 <p><strong>9.3.</strong> A apuração dos danos será realizada mediante vistoria, registro fotográfico, orçamento ou documento equivalente emitido pelo proprietário do estabelecimento ou fornecedor responsável, sendo assegurado ao <strong>CONTRATANTE</strong> o direito de ciência quanto aos prejuízos apurados.</p>
@@ -322,7 +338,7 @@ ${blocoTransporte}${t.rodoviario_incluido ? `
 <p><strong>12.2.</strong> Objetos de valor, dinheiro, documentos pessoais, equipamentos eletrônicos, joias, medicamentos e bens de uso pessoal deverão permanecer sob a guarda exclusiva do <strong>CONTRATANTE</strong> durante toda a viagem.</p>
 <p><strong>12.3.</strong> A <strong>CONTRATADA</strong> não se responsabiliza por objetos esquecidos no interior do veículo ou por perdas decorrentes de culpa exclusiva do passageiro ou de terceiros.</p>
 <p><strong>12.4.</strong> Não será permitido o transporte de:</p>
-<ul class="model-list"><li>• armas de fogo sem autorização legal;</li></ul><div class="page-break"></div><ul class="model-list"><li>• explosivos;</li><li>• materiais inflamáveis;</li><li>• substâncias ilícitas;</li><li>• animais, salvo nas hipóteses previstas em lei.</li></ul>
+<ul class="model-list"><li>• armas de fogo sem autorização legal;</li></ul><ul class="model-list"><li>• explosivos;</li><li>• materiais inflamáveis;</li><li>• substâncias ilícitas;</li><li>• animais, salvo nas hipóteses previstas em lei.</li></ul>
 <h2>CLÁUSULA DÉCIMA TERCEIRA<br/>DA POLTRONA</h2>
 <p><strong>13.1.</strong> ${poltronaRegistrada ? `A poltrona destinada ao <strong>CONTRATANTE</strong> é a de número <strong>${escapeHtml(t.poltrona)}</strong>${identificacaoOnibus ? `, no veículo <strong>${escapeHtml(identificacaoOnibus)}</strong>` : ""}, conforme registro operacional vigente na geração deste contrato.` : "A poltrona destinada ao <strong>CONTRATANTE</strong> será indicada pela organização da excursão antes do embarque."}</p>
 <p><strong>13.2.</strong> Havendo necessidade operacional, manutenção do veículo, substituição da frota ou qualquer situação superveniente, a <strong>CONTRATADA</strong> poderá alterar a poltrona inicialmente designada, preservando, sempre que possível, categoria equivalente.</p>
@@ -334,7 +350,7 @@ ${blocoTransporte}${t.rodoviario_incluido ? `
 <h2>CLÁUSULA DÉCIMA QUINTA<br/>DOS ATRASOS, IMPREVISTOS E SUBSTITUIÇÃO DO VEÍCULO</h2>
 <p><strong>15.1.</strong> A <strong>CONTRATADA</strong> envidará todos os esforços para que os horários previstos sejam cumpridos, não se responsabilizando por atrasos decorrentes de fatores alheios à sua vontade, tais como:</p>
 <p>I – Congestionamentos; II – acidentes de trânsito; III – condições climáticas adversas; IV – interdições de rodovias; V – fiscalizações realizadas por órgãos competentes; VI – manutenção corretiva ou preventiva do veículo; VII – caso fortuito ou força maior.</p>
-<div class="page-break"></div><p><strong>15.2.</strong> Sempre que necessário para garantir a segurança dos passageiros ou a continuidade da viagem, a <strong>CONTRATADA</strong> poderá substituir o veículo inicialmente previsto por outro de categoria equivalente ou superior.</p>
+<p><strong>15.2.</strong> Sempre que necessário para garantir a segurança dos passageiros ou a continuidade da viagem, a <strong>CONTRATADA</strong> poderá substituir o veículo inicialmente previsto por outro de categoria equivalente ou superior.</p>
 <p><strong>15.3.</strong> Eventuais atrasos ou alterações decorrentes das hipóteses previstas nesta cláusula não caracterizarão descumprimento contratual, desde que a <strong>CONTRATADA</strong> adote as providências razoáveis para minimizar os impactos aos passageiros.</p>
 <p><strong>15.4.</strong> O <strong>CONTRATANTE</strong> compromete-se a observar as normas de segurança durante todo o percurso, utilizando corretamente os equipamentos de segurança disponibilizados e atendendo às orientações do motorista e do responsável operacional da excursão.</p>` : ''}
 
@@ -347,7 +363,7 @@ ${blocoTransporte}${t.rodoviario_incluido ? `
 <h2>CLÁUSULA DÉCIMA NONA<br/>DAS COMUNICAÇÕES</h2>
 <p>As comunicações poderão ocorrer por WhatsApp, e-mail ou telefone informado pelo contratante. Consideram-se válidas as comunicações enviadas aos contatos cadastrados.</p>
 <h2>CLÁUSULA VIGÉSIMA<br/>DO USO DE IMAGEM</h2>
-<div class="page-break"></div><p>${escapeHtml(imagemTexto)}</p>
+<p>${escapeHtml(imagemTexto)}</p>
 <p>Brasília, ${escapeHtml(formatLongDate(snapshot.data_contrato))}.</p>
   <div class="signature-wrap">
   <div class="signature"><div class="signature-line"></div><strong>CONTRATANTE</strong><br/>${escapeHtml(nome)}<br/>CPF: ${escapeHtml(cpf(c.cpf))}</div>

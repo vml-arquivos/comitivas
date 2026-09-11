@@ -148,7 +148,7 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
 
     const ip = req.ip || req.socket.remoteAddress || "desconhecido";
 
-    let origem: { lead_id?: string; vendedor_id?: string; codigo_origem?: string } = {};
+    let origem: { lead_id?: string; vendedor_id?: string; codigo_origem?: string } = { codigo_origem: "site" };
     let leadAtualizado: Array<{ id: string }> = [];
     if (req.body.lead_id) {
       const leadId = String(req.body.lead_id);
@@ -213,6 +213,9 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
   } catch (error: any) {
     console.error("[PACOTES] Erro ao reservar:", error);
     const mensagem = error?.message || "Erro ao criar reserva";
+    if (mensagem === "DUPLICIDADE_RESERVA_ATIVA") {
+      return res.status(409).json({ erro: "Já existe uma contratação para este viajante neste período. Continue pela reserva existente.", reserva_id: error?.reservaId || null });
+    }
     const erroDeRegra = /cupom|pacote|lote|vaga|adicional|quantidade|origem|incompatível|inválid/i.test(mensagem);
     res.status(erroDeRegra ? 400 : 500).json({ erro: mensagem });
   }

@@ -135,6 +135,18 @@ export const itens_addon = pgTable("itens_addon", {
   loteIdx: index("itens_addon_lote_id_idx").on(table.lote_id),
 }));
 
+export const reservaGrupos = pgTable("reserva_grupos", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  responsavel_id: text("responsavel_id").notNull().references(() => usuarios.id),
+  lote_id: text("lote_id").notNull().references(() => lotes.id),
+  vendedor_id: text("vendedor_id").references(() => usuarios.id),
+  status: varchar("status", { length: 30 }).notNull().default("rascunho"),
+  quantidade_participantes: integer("quantidade_participantes").notNull().default(0),
+  valor_total_centavos: integer("valor_total_centavos").notNull().default(0),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+  atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
+}, (table) => ({ responsavelIdx: index("reserva_grupos_responsavel_idx").on(table.responsavel_id, table.lote_id), loteIdx: index("reserva_grupos_lote_idx").on(table.lote_id, table.status) }));
+
 export const cupons = pgTable("cupons", {
   id: text("id").primaryKey().$defaultFn(() => createId()),
   evento_id: text("evento_id").notNull().references(() => eventos.id),
@@ -189,6 +201,7 @@ export const reservas = pgTable("reservas", {
   boleto_liberado_por: text("boleto_liberado_por"),
   saida_operacional_id: text("saida_operacional_id"),
   ponto_embarque_id: text("ponto_embarque_id"),
+  grupo_id: text("grupo_id").references(() => reservaGrupos.id),
   criado_em: timestamp("criado_em").defaultNow().notNull(),
   atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
 }, (table) => ({
@@ -196,7 +209,29 @@ export const reservas = pgTable("reservas", {
   loteIdx: index("reservas_lote_id_idx").on(table.lote_id),
   pacoteIdx: index("reservas_pacote_id_idx").on(table.pacote_id),
   statusIdx: index("reservas_status_idx").on(table.status),
+  grupoIdx: index("reservas_grupo_id_idx").on(table.grupo_id),
 }));
+
+export const reservaParticipantes = pgTable("reserva_participantes", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  grupo_id: text("grupo_id").notNull().references(() => reservaGrupos.id),
+  reserva_id: text("reserva_id").references(() => reservas.id),
+  nome_completo: varchar("nome_completo", { length: 255 }).notNull(),
+  cpf: varchar("cpf", { length: 14 }),
+  data_nascimento: timestamp("data_nascimento"),
+  telefone: varchar("telefone", { length: 20 }),
+  email: varchar("email", { length: 255 }),
+  sexo_operacional: varchar("sexo_operacional", { length: 30 }),
+  vinculo_responsavel: varchar("vinculo_responsavel", { length: 80 }),
+  menor_idade: boolean("menor_idade").notNull().default(false),
+  documento_status: varchar("documento_status", { length: 30 }).notNull().default("nao_iniciada"),
+  assento_id: text("assento_id"),
+  quarto_id: text("quarto_id"),
+  vaga_quarto_id: text("vaga_quarto_id"),
+  observacoes: text("observacoes"),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+  atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
+}, (table) => ({ grupoIdx: index("reserva_participantes_grupo_idx").on(table.grupo_id), cpfIdx: index("reserva_participantes_cpf_idx").on(table.cpf, table.grupo_id), reservaIdx: index("reserva_participantes_reserva_idx").on(table.reserva_id) }));
 
 export const pagamentos = pgTable("pagamentos", {
   id: text("id").primaryKey().$defaultFn(() => createId()),

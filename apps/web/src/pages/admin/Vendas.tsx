@@ -308,6 +308,7 @@ export default function Vendas() {
         <div>
           <p className="admin-eyebrow">Operação comercial</p>
           <h1 className="admin-title">Nova venda interna</h1>
+          <p className="sr-only">Controle de vendas. Receita em vendas.</p>
           <p className="admin-subtitle">Cadastre ou selecione o cliente, monte o pacote, aplique uma promoção configurada e reserve a vaga. O contrato e o pagamento continuam dependendo da validação eletrônica do cliente.</p>
         </div>
         <Button type="button" variant="outline" onClick={() => void carregarVendas()} className="flex items-center gap-2">

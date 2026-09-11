@@ -657,7 +657,8 @@ router.post("/vendas/reservar", async (req: Request, res: Response) => {
     const usuarioId = String(req.body?.usuario_id || "").trim();
     const cliente = (await db.select().from(usuarios).where(and(eq(usuarios.id, usuarioId), eq(usuarios.tipo, "cliente"), eq(usuarios.ativo, true))).limit(1))[0];
     if (!cliente) return res.status(404).json({ erro: "Cliente ativo não encontrado" });
-    const origem = await resolverOrigemVenda(req, usuarioId, req.body?.vendedor_id, req.body?.lead_id);
+    const vendedorId = String(req.body?.vendedor_id || "").trim();
+    const origem = await resolverOrigemVenda(req, usuarioId, vendedorId, req.body?.lead_id);
     let origemFinal = origem;
     if (isAdminOrDev(req.usuario.tipo) && req.body?.vendedor_id && !origem.lead_id) {
       const lead = (await db.insert(leads_origem).values({
@@ -672,8 +673,8 @@ router.post("/vendas/reservar", async (req: Request, res: Response) => {
         status: "checkout_iniciado",
         atualizado_em: new Date(),
         criado_em: new Date(),
-      }).returning({ id: leads_origem.id }))[0];
-      origemFinal = { ...origem, lead_id: lead?.id };
+      }).returning({ id: leads_origem.id, codigo_origem: leads_origem.codigo_origem }))[0];
+      origemFinal = { ...origem, lead_id: lead?.id, codigo_origem: lead?.codigo_origem || (vendedorId ? `interno-${vendedorId}` : "venda-interna") };
     }
     const config: ConfiguracaoPacote = { ...req.body, usuario_id: usuarioId, vendedor_id: origemFinal.vendedor_id };
     const resultado = await PacoteService.reservarPacote(usuarioId, String(req.body?.lote_id || ""), config, req.ip || req.socket.remoteAddress || "desconhecido", origemFinal);
@@ -738,7 +739,7 @@ router.get("/vendas/reservas", async (req: Request, res: Response) => {
     for (const pagamento of pagamentosRecentes) if (!pagamentoMap.has(pagamento.reserva_id)) pagamentoMap.set(pagamento.reserva_id, pagamento);
     const documentoMap = new Map<string, typeof documentos[number]>();
     for (const documento of documentos) if (!documentoMap.has(documento.reserva_id)) documentoMap.set(documento.reserva_id, documento);
-    return res.json({ total: linhas.length, reservas: linhas.map((linha) => ({ ...linha, vendedor_nome: linha.vendedor_id ? vendedorMap.get(linha.vendedor_id) || null : null, pagamento: pagamentoMap.get(linha.id) || null, contrato: documentoMap.get(linha.id) || null })) });
+    return res.json({ total: linhas.length, receita_centavos: linhas.reduce((total, linha) => total + Math.round(Number(linha.valor_total || 0) * 100), 0), reservas: linhas.map((linha) => ({ ...linha, receita_centavos: Math.round(Number(linha.valor_total || 0) * 100), vendedor_nome: linha.vendedor_id ? vendedorMap.get(linha.vendedor_id) || null : null, pagamento: pagamentoMap.get(linha.id) || null, contrato: documentoMap.get(linha.id) || null })) });
   } catch (error) {
     console.error("[ADMIN/VENDAS] Erro ao listar vendas:", error);
     return res.status(500).json({ erro: "Erro ao listar vendas internas" });

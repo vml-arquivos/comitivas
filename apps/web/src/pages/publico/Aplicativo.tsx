@@ -145,6 +145,7 @@ export default function Aplicativo() {
                   <Share2 size={17} /> Compartilhar
                 </button>
               </div>
+              {instalado && <p className="mt-3 text-sm font-semibold text-[#365B41]" aria-live="polite">Aplicativo ativo</p>}
               {mensagem && <p className="mt-3 text-sm font-semibold text-[#365B41]" aria-live="polite">{mensagem}</p>}
             </div>
 

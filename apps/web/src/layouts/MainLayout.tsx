@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Outlet, Link, useNavigate } from 'react-router-dom';
 import { Download, Instagram, LogOut, Menu, User as UserIcon, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -28,10 +28,30 @@ function WhatsAppFloatButton() {
   );
 }
 
+function AppBottomNav() {
+  return (
+    <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-[#182D3B]/10 bg-white/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-8px_24px_rgba(24,45,59,.08)] backdrop-blur lg:hidden" aria-label="Navegação do aplicativo">
+      <Link to="/" className="py-1 text-center text-xs font-semibold text-[#182D3B]/75">Início</Link>
+      <Link to="/eventos" className="py-1 text-center text-xs font-semibold text-[#182D3B]/75">Excursões</Link>
+      <Link to="/minha-conta" className="py-1 text-center text-xs font-semibold text-[#182D3B]/75">Conta</Link>
+      <Link to="/aplicativo" className="py-1 text-center text-xs font-semibold text-[#182D3B]/75">Ajuda</Link>
+    </nav>
+  );
+}
+
 export function MainLayout() {
   const { user, isLoading, logout } = useAuth();
   const navigate = useNavigate();
   const [menuAberto, setMenuAberto] = useState(false);
+  const [modoApp, setModoApp] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia('(display-mode: standalone)');
+    const atualizar = () => setModoApp(media.matches || (window.navigator as Navigator & { standalone?: boolean }).standalone === true);
+    atualizar();
+    media.addEventListener?.('change', atualizar);
+    return () => media.removeEventListener?.('change', atualizar);
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -146,9 +166,11 @@ export function MainLayout() {
         </div>
       </header>
 
-      <div className="border-b border-[#851F32]/10 bg-white px-4 py-2.5 lg:hidden">
-        <PwaInstallButton className="mx-auto flex min-h-10 w-full max-w-md items-center justify-center gap-2 rounded-xl bg-[#851F32] px-4 text-sm font-semibold text-white shadow-sm" />
-      </div>
+      {!modoApp && (
+        <div className="border-b border-[#851F32]/10 bg-white px-4 py-2.5 lg:hidden">
+          <PwaInstallButton className="mx-auto flex min-h-10 w-full max-w-md items-center justify-center gap-2 rounded-xl bg-[#851F32] px-4 text-sm font-semibold text-white shadow-sm" />
+        </div>
+      )}
 
       <main id="conteudo-principal" className="min-w-0 flex-1" tabIndex={-1}>
         <Outlet />
@@ -186,6 +208,9 @@ export function MainLayout() {
       </footer>
 
       <WhatsAppFloatButton />
+      {modoApp ? (
+        <AppBottomNav />
+      ) : null}
     </div>
   );
 }

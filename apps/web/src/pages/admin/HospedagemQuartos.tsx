@@ -271,6 +271,7 @@ export default function HospedagemQuartos() {
           </article>;
         })}
       </div>
+      <p className="text-sm text-slate-600"><strong>Local da hospedagem:</strong> {mapa.local_hospedagem || mapa.lote?.local_hospedagem || 'Não informado'}</p>
     </>}
 
     <AdminModal aberto={modal} titulo={editando ? 'Editar quarto' : 'Cadastrar quartos'} descricao={editando ? 'Atualize este quarto sem alterar os demais.' : 'Crie vários quartos de uma vez. Use “Incluir mais” para combinar capacidades, grupos e estruturas.'} fechar={() => setModal(false)} largura="ampla">
@@ -295,7 +296,7 @@ export default function HospedagemQuartos() {
             </label>
           </div>
           <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3"><div><h3 className="font-semibold text-[#073F50]">Configurações</h3><p className="text-xs text-slate-500">Cada linha gera automaticamente a quantidade informada.</p></div><Button type="button" variant="outline" onClick={() => setLoteForm((atual) => ({ ...atual, configuracoes: [...atual.configuracoes, novaLinha()] }))}><Plus size={15} className="mr-1" />Incluir mais</Button></div>
+            <div className="flex items-center justify-between gap-3"><div><h3 className="font-semibold text-[#073F50]">Configurações</h3><p className="text-xs text-slate-500">Cada linha gera automaticamente a quantidade informada.</p></div><Button type="button" variant="outline" onClick={() => setLoteForm((atual) => ({ ...atual, configuracoes: [...atual.configuracoes, novaLinha()] }))}><Plus size={15} className="mr-1" />Incluir mais quartos</Button></div>
             {loteForm.configuracoes.map((linha, indice) => <div key={linha.id} className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_1.2fr_auto] lg:items-end">
               <Input required label="Quantidade de quartos" type="number" min="1" max="50" value={linha.quantidade} onChange={(event) => atualizarLinha(linha.id, 'quantidade', event.target.value)} />
               <Input required label="Vagas por quarto" type="number" min="1" max="30" value={linha.capacidade} onChange={(event) => atualizarLinha(linha.id, 'capacidade', event.target.value)} />

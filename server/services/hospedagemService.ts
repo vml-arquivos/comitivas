@@ -72,7 +72,7 @@ export class HospedagemService {
       WHERE r.lote_id = ${loteId} AND r.status <> 'abandonado' AND qa.id IS NULL
       ORDER BY u.nome, r.criado_em`));
     const capacidade = quartos.reduce((total, q) => total + Number(q.capacidade || 0), 0);
-    return { lote, quartos: quartos.map((q) => ({ ...q, livres: Math.max(0, Number(q.capacidade) - Number(q.ocupadas)) })), alocacoes, reservas_disponiveis: reservas, resumo: { quartos: quartos.length, capacidade, ocupadas: alocacoes.length, livres: Math.max(0, capacidade - alocacoes.length), masculinas: quartos.filter((q) => q.genero === "masculino").reduce((t, q) => t + Number(q.capacidade), 0), femininas: quartos.filter((q) => q.genero === "feminino").reduce((t, q) => t + Number(q.capacidade), 0) } };
+    return { lote, local_hospedagem: lote.local_hospedagem || null, quartos: quartos.map((q) => ({ ...q, livres: Math.max(0, Number(q.capacidade) - Number(q.ocupadas)) })), alocacoes, reservas_disponiveis: reservas, resumo: { quartos: quartos.length, capacidade, ocupadas: alocacoes.length, livres: Math.max(0, capacidade - alocacoes.length), masculinas: quartos.filter((q) => q.genero === "masculino").reduce((t, q) => t + Number(q.capacidade), 0), femininas: quartos.filter((q) => q.genero === "feminino").reduce((t, q) => t + Number(q.capacidade), 0) } };
   }
 
   static async salvarQuarto(loteId: string, id: string | null, input: any, atorId: string) {

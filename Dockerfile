@@ -46,6 +46,9 @@ COPY --from=builder /app/apps/web/src/assets ./apps/web/src/assets
 # Copiar o build do frontend (React/Vite) para o Express servir como site
 COPY --from=builder /app/apps/web/dist ./apps/web/dist
 
+# Ferramentas locais para leitura documental sem envio de dados pessoais a terceiros.
+COPY --from=builder /app/scripts/detect-document-face.py ./scripts/detect-document-face.py
+
 # Criar diretório de uploads
 RUN mkdir -p uploads
 
@@ -53,7 +56,7 @@ RUN mkdir -p uploads
 # chromium necessário para gerar os PDFs de contrato (via puppeteer-core) — o pacote 'chromium'
 # do Alpine é compilado para musl libc, diferente do Chromium que o puppeteer baixaria sozinho
 # (compilado para glibc), que não roda nesta imagem.
-RUN apk add --no-cache wget chromium
+RUN apk add --no-cache wget chromium tesseract-ocr tesseract-ocr-data-por poppler-utils python3 py3-opencv
 
 ENV PUPPETEER_BROWSER_PROVIDER=system
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
