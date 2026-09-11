@@ -1,0 +1,39 @@
+{
+  "id": "contrato-pacote-viagem-excursao-comitivas",
+  "versao": "2026.1",
+  "vigencia_inicio": "2026-01-01",
+  "status_aprovacao": "rascunho",
+  "aprovado_por": null,
+  "sha256": "",
+  "modulos_condicionais": [
+    "transporte_rodoviario",
+    "translado_local",
+    "hospedagem_camping",
+    "hospedagem_quarto_compartilhado",
+    "pagamento_pix",
+    "pagamento_boleto_carne",
+    "consentimento_imagem_opcional"
+  ],
+  "fontes_originais": [
+    "docs/juridico/fontes/2026/TRANSPORTE EXCMTV 2026 - papel timbrado.docx",
+    "docs/juridico/fontes/2026/Contrato HOSPEDAGEM EXCMTV 2026 - papel timbrado.docx"
+  ],
+  "pendencias_de_aprovacao": [
+    "Faixas de cancelamento da fonte original possuem lacunas entre 90–81, 59–51 e 29–21 dias; nenhuma regra foi inventada para esses intervalos.",
+    "A necessidade jurídica de RG, profissão e estado civil deve ser aprovada ou reduzida antes de eventual simplificação de dados.",
+    "Fluxo específico de menor de idade e responsável legal ainda precisa ser modelado ou bloqueado claramente.",
+    "Consentimento de imagem deve permanecer separado, opcional e revogável; não constitui condição para contratar."
+  ],
+  "modulos": {
+    "qualificacao_partes": "Dados da contratada e do contratante conforme cadastro validado.",
+    "objeto": "Prestação dos serviços expressamente incluídos no pacote individual.",
+    "hospedagem": "Modalidade e local congelados no snapshot da reserva.",
+    "servicos": "Composição do pacote, adicionais, quantidades, descontos e total em ledger.",
+    "pagamento": "Condição escolhida e cronograma congelados antes da assinatura.",
+    "cancelamento": "Fonte original preservada literalmente até aprovação dos intervalos pendentes.",
+    "transporte": "Incluído somente quando a flag explícita transporte_rodoviario estiver ativa.",
+    "regras_convivencia": "Referência exclusiva à Regras de Convivência 2026.1.",
+    "assinatura": "Assinatura eletrônica com autenticação por código, sem alegação de ICP-Brasil.",
+    "evidencias": "Protocolo, hashes, versões, UTC, canal mascarado e metadados técnicos proporcionais."
+  }
+}

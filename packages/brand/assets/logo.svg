@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 120" width="400" height="120">
+  <defs>
+    <linearGradient id="brandGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#E63946" />
+      <stop offset="100%" stop-color="#D90429" />
+    </linearGradient>
+  </defs>
+  <!-- Ícone / Símbolo (Chapéu estilizado com C) -->
+  <g transform="translate(20, 20)">
+    <path d="M40 10 C20 10, 10 30, 10 50 C10 65, 20 75, 40 75 L60 75 C70 75, 75 70, 75 60 L75 50 C75 30, 65 10, 40 10 Z" fill="url(#brandGrad)" />
+    <path d="M5 70 C20 85, 60 85, 75 70" fill="none" stroke="#1D3557" stroke-width="6" stroke-linecap="round" />
+    <path d="M40 25 C25 25, 25 60, 40 60" fill="none" stroke="#F1FAEE" stroke-width="8" stroke-linecap="round" />
+  </g>
+  <!-- Texto "Comitiva" -->
+  <text x="110" y="75" font-family="Montserrat, sans-serif" font-weight="800" font-size="48" fill="#1D3557" letter-spacing="-1">COMITIVA</text>
+  <text x="115" y="95" font-family="Inter, sans-serif" font-weight="500" font-size="12" fill="#6B7280" letter-spacing="3">EXCURSÕES E EVENTOS</text>
+</svg>
