@@ -14,10 +14,6 @@ const dispositivoIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
 const modoInstalado = window.matchMedia('(display-mode: standalone)').matches
   || navigatorIOS.standalone === true
 
-if (modoInstalado) {
-  document.documentElement.classList.add('pwa-standalone')
-}
-
 if (dispositivoIOS && modoInstalado) {
   document.documentElement.classList.add('ios-pwa-standalone')
   document.querySelector<HTMLMetaElement>('meta[name="viewport"]')?.setAttribute(

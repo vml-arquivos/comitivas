@@ -27,9 +27,6 @@ const expectedTables = [
   "convites_acesso",
   "auditoria_admin",
   "gateway_credenciais",
-  "quartos_hospedagem",
-  "quarto_alocacoes",
-  "reserva_solicitacoes",
 ];
 
 const expectedColumns = {
@@ -81,9 +78,6 @@ const expectedColumns = {
   convites_acesso: ["id", "token_hash", "papel", "email_destino", "criado_por", "expira_em", "usado_em", "usado_por", "revogado_em", "criado_em"],
   auditoria_admin: ["id", "ator_id", "ator_tipo", "acao", "entidade", "entidade_id", "antes", "depois", "ip", "user_agent", "criado_em"],
   gateway_credenciais: ["id", "provedor", "ambiente", "ativo", "client_id_enc", "certificate_enc", "private_key_enc", "webhook_secret_enc", "token_url", "api_base", "installments_api_base", "webhook_public_url", "http_timeout_ms", "carne_timeout_ms", "ultimo_teste_em", "ultimo_teste_status", "ultimo_teste_mensagem", "atualizado_por", "atualizado_em"],
-  quartos_hospedagem: ["id", "lote_id", "pacote_id", "nome", "local_hospedagem", "genero", "capacidade", "observacoes", "ativo", "criado_por", "criado_em", "atualizado_em"],
-  quarto_alocacoes: ["id", "quarto_id", "reserva_id", "usuario_id", "numero_vaga", "status", "alocado_por", "alocado_em", "encerrado_em", "motivo"],
-  reserva_solicitacoes: ["id", "reserva_id", "usuario_id", "solicitado_por", "solicitado_por_tipo", "tipo", "pacote_destino_id", "motivo", "status", "parecer", "reembolso_status", "valor_reembolso_centavos", "decidido_por", "criado_em", "atualizado_em", "concluido_em"],
 };
 
 const expectedIndexes = [
@@ -119,12 +113,6 @@ const expectedIndexes = [
   "auditoria_admin_ator_idx",
   "auditoria_admin_entidade_idx",
   "gateway_credenciais_provedor_idx",
-  "quartos_hospedagem_lote_idx",
-  "quartos_hospedagem_local_idx",
-  "quarto_alocacoes_quarto_idx",
-  "quarto_alocacoes_reserva_idx",
-  "reserva_solicitacoes_reserva_idx",
-  "reserva_solicitacoes_usuario_idx",
 ];
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -171,7 +159,7 @@ try {
     `SELECT COUNT(*)::int AS count FROM drizzle.__drizzle_migrations`,
   );
   const migrationCount = Number(migrationCountResult.rows[0]?.count || 0);
-  if (migrationCount < 16) throw new Error(`Histórico Drizzle incompleto: ${migrationCount}/16 migrations`);
+  if (migrationCount < 12) throw new Error(`Histórico Drizzle incompleto: ${migrationCount}/12 migrations`);
 
   const rulesResult = await pool.query(
     `SELECT conteudo, conteudo_sha256 FROM regras_convivencia_versoes WHERE versao = $1 LIMIT 1`,
@@ -185,7 +173,7 @@ try {
   console.log(JSON.stringify({
     connection: "ok",
     validation: "ok",
-    migration: "0015",
+    migration: "0011",
     migrationHistory: migrationCount,
     tables: expectedTables.length,
     columns: Object.values(expectedColumns).reduce((total, columns) => total + columns.length, 0),

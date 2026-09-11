@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { ContratoService } from "../server/services/contratoService.js";
+import { ContratoService, dataHoraIsoSegura } from "../server/services/contratoService.js";
+
+describe("datas do contrato", () => {
+  it("aceita timestamps vindos do banco como Date ou texto ISO", () => {
+    expect(dataHoraIsoSegura("2026-09-10T12:34:56.000Z")).toBe("2026-09-10T12:34:56.000Z");
+    expect(dataHoraIsoSegura(new Date("2026-09-10T12:34:56.000Z"))).toBe("2026-09-10T12:34:56.000Z");
+  });
+});
 
 describe("ContratoService.calcularCondicaoPagamento", () => {
   it("aplica 5% de desconto para PIX à vista", () => {

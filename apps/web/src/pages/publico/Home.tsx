@@ -3,7 +3,6 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { api } from '../../contexts/AuthContext';
 import { WhatsAppCTA } from '@ui/index';
-import { emModoAplicativo } from '../../utils/pwaInstall';
 import LeadCapture from '../../components/LeadCapture';
 import {
   ArrowLeft,
@@ -182,7 +181,6 @@ export default function Home() {
   const ultimoFocoRef = useRef<HTMLElement | null>(null);
 
   const refComercial = searchParams.get('ref');
-  const modoApp = emModoAplicativo();
 
   const ofertas = useMemo<Oferta[]>(() => eventos.flatMap((evento) =>
     (evento.lotes || []).flatMap((lote) =>
@@ -201,8 +199,6 @@ export default function Home() {
     if (refComercial) params.set('ref', refComercial);
     return `/pacote/${encodeURIComponent(oferta.lote.id)}?${params.toString()}`;
   };
-
-  const linkEncontrarPacote = ofertaAtiva ? linkPacote(ofertaAtiva) : linkEventos;
 
   useEffect(() => {
     const carregarDadosPublicos = async () => {
@@ -291,83 +287,6 @@ export default function Home() {
   const statusAtivo = statusOferta(ofertaAtiva?.pacote.disponibilidade);
   const itensAtivos = normalizarItens(ofertaAtiva?.pacote.itens_inclusos);
 
-  if (modoApp) {
-    return (
-      <div className="min-h-screen bg-[#F8F5EF] px-4 pb-8 pt-5 text-[#182D3B] sm:px-6">
-        <Helmet>
-          <title>Barretão 2027 | Excursão das Comitivas</title>
-          <meta name="description" content="Escolha sua excursão, monte seu pacote e acompanhe sua viagem pelo aplicativo." />
-        </Helmet>
-
-        <section className="mx-auto max-w-3xl">
-          <div className="overflow-hidden rounded-[2rem] bg-[#182D3B] text-white shadow-[0_20px_55px_rgba(24,45,59,.18)]">
-            <div className="relative min-h-[210px]">
-              <img src="/images/hero-parque-peao.jpg" alt="Barretos" className="absolute inset-0 h-full w-full object-cover opacity-55" width="900" height="620" fetchPriority="high" />
-              <div className="absolute inset-0 bg-gradient-to-t from-[#182D3B] via-[#182D3B]/55 to-[#182D3B]/10" />
-              <div className="absolute inset-x-0 bottom-0 p-5 sm:p-7">
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/65">Barretão 2027</p>
-                <h1 className="font-editorial mt-2 text-3xl font-bold leading-tight sm:text-4xl">Sua viagem começa aqui.</h1>
-                <p className="mt-2 max-w-xl text-sm leading-6 text-white/72">Escolha a excursão, monte o pacote e acompanhe tudo pelo app.</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            <Link to={linkEventos} className="flex min-h-[92px] flex-col justify-between rounded-[1.4rem] bg-[#851F32] p-4 text-white shadow-[0_12px_30px_rgba(133,31,50,.16)]">
-              <Calendar size={22} />
-              <span className="text-sm font-black">Ver excursões</span>
-            </Link>
-            <Link to="/minha-conta" className="flex min-h-[92px] flex-col justify-between rounded-[1.4rem] border border-[#182D3B]/10 bg-white p-4 shadow-sm">
-              <ShieldCheck size={22} className="text-[#851F32]" />
-              <span className="text-sm font-black">Minhas viagens</span>
-            </Link>
-          </div>
-
-          <section className="mt-5">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#851F32]">Próxima oportunidade</p>
-                <h2 className="font-editorial mt-1 text-2xl font-bold">Pacote em destaque</h2>
-              </div>
-              <Link to={linkEventos} className="text-xs font-extrabold text-[#851F32]">Ver todos</Link>
-            </div>
-
-            {isLoading ? (
-              <div className="h-44 animate-pulse rounded-[1.6rem] bg-white" />
-            ) : ofertaAtiva ? (
-              <article className="rounded-[1.6rem] border border-[#182D3B]/10 bg-white p-5 shadow-[0_14px_36px_rgba(24,45,59,.07)]">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-xs font-bold uppercase tracking-[0.12em] text-[#851F32]">{ofertaAtiva.evento.nome}</p>
-                    <h3 className="font-editorial mt-2 text-2xl font-bold leading-tight">{ofertaAtiva.pacote.nome}</h3>
-                  </div>
-                  <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${statusAtivo.classe}`}>{statusAtivo.label}</span>
-                </div>
-                <div className="mt-4 grid grid-cols-2 gap-3 rounded-xl bg-[#F8F5EF] p-3 text-xs text-[#5B6C76]">
-                  <span className="inline-flex items-center gap-1.5"><Calendar size={14} className="text-[#851F32]" />{formatarData(ofertaAtiva.lote.data_inicio, true)}</span>
-                  <span className="text-right font-black text-[#182D3B]">{formatarMoeda(ofertaAtiva.pacote.valor_total) || 'Consultar valor'}</span>
-                </div>
-                <Link to={linkPacote(ofertaAtiva)} className="mt-4 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#851F32] px-4 text-sm font-extrabold text-white">
-                  Ver pacote <ArrowRight size={16} />
-                </Link>
-              </article>
-            ) : (
-              <div className="rounded-[1.6rem] border border-dashed border-[#182D3B]/15 bg-white p-6 text-center text-sm text-[#182D3B]/58">Nenhuma excursão publicada no momento.</div>
-            )}
-          </section>
-
-          <section className="mt-5 grid gap-3 sm:grid-cols-2">
-            <Link to="/aplicativo" className="rounded-[1.4rem] border border-[#182D3B]/10 bg-white p-4">
-              <p className="text-sm font-black">Aplicativo instalado</p>
-              <p className="mt-1 text-xs leading-5 text-[#182D3B]/55">Você está usando o Barretão 2027 em modo app.</p>
-            </Link>
-            <WhatsAppCTA mensagem={MENSAGEM_WHATSAPP_PADRAO} label="Falar com a equipe" className="min-h-[74px] rounded-[1.4rem]" />
-          </section>
-        </section>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-[#F8F5EF] text-[#182D3B]">
       <Helmet>
@@ -404,17 +323,17 @@ export default function Home() {
               Encontre a excursão publicada, compare os pacotes e avance para a contratação sem perder a referência da sua escolha.
             </p>
             <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <Link
-                to={linkEventos}
+              <a
+                href="#hospedagem"
                 className="inline-flex min-h-[52px] items-center justify-center gap-2 rounded-full bg-[#851F32] px-7 py-3.5 text-sm font-extrabold text-white shadow-[0_14px_30px_rgba(133,31,50,0.18)] transition hover:bg-[#6f1929] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#851F32] focus-visible:ring-offset-4"
               >
-                Ver excursões <ArrowRight size={17} />
-              </Link>
-              <Link to={linkEncontrarPacote} className="inline-flex min-h-[52px] items-center justify-center gap-2 rounded-full border border-[#182D3B]/20 px-7 py-3.5 text-sm font-bold text-[#182D3B] transition hover:border-[#851F32]/40 hover:bg-white">
-                {modoApp ? 'Encontrar meu pacote' : 'Ir para meu pacote'}
+                Encontrar meu pacote <ArrowRight size={17} />
+              </a>
+              <Link to={linkEventos} className="inline-flex min-h-[52px] items-center justify-center gap-2 rounded-full border border-[#182D3B]/20 px-7 py-3.5 text-sm font-bold text-[#182D3B] transition hover:border-[#851F32]/40 hover:bg-white">
+                Ver todas as excursões
               </Link>
             </div>
-            <p className="mt-5 text-xs leading-5 text-[#687882]">Preço e disponibilidade são sempre confirmados pelo sistema antes da reserva.</p>
+            <p className="mt-5 text-xs leading-5 text-[#687882]">Preço e disponibilidade exibidos nesta página são os dados retornados pela oferta publicada no sistema.</p>
           </div>
 
           <div className="relative mx-auto w-full max-w-[720px] pb-8 lg:pb-16">

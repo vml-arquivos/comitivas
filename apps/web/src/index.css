@@ -76,30 +76,10 @@
     max-width: 100%;
   }
 
-  html.pwa-standalone,
-  html.pwa-standalone body,
-  html.pwa-standalone #root {
-    overscroll-behavior-x: none;
-    background: #f8f5ef;
-  }
-
-  html.pwa-standalone body {
-    -webkit-tap-highlight-color: transparent;
-    -webkit-user-select: none;
-    user-select: none;
-  }
-
-  html.pwa-standalone input,
-  html.pwa-standalone textarea,
-  html.pwa-standalone [contenteditable='true'] {
-    -webkit-user-select: text;
-    user-select: text;
-  }
-
   html.ios-pwa-standalone,
   html.ios-pwa-standalone body,
   html.ios-pwa-standalone #root {
-    overscroll-behavior-y: none;
+    overscroll-behavior-x: none;
   }
 
   h1,

@@ -7,6 +7,7 @@ export interface CheckoutIntent {
   loteId: string;
   pacoteId: string;
   itensSelecionados: Record<string, number>;
+  cupomCodigo?: string;
   criadoEm: string;
 }
 

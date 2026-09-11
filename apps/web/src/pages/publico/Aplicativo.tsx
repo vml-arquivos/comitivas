@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import {
   CheckCircle2,
@@ -16,7 +15,7 @@ import { emModoAplicativo, limparPromptInstalacao, obterPromptInstalacao, plataf
 
 export default function Aplicativo() {
   const [promptInstalacao, setPromptInstalacao] = useState<InstallPromptEvent | null>(() => obterPromptInstalacao());
-  const [instalado, setInstalado] = useState(() => emModoAplicativo());
+  const [instalado, setInstalado] = useState(false);
   const [mensagem, setMensagem] = useState('');
 
   const ambiente = useMemo(() => {
@@ -82,7 +81,7 @@ export default function Aplicativo() {
     : ambiente.ios
       ? 'Instalar no iPhone'
       : ambiente.android
-        ? 'Instalar Barretão 2027'
+        ? 'Instalar no Android'
         : 'Instalar aplicativo';
 
   const recursos = [
@@ -91,33 +90,6 @@ export default function Aplicativo() {
     { icon: FileText, titulo: 'Pagamentos', texto: 'Acompanhe boletos, parcelas, pagamentos e comprovantes.' },
     { icon: ShieldCheck, titulo: 'Sua conta', texto: 'Acesse histórico, dados, reservas e atendimento em um só lugar.' },
   ];
-
-  if (instalado) {
-    return (
-      <div className="min-h-[70dvh] bg-[#F8F5EF] px-4 py-8 text-[#182D3B] sm:px-6">
-        <Helmet>
-          <title>Aplicativo | Excursão das Comitivas</title>
-          <meta name="description" content="Aplicativo Excursão das Comitivas." />
-        </Helmet>
-        <section className="mx-auto max-w-lg rounded-[1.75rem] border border-[#182D3B]/10 bg-white p-6 shadow-[0_20px_55px_rgba(24,45,59,.09)] sm:p-8">
-          <div className="flex items-center gap-4">
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-[#F8F5EF] p-1.5">
-              <img src="/app-icon-192.png" alt="" aria-hidden="true" className="h-full w-full object-contain" />
-            </div>
-            <div>
-              <p className="text-xs font-extrabold uppercase tracking-[0.16em] text-[#851F32]">Aplicativo ativo</p>
-              <h1 className="font-editorial mt-1 text-2xl font-bold">Barretão 2027</h1>
-            </div>
-          </div>
-          <p className="mt-5 text-sm leading-7 text-[#182D3B]/68">O aplicativo já está instalado. Abra suas excursões ou acompanhe suas viagens.</p>
-          <div className="mt-6 grid gap-2 sm:grid-cols-2">
-            <Link to="/eventos" className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#851F32] px-5 py-3 text-sm font-extrabold text-white">Ver excursões</Link>
-            <Link to="/minha-conta" className="inline-flex min-h-12 items-center justify-center rounded-xl border border-[#182D3B]/12 bg-white px-5 py-3 text-sm font-extrabold text-[#182D3B]">Minhas viagens</Link>
-          </div>
-        </section>
-      </div>
-    );
-  }
 
   return (
     <div className="bg-[#F8F5EF] text-[#182D3B]">
@@ -157,7 +129,7 @@ export default function Aplicativo() {
                 <div className="mt-0.5 rounded-xl bg-[#851F32]/8 p-2 text-[#851F32]"><Download size={20} /></div>
                 <div className="min-w-0 flex-1">
                   <p className="font-black text-[#182D3B]">Instale agora no seu celular</p>
-                  <p className="mt-1 text-sm leading-6 text-[#182D3B]/60">Use a mesma conta e abra tudo em tela cheia, com navegação mais simples no celular.</p>
+                  <p className="mt-1 text-sm leading-6 text-[#182D3B]/60">Não precisa criar outra conta. O aplicativo abre em tela cheia e mantém o acesso ao mesmo sistema.</p>
                 </div>
               </div>
               <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto]">
@@ -243,7 +215,7 @@ export default function Aplicativo() {
               <ol className="mt-5 space-y-3 text-sm leading-6 text-[#182D3B]/72">
                 <li className="flex gap-3"><span className="font-black text-[#851F32]">1.</span><span>Abra esta página no <strong>Chrome</strong>.</span></li>
                 <li className="flex gap-3"><span className="font-black text-[#851F32]">2.</span><span>Toque em <strong>Instalar aplicativo</strong>. Se o botão não aparecer, abra o menu ⋮ do navegador e escolha a opção de instalar/adicionar à tela inicial.</span></li>
-                <li className="flex gap-3"><span className="font-black text-[#851F32]">3.</span><span>Confirme. O ícone grande do <strong>Barretão 2027</strong> aparecerá na tela inicial.</span></li>
+                <li className="flex gap-3"><span className="font-black text-[#851F32]">3.</span><span>Confirme. O ícone da Excursão das Comitivas aparecerá na tela inicial.</span></li>
               </ol>
               {ambiente.android && !instalado && <button type="button" onClick={() => void instalar()} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#851F32] px-4 py-3 text-sm font-extrabold text-white"><Download size={17} />Instalar no Android</button>}
             </article>
@@ -258,7 +230,6 @@ export default function Aplicativo() {
                 <li className="flex gap-3"><span className="font-black text-[#851F32]">2.</span><span>Toque no botão <strong>Compartilhar</strong> <Share2 size={15} className="inline" />.</span></li>
                 <li className="flex gap-3"><Plus size={18} className="mt-1 shrink-0 text-[#851F32]" /><span>Escolha <strong>Adicionar à Tela de Início</strong>, mantenha <strong>Abrir como App da Web</strong> ativado e toque em <strong>Adicionar</strong>.</span></li>
               </ol>
-              <p className="mt-4 text-xs leading-5 text-[#182D3B]/58">No iPhone, a Apple ainda exige essa etapa manual. Não existe instalação totalmente automática por site.</p>
             </article>
           </div>
         </div>

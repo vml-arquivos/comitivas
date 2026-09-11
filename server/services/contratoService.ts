@@ -87,7 +87,7 @@ export interface DadosContrato {
   formulario?: ContratoFormulario;
   condicao_pagamento?: CondicaoPagamentoCalculada;
   aceite_ip?: string;
-  aceite_timestamp?: Date;
+  aceite_timestamp?: Date | string;
   protocolo?: string;
   canal?: string;
   destinatario_mascarado?: string;
@@ -221,6 +221,10 @@ function formatarDataHora(valor: Date | string | null | undefined): string {
   const data = dataValida(valor);
   if (!data) return "a confirmar pela organização";
   return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }).format(data);
+}
+
+export function dataHoraIsoSegura(valor: Date | string | null | undefined, fallback = new Date()): string {
+  return (dataValida(valor) || fallback).toISOString();
 }
 
 function formatarMoeda(valor: Decimal.Value | null | undefined): string {
@@ -432,7 +436,7 @@ export class ContratoService {
     const total = decimal(reserva.valor_total);
     const condicaoPagamento = dadosContrato.condicao_pagamento;
     const parcelas = reserva.quantidade_parcelas || 1;
-    const aceite = dadosContrato.aceite_timestamp || reserva.aceite_timestamp || new Date();
+    const aceite = dataValida(dadosContrato.aceite_timestamp || reserva.aceite_timestamp) || new Date();
     const formulario = dadosContrato.formulario || {};
     const clienteForm = formulario.contratante || {};
     const hospedagemForm = formulario.hospedagem || {};
@@ -550,7 +554,7 @@ export class ContratoService {
       `Contrato: ${dadosContrato.contrato_id || "não informado"}`,
       `Canal: ${dadosContrato.canal || "não informado"}`,
       `Destino: ${dadosContrato.destinatario_mascarado || "não informado"}`,
-      `Data/hora UTC: ${(dadosContrato.aceite_timestamp || new Date()).toISOString()}`,
+      `Data/hora UTC: ${dataHoraIsoSegura(dadosContrato.aceite_timestamp)}`,
       `IP confiável registrado: ${dadosContrato.aceite_ip || "não informado"}`,
       "",
       "Hash SHA-256 do conteúdo contratual aceito:",

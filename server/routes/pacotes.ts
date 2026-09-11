@@ -6,7 +6,7 @@ import { ConfiguracaoService } from "../services/configuracaoService.js";
 import { GatewayConfigService } from "../services/gatewayConfigService.js";
 import { AuthService } from "../services/authService.js";
 import { db } from "../db/index.js";
-import { eventos, lotes, pacotes, itens_addon, reservas, usuarios, leads_origem, pagamentos, pagamentoParcelas } from "../db/schema.js";
+import { eventos, lotes, pacotes, itens_addon, reservas, usuarios, leads_origem, pagamentos, pagamentoParcelas, cupons } from "../db/schema.js";
 import { eq, and, desc, inArray, isNull, or, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { CatalogoExclusaoService } from "../services/catalogoExclusaoService.js";
@@ -16,6 +16,12 @@ const router = Router();
 
 const FORMAS_CONTRATACAO = new Set(["onibus", "hospedagem", "onibus_hospedagem", "livre"]);
 const FORMAS_PAGAMENTO_PACOTE = new Set(["pix", "boleto", "credito"]);
+
+function dataIsoSegura(valor: unknown): string | null {
+  if (!valor) return null;
+  const data = valor instanceof Date ? valor : new Date(String(valor));
+  return Number.isNaN(data.getTime()) ? null : data.toISOString();
+}
 
 function validarConfiguracaoComercial(body: any) {
   const formaContratacao = String(body.forma_contratacao || "hospedagem").trim().toLowerCase();
@@ -121,9 +127,9 @@ router.post("/calcular", async (req: Request, res: Response) => {
     const resultado = await PacoteService.calcularValorPacote(config);
 
     res.json(resultado);
-  } catch (error) {
+  } catch (error: any) {
     console.error("[PACOTES] Erro ao calcular:", error);
-    res.status(500).json({ erro: "Erro ao calcular valor" });
+    res.status(400).json({ erro: error?.message || "Não foi possível calcular o valor do pacote" });
   }
 });
 
@@ -142,7 +148,7 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
 
     const ip = req.ip || req.socket.remoteAddress || "desconhecido";
 
-    let origem: { lead_id?: string; vendedor_id?: string; codigo_origem?: string } = { codigo_origem: "site" };
+    let origem: { lead_id?: string; vendedor_id?: string; codigo_origem?: string } = {};
     let leadAtualizado: Array<{ id: string }> = [];
     if (req.body.lead_id) {
       const leadId = String(req.body.lead_id);
@@ -152,7 +158,7 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
         .where(and(eq(leads_origem.id, leadId), tokenValido ? or(isNull(leads_origem.usuario_id), eq(leads_origem.usuario_id, req.usuario.id)) : eq(leads_origem.usuario_id, req.usuario.id)))
         .limit(1))[0];
       if (!lead) return res.status(401).json({ erro: "Origem comercial inválida ou sem permissão" });
-      origem = { lead_id: lead.id, vendedor_id: lead.vendedor_id || undefined, codigo_origem: lead.codigo_origem || "site" };
+      origem = { lead_id: lead.id, vendedor_id: lead.vendedor_id || undefined, codigo_origem: lead.codigo_origem || undefined };
       leadAtualizado = await db.update(leads_origem).set({
         usuario_id: req.usuario.id,
         lote_id: config.lote_id,
@@ -168,7 +174,7 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
         .where(eq(leads_origem.usuario_id, req.usuario.id))
         .orderBy(desc(sql`${leads_origem.vendedor_id} IS NOT NULL`), desc(leads_origem.atualizado_em))
         .limit(1);
-      if (leadDaConta[0]) origem = { lead_id: leadDaConta[0].id, vendedor_id: leadDaConta[0].vendedor_id || undefined, codigo_origem: leadDaConta[0].codigo_origem || "site" };
+      if (leadDaConta[0]) origem = { lead_id: leadDaConta[0].id, vendedor_id: leadDaConta[0].vendedor_id || undefined, codigo_origem: leadDaConta[0].codigo_origem || undefined };
     }
 
     const resultado = await PacoteService.reservarPacote(
@@ -206,7 +212,9 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
     });
   } catch (error: any) {
     console.error("[PACOTES] Erro ao reservar:", error);
-    res.status(500).json({ erro: error.message || "Erro ao criar reserva" });
+    const mensagem = error?.message || "Erro ao criar reserva";
+    const erroDeRegra = /cupom|pacote|lote|vaga|adicional|quantidade|origem|incompatível|inválid/i.test(mensagem);
+    res.status(erroDeRegra ? 400 : 500).json({ erro: mensagem });
   }
 });
 
@@ -341,10 +349,21 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
       : [];
 
     const loteResult = await db
-      .select({ data_embarque: lotes.data_embarque, data_inicio: lotes.data_inicio })
+      .select({
+        lote_nome: lotes.nome,
+        data_embarque: lotes.data_embarque,
+        data_inicio: lotes.data_inicio,
+        data_fim: lotes.data_fim,
+        evento_nome: eventos.nome,
+        evento_local: eventos.local,
+      })
       .from(lotes)
+      .innerJoin(eventos, eq(lotes.evento_id, eventos.id))
       .where(eq(lotes.id, reserva[0].lote_id))
       .limit(1);
+    const cupomSelecionado = reserva[0].cupom_id
+      ? (await db.select({ codigo: cupons.codigo }).from(cupons).where(eq(cupons.id, reserva[0].cupom_id)).limit(1))[0]
+      : undefined;
     const regrasPacote = regrasDoPacote(pacoteSelecionado[0] as any);
     const dataViagem = loteResult[0]?.data_embarque || loteResult[0]?.data_inicio;
     const dataLimitePagamento = ContratoService.calcularDataLimiteEfetiva(regrasPacote.dataLimitePagamento, dataViagem, regrasPacote.prazoSegurancaDias);
@@ -384,6 +403,13 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
       onibus_config: pacoteSelecionado[0]?.onibus_config || [],
       configuracao_pagamento: pacoteSelecionado[0]?.configuracao_pagamento || {},
       data_limite_pagamento: pacoteSelecionado[0]?.data_limite_pagamento || null,
+      lote_nome: loteResult[0]?.lote_nome || null,
+      evento_nome: loteResult[0]?.evento_nome || null,
+      evento_local: loteResult[0]?.evento_local || null,
+      data_inicio: loteResult[0]?.data_inicio || null,
+      data_fim: loteResult[0]?.data_fim || null,
+      cupom_codigo: cupomSelecionado?.codigo || null,
+      desconto_cupom: reserva[0].desconto_aplicado || "0.00",
       contratante: contratante[0] || null,
       parcelas_boleto_maximas: parcelasBoletoMaximas,
       parcelas_credito_maximas: parcelasCreditoMaximas,
@@ -393,7 +419,7 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
       credito_juros_mensal_percentual: regrasPacote.creditoJurosMensalPercentual,
       cartao_disponivel: false,
       cartao_indisponivel_motivo: regrasPacote.formasPermitidas.includes("credito") ? "O provedor bancário atual não processa cartão no checkout." : null,
-      data_limite_efetiva: dataLimitePagamento?.toISOString() || null,
+      data_limite_efetiva: dataIsoSegura(dataLimitePagamento),
       pix_desconto_percentual: configPagamento.pix_desconto_percentual,
       credito_parcelas_maximo: configPagamento.credito_parcelas_maximo,
       boleto_modo: configPagamento.boleto_modo,
@@ -430,7 +456,7 @@ router.post("/reservas/:reserva_id/simular-pagamento", authMiddleware, async (re
     const condicao = ContratoService.calcularCondicaoPagamento(valorBase.toFixed(2), metodo, quantidade, parcelasMaximasBoleto, { percentualDescontoPix: configuracao.pix_desconto_percentual });
     const vencimentos = metodo === 'boleto' ? ContratoService.gerarVencimentos(dataLimite, condicao.quantidade_parcelas, new Date()) : [];
     if (metodo === 'boleto' && vencimentos.length !== condicao.quantidade_parcelas) return res.status(400).json({ erro: "As parcelas solicitadas ultrapassam a data limite de pagamento" });
-    return res.json({ condicao_pagamento: condicao, vencimentos, data_limite_efetiva: dataLimite?.toISOString() || null, parcelas_maximas: metodo === 'boleto' ? parcelasMaximasBoleto : 1 });
+    return res.json({ condicao_pagamento: condicao, vencimentos, data_limite_efetiva: dataIsoSegura(dataLimite), parcelas_maximas: metodo === 'boleto' ? parcelasMaximasBoleto : 1 });
   } catch (error: any) {
     return res.status(400).json({ erro: error.message || "Não foi possível simular a condição de pagamento" });
   }

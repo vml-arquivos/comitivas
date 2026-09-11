@@ -22,6 +22,7 @@ import {
 } from "@ui/index";
 import { api } from "../../contexts/AuthContext";
 import { AdminModal } from "../../components/admin/AdminModal";
+import { iniciaisPessoa } from "../../utils/nome";
 
 type Evento = { id: string; nome: string };
 type Lote = {
@@ -556,10 +557,18 @@ export default function OperacaoOnibus() {
                             assento.motivo_bloqueio ||
                             `Lugar ${assento.numero}`
                           }
-                          className={`relative flex h-11 items-center justify-center rounded-lg border text-sm font-bold transition ${corAssento(assento)} ${assento.posicao === "C" ? "ml-4 sm:ml-7" : ""} ${assentoSelecionado?.id === assento.id ? "ring-2 ring-[#DF6248] ring-offset-2" : ""}`}
+                          aria-label={assento.cliente_nome ? `Lugar ${assento.numero}, ${assento.cliente_nome}` : `Lugar ${assento.numero}, ${assento.status === "bloqueado" ? "bloqueado" : assento.em_hold ? "temporariamente reservado" : "livre"}`}
+                          className={`group relative flex h-14 flex-col items-center justify-center overflow-visible rounded-lg border text-sm font-semibold transition ${corAssento(assento)} ${assento.posicao === "C" ? "ml-4 sm:ml-7" : ""} ${assentoSelecionado?.id === assento.id ? "ring-2 ring-[#DF6248] ring-offset-2" : ""}`}
                         >
-                          <Armchair size={15} className="mr-1" />
-                          {assento.numero}
+                          {assento.cliente_nome ? <>
+                            <span className="text-sm leading-none">{iniciaisPessoa(assento.cliente_nome)}</span>
+                            <span className="mt-1 text-[9px] leading-none">Lugar {assento.numero}</span>
+                            <span role="tooltip" className={`pointer-events-none absolute bottom-[calc(100%+.45rem)] left-1/2 z-40 w-max max-w-56 -translate-x-1/2 rounded-lg bg-[#073F50] px-3 py-2 text-center text-xs font-medium text-white shadow-lg ${assentoSelecionado?.id === assento.id ? "block" : "hidden group-hover:block group-focus-visible:block"}`}>
+                              {assento.cliente_nome}
+                              <br />
+                              <span className="font-normal text-white/70">Lugar {assento.numero}</span>
+                            </span>
+                          </> : <span className="inline-flex items-center"><Armchair size={15} className="mr-1" />{assento.numero}</span>}
                         </button>
                       ))}
                     </div>

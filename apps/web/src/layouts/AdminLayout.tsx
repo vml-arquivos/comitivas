@@ -13,7 +13,6 @@ type NavItem = {
   path: string;
   icon: LucideIcon;
   roles: Papel[];
-  exact?: boolean;
 };
 
 type NavGroup = {
@@ -37,15 +36,8 @@ const navGroups: NavGroup[] = [
     label: 'Comercial & clientes',
     items: [
       {
-        name: 'Vendas',
-        path: '/admin/vendas',
-        icon: ShoppingCart,
-        roles: ['admin', 'dev'],
-        exact: true,
-      },
-      {
         name: 'Vendas internas',
-        path: '/admin/vendas/interna',
+        path: '/admin/vendas',
         icon: ShoppingCart,
         roles: ['admin', 'dev', 'vendedor'],
       },
@@ -228,7 +220,7 @@ export function AdminLayout() {
                 <div className="space-y-1">
                   {group.items.map((item) => {
                     const Icon = item.icon;
-                    const isActive = item.exact ? location.pathname === item.path : location.pathname === item.path || (item.path !== '/admin' && location.pathname.startsWith(`${item.path}/`));
+                    const isActive = location.pathname === item.path || (item.path !== '/admin' && location.pathname.startsWith(`${item.path}/`));
 
                     return (
                       <Link key={item.path} to={item.path} aria-current={isActive ? 'page' : undefined} className={clsx('group relative flex items-center gap-3 overflow-hidden rounded-xl px-3 py-2.5 text-sm transition-colors', isActive ? 'bg-white/12 font-semibold text-white shadow-sm before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded-full before:bg-[#F07A5F]' : 'text-white/72 hover:bg-white/7 hover:text-white')}>
@@ -289,7 +281,7 @@ export function AdminLayout() {
                   <div className="grid gap-1 sm:grid-cols-2">
                     {group.items.map((item) => {
                       const Icon = item.icon;
-                      const isActive = item.exact ? location.pathname === item.path : location.pathname === item.path || (item.path !== '/admin' && location.pathname.startsWith(`${item.path}/`));
+                      const isActive = location.pathname === item.path || (item.path !== '/admin' && location.pathname.startsWith(`${item.path}/`));
                       return (
                         <Link key={item.path} to={item.path} onClick={() => setMenuAberto(false)} className={clsx('flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold', isActive ? 'bg-[#DF6248] text-white' : 'text-[#073F50] hover:bg-[#F8F5EF]')}>
                           <Icon size={17} />

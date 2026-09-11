@@ -6,13 +6,13 @@ router.get("/lotes/:loteId", async (req: Request, res: Response) => {
   try { return res.json(await HospedagemService.obterMapa(req.params.loteId)); }
   catch (error: any) { return res.status(error.message === "Lote não encontrado" ? 404 : 400).json({ erro: error.message || "Erro ao carregar hospedagem" }); }
 });
-router.post("/lotes/:loteId/quartos/lote", async (req: Request, res: Response) => {
-  try { return res.status(201).json(await HospedagemService.criarQuartosEmLote(req.params.loteId, req.body, req.usuario!.id)); }
-  catch (error: any) { return res.status(400).json({ erro: error.message || "Erro ao criar quartos em lote" }); }
-});
 router.post("/lotes/:loteId/quartos", async (req: Request, res: Response) => {
   try { return res.status(201).json({ quarto: await HospedagemService.salvarQuarto(req.params.loteId, null, req.body, req.usuario!.id) }); }
   catch (error: any) { return res.status(400).json({ erro: error.message || "Erro ao criar quarto" }); }
+});
+router.post("/lotes/:loteId/quartos/lote", async (req: Request, res: Response) => {
+  try { return res.status(201).json(await HospedagemService.criarQuartosEmLote(req.params.loteId, req.body, req.usuario!.id)); }
+  catch (error: any) { return res.status(400).json({ erro: error.message || "Erro ao criar os quartos" }); }
 });
 router.patch("/lotes/:loteId/quartos/:quartoId", async (req: Request, res: Response) => {
   try { return res.json({ quarto: await HospedagemService.salvarQuarto(req.params.loteId, req.params.quartoId, req.body, req.usuario!.id) }); }

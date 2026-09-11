@@ -7,9 +7,41 @@ function linhas(resultado: unknown): any[] {
     ? (resultado as { rows: any[] }).rows
     : [];
 }
+function texto(valor: unknown, limite: number): string { return String(valor ?? "").trim().slice(0, limite); }
 
-function texto(valor: unknown, limite: number): string {
-  return String(valor ?? "").trim().slice(0, limite);
+export type ConfiguracaoQuartosLote = {
+  quantidade: number;
+  capacidade: number;
+  genero: "masculino" | "feminino";
+  estrutura: "ar_condicionado" | "ventilador" | "sem_climatizacao" | "outro";
+};
+
+const ESTRUTURAS_QUARTO: Record<ConfiguracaoQuartosLote["estrutura"], string> = {
+  ar_condicionado: "Ar-condicionado",
+  ventilador: "Ventilador",
+  sem_climatizacao: "Sem climatização",
+  outro: "Outro",
+};
+
+export function normalizarConfiguracoesQuartos(valor: unknown): ConfiguracaoQuartosLote[] {
+  if (!Array.isArray(valor) || valor.length < 1 || valor.length > 20) {
+    throw new Error("Inclua de 1 a 20 configurações de quartos");
+  }
+  const configuracoes = valor.map((item: any) => {
+    const quantidade = Number(item?.quantidade);
+    const capacidade = Number(item?.capacidade);
+    const genero = texto(item?.genero, 20) as ConfiguracaoQuartosLote["genero"];
+    const estrutura = texto(item?.estrutura, 30) as ConfiguracaoQuartosLote["estrutura"];
+    if (!Number.isInteger(quantidade) || quantidade < 1 || quantidade > 50) throw new Error("A quantidade deve ficar entre 1 e 50 quartos por linha");
+    if (!Number.isInteger(capacidade) || capacidade < 1 || capacidade > 30) throw new Error("Cada quarto deve possuir de 1 a 30 vagas");
+    if (!["masculino", "feminino"].includes(genero)) throw new Error("Selecione o grupo masculino ou feminino");
+    if (!Object.prototype.hasOwnProperty.call(ESTRUTURAS_QUARTO, estrutura)) throw new Error("Selecione a estrutura do quarto");
+    return { quantidade, capacidade, genero, estrutura };
+  });
+  if (configuracoes.reduce((total, item) => total + item.quantidade, 0) > 100) {
+    throw new Error("Cadastre no máximo 100 quartos por operação");
+  }
+  return configuracoes;
 }
 
 async function registrar(tx: any, entidade: string, entidadeId: string, acao: string, atorId: string, antes?: unknown, depois?: unknown) {
@@ -17,148 +49,39 @@ async function registrar(tx: any, entidade: string, entidadeId: string, acao: st
     VALUES (${createId()}, NULL, ${entidade}, ${entidadeId}, ${acao}, ${atorId}, ${antes ? JSON.stringify(antes) : null}::jsonb, ${depois ? JSON.stringify(depois) : null}::jsonb, CURRENT_TIMESTAMP)`);
 }
 
-const CLIMATIZACOES = ["ar_condicionado", "ventilador", "sem_climatizacao"] as const;
-type Climatizacao = typeof CLIMATIZACOES[number];
-
-function climaLabel(valor: Climatizacao) {
-  if (valor === "ar_condicionado") return "Ar-condicionado";
-  if (valor === "ventilador") return "Ventilador";
-  return "Sem climatização";
-}
-
-function generoLabel(valor: string) {
-  return valor === "masculino" ? "Masculino" : "Feminino";
-}
-
-function nomeQuarto(titulo: string, clima: Climatizacao, genero: string, numero: number) {
-  const sufixo = ` · ${climaLabel(clima)} · ${generoLabel(genero)} · Quarto ${numero}`;
-  return `${titulo.slice(0, Math.max(1, 120 - sufixo.length))}${sufixo}`.slice(0, 120);
-}
-
 export class HospedagemService {
   static async obterMapa(loteId: string) {
     const lote = linhas(await db.execute(sql`SELECT l.*, e.nome AS evento_nome FROM lotes l JOIN eventos e ON e.id = l.evento_id WHERE l.id = ${loteId}`))[0];
     if (!lote) throw new Error("Lote não encontrado");
-
     const quartos = linhas(await db.execute(sql`SELECT q.*, p.nome AS pacote_nome,
       COUNT(qa.id) FILTER (WHERE qa.status = 'ativa')::int AS ocupadas
-      FROM quartos_hospedagem q
-      LEFT JOIN pacotes p ON p.id = q.pacote_id
+      FROM quartos_hospedagem q LEFT JOIN pacotes p ON p.id = q.pacote_id
       LEFT JOIN quarto_alocacoes qa ON qa.quarto_id = q.id AND qa.status = 'ativa'
-      WHERE q.lote_id = ${loteId} AND q.ativo = true
-      GROUP BY q.id, p.nome
-      ORDER BY COALESCE(q.local_hospedagem, ''), q.genero, q.nome`));
-
-    const alocacoes = linhas(await db.execute(sql`SELECT qa.*, q.nome AS quarto_nome, q.local_hospedagem, q.genero,
-      u.nome AS cliente_nome, u.email AS cliente_email, p.nome AS pacote_nome
-      FROM quarto_alocacoes qa
-      JOIN quartos_hospedagem q ON q.id = qa.quarto_id
-      JOIN usuarios u ON u.id = qa.usuario_id
-      JOIN reservas r ON r.id = qa.reserva_id
+      WHERE q.lote_id = ${loteId} AND q.ativo = true GROUP BY q.id, p.nome ORDER BY q.genero, q.nome`));
+    const alocacoes = linhas(await db.execute(sql`SELECT qa.*, q.nome AS quarto_nome, q.genero, u.nome AS cliente_nome,
+      u.email AS cliente_email, p.nome AS pacote_nome
+      FROM quarto_alocacoes qa JOIN quartos_hospedagem q ON q.id = qa.quarto_id
+      JOIN usuarios u ON u.id = qa.usuario_id JOIN reservas r ON r.id = qa.reserva_id
       LEFT JOIN pacotes p ON p.id = r.pacote_id
-      WHERE q.lote_id = ${loteId} AND qa.status = 'ativa'
-      ORDER BY COALESCE(q.local_hospedagem, ''), q.genero, q.nome, qa.numero_vaga`));
-
+      WHERE q.lote_id = ${loteId} AND qa.status = 'ativa' ORDER BY q.genero, q.nome, qa.numero_vaga`));
     const reservas = linhas(await db.execute(sql`SELECT r.id, r.usuario_id, u.nome AS cliente_nome, u.email AS cliente_email,
       r.pacote_id, p.nome AS pacote_nome
-      FROM reservas r
-      JOIN usuarios u ON u.id = r.usuario_id AND u.tipo = 'cliente'
+      FROM reservas r JOIN usuarios u ON u.id = r.usuario_id AND u.tipo = 'cliente'
       LEFT JOIN pacotes p ON p.id = r.pacote_id
       LEFT JOIN quarto_alocacoes qa ON qa.reserva_id = r.id AND qa.status = 'ativa'
       WHERE r.lote_id = ${loteId} AND r.status <> 'abandonado' AND qa.id IS NULL
       ORDER BY u.nome, r.criado_em`));
-
     const capacidade = quartos.reduce((total, q) => total + Number(q.capacidade || 0), 0);
-    const locais = new Set(quartos.map((q) => texto(q.local_hospedagem, 120)).filter(Boolean));
-
-    return {
-      lote,
-      quartos: quartos.map((q) => ({ ...q, livres: Math.max(0, Number(q.capacidade) - Number(q.ocupadas)) })),
-      alocacoes,
-      reservas_disponiveis: reservas,
-      resumo: {
-        quartos: quartos.length,
-        locais: locais.size,
-        capacidade,
-        ocupadas: alocacoes.length,
-        livres: Math.max(0, capacidade - alocacoes.length),
-        masculinas: quartos.filter((q) => q.genero === "masculino").reduce((t, q) => t + Number(q.capacidade), 0),
-        femininas: quartos.filter((q) => q.genero === "feminino").reduce((t, q) => t + Number(q.capacidade), 0),
-      },
-    };
-  }
-
-  static async criarQuartosEmLote(loteId: string, input: any, atorId: string) {
-    const titulo = texto(input?.titulo, 90);
-    const localHospedagem = texto(input?.local_hospedagem, 120);
-    const configuracoes = Array.isArray(input?.configuracoes) ? input.configuracoes : [];
-
-    if (!titulo) throw new Error("Informe um nome para identificar os quartos");
-    if (!localHospedagem) throw new Error("Informe o local da hospedagem");
-    if (configuracoes.length < 1 || configuracoes.length > 20) throw new Error("Inclua de 1 a 20 grupos de quartos");
-
-    const normalizadas = configuracoes.map((item: any, indice: number) => {
-      const quantidade = Number(item?.quantidade);
-      const capacidade = Number(item?.capacidade);
-      const genero = texto(item?.genero, 20);
-      const climatizacao = texto(item?.climatizacao, 30) as Climatizacao;
-      const pacoteId = texto(item?.pacote_id, 120) || null;
-      const observacoes = texto(item?.observacoes, 1500);
-
-      if (!Number.isInteger(quantidade) || quantidade < 1 || quantidade > 50) throw new Error(`Grupo ${indice + 1}: informe de 1 a 50 quartos`);
-      if (!Number.isInteger(capacidade) || capacidade < 1 || capacidade > 30) throw new Error(`Grupo ${indice + 1}: informe de 1 a 30 vagas por quarto`);
-      if (!["masculino", "feminino"].includes(genero)) throw new Error(`Grupo ${indice + 1}: selecione masculino ou feminino`);
-      if (!CLIMATIZACOES.includes(climatizacao)) throw new Error(`Grupo ${indice + 1}: climatização inválida`);
-      return { quantidade, capacidade, genero, climatizacao, pacoteId, observacoes };
-    });
-
-    const total = normalizadas.reduce((soma, item) => soma + item.quantidade, 0);
-    if (total > 100) throw new Error("Cada inclusão em lote pode criar no máximo 100 quartos");
-
-    return db.transaction(async (tx) => {
-      const lote = linhas(await tx.execute(sql`SELECT id FROM lotes WHERE id = ${loteId} FOR UPDATE`))[0];
-      if (!lote) throw new Error("Lote não encontrado");
-
-      const pacotes = [...new Set(normalizadas.map((c) => c.pacoteId).filter(Boolean))] as string[];
-      for (const pacoteId of pacotes) {
-        const pacote = linhas(await tx.execute(sql`SELECT id FROM pacotes WHERE id = ${pacoteId} AND lote_id = ${loteId}`))[0];
-        if (!pacote) throw new Error("Há um grupo vinculado a um pacote que não pertence a este período");
-      }
-
-      const criados: any[] = [];
-      let sequencia = 1;
-      for (const config of normalizadas) {
-        for (let i = 0; i < config.quantidade; i += 1) {
-          const id = createId();
-          const nome = nomeQuarto(titulo, config.climatizacao, config.genero, sequencia++);
-          const observacoes = [`Climatização: ${climaLabel(config.climatizacao)}`, config.observacoes].filter(Boolean).join("\n");
-          const criado = linhas(await tx.execute(sql`INSERT INTO quartos_hospedagem
-            (id, lote_id, pacote_id, nome, local_hospedagem, genero, capacidade, observacoes, ativo, criado_por, criado_em, atualizado_em)
-            VALUES (${id}, ${loteId}, ${config.pacoteId}, ${nome}, ${localHospedagem}, ${config.genero}, ${config.capacidade}, ${observacoes || null}, true, ${atorId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            RETURNING *`))[0];
-          await registrar(tx, "quarto", id, "quarto_criado_em_lote", atorId, undefined, {
-            ...criado,
-            titulo_lote: titulo,
-            local_hospedagem: localHospedagem,
-            climatizacao: config.climatizacao,
-          });
-          criados.push(criado);
-        }
-      }
-      return { titulo, local_hospedagem: localHospedagem, total: criados.length, quartos: criados };
-    });
+    return { lote, quartos: quartos.map((q) => ({ ...q, livres: Math.max(0, Number(q.capacidade) - Number(q.ocupadas)) })), alocacoes, reservas_disponiveis: reservas, resumo: { quartos: quartos.length, capacidade, ocupadas: alocacoes.length, livres: Math.max(0, capacidade - alocacoes.length), masculinas: quartos.filter((q) => q.genero === "masculino").reduce((t, q) => t + Number(q.capacidade), 0), femininas: quartos.filter((q) => q.genero === "feminino").reduce((t, q) => t + Number(q.capacidade), 0) } };
   }
 
   static async salvarQuarto(loteId: string, id: string | null, input: any, atorId: string) {
     const nome = texto(input?.nome, 120);
-    const localHospedagem = texto(input?.local_hospedagem, 120) || null;
     const genero = texto(input?.genero, 20);
     const capacidade = Number(input?.capacidade);
     const pacoteId = texto(input?.pacote_id, 120) || null;
-
     if (!nome || !["masculino", "feminino"].includes(genero)) throw new Error("Informe nome e grupo do quarto");
     if (!Number.isInteger(capacidade) || capacidade < 1 || capacidade > 30) throw new Error("A capacidade deve ficar entre 1 e 30");
-
     return db.transaction(async (tx) => {
       const lote = linhas(await tx.execute(sql`SELECT id FROM lotes WHERE id = ${loteId} FOR UPDATE`))[0];
       if (!lote) throw new Error("Lote não encontrado");
@@ -166,29 +89,77 @@ export class HospedagemService {
         const pacote = linhas(await tx.execute(sql`SELECT id FROM pacotes WHERE id = ${pacoteId} AND lote_id = ${loteId}`))[0];
         if (!pacote) throw new Error("Pacote inválido para este lote");
       }
-
       if (!id) {
         const novoId = createId();
-        const criado = linhas(await tx.execute(sql`INSERT INTO quartos_hospedagem
-          (id, lote_id, pacote_id, nome, local_hospedagem, genero, capacidade, observacoes, ativo, criado_por, criado_em, atualizado_em)
-          VALUES (${novoId}, ${loteId}, ${pacoteId}, ${nome}, ${localHospedagem}, ${genero}, ${capacidade}, ${texto(input?.observacoes, 2000) || null}, true, ${atorId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-          RETURNING *`))[0];
+        const criado = linhas(await tx.execute(sql`INSERT INTO quartos_hospedagem (id, lote_id, pacote_id, nome, genero, capacidade, observacoes, ativo, criado_por, criado_em, atualizado_em)
+          VALUES (${novoId}, ${loteId}, ${pacoteId}, ${nome}, ${genero}, ${capacidade}, ${texto(input?.observacoes, 2000) || null}, true, ${atorId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING *`))[0];
         await registrar(tx, "quarto", novoId, "quarto_criado", atorId, undefined, criado);
         return criado;
       }
-
       const antes = linhas(await tx.execute(sql`SELECT * FROM quartos_hospedagem WHERE id = ${id} AND lote_id = ${loteId} FOR UPDATE`))[0];
       if (!antes) throw new Error("Quarto não encontrado");
       const ocupadas = Number(linhas(await tx.execute(sql`SELECT COUNT(*)::int AS total FROM quarto_alocacoes WHERE quarto_id = ${id} AND status = 'ativa'`))[0]?.total || 0);
       if (capacidade < ocupadas) throw new Error("A capacidade não pode ser menor que a ocupação atual");
-
-      const depois = linhas(await tx.execute(sql`UPDATE quartos_hospedagem
-        SET pacote_id = ${pacoteId}, nome = ${nome}, local_hospedagem = ${localHospedagem}, genero = ${genero}, capacidade = ${capacidade},
-            observacoes = ${texto(input?.observacoes, 2000) || null}, atualizado_em = CURRENT_TIMESTAMP
-        WHERE id = ${id}
-        RETURNING *`))[0];
+      const depois = linhas(await tx.execute(sql`UPDATE quartos_hospedagem SET pacote_id = ${pacoteId}, nome = ${nome}, genero = ${genero}, capacidade = ${capacidade}, observacoes = ${texto(input?.observacoes, 2000) || null}, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${id} RETURNING *`))[0];
       await registrar(tx, "quarto", id, "quarto_atualizado", atorId, antes, depois);
       return depois;
+    });
+  }
+
+  static async criarQuartosEmLote(loteId: string, input: any, atorId: string) {
+    const titulo = texto(input?.titulo, 72);
+    const pacoteId = texto(input?.pacote_id, 120) || null;
+    const observacoes = texto(input?.observacoes, 2000) || null;
+    const chaveIdempotencia = texto(input?.chave_idempotencia, 120);
+    const configuracoes = normalizarConfiguracoesQuartos(input?.configuracoes);
+    if (titulo.length < 3) throw new Error("Informe um título para identificar os quartos");
+    if (!/^[a-zA-Z0-9_-]{12,120}$/.test(chaveIdempotencia)) throw new Error("Identificador da operação inválido; abra o formulário novamente");
+
+    return db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`quartos-lote:${chaveIdempotencia}`}))`);
+      const repetida = linhas(await tx.execute(sql`SELECT id FROM operacao_historico
+        WHERE entidade = 'quartos_lote' AND entidade_id = ${chaveIdempotencia} AND acao = 'quartos_criados_em_lote' LIMIT 1`))[0];
+      if (repetida) return { quantidade: 0, quartos: [], reutilizado: true };
+
+      const lote = linhas(await tx.execute(sql`SELECT id FROM lotes WHERE id = ${loteId} FOR UPDATE`))[0];
+      if (!lote) throw new Error("Lote não encontrado");
+      if (pacoteId) {
+        const pacote = linhas(await tx.execute(sql`SELECT id FROM pacotes WHERE id = ${pacoteId} AND lote_id = ${loteId} AND ativo = true`))[0];
+        if (!pacote) throw new Error("Pacote inválido ou inativo para este período");
+      }
+
+      const criados: any[] = [];
+      const sequencias = new Map<string, number>();
+      for (const configuracao of configuracoes) {
+        const estrutura = ESTRUTURAS_QUARTO[configuracao.estrutura];
+        const grupo = configuracao.genero === "feminino" ? "F" : "M";
+        const prefixo = `${titulo} · ${estrutura} · ${grupo}`;
+        let sequencia = sequencias.get(prefixo);
+        if (sequencia === undefined) {
+          sequencia = Number(linhas(await tx.execute(sql`SELECT COUNT(*)::int AS total FROM quartos_hospedagem
+            WHERE lote_id = ${loteId} AND nome LIKE ${`${prefixo}%`}`))[0]?.total || 0);
+        }
+        for (let indice = 0; indice < configuracao.quantidade; indice += 1) {
+          sequencia += 1;
+          const id = createId();
+          const nome = `${prefixo}${String(sequencia).padStart(2, "0")}`;
+          const criado = linhas(await tx.execute(sql`INSERT INTO quartos_hospedagem
+            (id, lote_id, pacote_id, nome, genero, capacidade, observacoes, ativo, criado_por, criado_em, atualizado_em)
+            VALUES (${id}, ${loteId}, ${pacoteId}, ${nome}, ${configuracao.genero}, ${configuracao.capacidade}, ${observacoes}, true, ${atorId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            RETURNING *`))[0];
+          criados.push(criado);
+          await registrar(tx, "quarto", id, "quarto_criado", atorId, undefined, { ...criado, origem: "lote", chave_idempotencia: chaveIdempotencia });
+        }
+        sequencias.set(prefixo, sequencia);
+      }
+      await registrar(tx, "quartos_lote", chaveIdempotencia, "quartos_criados_em_lote", atorId, undefined, {
+        lote_id: loteId,
+        pacote_id: pacoteId,
+        titulo,
+        quantidade: criados.length,
+        ids: criados.map((quarto) => quarto.id),
+      });
+      return { quantidade: criados.length, quartos: criados, reutilizado: false };
     });
   }
 
@@ -220,14 +191,14 @@ export class HospedagemService {
       const id = createId();
       const criada = linhas(await tx.execute(sql`INSERT INTO quarto_alocacoes (id, quarto_id, reserva_id, usuario_id, numero_vaga, status, alocado_por, alocado_em)
         VALUES (${id}, ${quartoId}, ${reservaId}, ${reserva.usuario_id}, ${Number(vaga.numero)}, 'ativa', ${atorId}, CURRENT_TIMESTAMP) RETURNING *`))[0];
-      await registrar(tx, "quarto_alocacao", id, "hospede_alocado", atorId, undefined, { ...criada, genero: quarto.genero, quarto: quarto.nome, local_hospedagem: quarto.local_hospedagem });
+      await registrar(tx, "quarto_alocacao", id, "hospede_alocado", atorId, undefined, { ...criada, genero: quarto.genero, quarto: quarto.nome });
       return criada;
     });
   }
 
   static async mover(alocacaoId: string, quartoId: string, atorId: string) {
     return db.transaction(async (tx) => {
-      const atual = linhas(await tx.execute(sql`SELECT qa.*, q.lote_id, q.nome AS quarto_nome, q.local_hospedagem FROM quarto_alocacoes qa JOIN quartos_hospedagem q ON q.id = qa.quarto_id WHERE qa.id = ${alocacaoId} AND qa.status = 'ativa' FOR UPDATE OF qa`))[0];
+      const atual = linhas(await tx.execute(sql`SELECT qa.*, q.lote_id, q.nome AS quarto_nome FROM quarto_alocacoes qa JOIN quartos_hospedagem q ON q.id = qa.quarto_id WHERE qa.id = ${alocacaoId} AND qa.status = 'ativa' FOR UPDATE OF qa`))[0];
       if (!atual) throw new Error("Alocação ativa não encontrada");
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`quarto:${quartoId}`})), pg_advisory_xact_lock(hashtext(${`reserva-quarto:${atual.reserva_id}`}))`);
       const destino = linhas(await tx.execute(sql`SELECT q.*, q.pacote_id AS quarto_pacote_id, r.pacote_id AS reserva_pacote_id FROM quartos_hospedagem q JOIN reservas r ON r.id = ${atual.reserva_id} WHERE q.id = ${quartoId} AND q.ativo = true FOR UPDATE OF q`))[0];
@@ -240,9 +211,7 @@ export class HospedagemService {
       const id = createId();
       const criada = linhas(await tx.execute(sql`INSERT INTO quarto_alocacoes (id, quarto_id, reserva_id, usuario_id, numero_vaga, status, alocado_por, alocado_em)
         VALUES (${id}, ${quartoId}, ${atual.reserva_id}, ${atual.usuario_id}, ${Number(vaga.numero)}, 'ativa', ${atorId}, CURRENT_TIMESTAMP) RETURNING *`))[0];
-      await registrar(tx, "quarto_alocacao", id, "hospede_remanejado", atorId,
-        { quarto: atual.quarto_nome, vaga: atual.numero_vaga, local_hospedagem: atual.local_hospedagem },
-        { quarto: destino.nome, vaga: vaga.numero, genero: destino.genero, local_hospedagem: destino.local_hospedagem });
+      await registrar(tx, "quarto_alocacao", id, "hospede_remanejado", atorId, { quarto: atual.quarto_nome, vaga: atual.numero_vaga }, { quarto: destino.nome, vaga: vaga.numero, genero: destino.genero });
       return criada;
     });
   }

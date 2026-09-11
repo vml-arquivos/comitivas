@@ -146,24 +146,29 @@ export default function Checkout() {
   }, [reservaId, reserva, metodoPagamento, quantidadeParcelas, contratoValidado]);
 
   const resumo = useMemo(() => {
-    const base = Math.max(0, Number(simulacao?.condicao_pagamento?.valor_base ?? reserva?.valor_total ?? 0));
+    const valorAposCupom = Math.max(0, Number(simulacao?.condicao_pagamento?.valor_base ?? (Number(reserva?.valor_total || 0) + Number(reserva?.desconto_pagamento || 0))));
+    const descontoCupom = Math.max(0, Number(reserva?.desconto_cupom ?? reserva?.desconto_aplicado ?? 0));
+    const base = valorAposCupom + descontoCupom;
     // Após a preparação do contrato, valor_total já é o total final congelado
     // pelo servidor e desconto_pagamento já está incluído nele. Reaplicar o
     // percentual aqui fazia a UI mostrar menos que o valor cobrado pela Cora.
     const contratoCongelado = Boolean(reserva?.forma_pagamento && reserva?.desconto_pagamento !== undefined);
-    const desconto = contratoCongelado ? 0 : metodoPagamento === 'pix' ? (base * percentualDescontoPix) / 100 : 0;
-    const total = Number(simulacao?.condicao_pagamento?.valor_total ?? base - desconto);
+    const descontoCalculado = metodoPagamento === 'pix' ? (valorAposCupom * percentualDescontoPix) / 100 : 0;
+    const desconto = Number(simulacao?.condicao_pagamento?.desconto_pagamento ?? (contratoCongelado ? reserva?.desconto_pagamento || 0 : descontoCalculado));
+    const total = Number(simulacao?.condicao_pagamento?.valor_total ?? (contratoCongelado ? reserva?.valor_total : valorAposCupom - desconto));
     const quantidade = metodoPagamento === 'pix' ? 1 : quantidadeParcelas;
     return {
       base,
-      desconto: Number(simulacao?.condicao_pagamento?.desconto_pagamento ?? desconto),
+      valorAposCupom,
+      cupom: descontoCupom,
+      desconto,
       taxa: Number(simulacao?.condicao_pagamento?.taxa_pagamento || 0),
       juros: Number(simulacao?.condicao_pagamento?.juros_pagamento || 0),
       total,
       quantidade,
       parcela: Number(simulacao?.condicao_pagamento?.valor_parcela ?? total / quantidade),
     };
-  }, [reserva?.valor_total, metodoPagamento, quantidadeParcelas, percentualDescontoPix, simulacao]);
+  }, [reserva?.valor_total, reserva?.desconto_pagamento, reserva?.desconto_aplicado, reserva?.desconto_cupom, metodoPagamento, quantidadeParcelas, percentualDescontoPix, simulacao]);
 
   const prepararContrato = async () => {
     if (!reservaId) return;
@@ -413,7 +418,7 @@ export default function Checkout() {
               <select disabled={contratoValidado} value={quantidadeParcelas} onChange={(event) => setQuantidadeParcelas(Number(event.target.value))} className="rounded-lg border border-gray-300 bg-white px-3 py-2 font-semibold">
                 {Array.from({ length: parcelasBoletoMaximas }, (_, index) => (
                   <option key={index + 1} value={index + 1}>
-                    {index + 1}x de {formatarMoeda(resumo.base / (index + 1))}
+                    {index + 1}x de {formatarMoeda(resumo.total / (index + 1))}
                   </option>
                 ))}
               </select>
@@ -424,6 +429,12 @@ export default function Checkout() {
               <span>Valor da composição</span>
               <strong>{formatarMoeda(resumo.base)}</strong>
             </div>
+            {resumo.cupom > 0 && (
+              <div className="flex justify-between text-green-700">
+                <span>Cupom{reserva?.cupom_codigo ? ` ${reserva.cupom_codigo}` : ''}</span>
+                <strong>-{formatarMoeda(resumo.cupom)}</strong>
+              </div>
+            )}
             {resumo.desconto > 0 && (
               <div className="flex justify-between text-green-700">
                 <span>Desconto PIX</span>

@@ -519,7 +519,7 @@ async function resolverOrigemVenda(req: Request, usuarioId: string, vendedorSoli
   return {
     lead_id: lead?.id,
     vendedor_id: lead?.vendedor_id || vendedorId,
-    codigo_origem: lead?.codigo_origem || (vendedorId ? `interno-${vendedorId}` : "venda-interna"),
+    codigo_origem: lead?.codigo_origem || (vendedorId ? `interno-${vendedorId}` : undefined),
   };
 }
 
@@ -682,7 +682,7 @@ router.post("/vendas/reservar", async (req: Request, res: Response) => {
 router.get("/vendas/reservas", async (req: Request, res: Response) => {
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
-    const condicoes = [eq(usuarios.tipo, "cliente" as const)];
+    const condicoes = [eq(usuarios.tipo, "cliente")];
     if (req.usuario.tipo === "vendedor") condicoes.push(eq(reservas.vendedor_id, req.usuario.id));
     if (req.query.status) condicoes.push(eq(reservas.status, String(req.query.status) as any));
     if (req.query.usuario_id) condicoes.push(eq(reservas.usuario_id, String(req.query.usuario_id)));
@@ -690,17 +690,13 @@ router.get("/vendas/reservas", async (req: Request, res: Response) => {
       const termo = `%${String(req.query.busca).trim()}%`;
       condicoes.push(or(sql`${usuarios.nome} ILIKE ${termo}`, sql`${usuarios.email} ILIKE ${termo}`, sql`${eventos.nome} ILIKE ${termo}`)!);
     }
-
     const linhas = await db.select({
       id: reservas.id,
       status: reservas.status,
       checkout_estado: reservas.checkout_estado,
       valor_total: reservas.valor_total,
-      valor_total_centavos: reservas.valor_total_centavos,
       forma_pagamento: reservas.forma_pagamento,
       desconto_pagamento: reservas.desconto_pagamento,
-      origem_comercial: reservas.origem_comercial,
-      origem_lead: leads_origem.origem,
       criado_em: reservas.criado_em,
       atualizado_em: reservas.atualizado_em,
       vendedor_id: reservas.vendedor_id,
@@ -720,10 +716,9 @@ router.get("/vendas/reservas", async (req: Request, res: Response) => {
       .innerJoin(lotes, eq(reservas.lote_id, lotes.id))
       .innerJoin(eventos, eq(lotes.evento_id, eventos.id))
       .leftJoin(pacotes, eq(reservas.pacote_id, pacotes.id))
-      .leftJoin(leads_origem, eq(reservas.lead_id, leads_origem.id))
       .where(condicoes.length ? and(...condicoes) : undefined)
       .orderBy(desc(reservas.criado_em))
-      .limit(250);
+      .limit(100);
 
     const ids = linhas.map((linha) => linha.id);
     const vendedorIds = Array.from(new Set(linhas.map((linha) => linha.vendedor_id).filter((id): id is string => Boolean(id))));
@@ -731,105 +726,16 @@ router.get("/vendas/reservas", async (req: Request, res: Response) => {
       ? await db.select({ id: usuarios.id, nome: usuarios.nome }).from(usuarios).where(and(inArray(usuarios.id, vendedorIds), eq(usuarios.tipo, "vendedor")))
       : [];
     const vendedorMap = new Map(vendedoresDaLista.map((vendedor) => [vendedor.id, vendedor.nome]));
-
-    const pagamentosRecentes = ids.length
-      ? await db.select({
-          reserva_id: pagamentos.reserva_id,
-          status: pagamentos.status,
-          status_reconciliado: pagamentos.status_reconciliado,
-          metodo: pagamentos.metodo,
-          valor_centavos: pagamentos.valor_centavos,
-          valor_pago_centavos: pagamentos.valor_pago_centavos,
-          atualizado_em: pagamentos.atualizado_em,
-        }).from(pagamentos).where(inArray(pagamentos.reserva_id, ids)).orderBy(desc(pagamentos.atualizado_em))
-      : [];
-
-    const documentos = ids.length
-      ? await db.select({
-          reserva_id: contratosDocumentos.reserva_id,
-          versao: contratosDocumentos.versao,
-          status: contratosDocumentos.status,
-          snapshot_sha256: contratosDocumentos.snapshot_sha256,
-          pdf_sha256: contratosDocumentos.pdf_sha256,
-          validado_em: contratosDocumentos.validado_em,
-          aprovado_admin_em: contratosDocumentos.aprovado_admin_em,
-          criado_em: contratosDocumentos.criado_em,
-        }).from(contratosDocumentos).where(inArray(contratosDocumentos.reserva_id, ids)).orderBy(desc(contratosDocumentos.versao))
-      : [];
-
-    const pagamentoMap = new Map<string, any>();
-    for (const pagamento of pagamentosRecentes) {
-      const atual = pagamentoMap.get(pagamento.reserva_id);
-      if (!atual) pagamentoMap.set(pagamento.reserva_id, { ...pagamento, valor_pago_centavos: Number(pagamento.valor_pago_centavos || 0) });
-      else atual.valor_pago_centavos += Number(pagamento.valor_pago_centavos || 0);
-    }
-
+    const pagamentosRecentes = ids.length ? await db.select({ reserva_id: pagamentos.reserva_id, status: pagamentos.status, status_reconciliado: pagamentos.status_reconciliado, metodo: pagamentos.metodo, valor_centavos: pagamentos.valor_centavos, valor_pago_centavos: pagamentos.valor_pago_centavos, atualizado_em: pagamentos.atualizado_em }).from(pagamentos).where(inArray(pagamentos.reserva_id, ids)).orderBy(desc(pagamentos.atualizado_em)) : [];
+    const documentos = ids.length ? await db.select({ reserva_id: contratosDocumentos.reserva_id, versao: contratosDocumentos.versao, status: contratosDocumentos.status, snapshot_sha256: contratosDocumentos.snapshot_sha256, pdf_sha256: contratosDocumentos.pdf_sha256, criado_em: contratosDocumentos.criado_em }).from(contratosDocumentos).where(inArray(contratosDocumentos.reserva_id, ids)).orderBy(desc(contratosDocumentos.versao)) : [];
+    const pagamentoMap = new Map<string, typeof pagamentosRecentes[number]>();
+    for (const pagamento of pagamentosRecentes) if (!pagamentoMap.has(pagamento.reserva_id)) pagamentoMap.set(pagamento.reserva_id, pagamento);
     const documentoMap = new Map<string, typeof documentos[number]>();
     for (const documento of documentos) if (!documentoMap.has(documento.reserva_id)) documentoMap.set(documento.reserva_id, documento);
-
-    const escopoVendedor = req.usuario.tipo === "vendedor" ? sql`AND r.vendedor_id = ${req.usuario.id}` : sql``;
-    const resumoResultado = await db.execute(sql`
-      SELECT
-        COUNT(*)::int AS total,
-        COUNT(*) FILTER (WHERE r.status <> 'abandonado')::int AS ativas,
-        COUNT(*) FILTER (WHERE r.status = 'abandonado')::int AS abandonadas,
-        COUNT(*) FILTER (WHERE COALESCE(lo.origem, '') = 'venda_interna' OR COALESCE(r.origem_comercial, '') = 'venda-interna' OR COALESCE(r.origem_comercial, '') LIKE 'interno-%')::int AS internas,
-        COUNT(*) FILTER (WHERE NOT (COALESCE(lo.origem, '') = 'venda_interna' OR COALESCE(r.origem_comercial, '') = 'venda-interna' OR COALESCE(r.origem_comercial, '') LIKE 'interno-%') AND (COALESCE(lo.origem, '') <> '' OR COALESCE(r.origem_comercial, '') <> ''))::int AS site,
-        COUNT(*) FILTER (WHERE COALESCE(lo.origem, '') = '' AND COALESCE(r.origem_comercial, '') = '')::int AS origem_nao_identificada,
-        COALESCE(SUM(CASE WHEN r.status <> 'abandonado' THEN COALESCE(r.valor_total_centavos, ROUND(r.valor_total * 100)::int) ELSE 0 END), 0)::bigint AS receita_centavos,
-        COALESCE(SUM(CASE WHEN r.status <> 'abandonado' THEN COALESCE(pg.pago_centavos, 0) ELSE 0 END), 0)::bigint AS recebido_centavos,
-        COUNT(*) FILTER (WHERE EXISTS (
-          SELECT 1 FROM contratos_documentos cd
-          WHERE cd.reserva_id = r.id AND cd.status = 'aprovado_admin'
-        ))::int AS contratos_firmados
-      FROM reservas r
-      JOIN usuarios c ON c.id = r.usuario_id AND c.tipo = 'cliente'
-      LEFT JOIN leads_origem lo ON lo.id = r.lead_id
-      LEFT JOIN (
-        SELECT reserva_id, SUM(COALESCE(valor_pago_centavos, 0))::bigint AS pago_centavos
-        FROM pagamentos
-        GROUP BY reserva_id
-      ) pg ON pg.reserva_id = r.id
-      WHERE 1 = 1 ${escopoVendedor}
-    `);
-    const resumoLinha = (resumoResultado.rows?.[0] || {}) as Record<string, unknown>;
-    const receitaCentavos = Number(resumoLinha.receita_centavos || 0);
-    const recebidoCentavos = Number(resumoLinha.recebido_centavos || 0);
-
-    const origemTipo = (linha: typeof linhas[number]) => {
-      const interna = linha.origem_lead === "venda_interna"
-        || linha.origem_comercial === "venda-interna"
-        || String(linha.origem_comercial || "").startsWith("interno-");
-      if (interna) return "interna";
-      if (linha.origem_lead || linha.origem_comercial) return "site";
-      return "nao_identificada";
-    };
-
-    return res.json({
-      total: Number(resumoLinha.total || linhas.length),
-      resumo: {
-        total: Number(resumoLinha.total || 0),
-        ativas: Number(resumoLinha.ativas || 0),
-        abandonadas: Number(resumoLinha.abandonadas || 0),
-        internas: Number(resumoLinha.internas || 0),
-        site: Number(resumoLinha.site || 0),
-        origem_nao_identificada: Number(resumoLinha.origem_nao_identificada || 0),
-        receita_centavos: receitaCentavos,
-        recebido_centavos: recebidoCentavos,
-        a_receber_centavos: Math.max(0, receitaCentavos - recebidoCentavos),
-        contratos_firmados: Number(resumoLinha.contratos_firmados || 0),
-      },
-      reservas: linhas.map((linha) => ({
-        ...linha,
-        origem_tipo: origemTipo(linha),
-        vendedor_nome: linha.vendedor_id ? vendedorMap.get(linha.vendedor_id) || null : null,
-        pagamento: pagamentoMap.get(linha.id) || null,
-        contrato: documentoMap.get(linha.id) || null,
-      })),
-    });
+    return res.json({ total: linhas.length, reservas: linhas.map((linha) => ({ ...linha, vendedor_nome: linha.vendedor_id ? vendedorMap.get(linha.vendedor_id) || null : null, pagamento: pagamentoMap.get(linha.id) || null, contrato: documentoMap.get(linha.id) || null })) });
   } catch (error) {
     console.error("[ADMIN/VENDAS] Erro ao listar vendas:", error);
-    return res.status(500).json({ erro: "Erro ao listar vendas" });
+    return res.status(500).json({ erro: "Erro ao listar vendas internas" });
   }
 });
 
