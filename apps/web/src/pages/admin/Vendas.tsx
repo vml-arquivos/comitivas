@@ -406,6 +406,11 @@ export default function Vendas({ modoInicial = 'geral' }: Props) {
           </div>
         </div>
 
+        <div className="inline-flex w-full max-w-md rounded-2xl border border-[#182D3B]/10 bg-white p-1 shadow-sm">
+          <Link to="/admin/vendas" className="flex-1 rounded-xl bg-[#073F50] px-4 py-2.5 text-center text-sm font-semibold text-white">Todas as vendas</Link>
+          <Link to="/admin/vendas/interna" className="flex-1 rounded-xl px-4 py-2.5 text-center text-sm font-semibold text-[#073F50] transition hover:bg-[#F8F5EF]">Vendas internas</Link>
+        </div>
+
         {erro && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{erro}</div>}
         {mensagem && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{mensagem}</div>}
 
@@ -511,6 +516,11 @@ export default function Vendas({ modoInicial = 'geral' }: Props) {
           {podeVerGeral && <Link to="/admin/vendas" className="inline-flex min-h-11 items-center justify-center rounded-full border border-[#182D3B]/18 bg-white px-5 text-sm font-semibold text-gray-900 transition hover:border-primary/35 hover:bg-[#fffaf5]"><ShoppingCart size={16} className="mr-2" />Ver todas as vendas</Link>}
           <Button type="button" variant="outline" onClick={() => void carregarVendas()}><RefreshCw size={16} className="mr-2" />Atualizar</Button>
         </div>
+      </div>
+
+      <div className="inline-flex w-full max-w-md rounded-2xl border border-[#182D3B]/10 bg-white p-1 shadow-sm">
+        {podeVerGeral && <Link to="/admin/vendas" className="flex-1 rounded-xl px-4 py-2.5 text-center text-sm font-semibold text-[#073F50] transition hover:bg-[#F8F5EF]">Todas as vendas</Link>}
+        <Link to="/admin/vendas/interna" className="flex-1 rounded-xl bg-[#073F50] px-4 py-2.5 text-center text-sm font-semibold text-white">Vendas internas</Link>
       </div>
 
       {erro && <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{erro}</div>}

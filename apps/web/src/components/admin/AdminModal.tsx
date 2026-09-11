@@ -29,7 +29,7 @@ export function AdminModal({ aberto, titulo, descricao, fechar, children, largur
 
   return (
     <div
-      className="fixed inset-0 z-[80] flex items-end justify-center overflow-hidden bg-[#062f3d]/45 p-0 backdrop-blur-[2px] sm:items-center sm:p-4"
+      className="fixed inset-0 z-[80] flex items-end justify-center overflow-hidden bg-[#062f3d]/45 p-0 backdrop-blur-[2px] sm:items-center sm:p-5"
       role="presentation"
       onMouseDown={(event) => event.target === event.currentTarget && fechar()}
     >
@@ -37,7 +37,7 @@ export function AdminModal({ aberto, titulo, descricao, fechar, children, largur
         role="dialog"
         aria-modal="true"
         aria-labelledby="admin-modal-title"
-        className={`flex max-h-[calc(100dvh-0.5rem)] w-full flex-col overflow-hidden rounded-t-[24px] border border-white/70 bg-[#fffdfa] shadow-[0_28px_90px_rgba(6,47,61,.28)] sm:max-h-[calc(100dvh-2rem)] sm:rounded-[22px] ${largura === 'ampla' ? 'max-w-5xl' : 'max-w-2xl'}`}
+        className={`flex max-h-[calc(100dvh-0.35rem)] w-full flex-col overflow-hidden rounded-t-[24px] border border-white/70 bg-[#fffdfa] shadow-[0_28px_90px_rgba(6,47,61,.28)] sm:max-h-[min(88dvh,780px)] sm:rounded-[22px] ${largura === 'ampla' ? 'max-w-5xl' : 'max-w-2xl'}`}
       >
         <header className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200/80 bg-[#fffdfa] px-5 py-4 sm:px-7 sm:py-5">
           <div className="min-w-0">

@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { api, useAuth } from '../../contexts/AuthContext';
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@ui/index';
-import { ArrowLeft, ArrowRight, Check, CheckCircle2, Info, TentTree, Wind, Snowflake, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronDown, ChevronUp, Info, Sparkles, TentTree, Wind, Snowflake } from 'lucide-react';
 import {
   lerIntencaoCheckout,
   lerLeadId,
@@ -13,6 +13,7 @@ import {
   salvarIntencaoCheckout,
   salvarReferenciaVendedor,
 } from '../../utils/checkoutIntent';
+import { emModoAplicativo } from '../../utils/pwaInstall';
 
 interface PacotePublicado {
   id: string;
@@ -24,9 +25,9 @@ interface PacotePublicado {
 }
 
 const modalidadeMeta: Record<PacotePublicado['modalidade_hospedagem'], { label: string; icon: typeof TentTree; destaque: string }> = {
-  camping: { label: 'Camping', icon: TentTree, destaque: 'A energia coletiva da comitiva' },
+  camping: { label: 'Camping', icon: TentTree, destaque: 'Vivência coletiva na estrutura da excursão' },
   quarto_ventilador: { label: 'Quarto com ventilador', icon: Wind, destaque: 'Conforto essencial para descansar' },
-  quarto_ar_condicionado: { label: 'Quarto com ar-condicionado', icon: Snowflake, destaque: 'A experiência com máximo conforto' },
+  quarto_ar_condicionado: { label: 'Quarto com ar-condicionado', icon: Snowflake, destaque: 'Hospedagem em quarto com ar-condicionado' },
 };
 
 function formatarMoeda(valor: string | number) {
@@ -49,6 +50,8 @@ export default function ConfiguradorPacote() {
   const [isCalculating, setIsCalculating] = useState(false);
   const [isReserving, setIsReserving] = useState(false);
   const [error, setError] = useState('');
+  const [mostrarOutrosPacotes, setMostrarOutrosPacotes] = useState(false);
+  const modoApp = emModoAplicativo();
 
   useEffect(() => {
     const referencia = searchParams.get('ref');
@@ -81,14 +84,19 @@ export default function ConfiguradorPacote() {
 
         if (pacoteDaUrl) {
           setPacoteId(pacoteDaUrl.id);
+          setMostrarOutrosPacotes(false);
           if (intencaoSalva && intencaoSalva.loteId === loteId && intencaoSalva.pacoteId === pacoteDaUrl.id) {
             setItensSelecionados(intencaoSalva.itensSelecionados || {});
           }
         } else if (pacoteSalvoValido && pacoteSalvoId) {
           setPacoteId(pacoteSalvoId);
+          setMostrarOutrosPacotes(false);
           setItensSelecionados(intencaoSalva?.itensSelecionados || {});
         } else if (listaPacotes.length === 1 && listaPacotes[0].disponibilidade !== 'esgotado') {
           setPacoteId(listaPacotes[0].id);
+          setMostrarOutrosPacotes(false);
+        } else {
+          setMostrarOutrosPacotes(true);
         }
       } catch (err: any) {
         setError(err.response?.data?.erro || 'Não foi possível carregar as opções do pacote. Tente novamente.');
@@ -98,10 +106,15 @@ export default function ConfiguradorPacote() {
         setIsLoading(false);
       }
     };
-    carregarConfigurador();
+    void carregarConfigurador();
   }, [loteId, pacoteSolicitado]);
 
   const pacoteSelecionado = useMemo(() => pacotes.find((pacote) => pacote.id === pacoteId), [pacotes, pacoteId]);
+  const outrosPacotes = useMemo(() => pacotes.filter((pacote) => pacote.id !== pacoteId), [pacotes, pacoteId]);
+
+  useEffect(() => {
+    if (!pacoteId && pacotes.length > 0) setMostrarOutrosPacotes(true);
+  }, [pacoteId, pacotes.length]);
 
   useEffect(() => {
     if (isLoading || !loteId || (pacotes.length > 0 && !pacoteId)) {
@@ -114,7 +127,12 @@ export default function ConfiguradorPacote() {
         const itensPayload = Object.entries(itensSelecionados)
           .filter(([, quantidade]) => quantidade > 0)
           .map(([id, quantidade]) => ({ id, quantidade }));
-        const response = await api.post('/pacotes/calcular', { lote_id: loteId, pacote_id: pacoteId || undefined, itens: itensPayload, cupom_codigo: cupomCodigo.trim() || undefined });
+        const response = await api.post('/pacotes/calcular', {
+          lote_id: loteId,
+          pacote_id: pacoteId || undefined,
+          itens: itensPayload,
+          cupom_codigo: cupomCodigo.trim() || undefined,
+        });
         setCalculo(response.data);
       } catch (err: any) {
         setError(err.response?.data?.erro || 'Erro ao calcular o valor do pacote.');
@@ -142,6 +160,7 @@ export default function ConfiguradorPacote() {
 
   const selecionarPacote = (id: string) => {
     setPacoteId(id);
+    setMostrarOutrosPacotes(false);
     const leadId = lerLeadId();
     const leadIntentToken = lerLeadIntentToken();
     if (leadId && leadIntentToken && loteId) {
@@ -157,11 +176,11 @@ export default function ConfiguradorPacote() {
   const handleReservar = async () => {
     if (authLoading) return;
     if (pacotes.length > 0 && !pacoteId) {
-      setError('Escolha sua modalidade de hospedagem para continuar.');
+      setError('Escolha sua hospedagem para continuar.');
       return;
     }
     if (pacoteSelecionado?.disponibilidade === 'esgotado') {
-      setError('Esta modalidade está esgotada. Escolha outra opção para continuar.');
+      setError('Esta opção está esgotada. Escolha outro pacote para continuar.');
       return;
     }
     setError('');
@@ -216,10 +235,49 @@ export default function ConfiguradorPacote() {
     }
   };
 
+  const renderPacoteCard = (pacote: PacotePublicado, destaqueSelecionado = false) => {
+    const meta = modalidadeMeta[pacote.modalidade_hospedagem];
+    const Icon = meta?.icon || TentTree;
+    const selecionado = pacote.id === pacoteId;
+    const esgotado = pacote.disponibilidade === 'esgotado';
+    const classeStatus = esgotado
+      ? 'bg-slate-800 text-white'
+      : pacote.disponibilidade === 'ultimas_vagas'
+        ? 'bg-amber-100 text-amber-800'
+        : 'bg-emerald-100 text-emerald-800';
+    const labelStatus = esgotado ? 'Esgotado' : pacote.disponibilidade === 'ultimas_vagas' ? 'Últimas vagas' : 'Disponível';
+
+    return (
+      <button
+        key={pacote.id}
+        type="button"
+        aria-pressed={selecionado}
+        disabled={esgotado}
+        onClick={() => selecionarPacote(pacote.id)}
+        className={`relative text-left transition-all disabled:cursor-not-allowed disabled:opacity-60 ${destaqueSelecionado
+          ? 'w-full rounded-[1.7rem] border border-[#851F32]/22 bg-white p-5 shadow-[0_18px_45px_rgba(24,45,59,0.10)] ring-1 ring-[#851F32]/10 sm:p-6'
+          : 'w-[84vw] max-w-[320px] shrink-0 snap-start rounded-2xl border border-gray-200 bg-white p-4 hover:border-primary/40 hover:shadow-md sm:w-auto sm:max-w-none sm:p-5'} ${selecionado && !destaqueSelecionado ? 'border-primary bg-primary/5 shadow-lg ring-2 ring-primary/20' : ''}`}
+      >
+        {selecionado && !destaqueSelecionado && <span className="absolute left-3 top-3 rounded-full bg-primary p-1 text-white"><Check size={14} /></span>}
+        <div className="flex items-start justify-between gap-3">
+          <div className="inline-flex rounded-xl bg-slate-100 p-3 text-primary"><Icon size={24} /></div>
+          <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${classeStatus}`}>{labelStatus}</span>
+        </div>
+        <p className="mt-4 text-xs font-bold uppercase tracking-wide text-primary">{meta?.label}</p>
+        <h3 className="mt-1 text-lg font-bold text-slate-900">{pacote.nome}</h3>
+        <p className={`mt-2 text-sm text-gray-500 ${destaqueSelecionado ? '' : 'min-h-10'}`}>{pacote.descricao || meta?.destaque}</p>
+        <div className="mt-4 flex items-end justify-between gap-4">
+          <p className="text-2xl font-bold text-slate-900">{formatarMoeda(pacote.valor_total)}</p>
+          {!destaqueSelecionado && !esgotado && <span className="text-xs font-semibold text-primary">Toque para escolher</span>}
+        </div>
+      </button>
+    );
+  };
+
   if (isLoading) return <div className="mx-auto max-w-7xl px-4 py-20 text-center text-[#182D3B]/60 sm:px-6 lg:px-8">Preparando sua experiência...</div>;
 
   return (
-    <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-4 py-7 pb-28 sm:px-6 sm:py-12 lg:grid-cols-3 lg:gap-8 lg:px-8 lg:pb-14">
+    <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-4 py-6 pb-28 sm:px-6 sm:py-10 lg:grid-cols-3 lg:gap-8 lg:px-8 lg:pb-14">
       <Helmet>
         <title>Monte seu pacote | Excursão das Comitivas</title>
         <meta name="description" content="Escolha a modalidade de hospedagem e confira as condições da sua reserva para Barretos." />
@@ -227,45 +285,63 @@ export default function ConfiguradorPacote() {
       </Helmet>
       <div className="space-y-6 lg:col-span-2">
         <div className="flex flex-col gap-4 rounded-2xl border border-[#182D3B]/10 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
-          <button type="button" onClick={() => navigate('/eventos')} className="inline-flex items-center gap-2 text-sm font-extrabold text-[#851F32] hover:underline"><ArrowLeft size={16}/>Voltar e comparar pacotes</button>
+          <button type="button" onClick={() => navigate('/eventos')} className="inline-flex items-center gap-2 text-sm font-extrabold text-[#851F32] hover:underline"><ArrowLeft size={16} />Voltar para excursões</button>
           <div className="flex items-center gap-2 overflow-x-auto text-[11px] font-black uppercase tracking-[.1em] text-slate-400">
-            <span className="rounded-full bg-[#851F32] px-3 py-1.5 text-white">1 · Pacote</span><ArrowRight size={13}/><span>2 · Adicionais</span><ArrowRight size={13}/><span>3 · Checkout</span>
+            <span className="rounded-full bg-[#851F32] px-3 py-1.5 text-white">1 · Pacote</span><ArrowRight size={13} /><span>2 · Adicionais</span><ArrowRight size={13} /><span>3 · Checkout</span>
           </div>
         </div>
+
         <section className="rounded-[1.6rem] bg-[#182D3B] p-5 text-white shadow-[0_18px_50px_rgba(24,45,59,0.18)] sm:rounded-[2rem] sm:p-7">
-          <div className="flex items-center gap-3 text-[#E3AAB4]"><Sparkles size={18} /><span className="text-xs font-bold uppercase tracking-[0.18em]">Sua experiência, suas escolhas</span></div>
-          <h1 className="font-editorial mt-3 text-2xl font-bold tracking-[-0.025em] sm:text-4xl">Monte seu pacote de viagem</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-7 text-white/75">Defina a hospedagem e complemente a sua reserva. O valor e o contrato serão gerados com base exatamente nas escolhas confirmadas.</p>
+          <div className="flex items-center gap-3 text-[#E3AAB4]"><Sparkles size={18} /><span className="text-xs font-bold uppercase tracking-[0.18em]">Sua experiência</span></div>
+          <h1 className="font-editorial mt-3 text-2xl font-bold tracking-[-0.025em] sm:text-4xl">Monte seu pacote</h1>
+          <p className="mt-3 max-w-2xl text-sm leading-7 text-white/75">Escolha a hospedagem, adicione extras se quiser e siga para o checkout.</p>
         </section>
 
         {error && <div className="rounded-lg bg-red-50 p-4 text-red-700">{error}</div>}
 
         {pacotes.length > 0 && (
-          <section>
-            <div className="mb-3"><h2 className="text-xl font-bold text-slate-900">Escolha sua hospedagem</h2><p className="text-sm text-gray-500">A modalidade selecionada será registrada na sua reserva e no contrato.</p></div>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {pacotes.map((pacote) => {
-                const meta = modalidadeMeta[pacote.modalidade_hospedagem];
-                const Icon = meta?.icon || TentTree;
-                const selecionado = pacote.id === pacoteId;
-                const esgotado = pacote.disponibilidade === 'esgotado';
-                return <button key={pacote.id} type="button" aria-pressed={selecionado} disabled={esgotado} onClick={() => selecionarPacote(pacote.id)} className={`relative rounded-2xl border p-4 text-left transition-all sm:p-5 disabled:cursor-not-allowed disabled:opacity-60 ${selecionado ? 'border-primary bg-primary/5 shadow-lg ring-2 ring-primary/20' : 'border-gray-200 bg-white hover:border-primary/40 hover:shadow-md'}`}>
-                  {selecionado && <span className="absolute left-3 top-3 rounded-full bg-primary p-1 text-white"><Check size={14} /></span>}
-                  {pacote.disponibilidade !== 'disponivel' && <span className={`absolute right-3 top-3 rounded-full px-2 py-1 text-[10px] font-black uppercase ${esgotado ? 'bg-slate-800 text-white' : 'bg-amber-100 text-amber-800'}`}>{esgotado ? 'Esgotado' : 'Últimas vagas'}</span>}
-                  <div className="mb-4 inline-flex rounded-xl bg-slate-100 p-3 text-primary"><Icon size={24} /></div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-primary">{meta?.label}</p>
-                  <h3 className="mt-1 font-bold text-slate-900">{pacote.nome}</h3>
-                  <p className="mt-2 min-h-10 text-sm text-gray-500">{pacote.descricao || meta?.destaque}</p>
-                  <p className="mt-4 text-xl font-bold text-slate-900">{formatarMoeda(pacote.valor_total)}</p>
-                </button>;
-              })}
+          <section className="space-y-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">Escolha sua hospedagem</h2>
+                <p className="text-sm text-gray-500">Selecione um pacote para continuar.</p>
+              </div>
+              {pacoteSelecionado && outrosPacotes.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setMostrarOutrosPacotes((valor) => !valor)}
+                  className="inline-flex items-center gap-2 self-start rounded-full border border-[#182D3B]/12 bg-white px-4 py-2 text-sm font-bold text-[#182D3B] transition hover:border-[#851F32]/30 hover:text-[#851F32]"
+                >
+                  {mostrarOutrosPacotes ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                  {mostrarOutrosPacotes ? 'Ocultar outros pacotes' : 'Ver outros pacotes'}
+                </button>
+              )}
             </div>
-            {pacoteSelecionado && <div className="mt-3 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"><CheckCircle2 size={17} className="mt-0.5 shrink-0"/><p><strong>{pacoteSelecionado.nome}</strong> selecionado. Você pode adicionar extras abaixo ou seguir direto para o checkout.</p></div>}
+
+            {pacoteSelecionado ? (
+              <div className="space-y-3">
+                {renderPacoteCard(pacoteSelecionado, true)}
+                <div className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"><CheckCircle2 size={17} className="mt-0.5 shrink-0" /><p><strong>{pacoteSelecionado.nome}</strong> selecionado. Você pode seguir direto para o checkout ou abrir outros pacotes para comparar.</p></div>
+              </div>
+            ) : (
+              <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 md:grid md:grid-cols-2 md:overflow-visible xl:grid-cols-3">
+                {pacotes.map((pacote) => renderPacoteCard(pacote))}
+              </div>
+            )}
+
+            {pacoteSelecionado && mostrarOutrosPacotes && outrosPacotes.length > 0 && (
+              <div>
+                <p className="mb-3 text-sm font-semibold text-slate-500">Outros pacotes</p>
+                <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 md:grid md:grid-cols-2 md:overflow-visible xl:grid-cols-3">
+                  {outrosPacotes.map((pacote) => renderPacoteCard(pacote))}
+                </div>
+              </div>
+            )}
           </section>
         )}
 
         <section>
-          <div className="mb-3"><h2 className="text-xl font-bold text-slate-900">Personalize com adicionais</h2><p className="text-sm text-gray-500">Selecione apenas o que deseja incluir na experiência.</p></div>
+          <div className="mb-3"><h2 className="text-xl font-bold text-slate-900">Adicionais</h2><p className="text-sm text-gray-500">Inclua apenas o que deseja na sua reserva.</p></div>
           <div className="space-y-6">
             {Object.entries(gruposItens).map(([grupo, itens]) => <div key={grupo}>
               <h3 className="mb-3 text-sm font-black uppercase tracking-[0.14em] text-primary">{grupo}</h3>
@@ -288,7 +364,7 @@ export default function ConfiguradorPacote() {
       </div>
 
       <aside className="lg:col-span-1">
-        <Card className="sticky top-[104px] overflow-hidden border-[#182D3B]/10 shadow-[0_18px_45px_rgba(24,45,59,0.10)]"><CardHeader className="border-b bg-[#182D3B] text-white"><CardTitle>Resumo da reserva</CardTitle></CardHeader><CardContent className="space-y-4 p-6">
+        <Card className={`overflow-hidden border-[#182D3B]/10 shadow-[0_18px_45px_rgba(24,45,59,0.10)] ${modoApp ? 'lg:sticky lg:top-[88px]' : 'lg:sticky lg:top-[104px]'}`}><CardHeader className="border-b bg-[#182D3B] text-white"><CardTitle>Resumo da reserva</CardTitle></CardHeader><CardContent className="space-y-4 p-6">
           <div className="flex justify-between text-sm"><span className="text-gray-600">Hospedagem</span><span className="max-w-40 text-right font-medium">{pacoteSelecionado?.nome || (pacotes.length ? 'Escolha uma opção' : 'Pacote base')}</span></div>
           <div className="flex justify-between text-sm"><span className="text-gray-600">Valor-base</span><span className="font-medium">{formatarMoeda(calculo?.valor_base || 0)}</span></div>
           {Object.entries(itensSelecionados).some(([, qtd]) => qtd > 0) && <div className="space-y-2 border-t pt-4"><p className="text-xs font-bold uppercase text-gray-500">Adicionais</p>{Object.entries(itensSelecionados).filter(([, qtd]) => qtd > 0).map(([id, qtd]) => { const item = itensDisponiveis.find((i) => i.id === id); return item ? <div key={id} className="flex justify-between text-sm"><span className="text-gray-600">{item.nome}</span><span>{formatarMoeda(Number(item.valor) * qtd)}</span></div> : null; })}</div>}
@@ -296,7 +372,7 @@ export default function ConfiguradorPacote() {
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Prévia do contrato</p><p className="mt-2 text-sm leading-relaxed text-slate-700">Serão registrados: <strong>{pacoteSelecionado?.nome || 'pacote base'}</strong>{Object.entries(itensSelecionados).filter(([, qtd]) => qtd > 0).length ? ` e ${Object.entries(itensSelecionados).filter(([, qtd]) => qtd > 0).length} adicional(is)` : ''}, com o total calculado pelo servidor.</p></div>
           <label className="block text-sm font-semibold text-slate-700">Cupom de desconto (opcional)<input value={cupomCodigo} onChange={(event) => setCupomCodigo(event.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 50))} placeholder="Digite seu cupom" className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono uppercase" /></label>
           <Button className="mt-3 w-full" size="lg" onClick={handleReservar} isLoading={isReserving || authLoading} disabled={authLoading || isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado'}>{user ? 'Continuar para checkout' : 'Entrar para continuar'}</Button>
-          <div className="flex gap-2 rounded-md bg-blue-50 p-3 text-xs text-blue-700"><Info size={16} className="shrink-0" /><p>{user ? 'Os valores são calculados no servidor. Seu contrato refletirá exatamente as escolhas confirmadas.' : 'Você só precisará criar sua conta na próxima etapa. Sua escolha ficará salva para continuar sem recomeçar.'}</p></div>
+          <div className="flex gap-2 rounded-md bg-blue-50 p-3 text-xs text-blue-700"><Info size={16} className="shrink-0" /><p>{user ? 'Os valores são calculados no servidor. Seu contrato refletirá exatamente as escolhas confirmadas.' : 'Você fará login na próxima etapa. Sua escolha ficará salva para continuar sem recomeçar.'}</p></div>
         </CardContent></Card>
       </aside>
 
@@ -306,7 +382,7 @@ export default function ConfiguradorPacote() {
             <p className="truncate text-xs font-bold text-slate-500">{pacoteSelecionado?.nome || 'Escolha um pacote'}</p>
             <p className="text-lg font-black text-[#182D3B]">{isCalculating ? 'Calculando…' : formatarMoeda(calculo?.valor_total || pacoteSelecionado?.valor_total || 0)}</p>
           </div>
-          <Button onClick={handleReservar} isLoading={isReserving || authLoading} disabled={authLoading || isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado'}>{user ? 'Continuar' : 'Entrar para continuar'} <ArrowRight size={16}/></Button>
+          <Button onClick={handleReservar} isLoading={isReserving || authLoading} disabled={authLoading || isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado'}>{user ? 'Continuar' : 'Entrar para continuar'} <ArrowRight size={16} /></Button>
         </div>
       </div>
     </div>

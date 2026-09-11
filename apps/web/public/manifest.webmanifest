@@ -1,7 +1,7 @@
 {
-  "name": "Excursão das Comitivas",
-  "short_name": "Comitivas",
-  "description": "Escolha sua excursão, monte seu pacote, valide o contrato e acompanhe pagamentos e reservas pelo celular.",
+  "name": "Barretão 2027 | Excursão das Comitivas",
+  "short_name": "Barretão 2027",
+  "description": "Escolha sua excursão, monte seu pacote e acompanhe reservas, contratos e pagamentos pelo aplicativo.",
   "id": "/",
   "start_url": "/?source=pwa",
   "scope": "/",
