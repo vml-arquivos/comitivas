@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import {
   CheckCircle2,
@@ -15,7 +16,7 @@ import { emModoAplicativo, limparPromptInstalacao, obterPromptInstalacao, plataf
 
 export default function Aplicativo() {
   const [promptInstalacao, setPromptInstalacao] = useState<InstallPromptEvent | null>(() => obterPromptInstalacao());
-  const [instalado, setInstalado] = useState(false);
+  const [instalado, setInstalado] = useState(() => emModoAplicativo());
   const [mensagem, setMensagem] = useState('');
 
   const ambiente = useMemo(() => {
@@ -90,6 +91,33 @@ export default function Aplicativo() {
     { icon: FileText, titulo: 'Pagamentos', texto: 'Acompanhe boletos, parcelas, pagamentos e comprovantes.' },
     { icon: ShieldCheck, titulo: 'Sua conta', texto: 'Acesse histórico, dados, reservas e atendimento em um só lugar.' },
   ];
+
+  if (instalado) {
+    return (
+      <div className="min-h-[70dvh] bg-[#F8F5EF] px-4 py-8 text-[#182D3B] sm:px-6">
+        <Helmet>
+          <title>Aplicativo | Excursão das Comitivas</title>
+          <meta name="description" content="Aplicativo Excursão das Comitivas." />
+        </Helmet>
+        <section className="mx-auto max-w-lg rounded-[1.75rem] border border-[#182D3B]/10 bg-white p-6 shadow-[0_20px_55px_rgba(24,45,59,.09)] sm:p-8">
+          <div className="flex items-center gap-4">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-[#F8F5EF] p-1.5">
+              <img src="/app-icon-192.png" alt="" aria-hidden="true" className="h-full w-full object-contain" />
+            </div>
+            <div>
+              <p className="text-xs font-extrabold uppercase tracking-[0.16em] text-[#851F32]">Aplicativo ativo</p>
+              <h1 className="font-editorial mt-1 text-2xl font-bold">Excursão das Comitivas</h1>
+            </div>
+          </div>
+          <p className="mt-5 text-sm leading-7 text-[#182D3B]/68">Você já está usando o aplicativo. Acesse suas viagens ou veja as próximas excursões.</p>
+          <div className="mt-6 grid gap-2 sm:grid-cols-2">
+            <Link to="/eventos" className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#851F32] px-5 py-3 text-sm font-extrabold text-white">Ver excursões</Link>
+            <Link to="/minha-conta" className="inline-flex min-h-12 items-center justify-center rounded-xl border border-[#182D3B]/12 bg-white px-5 py-3 text-sm font-extrabold text-[#182D3B]">Minhas viagens</Link>
+          </div>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-[#F8F5EF] text-[#182D3B]">

@@ -142,7 +142,8 @@ function AppRoutes() {
         </ProtectedRoute>
       }>
         <Route index element={<Dashboard />} />
-        <Route path="vendas" element={<ProtectedRoute roles={['admin', 'dev', 'vendedor']}><Vendas /></ProtectedRoute>} />
+        <Route path="vendas" element={<ProtectedRoute roles={['admin', 'dev']}><Vendas modoInicial="geral" /></ProtectedRoute>} />
+        <Route path="vendas/interna" element={<ProtectedRoute roles={['admin', 'dev', 'vendedor']}><Vendas modoInicial="interna" /></ProtectedRoute>} />
         <Route path="solicitacoes" element={<ProtectedRoute roles={['admin', 'dev', 'vendedor']}><Solicitacoes /></ProtectedRoute>} />
         <Route path="reservas" element={<ProtectedRoute roles={['admin', 'dev', 'vendedor']}><Reservas /></ProtectedRoute>} />
         <Route path="contratos" element={

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'comitivas-pwa-v1';
+const CACHE_NAME = 'comitivas-pwa-v2';
 const PRECACHE = [
   '/',
   '/offline.html',

@@ -142,7 +142,7 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
 
     const ip = req.ip || req.socket.remoteAddress || "desconhecido";
 
-    let origem: { lead_id?: string; vendedor_id?: string; codigo_origem?: string } = {};
+    let origem: { lead_id?: string; vendedor_id?: string; codigo_origem?: string } = { codigo_origem: "site" };
     let leadAtualizado: Array<{ id: string }> = [];
     if (req.body.lead_id) {
       const leadId = String(req.body.lead_id);
@@ -152,7 +152,7 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
         .where(and(eq(leads_origem.id, leadId), tokenValido ? or(isNull(leads_origem.usuario_id), eq(leads_origem.usuario_id, req.usuario.id)) : eq(leads_origem.usuario_id, req.usuario.id)))
         .limit(1))[0];
       if (!lead) return res.status(401).json({ erro: "Origem comercial inválida ou sem permissão" });
-      origem = { lead_id: lead.id, vendedor_id: lead.vendedor_id || undefined, codigo_origem: lead.codigo_origem || undefined };
+      origem = { lead_id: lead.id, vendedor_id: lead.vendedor_id || undefined, codigo_origem: lead.codigo_origem || "site" };
       leadAtualizado = await db.update(leads_origem).set({
         usuario_id: req.usuario.id,
         lote_id: config.lote_id,
@@ -168,7 +168,7 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
         .where(eq(leads_origem.usuario_id, req.usuario.id))
         .orderBy(desc(sql`${leads_origem.vendedor_id} IS NOT NULL`), desc(leads_origem.atualizado_em))
         .limit(1);
-      if (leadDaConta[0]) origem = { lead_id: leadDaConta[0].id, vendedor_id: leadDaConta[0].vendedor_id || undefined, codigo_origem: leadDaConta[0].codigo_origem || undefined };
+      if (leadDaConta[0]) origem = { lead_id: leadDaConta[0].id, vendedor_id: leadDaConta[0].vendedor_id || undefined, codigo_origem: leadDaConta[0].codigo_origem || "site" };
     }
 
     const resultado = await PacoteService.reservarPacote(

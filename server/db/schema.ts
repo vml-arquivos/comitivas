@@ -530,6 +530,7 @@ export const quartosHospedagem = pgTable("quartos_hospedagem", {
   lote_id: text("lote_id").notNull().references(() => lotes.id),
   pacote_id: text("pacote_id").references(() => pacotes.id),
   nome: varchar("nome", { length: 120 }).notNull(),
+  local_hospedagem: varchar("local_hospedagem", { length: 120 }),
   genero: varchar("genero", { length: 20 }).notNull(),
   capacidade: integer("capacidade").notNull(),
   observacoes: text("observacoes"),
