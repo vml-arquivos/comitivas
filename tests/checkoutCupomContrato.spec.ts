@@ -59,6 +59,22 @@ describe("checkout, cupom e contrato", () => {
     expect(rota).toContain("Envie e valide um documento de identificação com foto");
   });
 
+  it("orienta o cliente a completar o cadastro e enviar o documento dentro do checkout", async () => {
+    const [checkout, contratos, pagamentos] = await Promise.all([
+      fonte("../apps/web/src/pages/cliente/Checkout.tsx"),
+      fonte("../server/routes/contratos.ts"),
+      fonte("../server/routes/pagamentos.ts"),
+    ]);
+    expect(checkout).toContain("Completar cadastro e continuar");
+    expect(checkout).toContain("enviarDocumento");
+    expect(checkout).toContain("/cliente/documentos/identidade?tipo_identidade=");
+    expect(checkout).toContain("documento_identidade?.validado");
+    expect(contratos).toContain("campos_faltantes: faltantesCadastro");
+    expect(contratos).toContain("documento_identidade:");
+    expect(pagamentos).toContain('codigo: "CADASTRO_INCOMPLETO"');
+    expect(pagamentos).toContain("camposFaltantesCadastroMinimo");
+  });
+
   it("normaliza o timestamp bruto do desafio antes de registrar a validação OTP", async () => {
     const otp = await fonte("../server/services/otpService.ts");
     expect(otp).toContain("function dataBancoOuNula(valor: unknown)");

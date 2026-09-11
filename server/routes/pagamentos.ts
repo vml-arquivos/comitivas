@@ -10,7 +10,7 @@ import { db } from "../db/index.js";
 import { comissoes, contratosDocumentos, inventarioHolds, leads_origem, lotes, pacotes, pagamentoIdempotencias, pagamentoParcelas, pagamentos, reservas, usuarios, webhookEventos } from "../db/schema.js";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
-import { cadastroAprovadoComEvidencia } from "../security/governance.js";
+import { cadastroAprovadoComEvidencia, camposFaltantesCadastroMinimo } from "../security/governance.js";
 
 const router = Router();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -99,8 +99,10 @@ router.post("/criar", authMiddleware, async (req: Request, res: Response) => {
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, reserva_id)).limit(1))[0];
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
     if (reserva.usuario_id !== req.usuario.id) return res.status(403).json({ erro: "Acesso negado" });
-    const cliente = (await db.select({ cadastro_status: usuarios.cadastro_status, aprovado_em: usuarios.aprovado_em, aprovado_por: usuarios.aprovado_por, ativo: usuarios.ativo, email_confirmado: usuarios.email_confirmado }).from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0];
+    const cliente = (await db.select({ nome: usuarios.nome, email: usuarios.email, cpf: usuarios.cpf, telefone: usuarios.telefone, data_nascimento: usuarios.data_nascimento, endereco: usuarios.endereco, cadastro_status: usuarios.cadastro_status, aprovado_em: usuarios.aprovado_em, aprovado_por: usuarios.aprovado_por, ativo: usuarios.ativo, email_confirmado: usuarios.email_confirmado }).from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0];
     if (!cliente?.email_confirmado) return res.status(409).json({ erro: "Cobrança bloqueada: confirme o e-mail do cliente" });
+    const camposFaltantes = camposFaltantesCadastroMinimo(cliente);
+    if (camposFaltantes.length) return res.status(409).json({ codigo: "CADASTRO_INCOMPLETO", erro: "Complete seu cadastro antes de continuar para o pagamento.", campos_faltantes: camposFaltantes });
     if (!cadastroAprovadoComEvidencia(cliente)) return res.status(409).json({ erro: "Cobrança bloqueada: cadastro do cliente ainda não possui aprovação administrativa completa" });
     const contrato = (await db.select({ status: contratosDocumentos.status, validado_em: contratosDocumentos.validado_em, aprovado_admin_em: contratosDocumentos.aprovado_admin_em }).from(contratosDocumentos).where(eq(contratosDocumentos.reserva_id, reserva.id)).orderBy(desc(contratosDocumentos.versao)).limit(1))[0];
     if (!contrato?.validado_em) return res.status(409).json({ erro: "Cobrança bloqueada: contrato ainda não foi validado pelo cliente" });

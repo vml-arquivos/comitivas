@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../contexts/AuthContext';
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@ui/index';
-import { AlertCircle, Download, Eye, FileCheck2, FileText, Landmark, Mail, QrCode, ShieldCheck, Smartphone, Tent, Wind, Snowflake, RefreshCw } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Download, Eye, FileCheck2, FileText, Landmark, Mail, QrCode, ShieldCheck, Smartphone, Tent, Upload, Wind, Snowflake, RefreshCw } from 'lucide-react';
 
 type MetodoPagamento = 'pix' | 'boleto';
 type CanalOtp = 'email' | 'whatsapp';
@@ -70,6 +70,8 @@ export default function Checkout() {
   const [codigo, setCodigo] = useState('');
   const [otpEnviado, setOtpEnviado] = useState(false);
   const [consentiuGeo, setConsentiuGeo] = useState(false);
+  const [tipoDocumento, setTipoDocumento] = useState('rg');
+  const [arquivoDocumento, setArquivoDocumento] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
@@ -192,6 +194,30 @@ export default function Checkout() {
     }
   };
 
+  const enviarDocumento = async () => {
+    if (!arquivoDocumento) {
+      setError('Selecione seu RG, CNH ou passaporte antes de enviar.');
+      return;
+    }
+    setIsProcessing(true);
+    setError('');
+    try {
+      await api.post(`/cliente/documentos/identidade?tipo_identidade=${encodeURIComponent(tipoDocumento)}`, arquivoDocumento, {
+        headers: {
+          'Content-Type': arquivoDocumento.type || 'application/octet-stream',
+          'X-File-Name': encodeURIComponent(arquivoDocumento.name),
+          'X-File-Mime': arquivoDocumento.type,
+        },
+      });
+      setArquivoDocumento(null);
+      await carregarDados(true);
+    } catch (err: any) {
+      setError(err.response?.data?.erro || 'Não foi possível enviar o documento.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const solicitarOtp = async () => {
     if (!aceiteContrato || !aceiteRegras) {
       setError('Marque os dois aceites após ler o contrato e as regras.');
@@ -282,7 +308,12 @@ export default function Checkout() {
   if (isLoading) return <div className="py-12 text-center text-slate-600">Carregando detalhes da reserva...</div>;
   const modalidade = reserva?.modalidade_hospedagem ? MODALIDADES[reserva.modalidade_hospedagem] : null;
   const contratante = reserva?.contratante;
-  const dadosIncompletos = contratante ? ['nome', 'email', 'cpf', 'data_nascimento', 'endereco', 'telefone'].filter((campo) => !contratante[campo]) : [];
+  const dadosIncompletos: string[] = Array.isArray(estado?.cadastro?.campos_faltantes)
+    ? estado.cadastro.campos_faltantes
+    : contratante ? ['nome', 'email', 'cpf', 'data_nascimento', 'endereco', 'telefone'].filter((campo) => !contratante[campo]) : [];
+  const cadastroCompleto = dadosIncompletos.length === 0;
+  const documentoObrigatorio = estado?.documento_identidade?.obrigatorio === true;
+  const documentoValidado = estado?.documento_identidade?.validado === true;
 
   return (
     <div className="checkout-shell mx-auto max-w-6xl space-y-6 bg-[#fffdf9] pb-12">
@@ -389,6 +420,38 @@ export default function Checkout() {
         </CardContent>
       </Card>
 
+      {!cadastroCompleto ? (
+        <Card className="border-amber-200">
+          <CardContent className="p-6">
+            <div className="flex items-start gap-4">
+              <AlertCircle className="mt-1 shrink-0 text-amber-700" />
+              <div>
+                <h2 className="text-xl font-bold text-secondary">Complete seu cadastro antes de continuar</h2>
+                <p className="mt-2 text-sm leading-relaxed text-gray-600">Antes de gerar o contrato, validar a contratação ou liberar qualquer pagamento, precisamos dos dados essenciais: {dadosIncompletos.join(', ')}.</p>
+                <Link to={`/meus-dados?redirect=${encodeURIComponent(`/checkout/${reservaId}`)}`} className="mt-5 inline-flex rounded-lg bg-amber-900 px-4 py-2 text-sm font-bold text-white">
+                  Completar cadastro e continuar
+                </Link>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : documentoObrigatorio && !documentoValidado && !contratoValidado ? (
+        <Card className="border-sky-200">
+          <CardHeader className="border-b bg-sky-50">
+            <CardTitle className="flex items-center gap-2 text-secondary"><Upload className="text-sky-700" />Valide sua identidade antes do contrato</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 p-6">
+            <p className="text-sm leading-relaxed text-gray-600">Seu cadastro está completo. Agora envie um documento oficial com foto para conferirmos os dados antes de gerar o contrato e liberar o pagamento.</p>
+            <div className="grid gap-3 sm:grid-cols-[180px_1fr_auto] sm:items-end">
+              <label className="text-sm font-semibold text-gray-700">Tipo de documento<select value={tipoDocumento} onChange={(event) => setTipoDocumento(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2"><option value="rg">RG</option><option value="cnh">CNH</option><option value="passaporte">Passaporte</option><option value="outro">Outro documento</option></select></label>
+              <label className="text-sm font-semibold text-gray-700">Arquivo (PDF, JPG, PNG ou WEBP)<input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp" onChange={(event) => setArquivoDocumento(event.target.files?.[0] || null)} className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm" /></label>
+              <Button type="button" onClick={enviarDocumento} isLoading={isProcessing} disabled={!arquivoDocumento}><Upload size={16} /> Enviar documento</Button>
+            </div>
+            {estado?.documento_identidade?.documento && <p className="flex items-center gap-2 text-sm text-amber-700"><RefreshCw size={15} /> Documento atual: {estado.documento_identidade.documento.validacao_status}. Se necessário, envie uma nova imagem legível.</p>}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardHeader className="border-b bg-gray-50">
           <CardTitle>Condição de pagamento</CardTitle>
@@ -467,7 +530,7 @@ export default function Checkout() {
         </CardContent>
       </Card>
 
-      {!contratoValidado && !contratoHtml ? (
+      {cadastroCompleto && (!documentoObrigatorio || documentoValidado) && !contratoValidado && !contratoHtml ? (
         <Card>
           <CardContent className="p-6">
             <div className="flex items-start gap-4">
@@ -482,7 +545,7 @@ export default function Checkout() {
             </div>
           </CardContent>
         </Card>
-      ) : !contratoValidado ? (
+      ) : cadastroCompleto && (!documentoObrigatorio || documentoValidado) && !contratoValidado ? (
         <Card>
           <CardHeader className="border-b bg-gray-50">
             <CardTitle className="flex items-center gap-2">
