@@ -1,11 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth, api } from '../contexts/AuthContext';
 import { Button, Input, Card, CardHeader, CardTitle, CardContent } from '@ui/index';
-import { destinoSeguro, lerLeadId, lerLeadIntentToken, lerReferenciaVendedor } from '../utils/checkoutIntent';
-
-const destinoPorPapel = (usuario: { tipo: string }) =>
-  ['admin', 'dev', 'vendedor'].includes(usuario.tipo) ? '/admin' : '/minha-conta';
+import { destinoSeguro } from '../utils/checkoutIntent';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -15,49 +12,15 @@ export default function Login() {
   const [recuperacao, setRecuperacao] = useState(false);
   const [recuperacaoLoading, setRecuperacaoLoading] = useState(false);
   const [recuperacaoMensagem, setRecuperacaoMensagem] = useState('');
-  const [oauthDisponivel, setOauthDisponivel] = useState({ google: false, microsoft: false });
 
-  const { user, isLoading: authLoading, login } = useAuth();
+  const { login } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirect = destinoSeguro(searchParams.get('redirect'), '');
   const senhaRedefinida = searchParams.get('senha_redefinida') === '1';
-  const oauthErro = searchParams.get('oauth_erro');
 
-  useEffect(() => {
-    api.get('/auth/oauth/status')
-      .then((response) => setOauthDisponivel({ google: response.data.google === true, microsoft: response.data.microsoft === true }))
-      .catch(() => setOauthDisponivel({ google: false, microsoft: false }));
-  }, []);
-
-  useEffect(() => {
-    if (!authLoading && user) {
-      navigate(redirect || destinoPorPapel(user), { replace: true });
-    }
-  }, [authLoading, navigate, redirect, user]);
-
-  const urlOAuth = (provider: 'google' | 'microsoft') => {
-    const params = new URLSearchParams({ redirect: redirect || '/minha-conta' });
-    const referencia = lerReferenciaVendedor();
-    const leadId = lerLeadId();
-    const leadIntentToken = lerLeadIntentToken();
-    if (referencia) params.set('vendedor_ref', referencia);
-    if (leadId && leadIntentToken) {
-      params.set('lead_id', leadId);
-      params.set('lead_intent_token', leadIntentToken);
-    }
-    return `/api/auth/oauth/${provider}/iniciar?${params.toString()}`;
-  };
-
-  const mensagemOauth = oauthErro
-    ? {
-      sessao_invalida: 'A tentativa de acesso expirou. Tente novamente.',
-      acesso_cancelado: 'O acesso foi cancelado antes da confirmação.',
-      use_senha: 'Esta conta deve entrar com e-mail e senha.',
-      conta_indisponivel: 'Esta conta não está disponível.',
-      falha_no_provedor: 'Não foi possível concluir o acesso. Tente novamente.',
-    }[oauthErro] || 'Não foi possível concluir o acesso.'
-    : '';
+  const destinoPorPapel = (usuario: { tipo: string }) =>
+    ['admin', 'dev', 'vendedor'].includes(usuario.tipo) ? '/admin' : '/minha-conta';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,10 +67,6 @@ export default function Login() {
     }
   };
 
-  if (authLoading || user) {
-    return <div className="px-4 py-16 text-center text-sm text-slate-500">Verificando sua sessão…</div>;
-  }
-
   return (
     <div className="flex items-center justify-center py-12">
       <Card className="w-full max-w-md">
@@ -116,27 +75,8 @@ export default function Login() {
         </CardHeader>
         <CardContent>
           {senhaRedefinida && <div className="mb-4 rounded-md bg-green-50 p-3 text-sm font-medium text-green-700">Senha redefinida com sucesso. Entre com sua nova senha.</div>}
-          {mensagemOauth && <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-600">{mensagemOauth}</div>}
           {error && <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-600">{error}</div>}
           {recuperacaoMensagem && <div className="mb-4 rounded-md bg-blue-50 p-3 text-sm text-blue-700">{recuperacaoMensagem}</div>}
-
-          {(oauthDisponivel.google || oauthDisponivel.microsoft) && (
-            <div className="mb-5 space-y-2">
-              {oauthDisponivel.google && (
-                <a href={urlOAuth('google')} className="flex min-h-11 w-full items-center justify-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-secondary transition hover:border-slate-300 hover:bg-slate-50">
-                  <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full border border-slate-200 text-xs font-bold text-[#4285f4]">G</span>
-                  Continuar com Google
-                </a>
-              )}
-              {oauthDisponivel.microsoft && (
-                <a href={urlOAuth('microsoft')} className="flex min-h-11 w-full items-center justify-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-secondary transition hover:border-slate-300 hover:bg-slate-50">
-                  <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-sm bg-[#2f2f2f] text-xs font-semibold text-white">M</span>
-                  Continuar com Microsoft
-                </a>
-              )}
-              <div className="flex items-center gap-3 py-1 text-xs text-slate-400"><span className="h-px flex-1 bg-slate-200"/><span>ou entre com seu e-mail</span><span className="h-px flex-1 bg-slate-200"/></div>
-            </div>
-          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <Input

@@ -9,9 +9,7 @@ import {
   lerLeadId,
   lerLeadIntentToken,
   limparIntencaoCheckout,
-  lerReferenciaVendedor,
   salvarIntencaoCheckout,
-  salvarReferenciaVendedor,
 } from '../../utils/checkoutIntent';
 
 interface PacotePublicado {
@@ -36,7 +34,7 @@ function formatarMoeda(valor: string | number) {
 export default function ConfiguradorPacote() {
   const { loteId } = useParams();
   const navigate = useNavigate();
-  const { user, isLoading: authLoading } = useAuth();
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const pacoteSolicitado = searchParams.get('pacote');
   const [itensDisponiveis, setItensDisponiveis] = useState<any[]>([]);
@@ -49,11 +47,6 @@ export default function ConfiguradorPacote() {
   const [isCalculating, setIsCalculating] = useState(false);
   const [isReserving, setIsReserving] = useState(false);
   const [error, setError] = useState('');
-
-  useEffect(() => {
-    const referencia = searchParams.get('ref');
-    if (referencia) salvarReferenciaVendedor(referencia);
-  }, [searchParams]);
 
   useEffect(() => {
     const carregarConfigurador = async () => {
@@ -155,7 +148,6 @@ export default function ConfiguradorPacote() {
   };
 
   const handleReservar = async () => {
-    if (authLoading) return;
     if (pacotes.length > 0 && !pacoteId) {
       setError('Escolha sua modalidade de hospedagem para continuar.');
       return;
@@ -184,17 +176,15 @@ export default function ConfiguradorPacote() {
           lead_intent_token: leadIntentToken,
         }).catch(() => undefined);
       }
-      const referencia = searchParams.get('ref') || lerReferenciaVendedor();
-      const retorno = `/pacote/${loteId}?retomar=1${pacoteId ? `&pacote=${encodeURIComponent(pacoteId)}` : ''}${referencia ? `&ref=${encodeURIComponent(referencia)}` : ''}`;
-      navigate(`/login?redirect=${encodeURIComponent(retorno)}`);
+      const retorno = `/pacote/${loteId}?retomar=1${pacoteId ? `&pacote=${encodeURIComponent(pacoteId)}` : ''}${searchParams.get('ref') ? `&ref=${encodeURIComponent(searchParams.get('ref')!)}` : ''}`;
+      navigate(`/cadastro?redirect=${encodeURIComponent(retorno)}`);
       return;
     }
 
     setIsReserving(true);
     try {
-      const referencia = searchParams.get('ref') || lerReferenciaVendedor();
-      if (!leadId && referencia) {
-        const origem = await api.post('/jornada/registrar-origem', { codigo_origem: referencia });
+      if (!leadId && searchParams.get('ref')) {
+        const origem = await api.post('/jornada/registrar-origem', { codigo_origem: searchParams.get('ref') });
         leadId = origem.data.lead_id || undefined;
       }
       const itensPayload = Object.entries(itensSelecionados)
@@ -295,7 +285,7 @@ export default function ConfiguradorPacote() {
           <div className="border-t pt-4"><div className="flex items-center justify-between"><span className="text-lg font-bold">Total</span><span className="text-2xl font-bold text-primary">{isCalculating ? '...' : formatarMoeda(calculo?.valor_total || 0)}</span></div></div>
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Prévia do contrato</p><p className="mt-2 text-sm leading-relaxed text-slate-700">Serão registrados: <strong>{pacoteSelecionado?.nome || 'pacote base'}</strong>{Object.entries(itensSelecionados).filter(([, qtd]) => qtd > 0).length ? ` e ${Object.entries(itensSelecionados).filter(([, qtd]) => qtd > 0).length} adicional(is)` : ''}, com o total calculado pelo servidor.</p></div>
           <label className="block text-sm font-semibold text-slate-700">Cupom de desconto (opcional)<input value={cupomCodigo} onChange={(event) => setCupomCodigo(event.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 50))} placeholder="Digite seu cupom" className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono uppercase" /></label>
-          <Button className="mt-3 w-full" size="lg" onClick={handleReservar} isLoading={isReserving || authLoading} disabled={authLoading || isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado'}>{user ? 'Continuar para checkout' : 'Entrar para continuar'}</Button>
+          <Button className="mt-3 w-full" size="lg" onClick={handleReservar} isLoading={isReserving} disabled={isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado'}>{user ? 'Continuar para checkout' : 'Continuar com esta escolha'}</Button>
           <div className="flex gap-2 rounded-md bg-blue-50 p-3 text-xs text-blue-700"><Info size={16} className="shrink-0" /><p>{user ? 'Os valores são calculados no servidor. Seu contrato refletirá exatamente as escolhas confirmadas.' : 'Você só precisará criar sua conta na próxima etapa. Sua escolha ficará salva para continuar sem recomeçar.'}</p></div>
         </CardContent></Card>
       </aside>
@@ -306,7 +296,7 @@ export default function ConfiguradorPacote() {
             <p className="truncate text-xs font-bold text-slate-500">{pacoteSelecionado?.nome || 'Escolha um pacote'}</p>
             <p className="text-lg font-black text-[#182D3B]">{isCalculating ? 'Calculando…' : formatarMoeda(calculo?.valor_total || pacoteSelecionado?.valor_total || 0)}</p>
           </div>
-          <Button onClick={handleReservar} isLoading={isReserving || authLoading} disabled={authLoading || isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado'}>{user ? 'Continuar' : 'Entrar para continuar'} <ArrowRight size={16}/></Button>
+          <Button onClick={handleReservar} isLoading={isReserving} disabled={isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado'}>Continuar <ArrowRight size={16}/></Button>
         </div>
       </div>
     </div>

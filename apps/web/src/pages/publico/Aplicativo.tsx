@@ -11,39 +11,49 @@ import {
   Smartphone,
   WifiOff,
 } from 'lucide-react';
-import { emModoAplicativo, limparPromptInstalacao, obterPromptInstalacao, plataformaMovel, type InstallPromptEvent } from '../../utils/pwaInstall';
+
+type InstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+};
+
+function emModoAplicativo() {
+  return window.matchMedia('(display-mode: standalone)').matches
+    || (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
+}
 
 export default function Aplicativo() {
-  const [promptInstalacao, setPromptInstalacao] = useState<InstallPromptEvent | null>(() => obterPromptInstalacao());
+  const [promptInstalacao, setPromptInstalacao] = useState<InstallPromptEvent | null>(null);
   const [instalado, setInstalado] = useState(false);
   const [mensagem, setMensagem] = useState('');
 
   const ambiente = useMemo(() => {
-    return plataformaMovel();
+    const ua = navigator.userAgent.toLowerCase();
+    return {
+      ios: /iphone|ipad|ipod/.test(ua),
+      android: /android/.test(ua),
+    };
   }, []);
 
   useEffect(() => {
     setInstalado(emModoAplicativo());
 
-    const antesDeInstalar = () => setPromptInstalacao(obterPromptInstalacao());
+    const antesDeInstalar = (event: Event) => {
+      event.preventDefault();
+      setPromptInstalacao(event as InstallPromptEvent);
+    };
     const instaladoHandler = () => {
       setInstalado(true);
       setPromptInstalacao(null);
       setMensagem('Aplicativo instalado com sucesso.');
     };
 
-    window.addEventListener('comitivas-install-available', antesDeInstalar);
+    window.addEventListener('beforeinstallprompt', antesDeInstalar);
     window.addEventListener('appinstalled', instaladoHandler);
     return () => {
-      window.removeEventListener('comitivas-install-available', antesDeInstalar);
+      window.removeEventListener('beforeinstallprompt', antesDeInstalar);
       window.removeEventListener('appinstalled', instaladoHandler);
     };
-  }, []);
-
-  useEffect(() => {
-    const plataforma = new URLSearchParams(window.location.search).get('platform');
-    if (plataforma === 'ios') requestAnimationFrame(() => rolarParaInstalacao('ios'));
-    else if (plataforma === 'android' && !obterPromptInstalacao()) requestAnimationFrame(() => rolarParaInstalacao('android'));
   }, []);
 
   const rolarParaInstalacao = (plataforma?: 'ios' | 'android') => {
@@ -60,7 +70,6 @@ export default function Aplicativo() {
       const escolha = await promptInstalacao.userChoice;
       setMensagem(escolha.outcome === 'accepted' ? 'Instalação iniciada.' : 'Instalação não concluída. Você pode tentar novamente quando quiser.');
       setPromptInstalacao(null);
-      limparPromptInstalacao();
       return;
     }
 

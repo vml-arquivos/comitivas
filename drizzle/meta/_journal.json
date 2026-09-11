@@ -85,27 +85,6 @@
       "when": 1788825600000,
       "tag": "0011_governanca_dev_gateway_boleto_manual",
       "breakpoints": true
-    },
-    {
-      "idx": 12,
-      "version": "5",
-      "when": 1789000000000,
-      "tag": "0012_operacao_pacotes_vendas",
-      "breakpoints": true
-    },
-    {
-      "idx": 13,
-      "version": "5",
-      "when": 1789010000000,
-      "tag": "0013_operacao_onibus_equipe",
-      "breakpoints": true
-    },
-    {
-      "idx": 14,
-      "version": "5",
-      "when": 1789011000000,
-      "tag": "0014_fila_onibus_quartos_solicitacoes",
-      "breakpoints": true
     }
   ]
 }

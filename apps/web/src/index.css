@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -11,13 +9,6 @@
     --brand-navy: #182d3b;
     --brand-cream: #f8f5ef;
     --brand-line: rgba(24, 45, 59, 0.11);
-    --admin-coral: #df6248;
-    --admin-coral-dark: #c94f38;
-    --admin-teal: #073f50;
-    --admin-teal-deep: #062f3d;
-    --admin-surface: #fffdfa;
-    --admin-muted: #6f7c84;
-    --admin-line: #e2e8e8;
   }
 
   html {
@@ -25,61 +16,15 @@
     background: #f8f5ef;
   }
 
-  html,
-  body,
-  #root {
-    width: 100%;
-    min-width: 0;
-    max-width: 100%;
-    overflow-x: hidden;
-  }
-
-  @supports (overflow: clip) {
-    html,
-    body,
-    #root {
-      overflow-x: clip;
-    }
-  }
-
   body {
     margin: 0;
-    min-height: 100vh;
-    min-height: 100dvh;
-    position: relative;
     background: #f8f5ef;
     color: #182d3b;
-    font-family:
-      Montserrat,
-      Poppins,
-      ui-sans-serif,
-      system-ui,
-      -apple-system,
-      BlinkMacSystemFont,
-      'Segoe UI',
-      sans-serif;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-size: 15px;
     line-height: 1.55;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
-  }
-
-  #root {
-    min-height: 100vh;
-    min-height: 100dvh;
-  }
-
-  img,
-  video,
-  canvas,
-  svg {
-    max-width: 100%;
-  }
-
-  html.ios-pwa-standalone,
-  html.ios-pwa-standalone body,
-  html.ios-pwa-standalone #root {
-    overscroll-behavior-x: none;
   }
 
   h1,
@@ -95,7 +40,7 @@
   input,
   select,
   textarea,
-  [tabindex]:not([tabindex='-1']) {
+  [tabindex]:not([tabindex="-1"]) {
     outline-color: #851f32;
   }
 
@@ -118,9 +63,7 @@
       scroll-behavior: auto;
     }
 
-    *,
-    *::before,
-    *::after {
+    *, *::before, *::after {
       animation-duration: 0.01ms !important;
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
@@ -131,7 +74,7 @@
 
 @layer utilities {
   .font-editorial {
-    font-family: Montserrat, Poppins, ui-sans-serif, system-ui, sans-serif;
+    font-family: Georgia, "Times New Roman", serif;
   }
 
   .premium-panel {
@@ -143,176 +86,13 @@
     min-width: 0;
     max-width: 100%;
   }
-
-  .admin-page {
-    @apply mx-auto w-full max-w-[1720px] space-y-5;
-  }
-
-  .admin-page-header {
-    @apply flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between;
-  }
-
-  .admin-eyebrow {
-    color: var(--admin-coral);
-    @apply text-xs font-extrabold uppercase tracking-[0.18em];
-  }
-
-  .admin-title {
-    color: var(--admin-teal-deep);
-    @apply mt-1 text-3xl font-black leading-tight sm:text-4xl;
-  }
-
-  .admin-subtitle {
-    color: var(--admin-muted);
-    @apply mt-1 max-w-3xl text-sm leading-6;
-  }
-
-  .admin-card {
-    border-color: var(--admin-line);
-    background: var(--admin-surface);
-    box-shadow: 0 12px 36px rgba(7, 63, 80, 0.06);
-    @apply rounded-2xl border;
-  }
-
-  .admin-metric-card {
-    border-color: var(--admin-line);
-    background: var(--admin-surface);
-    box-shadow: 0 9px 28px rgba(7, 63, 80, 0.055);
-    @apply rounded-2xl border p-5;
-  }
-
-  .admin-icon-bubble {
-    @apply flex h-11 w-11 shrink-0 items-center justify-center rounded-full;
-  }
-
-  .admin-field {
-    border-color: var(--admin-line);
-    @apply min-h-11 w-full rounded-xl border bg-white px-4 text-sm text-slate-800 transition;
-  }
-
-  .admin-field:focus {
-    border-color: var(--admin-coral);
-    box-shadow: 0 0 0 3px rgba(223, 98, 72, 0.12);
-    outline: none;
-  }
-
-  .admin-table {
-    @apply w-full text-left text-sm;
-  }
-
-  .admin-table thead {
-    background: #f5f8f7;
-    color: #647178;
-    @apply text-[11px] font-bold uppercase tracking-[0.08em];
-  }
-
-  .admin-table th {
-    @apply px-5 py-4 font-bold;
-  }
-
-  .admin-table td {
-    border-color: var(--admin-line);
-    @apply border-t px-5 py-4 align-middle;
-  }
-
-  .admin-table tbody tr {
-    @apply transition-colors hover:bg-[#fff8f4];
-  }
-
-  .admin-status {
-    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold;
-  }
-
-  .admin-icon-button {
-    border-color: var(--admin-line);
-    color: var(--admin-teal);
-    @apply inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border bg-white transition hover:border-[#DF6248]/40 hover:text-[#DF6248];
-  }
-
-  .admin-row-action {
-    color: #6f7c84;
-    @apply inline-flex h-9 w-9 items-center justify-center rounded-lg transition hover:bg-[#fff0eb] hover:text-[#DF6248];
-  }
-
-  .admin-tab {
-    color: #718087;
-    @apply relative flex items-center gap-2 border-b-2 border-transparent px-1 pb-3 pt-2 text-sm font-bold transition;
-  }
-
-  .admin-tab span {
-    @apply rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500;
-  }
-
-  .admin-tab-active {
-    border-color: var(--admin-coral);
-    color: var(--admin-teal);
-  }
-
-  .admin-scrollbar {
-    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
-    scrollbar-width: thin;
-  }
 }
 
 @media (max-width: 767px) {
+  body { overflow-x: hidden; }
+
   button,
-  a[role='button'] {
-    -webkit-tap-highlight-color: transparent;
-  }
+  a[role="button"] { -webkit-tap-highlight-color: transparent; }
 
-  .admin-shell table {
-    font-size: 0.8rem;
-  }
-  .admin-page {
-    @apply space-y-4;
-  }
-  .admin-title {
-    @apply text-[1.75rem];
-  }
-  .admin-subtitle {
-    @apply leading-5;
-  }
-}
-
-.admin-shell .text-primary {
-  color: var(--admin-coral);
-}
-.admin-shell main {
-  background:
-    radial-gradient(circle at 90% 2%, rgba(223, 98, 72, 0.055), transparent 24rem),
-    #f8f6f1;
-}
-.admin-shell button.bg-primary,
-.admin-shell a.bg-primary {
-  background-color: var(--admin-coral);
-}
-.admin-shell button.bg-primary:hover,
-.admin-shell a.bg-primary:hover {
-  background-color: var(--admin-coral-dark);
-}
-.admin-shell table thead {
-  background: #f5f8f7;
-  color: #647178;
-}
-.admin-shell table tbody tr {
-  transition: background-color 160ms ease;
-}
-.admin-shell table tbody tr:hover {
-  background: #fff8f4;
-}
-.admin-metrics > * {
-  border-color: var(--admin-line);
-  background: var(--admin-surface);
-  box-shadow: 0 8px 26px rgba(7, 63, 80, 0.05);
-}
-.checkout-shell .text-primary {
-  color: var(--admin-coral);
-}
-.checkout-shell button.bg-primary,
-.checkout-shell a.bg-primary {
-  background-color: var(--admin-coral);
-}
-.checkout-shell button.bg-primary:hover,
-.checkout-shell a.bg-primary:hover {
-  background-color: var(--admin-coral-dark);
+  .admin-shell table { font-size: 0.8rem; }
 }

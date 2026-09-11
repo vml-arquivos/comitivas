@@ -13,14 +13,6 @@ afterEach(() => {
 });
 
 describe("AuthService.validarConfiguracaoSegura", () => {
-  it("gera hash de senha e rejeita uma senha diferente", async () => {
-    const hash = await AuthService.hashPassword("SenhaSegura@2026");
-
-    expect(hash).not.toContain("SenhaSegura@2026");
-    await expect(AuthService.verifyPassword("SenhaSegura@2026", hash)).resolves.toBe(true);
-    await expect(AuthService.verifyPassword("SenhaIncorreta", hash)).resolves.toBe(false);
-  });
-
   it("rejeita a inicialização em produção sem JWT_SECRET", () => {
     process.env.NODE_ENV = "production";
     delete process.env.JWT_SECRET;
@@ -44,23 +36,5 @@ describe("AuthService.validarConfiguracaoSegura", () => {
     expect(AuthService.verifyLeadIntentToken(token, "lead-123")).toBe(true);
     expect(AuthService.verifyLeadIntentToken(token, "lead-456")).toBe(false);
     expect(AuthService.verifyLeadIntentToken("token-inválido", "lead-123")).toBe(false);
-  });
-
-  it("protege estado, PKCE e destino do login social em token curto", () => {
-    process.env.NODE_ENV = "test";
-    process.env.JWT_SECRET = "segredo-de-teste-com-tamanho-suficiente";
-    const token = AuthService.generateOAuthFlowToken({
-      state: "estado-seguro",
-      verifier: "verificador-pkce",
-      provider: "google",
-      redirect: "/pacote/lote-1?retomar=1",
-    });
-
-    expect(AuthService.verifyOAuthFlowToken(token)).toMatchObject({
-      state: "estado-seguro",
-      provider: "google",
-      redirect: "/pacote/lote-1?retomar=1",
-    });
-    expect(AuthService.verifyOAuthFlowToken(`${token}alterado`)).toBeNull();
   });
 });

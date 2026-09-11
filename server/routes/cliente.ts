@@ -17,17 +17,9 @@ import {
   pagamentos,
   reservas,
   usuarios,
-  assentoAlocacoes,
-  assentosOnibus,
-  onibusOperacionais,
-  pontosEmbarqueOperacao,
-  saidasOperacionais,
-  checkinsOperacao,
-  quartoAlocacoes,
-  quartosHospedagem,
 } from "../db/schema.js";
 import { EmailService } from "../services/emailService.js";
-import { ReservaSolicitacaoService } from "../services/reservaSolicitacaoService.js";
+import { InventoryService } from "../services/inventoryService.js";
 
 const router = Router();
 router.use(authMiddleware);
@@ -37,7 +29,6 @@ const TIPOS_HISTORICO_CLIENTE = [
   "cliente_troca_pacote",
   "cliente_reinicio",
   "cliente_atendimento",
-  "analise_solicitacao",
 ];
 
 function escaparHtml(valor: unknown): string {
@@ -61,6 +52,30 @@ async function obterReservaDoCliente(reservaId: string, usuarioId: string) {
     forma_pagamento: reservas.forma_pagamento,
     inventario_hold_id: reservas.inventario_hold_id,
   }).from(reservas).where(and(eq(reservas.id, reservaId), eq(reservas.usuario_id, usuarioId))).limit(1))[0];
+}
+
+async function estadoProtegidoDaReserva(reservaId: string) {
+  const contratos = await db.select({
+    id: contratosDocumentos.id,
+    status: contratosDocumentos.status,
+    validado_em: contratosDocumentos.validado_em,
+  }).from(contratosDocumentos).where(eq(contratosDocumentos.reserva_id, reservaId));
+
+  const pagamentosLista = await db.select({
+    id: pagamentos.id,
+    status: pagamentos.status,
+    status_reconciliado: pagamentos.status_reconciliado,
+    valor_pago_centavos: pagamentos.valor_pago_centavos,
+  }).from(pagamentos).where(eq(pagamentos.reserva_id, reservaId));
+
+  const contratoValidado = contratos.some((item) => Boolean(item.validado_em) || ["validado", "aprovado"].includes(String(item.status || "").toLowerCase()));
+  const pagamentoConfirmado = pagamentosLista.some((item) =>
+    item.status === "aprovado"
+    || Number(item.valor_pago_centavos || 0) > 0
+    || ["parcial", "quitado"].includes(String(item.status_reconciliado || "").toLowerCase()),
+  );
+
+  return { contratoValidado, pagamentoConfirmado };
 }
 
 async function registrarSolicitacao(params: {
@@ -105,9 +120,13 @@ router.get("/portal", async (req: Request, res: Response) => {
       nome: usuarios.nome,
       email: usuarios.email,
       cpf: usuarios.cpf,
+      rg: usuarios.rg,
       telefone: usuarios.telefone,
       data_nascimento: usuarios.data_nascimento,
+      estado_civil: usuarios.estado_civil,
+      profissao: usuarios.profissao,
       endereco: usuarios.endereco,
+      nacionalidade: usuarios.nacionalidade,
       cadastro_status: usuarios.cadastro_status,
       criado_em: usuarios.criado_em,
       atualizado_em: usuarios.atualizado_em,
@@ -150,35 +169,6 @@ router.get("/portal", async (req: Request, res: Response) => {
       .orderBy(desc(reservas.criado_em));
 
     const reservaIds = reservasLista.map((item) => item.id);
-    const operacaoLista = reservaIds.length ? await db.select({
-      reserva_id: assentoAlocacoes.reserva_id,
-      saida_nome: saidasOperacionais.nome,
-      data_partida: saidasOperacionais.data_partida,
-      data_retorno: saidasOperacionais.data_retorno,
-      onibus_nome: onibusOperacionais.nome,
-      onibus_identificacao: onibusOperacionais.identificacao,
-      poltrona: assentosOnibus.numero,
-      ponto_embarque_nome: pontosEmbarqueOperacao.nome,
-      ponto_embarque_endereco: pontosEmbarqueOperacao.endereco,
-      ponto_embarque_horario: pontosEmbarqueOperacao.horario,
-      checkin_status: checkinsOperacao.status,
-    }).from(assentoAlocacoes)
-      .innerJoin(assentosOnibus, eq(assentoAlocacoes.assento_id, assentosOnibus.id))
-      .innerJoin(onibusOperacionais, eq(assentosOnibus.onibus_id, onibusOperacionais.id))
-      .innerJoin(saidasOperacionais, eq(onibusOperacionais.saida_id, saidasOperacionais.id))
-      .leftJoin(pontosEmbarqueOperacao, eq(assentoAlocacoes.ponto_embarque_id, pontosEmbarqueOperacao.id))
-      .leftJoin(checkinsOperacao, and(eq(checkinsOperacao.saida_id, saidasOperacionais.id), eq(checkinsOperacao.reserva_id, assentoAlocacoes.reserva_id)))
-      .where(and(inArray(assentoAlocacoes.reserva_id, reservaIds), eq(assentoAlocacoes.status, "ativa"))) : [];
-    const operacaoPorReserva = new Map(operacaoLista.map((item) => [item.reserva_id, item]));
-    const hospedagemLista = reservaIds.length ? await db.select({
-      reserva_id: quartoAlocacoes.reserva_id,
-      quarto_nome: quartosHospedagem.nome,
-      grupo: quartosHospedagem.genero,
-      vaga: quartoAlocacoes.numero_vaga,
-    }).from(quartoAlocacoes)
-      .innerJoin(quartosHospedagem, eq(quartoAlocacoes.quarto_id, quartosHospedagem.id))
-      .where(and(inArray(quartoAlocacoes.reserva_id, reservaIds), eq(quartoAlocacoes.status, "ativa"))) : [];
-    const hospedagemPorReserva = new Map(hospedagemLista.map((item) => [item.reserva_id, item]));
     const pagamentosLista = reservaIds.length ? await db.select({
       id: pagamentos.id,
       reserva_id: pagamentos.reserva_id,
@@ -276,15 +266,11 @@ router.get("/portal", async (req: Request, res: Response) => {
       const pagamentoConfirmado = pagamentosDaReserva.some((item) => item.status === "aprovado" || Number(item.valor_pago_centavos || 0) > 0 || ["parcial", "quitado"].includes(String(item.status_reconciliado || "").toLowerCase()));
       return {
         ...reserva,
-        operacao: operacaoPorReserva.get(reserva.id) || null,
-        hospedagem_operacional: hospedagemPorReserva.get(reserva.id) || null,
         contrato_validado: contratoValidado,
         pagamento_confirmado: pagamentoConfirmado,
-        cancelamento_imediato_permitido: false,
+        cancelamento_imediato_permitido: !contratoValidado && !pagamentoConfirmado && reserva.status !== "abandonado",
       };
     });
-
-    const solicitacoes = await ReservaSolicitacaoService.listar({ id: usuarioId, tipo: "cliente" });
 
     const linhaTempo = [
       { id: `cadastro-${usuario.id}`, tipo: "cadastro", titulo: "Conta criada", descricao: usuario.email, criado_em: usuario.criado_em },
@@ -318,7 +304,6 @@ router.get("/portal", async (req: Request, res: Response) => {
       validacoes: validacoesLista,
       documentos: documentosLista,
       historico: linhaTempo,
-      solicitacoes,
     });
   } catch (error) {
     console.error("[CLIENTE] Erro ao montar portal:", error);
@@ -341,15 +326,11 @@ router.get("/documentos/:documentoId", async (req: Request, res: Response) => {
     )).limit(1))[0];
     if (!documento) return res.status(404).json({ erro: "Documento não encontrado" });
 
-    const base = path.resolve(process.env.STORAGE_PATH || "./uploads");
     const arquivo = path.resolve(documento.arquivo);
-    if (!arquivo.startsWith(`${base}${path.sep}`)) return res.status(404).json({ erro: "Documento não encontrado" });
     const inline = req.query.inline === "1";
     res.setHeader("Content-Type", documento.mime_type || "application/octet-stream");
     res.setHeader("Content-Disposition", `${inline ? "inline" : "attachment"}; filename="${encodeURIComponent(documento.nome_original)}"`);
-    return res.sendFile(arquivo, (error) => {
-      if (error && !res.headersSent) res.status(404).json({ erro: "Arquivo do documento não encontrado" });
-    });
+    return res.sendFile(arquivo);
   } catch (error) {
     console.error("[CLIENTE] Erro ao abrir documento:", error);
     return res.status(500).json({ erro: "Não foi possível abrir o documento" });
@@ -361,20 +342,56 @@ router.post("/reservas/:reservaId/cancelar", async (req: Request, res: Response)
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
     const reserva = await obterReservaDoCliente(req.params.reservaId, req.usuario.id);
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
+    if (reserva.checkout_estado === "cancelado_cliente" || reserva.status === "abandonado") return res.status(409).json({ erro: "Esta reserva já está encerrada" });
+
     const motivo = String(req.body?.motivo || "").trim().slice(0, 2000);
-    const solicitacao = await ReservaSolicitacaoService.criar(reserva.id, req.usuario, { tipo: "cancelamento", motivo });
+    const protegido = await estadoProtegidoDaReserva(reserva.id);
+    const agora = new Date();
+
+    if (!protegido.contratoValidado && !protegido.pagamentoConfirmado) {
+      await InventoryService.liberarReserva(reserva.id, "Cancelamento solicitado pelo cliente");
+      await db.update(contratosDocumentos).set({
+        status: "invalidado",
+        invalidado_em: agora,
+        motivo_invalidacao: "Cancelamento solicitado pelo cliente antes da validação",
+      }).where(and(eq(contratosDocumentos.reserva_id, reserva.id), isNull(contratosDocumentos.validado_em), isNull(contratosDocumentos.invalidado_em)));
+      await db.update(reservas).set({
+        status: "abandonado",
+        checkout_estado: "cancelado_cliente",
+        atualizado_em: agora,
+      }).where(and(eq(reservas.id, reserva.id), eq(reservas.usuario_id, req.usuario.id)));
+      await registrarSolicitacao({
+        usuarioId: req.usuario.id,
+        reservaId: reserva.id,
+        tipo: "cliente_cancelamento",
+        titulo: "Reserva cancelada pelo cliente",
+        descricao: motivo || "Cancelamento realizado antes da validação contratual/pagamento.",
+        metadados: { status: "efetivado", contrato_validado: false, pagamento_confirmado: false },
+      });
+      return res.json({ efetivado: true, mensagem: "Reserva cancelada. O histórico foi preservado e nenhuma contratação validada foi apagada." });
+    }
+
+    await registrarSolicitacao({
+      usuarioId: req.usuario.id,
+      reservaId: reserva.id,
+      tipo: "cliente_cancelamento",
+      titulo: "Solicitação de cancelamento enviada",
+      descricao: motivo || "Cliente solicitou cancelamento.",
+      metadados: { status: "pendente", contrato_validado: protegido.contratoValidado, pagamento_confirmado: protegido.pagamentoConfirmado },
+    });
 
     const usuario = (await db.select({ nome: usuarios.nome, email: usuarios.email }).from(usuarios).where(eq(usuarios.id, req.usuario.id)).limit(1))[0];
     if (usuario) void avisarEquipe({
       assunto: `Cancelamento solicitado · reserva ${reserva.id}`,
       clienteNome: usuario.nome,
       clienteEmail: usuario.email,
-      mensagem: `O cliente solicitou cancelamento da reserva ${reserva.id}.\nMotivo: ${motivo}`,
+      mensagem: `O cliente solicitou cancelamento da reserva ${reserva.id}.\nMotivo: ${motivo || "não informado"}\nContrato validado: ${protegido.contratoValidado ? "sim" : "não"}\nPagamento confirmado: ${protegido.pagamentoConfirmado ? "sim" : "não"}`,
     });
-    return res.status(201).json({ efetivado: false, pendente: true, solicitacao, mensagem: "Solicitação registrada para análise. A reserva, o contrato e os pagamentos permanecem inalterados até a decisão." });
-  } catch (error: any) {
+
+    return res.json({ efetivado: false, pendente: true, mensagem: "Solicitação registrada. Como já existe contrato validado e/ou pagamento, a equipe fará a análise sem apagar o histórico." });
+  } catch (error) {
     console.error("[CLIENTE] Erro ao cancelar reserva:", error);
-    return res.status(409).json({ erro: error.message || "Não foi possível processar o cancelamento" });
+    return res.status(500).json({ erro: "Não foi possível processar o cancelamento" });
   }
 });
 
@@ -384,11 +401,33 @@ router.post("/reservas/:reservaId/reconfigurar", async (req: Request, res: Respo
     const reserva = await obterReservaDoCliente(req.params.reservaId, req.usuario.id);
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
     const acao = req.body?.acao === "reinicio" ? "reinicio" : "troca_pacote";
-    const motivo = String(req.body?.motivo || "").trim().slice(0, 2000);
-    const solicitacao = await ReservaSolicitacaoService.criar(reserva.id, req.usuario, {
-      tipo: acao,
-      motivo,
-      pacote_destino_id: req.body?.pacote_destino_id,
+    const protegido = await estadoProtegidoDaReserva(reserva.id);
+    const agora = new Date();
+
+    if (!protegido.contratoValidado && !protegido.pagamentoConfirmado) {
+      await InventoryService.liberarReserva(reserva.id, acao === "reinicio" ? "Contratação reiniciada pelo cliente" : "Troca de pacote iniciada pelo cliente");
+      await db.update(contratosDocumentos).set({ status: "invalidado", invalidado_em: agora, motivo_invalidacao: acao === "reinicio" ? "Contratação reiniciada pelo cliente antes da validação" : "Troca de pacote iniciada pelo cliente antes da validação" })
+        .where(and(eq(contratosDocumentos.reserva_id, reserva.id), isNull(contratosDocumentos.validado_em), isNull(contratosDocumentos.invalidado_em)));
+      await db.update(reservas).set({ status: "abandonado", checkout_estado: acao === "reinicio" ? "reiniciado_cliente" : "troca_pacote_cliente", atualizado_em: agora })
+        .where(and(eq(reservas.id, reserva.id), eq(reservas.usuario_id, req.usuario.id)));
+      await registrarSolicitacao({
+        usuarioId: req.usuario.id,
+        reservaId: reserva.id,
+        tipo: acao === "reinicio" ? "cliente_reinicio" : "cliente_troca_pacote",
+        titulo: acao === "reinicio" ? "Contratação reiniciada" : "Alteração de pacote iniciada",
+        descricao: "A reserva anterior foi encerrada sem apagar o histórico. O cliente poderá montar uma nova configuração.",
+        metadados: { status: "efetivado", lote_id: reserva.lote_id },
+      });
+      return res.json({ efetivado: true, redirect: `/pacote/${encodeURIComponent(reserva.lote_id)}`, mensagem: "A configuração anterior foi preservada no histórico. Escolha agora seu novo pacote." });
+    }
+
+    await registrarSolicitacao({
+      usuarioId: req.usuario.id,
+      reservaId: reserva.id,
+      tipo: acao === "reinicio" ? "cliente_reinicio" : "cliente_troca_pacote",
+      titulo: acao === "reinicio" ? "Solicitação para reiniciar contratação" : "Solicitação de troca de pacote",
+      descricao: String(req.body?.motivo || "").trim().slice(0, 2000) || "Solicitação enviada pelo cliente.",
+      metadados: { status: "pendente", lote_id: reserva.lote_id, contrato_validado: protegido.contratoValidado, pagamento_confirmado: protegido.pagamentoConfirmado },
     });
 
     const usuario = (await db.select({ nome: usuarios.nome, email: usuarios.email }).from(usuarios).where(eq(usuarios.id, req.usuario.id)).limit(1))[0];
@@ -396,12 +435,13 @@ router.post("/reservas/:reservaId/reconfigurar", async (req: Request, res: Respo
       assunto: `${acao === "reinicio" ? "Reinício" : "Troca de pacote"} solicitado · reserva ${reserva.id}`,
       clienteNome: usuario.nome,
       clienteEmail: usuario.email,
-      mensagem: `Reserva ${reserva.id}. Motivo: ${motivo}`,
+      mensagem: `Reserva ${reserva.id}. Solicitação exige análise porque já há contrato validado e/ou pagamento confirmado.`,
     });
-    return res.status(201).json({ efetivado: false, pendente: true, solicitacao, mensagem: "Solicitação registrada para análise. Nenhum contrato ou pagamento foi alterado." });
-  } catch (error: any) {
+
+    return res.json({ efetivado: false, pendente: true, mensagem: "Solicitação registrada para análise da equipe. O contrato e os pagamentos atuais permanecem preservados até a conclusão." });
+  } catch (error) {
     console.error("[CLIENTE] Erro ao reconfigurar reserva:", error);
-    return res.status(409).json({ erro: error.message || "Não foi possível iniciar a alteração da contratação" });
+    return res.status(500).json({ erro: "Não foi possível iniciar a alteração da contratação" });
   }
 });
 

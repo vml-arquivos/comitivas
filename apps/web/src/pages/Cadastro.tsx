@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth, api } from '../contexts/AuthContext';
 import { Button, Input, Card, CardHeader, CardTitle, CardContent } from '@ui/index';
-import { destinoSeguro, lerLeadId, lerLeadIntentToken, lerReferenciaVendedor, salvarReferenciaVendedor } from '../utils/checkoutIntent';
+import { destinoSeguro, lerLeadId, lerLeadIntentToken } from '../utils/checkoutIntent';
 
 export default function Cadastro() {
   const [step, setStep] = useState(1);
@@ -10,36 +10,28 @@ export default function Cadastro() {
     nome: '',
     email: '',
     cpf: '',
+    rg: '',
     telefone: '',
     data_nascimento: '',
+    estado_civil: '',
+    profissao: '',
     endereco: '',
+    nacionalidade: 'Brasileira',
     senha: ''
   });
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const { user, isLoading: authLoading, login } = useAuth();
+  const { login } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirect = destinoSeguro(searchParams.get('redirect'), '/');
-  const referenciaNoDestino = new URLSearchParams(redirect.includes('?') ? redirect.slice(redirect.indexOf('?') + 1) : '').get('ref');
-  const referenciaVendedor = searchParams.get('ref') || referenciaNoDestino || lerReferenciaVendedor();
-  useEffect(() => {
-    if (referenciaVendedor) salvarReferenciaVendedor(referenciaVendedor);
-  }, [referenciaVendedor]);
-
-  useEffect(() => {
-    if (!authLoading && user) {
-      const destinoPadrao = ['admin', 'dev', 'vendedor'].includes(user.tipo) ? '/admin' : '/minha-conta';
-      navigate(redirect || destinoPadrao, { replace: true });
-    }
-  }, [authLoading, navigate, redirect, user]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
   const validateStep1 = () => {
-    if (!formData.nome || !formData.email || !formData.cpf || !formData.telefone || !formData.senha) {
+    if (!formData.nome || !formData.email || !formData.cpf || !formData.senha) {
       setError('Preencha todos os campos obrigatórios');
       return false;
     }
@@ -53,20 +45,8 @@ export default function Cadastro() {
       return false;
     }
     const telefone = formData.telefone.replace(/\D/g, '');
-    if (telefone.length < 10 || telefone.length > 13) {
+    if (telefone && (telefone.length < 10 || telefone.length > 13)) {
       setError('Informe um telefone válido com DDD');
-      return false;
-    }
-    return true;
-  };
-
-  const validateStep2 = () => {
-    if (!formData.data_nascimento || !formData.endereco.trim()) {
-      setError('Informe a data de nascimento e o endereço completo');
-      return false;
-    }
-    if (new Date(`${formData.data_nascimento}T12:00:00Z`).getTime() >= Date.now()) {
-      setError('Informe uma data de nascimento válida');
       return false;
     }
     return true;
@@ -79,8 +59,7 @@ export default function Cadastro() {
     }
   };
 
-  const finalizarCadastro = async () => {
-    if (!validateStep2()) return;
+  const finalizarCadastro = async (incluirDadosContratuais: boolean) => {
     setError('');
     setIsLoading(true);
 
@@ -90,12 +69,17 @@ export default function Cadastro() {
         email: formData.email,
         cpf: formData.cpf,
         telefone: formData.telefone,
-        data_nascimento: formData.data_nascimento,
-        endereco: formData.endereco,
         senha: formData.senha,
         lead_id: lerLeadId() || undefined,
         lead_intent_token: lerLeadIntentToken() || undefined,
-        vendedor_ref: referenciaVendedor || undefined,
+        ...(incluirDadosContratuais ? {
+          rg: formData.rg || undefined,
+          data_nascimento: formData.data_nascimento || undefined,
+          estado_civil: formData.estado_civil || undefined,
+          profissao: formData.profissao || undefined,
+          endereco: formData.endereco || undefined,
+          nacionalidade: formData.nacionalidade || undefined,
+        } : {}),
       });
       if (response.data.email_confirmacao_necessaria) {
         navigate(`/confirmar-email?email=${encodeURIComponent(formData.email)}&redirect=${encodeURIComponent(redirect)}`, { replace: true });
@@ -112,12 +96,8 @@ export default function Cadastro() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await finalizarCadastro();
+    await finalizarCadastro(true);
   };
-
-  if (authLoading || user) {
-    return <div className="px-4 py-16 text-center text-sm text-slate-500">Verificando sua conta…</div>;
-  }
 
   return (
     <div className="flex justify-center items-center py-12 px-4">
@@ -127,7 +107,7 @@ export default function Cadastro() {
             {step === 1 ? 'Criar Conta - Dados Básicos' : 'Criar Conta - Dados Contratuais'}
           </CardTitle>
           <p className="text-center text-sm text-gray-600 mt-2">Passo {step} de 2</p>
-          {step === 2 && <p className="mt-2 text-center text-xs text-gray-500">Somente os dados necessários para sua reserva e contrato.</p>}
+          {step === 2 && <p className="mt-2 text-center text-xs text-gray-500">Esta etapa é recomendada para o contrato, mas pode ser concluída depois.</p>}
         </CardHeader>
         <CardContent>
           {error && <div className="bg-red-50 text-red-600 p-3 rounded-md mb-4 text-sm">{error}</div>}
@@ -138,13 +118,33 @@ export default function Cadastro() {
                 <Input label="Nome completo *" name="nome" autoComplete="name" value={formData.nome} onChange={handleChange} required />
                 <Input label="E-mail *" type="email" name="email" autoComplete="email" inputMode="email" value={formData.email} onChange={handleChange} required />
                 <Input label="CPF *" name="cpf" autoComplete="off" inputMode="numeric" maxLength={14} value={formData.cpf} onChange={handleChange} placeholder="000.000.000-00" required />
-                <Input label="Telefone *" name="telefone" autoComplete="tel" inputMode="tel" value={formData.telefone} onChange={handleChange} placeholder="(00) 00000-0000" required />
+                <Input label="Telefone" name="telefone" autoComplete="tel" inputMode="tel" value={formData.telefone} onChange={handleChange} placeholder="(00) 00000-0000" />
                 <Input label="Senha *" type="password" name="senha" autoComplete="new-password" value={formData.senha} onChange={handleChange} required minLength={8} />
               </>
             ) : (
               <>
-                <Input label="Data de nascimento *" type="date" name="data_nascimento" value={formData.data_nascimento} onChange={handleChange} required />
-                <Input label="Endereço completo *" name="endereco" autoComplete="street-address" value={formData.endereco} onChange={handleChange} placeholder="Rua, número, bairro, cidade, estado e CEP" required />
+                <Input label="RG" name="rg" value={formData.rg} onChange={handleChange} placeholder="00.000.000-0" />
+                <Input label="Data de Nascimento" type="date" name="data_nascimento" value={formData.data_nascimento} onChange={handleChange} />
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Estado Civil</label>
+                  <select name="estado_civil" value={formData.estado_civil} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                    <option value="">Selecione</option>
+                    <option value="Solteiro(a)">Solteiro(a)</option>
+                    <option value="Casado(a)">Casado(a)</option>
+                    <option value="Divorciado(a)">Divorciado(a)</option>
+                    <option value="Viúvo(a)">Viúvo(a)</option>
+                    <option value="União Estável">União Estável</option>
+                  </select>
+                </div>
+                <Input label="Profissão" name="profissao" value={formData.profissao} onChange={handleChange} />
+                <Input label="Endereço Completo" name="endereco" autoComplete="street-address" value={formData.endereco} onChange={handleChange} placeholder="Rua, número, bairro, cidade, estado, CEP" />
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Nacionalidade</label>
+                  <select name="nacionalidade" value={formData.nacionalidade} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                    <option value="Brasileira">Brasileira</option>
+                    <option value="Estrangeira">Estrangeira</option>
+                  </select>
+                </div>
               </>
             )}
             
@@ -158,6 +158,11 @@ export default function Cadastro() {
                 {step === 1 ? 'Próximo' : 'Cadastrar'}
               </Button>
             </div>
+            {step === 2 && (
+              <Button type="button" variant="outline" className="w-full" disabled={isLoading} onClick={() => finalizarCadastro(false)}>
+                Preencher os dados contratuais depois
+              </Button>
+            )}
           </form>
           
           <div className="mt-6 text-center text-sm text-gray-600">

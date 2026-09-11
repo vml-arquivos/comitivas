@@ -25,41 +25,11 @@ type Lead = {
 };
 
 const colunas = [
-  {
-    id: 'interesse',
-    titulo: 'Novos interesses',
-    statuses: ['novo', 'interessado', 'visitante'],
-    estilo: 'bg-slate-50 border-slate-200',
-    badge: 'bg-slate-200 text-slate-700',
-  },
-  {
-    id: 'cadastro',
-    titulo: 'Cadastro iniciado',
-    statuses: ['cadastrado', 'pacote_montado'],
-    estilo: 'bg-blue-50 border-blue-200',
-    badge: 'bg-blue-200 text-blue-800',
-  },
-  {
-    id: 'checkout',
-    titulo: 'Em checkout',
-    statuses: ['checkout_iniciado', 'aguardando_pagamento'],
-    estilo: 'bg-amber-50 border-amber-200',
-    badge: 'bg-amber-200 text-amber-800',
-  },
-  {
-    id: 'confirmado',
-    titulo: 'Confirmados',
-    statuses: ['cliente_confirmado', 'contrato_gerado'],
-    estilo: 'bg-emerald-50 border-emerald-200',
-    badge: 'bg-emerald-200 text-emerald-800',
-  },
-  {
-    id: 'abandonado',
-    titulo: 'Recuperação',
-    statuses: ['abandonado'],
-    estilo: 'bg-red-50 border-red-200',
-    badge: 'bg-red-200 text-red-800',
-  },
+  { id: 'interesse', titulo: 'Novos interesses', statuses: ['novo', 'interessado', 'visitante'], estilo: 'bg-slate-50 border-slate-200', badge: 'bg-slate-200 text-slate-700' },
+  { id: 'cadastro', titulo: 'Cadastro iniciado', statuses: ['cadastrado', 'pacote_montado'], estilo: 'bg-blue-50 border-blue-200', badge: 'bg-blue-200 text-blue-800' },
+  { id: 'checkout', titulo: 'Em checkout', statuses: ['checkout_iniciado', 'aguardando_pagamento'], estilo: 'bg-amber-50 border-amber-200', badge: 'bg-amber-200 text-amber-800' },
+  { id: 'confirmado', titulo: 'Confirmados', statuses: ['cliente_confirmado', 'contrato_gerado'], estilo: 'bg-emerald-50 border-emerald-200', badge: 'bg-emerald-200 text-emerald-800' },
+  { id: 'abandonado', titulo: 'Recuperação', statuses: ['abandonado'], estilo: 'bg-red-50 border-red-200', badge: 'bg-red-200 text-red-800' },
 ];
 
 function tempoRelativo(valor: string) {
@@ -125,13 +95,13 @@ export default function Jornada() {
   const leadsFiltrados = useMemo(() => {
     const termo = busca.trim().toLocaleLowerCase('pt-BR');
     if (!termo) return leads;
-    return leads.filter((lead) =>
-      [lead.nome, lead.email, lead.whatsapp, lead.pacote_nome, lead.origem].some((valor) =>
-        String(valor || '')
-          .toLocaleLowerCase('pt-BR')
-          .includes(termo)
-      )
-    );
+    return leads.filter((lead) => [
+      lead.nome,
+      lead.email,
+      lead.whatsapp,
+      lead.pacote_nome,
+      lead.origem,
+    ].some((valor) => String(valor || '').toLocaleLowerCase('pt-BR').includes(termo)));
   }, [busca, leads]);
 
   const abrirAcompanhamento = (lead: Lead) => {
@@ -148,7 +118,9 @@ export default function Jornada() {
         observacoes,
         proximo_contato_em: proximoContato ? new Date(proximoContato).toISOString() : null,
       });
-      setLeads((atuais) => atuais.map((lead) => (lead.id === leadId ? { ...lead, ...response.data.lead } : lead)));
+      setLeads((atuais) => atuais.map((lead) => lead.id === leadId
+        ? { ...lead, ...response.data.lead }
+        : lead));
       setLeadEmEdicao(null);
     } catch (err: any) {
       setError(err.response?.data?.erro || 'Erro ao salvar o acompanhamento.');
@@ -158,56 +130,42 @@ export default function Jornada() {
   };
 
   return (
-    <div className="admin-page">
-      <section className="admin-page-header">
+    <div className="space-y-6">
+      <section className="flex flex-col gap-4 rounded-2xl bg-gradient-to-r from-slate-950 to-primary p-6 text-white sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="admin-eyebrow">Dados do site e das reservas</p>
-          <h1 className="admin-title">Clientes e negociações</h1>
-          <p className="admin-subtitle">
-            {leads.length} contatos no funil · {totalEmAberto} oportunidades em aberto
-          </p>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-300">Dados reais do site e das reservas</p>
+          <h1 className="mt-1 text-3xl font-black">Jornada do Cliente</h1>
+          <p className="mt-2 text-sm text-slate-200">{leads.length} contatos na esteira · {totalEmAberto} oportunidades em aberto</p>
         </div>
-        <Button variant="outline" onClick={carregarLeads} disabled={isLoading}>
-          <RefreshCw size={16} className={`mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-          Atualizar
-        </Button>
+        <Button onClick={carregarLeads} disabled={isLoading} className="bg-white text-slate-950 hover:bg-slate-100"><RefreshCw size={16} className={`mr-2 ${isLoading ? 'animate-spin' : ''}`} />Atualizar</Button>
       </section>
 
-      {error && (
-        <div className="flex items-start gap-2 rounded-xl bg-red-50 p-4 text-sm text-red-700">
-          <AlertCircle size={18} className="mt-0.5 shrink-0" />
-          {error}
-        </div>
-      )}
+      {error && <div className="flex items-start gap-2 rounded-xl bg-red-50 p-4 text-sm text-red-700"><AlertCircle size={18} className="mt-0.5 shrink-0" />{error}</div>}
 
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <LinkIcon size={20} className="text-primary" />
-            Link de vendedor
-          </CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle className="flex items-center gap-2"><LinkIcon size={20} className="text-primary" />Link de vendedor</CardTitle></CardHeader>
         <CardContent className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
           <div>
             <p className="mb-3 text-sm text-gray-600">Gere um link rastreável. Quando o visitante deixar o WhatsApp ou criar a conta, ele entra nesta esteira vinculado ao vendedor.</p>
             {link && <Input label="Link gerado" value={link} readOnly />}
           </div>
           {link ? (
-            <Button variant="outline" onClick={() => navigator.clipboard.writeText(link)}>
-              <Copy size={16} className="mr-2" />
-              Copiar link
-            </Button>
+            <Button variant="outline" onClick={() => navigator.clipboard.writeText(link)}><Copy size={16} className="mr-2" />Copiar link</Button>
           ) : (
-            <Button onClick={gerarLink} isLoading={isGenerating}>
-              Gerar link rastreável
-            </Button>
+            <Button onClick={gerarLink} isLoading={isGenerating}>Gerar link rastreável</Button>
           )}
         </CardContent>
       </Card>
 
       <Card>
         <CardContent className="p-4">
-          <Input label="Buscar no CRM" value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Nome, e-mail, WhatsApp, pacote ou origem" autoComplete="off" />
+          <Input
+            label="Buscar no CRM"
+            value={busca}
+            onChange={(event) => setBusca(event.target.value)}
+            placeholder="Nome, e-mail, WhatsApp, pacote ou origem"
+            autoComplete="off"
+          />
           <p className="mt-2 flex items-center gap-1 text-xs text-slate-500">
             <Search size={13} /> {leadsFiltrados.length} de {leads.length} contatos exibidos
           </p>
@@ -236,33 +194,45 @@ export default function Jornada() {
                       </div>
                       {lead.pacote_nome && <p className="mt-3 rounded-md bg-slate-50 px-2 py-1.5 text-xs text-slate-600">{lead.pacote_nome}</p>}
                       <div className="mt-3 space-y-1 text-xs text-slate-500">
-                        {lead.whatsapp && (
-                          <a href={`https://wa.me/${lead.whatsapp.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" className="flex items-center gap-1 font-semibold text-emerald-700 hover:underline">
-                            <MessageCircle size={13} />
-                            {lead.whatsapp}
-                          </a>
-                        )}
+                        {lead.whatsapp && <a href={`https://wa.me/${lead.whatsapp.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" className="flex items-center gap-1 font-semibold text-emerald-700 hover:underline"><MessageCircle size={13} />{lead.whatsapp}</a>}
                         {lead.email && <p className="truncate">{lead.email}</p>}
                         <p>{tempoRelativo(lead.atualizado_em)}</p>
                       </div>
                       {lead.proximo_contato_em && (
-                        <p className={`mt-3 flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-semibold ${new Date(lead.proximo_contato_em).getTime() < Date.now() ? 'bg-red-50 text-red-700' : 'bg-violet-50 text-violet-700'}`}>
+                        <p className={`mt-3 flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-semibold ${
+                          new Date(lead.proximo_contato_em).getTime() < Date.now()
+                            ? 'bg-red-50 text-red-700'
+                            : 'bg-violet-50 text-violet-700'
+                        }`}>
                           <CalendarClock size={13} />
                           Retorno: {new Date(lead.proximo_contato_em).toLocaleString('pt-BR')}
                         </p>
                       )}
-                      {lead.observacoes && leadEmEdicao !== lead.id && <p className="mt-2 line-clamp-3 rounded-md bg-slate-50 px-2 py-1.5 text-xs text-slate-600">{lead.observacoes}</p>}
+                      {lead.observacoes && leadEmEdicao !== lead.id && (
+                        <p className="mt-2 line-clamp-3 rounded-md bg-slate-50 px-2 py-1.5 text-xs text-slate-600">{lead.observacoes}</p>
+                      )}
                       {leadEmEdicao === lead.id ? (
                         <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
                           <label className="block text-xs font-semibold text-slate-600">
                             Observações
-                            <textarea value={observacoes} onChange={(event) => setObservacoes(event.target.value)} maxLength={4000} rows={4} className="mt-1 w-full rounded-md border border-slate-300 p-2 text-xs font-normal focus:outline-none focus:ring-2 focus:ring-primary" placeholder="Último contato, objeções e próximos passos" />
+                            <textarea
+                              value={observacoes}
+                              onChange={(event) => setObservacoes(event.target.value)}
+                              maxLength={4000}
+                              rows={4}
+                              className="mt-1 w-full rounded-md border border-slate-300 p-2 text-xs font-normal focus:outline-none focus:ring-2 focus:ring-primary"
+                              placeholder="Último contato, objeções e próximos passos"
+                            />
                           </label>
-                          <Input label="Próximo contato" type="datetime-local" value={proximoContato} onChange={(event) => setProximoContato(event.target.value)} />
+                          <Input
+                            label="Próximo contato"
+                            type="datetime-local"
+                            value={proximoContato}
+                            onChange={(event) => setProximoContato(event.target.value)}
+                          />
                           <div className="flex gap-2">
                             <Button type="button" className="flex-1" onClick={() => salvarAcompanhamento(lead.id)} disabled={isSaving}>
-                              <Save size={14} className="mr-1" />
-                              {isSaving ? 'Salvando...' : 'Salvar'}
+                              <Save size={14} className="mr-1" />{isSaving ? 'Salvando...' : 'Salvar'}
                             </Button>
                             <Button type="button" variant="outline" onClick={() => setLeadEmEdicao(null)} disabled={isSaving}>
                               <X size={14} />
@@ -270,7 +240,11 @@ export default function Jornada() {
                           </div>
                         </div>
                       ) : (
-                        <button type="button" onClick={() => abrirAcompanhamento(lead)} className="mt-3 flex w-full items-center justify-center gap-1 rounded-md border border-slate-200 px-2 py-2 text-xs font-semibold text-slate-600 hover:border-primary hover:text-primary">
+                        <button
+                          type="button"
+                          onClick={() => abrirAcompanhamento(lead)}
+                          className="mt-3 flex w-full items-center justify-center gap-1 rounded-md border border-slate-200 px-2 py-2 text-xs font-semibold text-slate-600 hover:border-primary hover:text-primary"
+                        >
                           <StickyNote size={14} /> Anotar acompanhamento
                         </button>
                       )}

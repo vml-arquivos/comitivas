@@ -7,17 +7,11 @@ export type ContratoModeloSnapshot = {
   lote?: { nome?: string; descricao?: string | null };
   pacote?: { nome?: string; descricao?: string | null };
   cliente: Record<string, unknown>;
-  vendedor?: { nome?: string; email?: string } | null;
   periodo: { check_in: string; check_out: string };
-  hospedagem: { modalidade: string | null; local: string; quarto?: string | null; grupo?: string | null; vaga?: number | null };
+  hospedagem: { modalidade: string | null; local: string };
   financeiro: {
     total: string;
-    valor_base?: string;
     desconto_pagamento: string;
-    taxa_pagamento?: string;
-    juros_pagamento?: string;
-    multa_atraso_percentual?: number;
-    juros_mora_mensal_percentual?: number;
     forma_pagamento: string | null;
     parcelas: number;
     cronograma: Array<{ numero: number; vencimento: string; valor: string; valor_centavos: number }>;
@@ -31,12 +25,6 @@ export type ContratoModeloSnapshot = {
     horario_saida: string | null;
     horario_retorno: string | null;
     veiculo: string | null;
-    saida_id?: string | null;
-    onibus_id?: string | null;
-    onibus_nome?: string | null;
-    onibus_identificacao?: string | null;
-    poltrona?: number | null;
-    ponto_embarque_id?: string | null;
   };
   bagagem?: { limite_kg: number | null };
   seguro?: { seguradora: string | null; apolice: string | null; cobertura: string | null; telefone: string | null };
@@ -157,30 +145,22 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
   const seguro = snapshot.seguro || { seguradora: null, apolice: null, cobertura: null, telefone: null };
   const usoImagem = snapshot.uso_imagem || { autorizado: true, prazo_anos: 3 };
   const nome = valueOrBlank(c.nome, "______________________________");
+  const nacionalidade = valueOrBlank(c.nacionalidade, "brasileiro");
+  const estadoCivil = valueOrBlank(c.estado_civil, "________________");
+  const profissao = valueOrBlank(c.profissao, "________________");
   const nascimento = formatDate(c.nascimento, "__/__/____");
-  const endereco = valueOrBlank(c.endereco);
-  const telefone = valueOrBlank(c.telefone);
-  const email = valueOrBlank(c.email);
+  const identidade = valueOrBlank(c.rg, "***********");
+  const endereco = valueOrBlank(c.endereco, "******************, ***********, *******, Minas Gerais");
+  const telefone = valueOrBlank(c.telefone, "(31) *********");
+  const email = valueOrBlank(c.email, "*********@hotmail.com");
   const total = Number(f.total || 0);
   const totalMoney = total > 0 ? money(total) : "R$ ________";
   const totalWords = total > 0 ? numberToWords(total) : "________________________";
-  const taxaPagamento = Number(f.taxa_pagamento || 0);
-  const jurosPagamento = Number(f.juros_pagamento || 0);
-  const multaAtraso = Number.isFinite(Number(f.multa_atraso_percentual)) ? Number(f.multa_atraso_percentual) : 2;
-  const jurosMora = Number.isFinite(Number(f.juros_mora_mensal_percentual)) ? Number(f.juros_mora_mensal_percentual) : 1;
-  const detalhesEncargos = taxaPagamento > 0 || jurosPagamento > 0
-    ? ` O total apresentado inclui ${taxaPagamento > 0 ? `${money(taxaPagamento)} de taxas` : ""}${taxaPagamento > 0 && jurosPagamento > 0 ? " e " : ""}${jurosPagamento > 0 ? `${money(jurosPagamento)} de juros` : ""}, previamente informados ao CONTRATANTE.`
-    : "";
-  const vendedorResponsavel = snapshot.vendedor?.nome
-    ? `<p class="qualification"><strong>Atendimento comercial:</strong> ${escapeHtml(snapshot.vendedor.nome)}.</p>`
-    : "";
   const modalidade = h.modalidade || null;
   const checkin = formatDate(snapshot.periodo?.check_in);
   const checkout = formatDate(snapshot.periodo?.check_out);
   const localHospedagem = valueOrBlank(h.local, "Chácara Recanto Novo Encantado ou Santa Thereza");
   const limiteBagagem = bagagem.limite_kg ? `${bagagem.limite_kg} kg` : "________ kg";
-  const poltronaRegistrada = Number.isInteger(Number(t.poltrona)) && Number(t.poltrona) > 0;
-  const identificacaoOnibus = [t.onibus_nome, t.onibus_identificacao].filter(Boolean).join(" · ");
   const imagemTexto = usoImagem.autorizado === false
     ? "O contratante não autoriza o uso de sua imagem para divulgação institucional da excursão."
     : `O contratante autoriza o uso de sua imagem pelo prazo de ${usoImagem.prazo_anos || 3} (três) anos para divulgação institucional da excursão, podendo manifestar oposição por escrito antes do início do evento.`;
@@ -194,7 +174,7 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
 <p><strong>10.1.</strong> O presente contrato compreende o transporte rodoviário interestadual de passageiros, com saída da cidade de Brasília/DF e destino à cidade de Barretos/SP, bem como o respectivo retorno ao local de origem, conforme programação previamente divulgada pela <strong>CONTRATADA.</strong></p>
 <p><strong>10.2.</strong> O transporte será realizado por empresa regularmente habilitada junto aos órgãos competentes, especialmente à Agência Nacional de Transportes Terrestres – ANTT, observadas as normas de segurança e a legislação vigente.</p>
 <p><strong>10.3.</strong> As informações referentes ao transporte</p>
-<ul class="model-list"><li>• Local de embarque: ${transportValue(t.local_embarque, "SAMAMBAIA AO LADO DO MERCADO DIA A DIA, ESTACIONAMENTO DO POSTO IPIRANGA.")}</li><li>• PONTO DE REFERÊNCIA: ${transportValue(t.ponto_referencia, "DISTRIBUIDORA ROIAL-SAIDA DA BR 060")}</li><li>• Data da saída: ${escapeHtml(formatDate(t.data_saida))}</li></ul><div class="page-break"></div><ul class="model-list"><li>• Horário previsto da saída: ${escapeHtml(valueOrBlank(t.horario_saida, "___/___/____"))}</li><li>• Data prevista para retorno: ${escapeHtml(formatDate(t.data_retorno))}</li><li>• Horário previsto do retorno: ${escapeHtml(valueOrBlank(t.horario_retorno, "___/___/____"))}</li><li>• Tipo do veículo:</li>${vehicle(t.veiculo, "Ônibus", "Ônibus")}${vehicle(t.veiculo, "Micro-ônibus", "Micro-ônibus")}${vehicle(t.veiculo, "Van", "Van")}${identificacaoOnibus ? `<li>• Veículo designado: ${escapeHtml(identificacaoOnibus)}</li>` : ""}${poltronaRegistrada ? `<li>• Poltrona designada: ${escapeHtml(t.poltrona)}</li>` : ""}</ul>` : "";
+<ul class="model-list"><li>• Local de embarque: ${transportValue(t.local_embarque, "SAMAMBAIA AO LADO DO MERCADO DIA A DIA, ESTACIONAMENTO DO POSTO IPIRANGA.")}</li><li>• PONTO DE REFERÊNCIA: ${transportValue(t.ponto_referencia, "DISTRIBUIDORA ROIAL-SAIDA DA BR 060")}</li><li>• Data da saída: ${escapeHtml(formatDate(t.data_saida))}</li></ul><div class="page-break"></div><ul class="model-list"><li>• Horário previsto da saída: ${escapeHtml(valueOrBlank(t.horario_saida, "___/___/____"))}</li><li>• Data prevista para retorno: ${escapeHtml(formatDate(t.data_retorno))}</li><li>• Horário previsto do retorno: ${escapeHtml(valueOrBlank(t.horario_retorno, "___/___/____"))}</li><li>• Tipo do veículo:</li>${vehicle(t.veiculo, "Ônibus", "Ônibus")}${vehicle(t.veiculo, "Micro-ônibus", "Micro-ônibus")}${vehicle(t.veiculo, "Van", "Van")}</ul>` : "";
 
   return `<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>CONTRATO DE PACOTE DE VIAGEM- EXCURSÃO DAS COMITIVAS 2026</title>
@@ -234,9 +214,7 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
 <h2>QUALIFICAÇÃO DAS PARTES:</h2>
 <p class="qualification">As partes qualificadas neste instrumento celebram, pelo presente, contrato para a prestação de serviços de <strong>HOSPEDAGEM/TRANSPORTE</strong></p>
 <p class="qualification"><strong>Contratada:</strong> ${escapeHtml(CONTRATADA_DADOS.razao_social)}, empresa inscrita no CNPJ ${escapeHtml(CONTRATADA_DADOS.cnpj)}, com sede na Qr 502 conjunto 20 – Samambaia Sul/DF, CEP 72.210-420, e-mail: ${escapeHtml(CONTRATADA_DADOS.email)}</p>
-<p class="qualification"><strong>Contratante:</strong> ${escapeHtml(nome)}, nascido(a) em ${escapeHtml(nascimento)}, inscrito(a) no CPF ${escapeHtml(cpf(c.cpf))}, residente em ${escapeHtml(endereco)}, telefone ${escapeHtml(telefone)} e e-mail ${escapeHtml(email)}.</p>
-${vendedorResponsavel}
-<p class="qualification">As partes têm entre si justo e contratado o que mutuamente outorgam, aceitam e assinam, conforme as cláusulas, termos e condições a seguir.</p>
+<p class="qualification"><strong>Contratante:</strong> ${escapeHtml(nome)}, ${escapeHtml(nacionalidade)}, ${escapeHtml(estadoCivil)}, ${escapeHtml(profissao)}, nascida em ${escapeHtml(nascimento)} portador da identidade nº ${escapeHtml(identidade)} e CPF ${escapeHtml(cpf(c.cpf))}, Residente: ${escapeHtml(endereco)}, telefone: ${escapeHtml(telefone)} e-mail: ${escapeHtml(email)}, têm entre si, justo e contratados, o que mutuamente outorgam, aceitam e assinam, convencionados pelas cláusulas termos e condições a seguir devidamente enumeradas.</p>
 <h2>CLÁUSULA PRIMEIRA<br/>DO OBJETO DO CONTRATO</h2>
 <p class="clause"><strong>1.1</strong> ${objetoTexto}</p>
 <p class="clause"><strong>1.2</strong> O evento possui caráter regional e ocorre apenas uma vez ao ano, motivo pelo qual não será possível a remarcação do pacote para data fora da temporada oficial.</p>
@@ -247,7 +225,7 @@ ${vendedorResponsavel}
 <h2>CLÁUSULA TERCEIRA<br/>DA HOSPEDAGEM</h2>
 <div class="page-break"></div><p>Modalidade de hospedagem:</p>
 <div class="check-options">${modality(modalidade, "camping", "CAMPING")}${modality(modalidade, "quarto_ventilador", "QUARTO COM VENTILADOR COMPARTILHADO.")}${modality(modalidade, "quarto_ar_condicionado", "QUARTO COM CLIMATIZADOR COMPARTILHADO.")}</div>
-<p class="clause"><strong>3.1</strong> A hospedagem será realizada na ${escapeHtml(localHospedagem)}.${h.quarto ? ` Alocação operacional atual: quarto ${escapeHtml(h.quarto)}, grupo ${escapeHtml(h.grupo || "definido pela organização")}${h.vaga ? `, vaga ${escapeHtml(h.vaga)}` : ""}. Eventual remanejamento será registrado no histórico da operação.` : ""}</p>
+<p class="clause"><strong>3.1</strong> A hospedagem será realizada na ${escapeHtml(localHospedagem)}.</p>
 <p class="clause"><strong>3.2</strong> Havendo necessidade, a contratada poderá substituir a hospedagem por estabelecimento de padrão equivalente ou superior, preservando localização, segurança e estrutura semelhantes.</p>
 <p class="clause"><strong>3.3</strong> Os quartos são compartilhados, separados por masculino e feminino, com ocupação variável entre 5 e 10 pessoas.</p>
 <p class="clause"><strong>3.4</strong> Todos os quartos possuem banheiro privativo. A área de camping possui banheiros coletivo.</p>
@@ -261,11 +239,11 @@ ${vendedorResponsavel}
 <p><strong>I – Pagamento à vista via PIX:</strong> com desconto de 5% (cinco por cento), mediante utilização da chave PIX vinculada ao CNPJ da CONTRATADA, qual seja:<br/><strong>CHAVE: ${escapeHtml(CONTRATADA_DADOS.pix_chave)}</strong><br/><strong>BANCO: ${escapeHtml(CONTRATADA_DADOS.pix_banco)}</strong></p>
 <div class="page-break"></div><p><strong>II – Parcelamento por boleto bancário:</strong> sem incidência de juros, observado que a quantidade de parcelas disponíveis será definida de acordo com a data da contratação, devendo o valor integral do pacote estar obrigatoriamente quitado antes da data de início da hospedagem.<br/>Atentando-se as seguintes datas:</p>
 <table class="installments"><tbody>${scheduleRows(snapshot)}</tbody></table>
-<p><strong>III – Parcelamento por cartão de crédito:</strong> na quantidade apresentada e aceita antes da confirmação, respeitados o limite do pacote, a data da viagem e a disponibilidade do provedor.${escapeHtml(detalhesEncargos)}</p>
+<p><strong>III – Parcelamento por cartão de crédito:</strong> em até 10 (dez) parcelas, incidindo os encargos e taxas eventualmente praticados pela administradora do cartão de crédito, os quais serão integralmente suportados pelo <strong>CONTRATANTE.</strong></p>
 <p><strong>5.2.</strong> A confirmação da reserva somente ocorrerá após a comprovação do pagamento da primeira parcela ou do valor integral contratado, conforme a modalidade de pagamento escolhida.</p>
 <p><strong>5.3.</strong> O inadimplemento das parcelas não garante ao <strong>CONTRATANTE</strong> o direito de usufruir dos serviços contratados, ficando a participação na excursão condicionada à quitação integral do contrato antes da data do evento.</p>
 <h2>CLÁUSULA SEXTA<br/>DO ATRASO NO PAGAMENTO</h2>
-<p><strong>6.1.</strong> O atraso no pagamento de qualquer parcela implicará a incidência de multa moratória de ${escapeHtml(multaAtraso.toLocaleString("pt-BR"))}% sobre o valor da parcela vencida, acrescida de juros de mora de ${escapeHtml(jurosMora.toLocaleString("pt-BR"))}% ao mês, calculados proporcionalmente aos dias de atraso, bem como atualização monetária pelo Índice Nacional de Preços ao Consumidor Amplo – IPCA, ou outro índice oficial que venha a substituí-lo.</p>
+<p><strong>6.1.</strong> O atraso no pagamento de qualquer parcela implicará a incidência de multa moratória de 2% (dois por cento) sobre o valor da parcela vencida, acrescida de juros de mora de 1% (um por cento) ao mês, calculados proporcionalmente aos dias de atraso, bem como atualização monetária pelo Índice Nacional de Preços ao Consumidor Amplo – IPCA, ou outro índice oficial que venha a substituí-lo.</p>
 <p><strong>6.2.</strong> Permanecendo o débito em aberto, a <strong>CONTRATADA</strong> poderá promover a cobrança pelos meios legalmente admitidos, sem prejuízo da aplicação das penalidades previstas neste contrato.</p>
 <p><strong>6.3.</strong> O atraso ou inadimplemento de 2 ou mais parcelas poderá acarretar a suspensão da reserva e impedir a participação do <strong>CONTRATANTE</strong> na excursão, caso o pagamento integral não seja efetuado até a data de início do evento, sem prejuízo da aplicação da política de cancelamento prevista neste contrato.</p>
 
@@ -303,7 +281,7 @@ ${blocoTransporte}${t.rodoviario_incluido ? `
 <p><strong>12.4.</strong> Não será permitido o transporte de:</p>
 <ul class="model-list"><li>• armas de fogo sem autorização legal;</li></ul><div class="page-break"></div><ul class="model-list"><li>• explosivos;</li><li>• materiais inflamáveis;</li><li>• substâncias ilícitas;</li><li>• animais, salvo nas hipóteses previstas em lei.</li></ul>
 <h2>CLÁUSULA DÉCIMA TERCEIRA<br/>DA POLTRONA</h2>
-<p><strong>13.1.</strong> ${poltronaRegistrada ? `A poltrona destinada ao <strong>CONTRATANTE</strong> é a de número <strong>${escapeHtml(t.poltrona)}</strong>${identificacaoOnibus ? `, no veículo <strong>${escapeHtml(identificacaoOnibus)}</strong>` : ""}, conforme registro operacional vigente na geração deste contrato.` : "A poltrona destinada ao <strong>CONTRATANTE</strong> será indicada pela organização da excursão antes do embarque."}</p>
+<p><strong>13.1.</strong> A poltrona destinada ao <strong>CONTRATANTE</strong> será indicada pela organização da excursão, na hora do embarque.</p>
 <p><strong>13.2.</strong> Havendo necessidade operacional, manutenção do veículo, substituição da frota ou qualquer situação superveniente, a <strong>CONTRATADA</strong> poderá alterar a poltrona inicialmente designada, preservando, sempre que possível, categoria equivalente.</p>
 <p><strong>13.3.</strong> Não será permitida a ocupação de poltrona diversa daquela indicada sem autorização da organização.</p>
 <h2>CLÁUSULA DÉCIMA QUARTA<br/>DO SEGURO DE VIAGEM</h2>

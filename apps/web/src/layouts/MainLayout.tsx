@@ -6,7 +6,6 @@ import logoUrl from '../assets/brand/logo.png';
 import logoWebp from '../assets/brand/logo.webp';
 import logoBranca from '../assets/brand/logo-branca.png';
 import logoBrancaWebp from '../assets/brand/logo-branca.webp';
-import { PwaInstallButton } from '../components/PwaInstallButton';
 
 const WHATSAPP_NUMERO = import.meta.env.VITE_WHATSAPP_NUMERO || '5561994459086';
 
@@ -42,7 +41,7 @@ export function MainLayout() {
   const fecharMenu = () => setMenuAberto(false);
 
   return (
-    <div className="safe-mobile-content flex min-h-screen w-full flex-col overflow-x-clip bg-[#F8F5EF] text-[#182D3B]">
+    <div className="flex min-h-screen flex-col bg-[#F8F5EF] text-[#182D3B]">
       <a
         href="#conteudo-principal"
         className="fixed left-4 top-3 z-[70] -translate-y-20 rounded-full bg-[#182D3B] px-4 py-2 text-sm font-bold text-white shadow-lg transition focus:translate-y-0"
@@ -146,11 +145,7 @@ export function MainLayout() {
         </div>
       </header>
 
-      <div className="border-b border-[#851F32]/10 bg-white px-4 py-2.5 lg:hidden">
-        <PwaInstallButton className="mx-auto flex min-h-10 w-full max-w-md items-center justify-center gap-2 rounded-xl bg-[#851F32] px-4 text-sm font-semibold text-white shadow-sm" />
-      </div>
-
-      <main id="conteudo-principal" className="min-w-0 flex-1" tabIndex={-1}>
+      <main id="conteudo-principal" className="flex-1" tabIndex={-1}>
         <Outlet />
       </main>
 

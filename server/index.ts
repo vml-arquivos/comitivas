@@ -21,9 +21,6 @@ import cupomsRoutes from "./routes/cupons.js";
 import jornadadRoutes from "./routes/jornada.js";
 import adminRoutes from "./routes/admin.js";
 import clienteRoutes from "./routes/cliente.js";
-import operacaoRoutes from "./routes/operacao.js";
-import solicitacoesRoutes from "./routes/solicitacoes.js";
-import hospedagemRoutes from "./routes/hospedagem.js";
 
 dotenv.config();
 AuthService.validarConfiguracaoSegura();
@@ -94,7 +91,7 @@ app.use(helmet({
       objectSrc: ["'none'"],
       frameAncestors: ["'none'"],
       scriptSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "https:"],
       fontSrc: ["'self'", "data:", "https:"],
       connectSrc: ["'self'", "https://api.cora.com.br", "https://matls-clients.api.cora.com.br"],
@@ -132,12 +129,9 @@ app.use(express.static(webDistPath));
 // bloqueio cruzado entre login, cadastro e recuperação de senha. Rotas como
 // perfil, logout e refresh não consomem esses contadores.
 app.use("/api/auth/login", limiteLogin);
-app.use("/api/auth/oauth", limiteLogin);
 app.use("/api/auth/cadastro", limiteCadastro);
 app.use("/api/auth/esqueci-senha", limiteRecuperacaoSenha);
 app.use("/api/auth/redefinir-senha", limiteRecuperacaoSenha);
-app.use("/api/auth/alterar-login", limiteRecuperacaoSenha);
-app.use("/api/auth/alterar-senha", limiteRecuperacaoSenha);
 app.use("/api/auth/confirmar-email", limiteConfirmacaoEmail);
 app.use("/api/auth/reenviar-confirmacao", limiteConfirmacaoEmail);
 app.use("/api/auth/convite", limiteConvite);
@@ -182,14 +176,6 @@ app.use("/api/jornada", jornadadRoutes);
 // O router administrativo aplica autenticação e escopo por rota: vendedor
 // acessa apenas o dashboard da própria carteira; demais endpoints são admin.
 app.use("/api/admin", adminRoutes);
-
-// Mapa físico de ônibus, poltronas, passageiros e check-in. Somente a
-// administração pode consultar ou alterar a operação.
-app.use("/api/operacao", authMiddleware, requireRole("admin"), operacaoRoutes);
-app.use("/api/hospedagem", authMiddleware, requireRole("admin"), hospedagemRoutes);
-
-// Pós-venda auditável: vendedor solicita; somente ADMIN/DEV decide e conclui.
-app.use("/api/solicitacoes", authMiddleware, solicitacoesRoutes);
 
 // Fallback de SPA: qualquer rota GET que não seja /api/* devolve o index.html,
 // deixando o React Router decidir a tela (ex.: /eventos, /login, /minhas-reservas)

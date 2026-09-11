@@ -10,8 +10,6 @@ vi.mock("../server/db/index.js", () => ({
     select: () => {
       const chain: any = {};
       chain.from = () => chain;
-      chain.innerJoin = () => chain;
-      chain.leftJoin = () => chain;
       chain.where = () => chain;
       chain.limit = async () => banco.resultados.shift() || [];
       return chain;
@@ -55,9 +53,13 @@ function prepararDados(modalidade: "camping" | "quarto_ventilador" | "quarto_ar_
       nome: "Cliente de Validação",
       email: "cliente@exemplo.com",
       cpf: "12345678909",
+      rg: "RG-VALIDACAO",
       telefone: "61999990000",
       data_nascimento: new Date("1990-01-10T12:00:00-03:00"),
+      estado_civil: "Solteiro(a)",
+      profissao: "Profissional",
       endereco: "Brasília/DF",
+      nacionalidade: "Brasileira",
     }],
     [{
       id: "lote-validacao",
@@ -126,17 +128,5 @@ describe("ContratoService.gerarContratoHTML", () => {
     expect(html).toContain("roupa de cama é de responsabilidade exclusiva do hóspede");
     expect(html).toContain("( X ) CAMPING");
     expect(html).toContain("(  ) QUARTO COM VENTILADOR COMPARTILHADO.");
-  });
-
-  it("gera o modelo com transporte e registra o vendedor responsável", async () => {
-    banco.resultados[0][0].vendedor_id = "vendedor-validacao";
-    banco.resultados[4][0].contrato_modelo = "transporte";
-    banco.resultados[4][0].forma_contratacao = "onibus_hospedagem";
-    banco.resultados.push([{ id: "vendedor-validacao", nome: "Vendedor Responsável", email: "vendedor@example.com" }]);
-
-    const html = await ContratoService.gerarContratoHTML({ reserva_id: "reserva-validacao" });
-
-    expect(html).toContain("DO TRANSPORTE RODOVIÁRIO");
-    expect(html).toContain("Vendedor Responsável");
   });
 });

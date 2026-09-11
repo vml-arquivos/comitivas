@@ -124,7 +124,7 @@ router.put("/:cupom_id", authMiddleware, requireRole("admin"), async (req: Reque
         vendedor_id: vendedor_id !== undefined ? (vendedor_id || null) : undefined,
         campanha: campanha !== undefined ? (campanha ? String(campanha).trim().slice(0, 120) : null) : undefined,
         valor_minimo: valor_minimo !== undefined ? (valor_minimo === null || valor_minimo === "" ? null : String(valor_minimo)) : undefined,
-        validade: validade !== undefined ? (validade ? new Date(validade) : null) : undefined,
+        validade: validade ? new Date(validade) : undefined,
         ativo: ativo !== undefined ? ativo : undefined,
       })
       .where(eq(cupons.id, cupom_id))
@@ -140,7 +140,7 @@ router.put("/:cupom_id", authMiddleware, requireRole("admin"), async (req: Reque
   }
 });
 
-// Exclusão segura: desativa o cupom e preserva utilizações/relatórios.
+// Desativar cupom (admin)
 router.delete("/:cupom_id", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
   try {
     const { cupom_id } = req.params;
