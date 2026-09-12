@@ -30,6 +30,7 @@ import {
 } from "../db/schema.js";
 import { EmailService } from "../services/emailService.js";
 import { ReservaSolicitacaoService } from "../services/reservaSolicitacaoService.js";
+import { InventoryService } from "../services/inventoryService.js";
 import { aprovarCadastroSeElegivel } from "../services/cadastroAprovacaoService.js";
 import { configuracaoValidacaoDocumental, IdentityDocumentService, TipoIdentidade } from "../services/identityDocumentService.js";
 
@@ -284,13 +285,16 @@ router.get("/portal", async (req: Request, res: Response) => {
       const contratosDaReserva = contratosLista.filter((item) => item.reserva_id === reserva.id);
       const contratoValidado = contratosDaReserva.some((item) => Boolean(item.validado_em) || ["validado", "aprovado"].includes(String(item.status || "").toLowerCase()));
       const pagamentoConfirmado = pagamentosDaReserva.some((item) => item.status === "aprovado" || Number(item.valor_pago_centavos || 0) > 0 || ["parcial", "quitado"].includes(String(item.status_reconciliado || "").toLowerCase()));
+      const pagamentoAvancado = pagamentosDaReserva.some((item) =>
+        !["cancelado", "recusado", "reembolsado"].includes(String(item.status || ""))
+        && (Number(item.valor_pago_centavos || 0) > 0 || ["pendente", "parcial", "quitado"].includes(String(item.status_reconciliado || ""))));
       return {
         ...reserva,
         operacao: operacaoPorReserva.get(reserva.id) || null,
         hospedagem_operacional: hospedagemPorReserva.get(reserva.id) || null,
         contrato_validado: contratoValidado,
         pagamento_confirmado: pagamentoConfirmado,
-        cancelamento_imediato_permitido: false,
+        cancelamento_imediato_permitido: !contratoValidado && !pagamentoAvancado,
       };
     });
 
@@ -298,7 +302,7 @@ router.get("/portal", async (req: Request, res: Response) => {
 
     const linhaTempo = [
       { id: `cadastro-${usuario.id}`, tipo: "cadastro", titulo: "Conta criada", descricao: usuario.email, criado_em: usuario.criado_em },
-      ...reservasLista.map((item) => ({ id: `reserva-${item.id}`, tipo: "reserva", titulo: item.checkout_estado === "cancelado_cliente" ? "Reserva cancelada" : `Reserva · ${item.status || "criada"}`, descricao: `${item.evento_nome}${item.pacote_nome ? ` · ${item.pacote_nome}` : ""}`, criado_em: item.atualizado_em || item.criado_em, reserva_id: item.id })),
+      ...reservasLista.map((item) => ({ id: `reserva-${item.id}`, tipo: "reserva", titulo: item.checkout_estado === "cancelado_cliente" ? "Carrinho cancelado" : item.checkout_estado === "carrinho_salvo" ? "Carrinho salvo" : `Reserva · ${item.status || "criada"}`, descricao: `${item.evento_nome}${item.pacote_nome ? ` · ${item.pacote_nome}` : ""}`, criado_em: item.atualizado_em || item.criado_em, reserva_id: item.id })),
       ...contratosLista.map((item) => ({ id: `contrato-${item.id}`, tipo: "contrato", titulo: `Contrato v${item.versao} · ${item.status}`, descricao: item.validado_em ? "Contrato validado eletronicamente" : "Documento contratual gerado", criado_em: item.validado_em || item.criado_em, reserva_id: item.reserva_id })),
       ...pagamentosLista.map((item) => ({ id: `pagamento-${item.id}`, tipo: "pagamento", titulo: `Pagamento · ${item.status_reconciliado || item.status}`, descricao: `${String(item.metodo || "").toUpperCase()} · R$ ${Number(item.valor || 0).toFixed(2)}`, criado_em: item.atualizado_em || item.criado_em, reserva_id: item.reserva_id })),
       ...emailsLista.map((item) => ({ id: `email-${item.id}`, tipo: "comunicacao", titulo: item.erro ? "Falha no envio de e-mail" : `E-mail · ${item.tipo}`, descricao: item.assunto, criado_em: item.enviado_em || item.criado_em, reserva_id: item.reserva_id })),
@@ -490,6 +494,39 @@ router.post("/reservas/:reservaId/cancelar", async (req: Request, res: Response)
     const reserva = await obterReservaDoCliente(req.params.reservaId, req.usuario.id);
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
     const motivo = String(req.body?.motivo || "").trim().slice(0, 2000);
+
+    const contrato = (await db.select({ validado_em: contratosDocumentos.validado_em })
+      .from(contratosDocumentos)
+      .where(and(eq(contratosDocumentos.reserva_id, reserva.id), isNull(contratosDocumentos.invalidado_em)))
+      .orderBy(desc(contratosDocumentos.versao))
+      .limit(1))[0];
+    const pagamentosReserva = await db.select({ status: pagamentos.status, status_reconciliado: pagamentos.status_reconciliado, valor_pago_centavos: pagamentos.valor_pago_centavos })
+      .from(pagamentos)
+      .where(eq(pagamentos.reserva_id, reserva.id));
+    const possuiPagamentoAvancado = pagamentosReserva.some((pagamento) =>
+      !["cancelado", "recusado", "reembolsado"].includes(String(pagamento.status))
+      && (Number(pagamento.valor_pago_centavos || 0) > 0 || ["pendente", "parcial", "quitado"].includes(String(pagamento.status_reconciliado || ""))));
+
+    // Antes de contrato validado ou pagamento, o cliente está apenas com um
+    // carrinho. O cancelamento é imediato, sem motivo e sem abrir solicitação.
+    if (!contrato?.validado_em && !possuiPagamentoAvancado) {
+      await db.transaction(async (tx) => {
+        await InventoryService.liberarReservaNaTransacao(tx, reserva.id, "Cancelamento do carrinho pelo cliente", false);
+        await tx.update(reservas).set({ status: "abandonado", checkout_estado: "cancelado_cliente", inventario_hold_id: null, atualizado_em: new Date() }).where(eq(reservas.id, reserva.id));
+        await tx.insert(clienteHistorico).values({
+          id: createId(),
+          usuario_id: req.usuario!.id,
+          tipo: "cliente_cancelamento",
+          titulo: "Carrinho cancelado pelo cliente",
+          descricao: motivo || "Carrinho cancelado antes da conclusão da contratação.",
+          metadados: { carrinho: true, motivo_informado: Boolean(motivo) },
+          criado_por: req.usuario!.id,
+          criado_em: new Date(),
+        });
+      });
+      return res.json({ efetivado: true, pendente: false, mensagem: "Carrinho cancelado. Você poderá iniciar uma nova compra quando quiser." });
+    }
+
     const solicitacao = await ReservaSolicitacaoService.criar(reserva.id, req.usuario, { tipo: "cancelamento", motivo });
 
     const usuario = (await db.select({ nome: usuarios.nome, email: usuarios.email }).from(usuarios).where(eq(usuarios.id, req.usuario.id)).limit(1))[0];

@@ -176,13 +176,14 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
       if (leadDaConta[0]) origem = { lead_id: leadDaConta[0].id, vendedor_id: leadDaConta[0].vendedor_id || undefined, codigo_origem: leadDaConta[0].codigo_origem || undefined };
     }
 
-    const resultado = await PacoteService.reservarPacote(
-      req.usuario.id,
-      config.lote_id,
-      config,
-      ip,
-      origem,
-    );
+    const carrinhoExistente = await PacoteService.retomarCarrinho(req.usuario.id, config.lote_id);
+    const resultado = carrinhoExistente || await PacoteService.reservarPacote(
+        req.usuario.id,
+        config.lote_id,
+        config,
+        ip,
+        origem,
+      );
     // Cadastro direto não possui lead_id no navegador. Atualiza o card ligado
     // à conta para que pacote e etapa também apareçam no CRM.
     if (leadAtualizado.length === 0) {
@@ -213,6 +214,7 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
         quarto_alocacao_id: resultado.operacao.quarto_alocacao_id,
       },
       quantidade_pessoas: resultado.quantidade_pessoas || 1,
+      carrinho_retomado: Boolean(carrinhoExistente),
     });
   } catch (error: any) {
     console.error("[PACOTES] Erro ao reservar:", error);
@@ -444,10 +446,30 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
       credito_parcelas_maximo: configPagamento.credito_parcelas_maximo,
       boleto_modo: configPagamento.boleto_modo,
       gateway_automatico_disponivel: gatewayAutomaticoDisponivel,
+      carrinho_retomavel: ["pacote_montado", "checkout_iniciado", "contrato_gerado", "abandonado"].includes(String(reserva[0].status))
+        && !["cancelado_cliente", "troca_pacote_cliente", "reiniciado_cliente", "cancelamento_aprovado"].includes(String(reserva[0].checkout_estado || "")),
     });
   } catch (error) {
     console.error("[PACOTES] Erro ao buscar reserva:", error);
     res.status(500).json({ erro: "Erro ao buscar reserva" });
+  }
+});
+
+// Renovar somente o inventário do carrinho existente. Nunca cria uma segunda
+// reserva e não altera contrato ou pagamento já avançados.
+router.post("/reservas/:reserva_id/retomar", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const reserva = (await db.select({ id: reservas.id, usuario_id: reservas.usuario_id, lote_id: reservas.lote_id, checkout_estado: reservas.checkout_estado }).from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
+    if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
+    if (reserva.usuario_id !== req.usuario.id && !isAdminOrDev(req.usuario.tipo)) return res.status(403).json({ erro: "Acesso negado" });
+    const resultado = await PacoteService.retomarCarrinho(reserva.usuario_id, reserva.lote_id);
+    if (!resultado || resultado.reserva.id !== reserva.id) return res.status(409).json({ erro: "Este carrinho não está disponível para retomada" });
+    return res.json({ reserva_id: resultado.reserva.id, retomado: Boolean(resultado.retomada), checkout_estado: resultado.reserva.checkout_estado, mensagem: resultado.retomada ? "Carrinho renovado. Continue de onde parou." : "Carrinho pronto para continuar." });
+  } catch (error: any) {
+    console.error("[PACOTES] Erro ao retomar carrinho:", error);
+    const mensagem = error?.message || "Não foi possível retomar o carrinho";
+    return res.status(409).json({ erro: mensagem });
   }
 });
 

@@ -17,7 +17,7 @@ describe("hospedagem, pós-venda e instalação", () => {
     expect(rotas).toContain('router.post("/alocacoes/:alocacaoId/mover"');
   });
 
-  it("registra cancelamento para análise sem cancelar imediatamente", async () => {
+  it("cancela carrinho incompleto sem motivo e preserva análise após avanço", async () => {
     const [cliente, solicitacoes, inventario] = await Promise.all([
       fonte("../server/routes/cliente.ts"),
       fonte("../server/services/reservaSolicitacaoService.ts"),
@@ -25,7 +25,8 @@ describe("hospedagem, pós-venda e instalação", () => {
     ]);
     const trecho = cliente.slice(cliente.indexOf('router.post("/reservas/:reservaId/cancelar"'), cliente.indexOf('router.post("/reservas/:reservaId/reconfigurar"'));
     expect(trecho).toContain("ReservaSolicitacaoService.criar");
-    expect(trecho).not.toContain("InventoryService.liberarReserva");
+    expect(trecho).toContain("InventoryService.liberarReservaNaTransacao");
+    expect(trecho).toContain("!contrato?.validado_em && !possuiPagamentoAvancado");
     expect(solicitacoes).toContain("Registre o resultado do estorno antes de concluir");
     expect(solicitacoes).toContain("validado_em IS NULL");
     expect(solicitacoes).toContain('tipo === "troca_pacote" && !pacoteDestinoId');

@@ -6,6 +6,7 @@ import { Button, Card, CardContent, CardHeader, CardTitle } from '@ui/index';
 import { api } from '../../contexts/AuthContext';
 
 const STATUS: Record<string, { classes: string; label: string; descricao: string }> = {
+  carrinho_salvo: { classes: 'bg-blue-100 text-blue-800', label: 'Carrinho salvo', descricao: 'Sua compra permanece no histórico. Continue de onde parou quando quiser.' },
   cancelado_cliente: { classes: 'bg-red-100 text-red-800', label: 'Cancelada', descricao: 'Esta configuração foi cancelada pelo cliente e permanece disponível apenas para histórico.' },
   troca_pacote_cliente: { classes: 'bg-purple-100 text-purple-800', label: 'Pacote alterado', descricao: 'A configuração anterior foi encerrada para que um novo pacote pudesse ser escolhido.' },
   reiniciado_cliente: { classes: 'bg-slate-100 text-slate-700', label: 'Contratação reiniciada', descricao: 'A configuração anterior foi preservada no histórico e uma nova contratação pode ser iniciada.' },
@@ -20,7 +21,7 @@ const STATUS: Record<string, { classes: string; label: string; descricao: string
   primeira_parcela_confirmada: { classes: 'bg-blue-100 text-blue-800', label: 'Primeira parcela confirmada', descricao: 'A primeira parcela foi recebida; as demais seguem no cronograma.' },
   quitado: { classes: 'bg-emerald-100 text-emerald-800', label: 'Pagamento quitado', descricao: 'Pagamento integral confirmado.' },
   cliente_confirmado: { classes: 'bg-emerald-100 text-emerald-800', label: 'Viagem confirmada', descricao: 'Contrato e voucher de embarque estão disponíveis.' },
-  abandonado: { classes: 'bg-red-100 text-red-800', label: 'Reserva interrompida', descricao: 'Fale com a equipe para verificar como retomar.' },
+  abandonado: { classes: 'bg-blue-100 text-blue-800', label: 'Carrinho salvo', descricao: 'Sua compra permanece no histórico. Continue de onde parou quando quiser.' },
 };
 
 const MODALIDADES: Record<string, string> = {
@@ -132,7 +133,7 @@ export default function MinhasReservas() {
               label: 'Em andamento',
               descricao: 'Acompanhe os próximos passos desta reserva.',
             };
-            const continuarCheckout = ['pacote_montado', 'checkout_iniciado', 'contrato_gerado', 'aguardando_pagamento'].includes(reserva.status);
+            const continuarCheckout = ['pacote_montado', 'checkout_iniciado', 'contrato_gerado', 'aguardando_pagamento', 'abandonado'].includes(reserva.status) && !['cancelado_cliente', 'troca_pacote_cliente', 'reiniciado_cliente', 'cancelamento_aprovado'].includes(String(reserva.checkout_estado || ''));
             return (
               <Card key={reserva.id} className="overflow-hidden border-slate-200 shadow-lg shadow-slate-900/5">
                 <CardHeader className="border-b bg-[#fffaf5] pb-5">

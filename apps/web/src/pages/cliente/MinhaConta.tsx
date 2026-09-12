@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
-import { AlertCircle, ArrowRight, BedDouble, Calendar, CheckCircle2, CircleDollarSign, Clock3, Download, Eye, FileText, History, LifeBuoy, MapPin, Pencil, Plane, RefreshCcw, RotateCcw, ScanLine, ShieldCheck, Ticket, UploadCloud, UserRound, XCircle } from 'lucide-react';
+import { AlertCircle, ArrowRight, BedDouble, Calendar, CheckCircle2, CircleDollarSign, Clock3, Download, Eye, FileText, History, LifeBuoy, MapPin, Pencil, Plane, RefreshCcw, ScanLine, ShieldCheck, Ticket, UploadCloud, UserRound, XCircle } from 'lucide-react';
 import { Button, Card, CardContent } from '@ui/index';
 import { api } from '../../contexts/AuthContext';
 
@@ -35,6 +35,7 @@ function data(valor?: string | null, comHora = false) {
 
 function statusReserva(reserva: any) {
   if (reserva.checkout_estado === 'cancelado_cliente') return { label: 'Cancelada', classes: 'bg-red-100 text-red-800' };
+  if (reserva.checkout_estado === 'carrinho_salvo') return { label: 'Carrinho salvo', classes: 'bg-blue-100 text-blue-800' };
   if (reserva.checkout_estado === 'troca_pacote_cliente')
     return {
       label: 'Pacote em alteração',
@@ -128,10 +129,13 @@ export default function MinhaConta() {
   );
 
   const executarCancelamento = async (reserva: any) => {
-    const aviso = 'O cancelamento será registrado para análise da equipe. A reserva e os valores não serão alterados automaticamente. Deseja continuar?';
+    const imediato = reserva.cancelamento_imediato_permitido === true;
+    const aviso = imediato
+      ? 'Cancelar este carrinho? Ele permanecerá no histórico como cancelado e nenhuma cobrança foi concluída.'
+      : 'O cancelamento será registrado para análise da equipe. Deseja continuar?';
     if (!window.confirm(aviso)) return;
-    const motivo = window.prompt('Informe o motivo do cancelamento:', '') || '';
-    if (motivo.trim().length < 5) {
+    const motivo = imediato ? '' : window.prompt('Informe o motivo do cancelamento:', '') || '';
+    if (!imediato && motivo.trim().length < 5) {
       setErro('Informe o motivo do cancelamento para enviar a solicitação.');
       return;
     }
@@ -645,9 +649,9 @@ export default function MinhaConta() {
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {!['abandonado'].includes(reserva.status) && reserva.checkout_estado !== 'cancelado_cliente' && (
+                        {!['cancelado_cliente', 'troca_pacote_cliente', 'reiniciado_cliente', 'cancelamento_aprovado'].includes(String(reserva.checkout_estado || '')) && (
                           <Link to={`/checkout/${reserva.id}`}>
-                            <Button>Continuar / ver pagamento</Button>
+                            <Button><ArrowRight size={15} /> Continuar compra</Button>
                           </Link>
                         )}
                         {reserva.contrato_validado || contratosAtivos.some((c: any) => c.reserva_id === reserva.id) ? (
@@ -660,16 +664,12 @@ export default function MinhaConta() {
                           <RefreshCcw size={15} />
                           Alterar pacote
                         </Button>
-                        <Button variant="outline" disabled={Boolean(solicitacaoAberta)} onClick={() => void reconfigurar(reserva, 'reinicio')} isLoading={acaoLoading === `reinicio-${reserva.id}`}>
-                          <RotateCcw size={15} />
-                          Recomeçar
-                        </Button>
                         <Button variant="outline" disabled={Boolean(solicitacaoAberta)} onClick={() => void executarCancelamento(reserva)} isLoading={acaoLoading === `cancel-${reserva.id}`}>
                           <XCircle size={15} />
                           Cancelar contratação
                         </Button>
                       </div>
-                      <div className="rounded-xl border border-slate-200 bg-[#fffaf5] p-3 text-xs leading-5 text-slate-600">Cancelamento, troca de pacote e reinício são solicitações analisadas pela equipe. Contratos e pagamentos permanecem preservados até a decisão.</div>
+                      <div className="rounded-xl border border-slate-200 bg-[#fffaf5] p-3 text-xs leading-5 text-slate-600">Seu carrinho permanece salvo no histórico. Continue a compra quando quiser; após contrato ou pagamento, alterações passam pela análise da equipe.</div>
                     </div>
                   </CardContent>
                 </Card>

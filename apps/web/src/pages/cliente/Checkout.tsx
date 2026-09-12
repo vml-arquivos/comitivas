@@ -82,8 +82,12 @@ export default function Checkout() {
     if (!reservaId) return;
     if (!silencioso) setIsLoading(true);
     try {
-      const [reservaResponse, estadoResponse] = await Promise.all([api.get(`/pacotes/reservas/${reservaId}`), api.get(`/contratos/estado/${reservaId}`)]);
-      const reservaAtual = reservaResponse.data;
+      let reservaAtual = (await api.get(`/pacotes/reservas/${reservaId}`)).data;
+      if (reservaAtual.carrinho_retomavel) {
+        await api.post(`/pacotes/reservas/${reservaId}/retomar`);
+        reservaAtual = (await api.get(`/pacotes/reservas/${reservaId}`)).data;
+      }
+      const estadoResponse = await api.get(`/contratos/estado/${reservaId}`);
       const estadoAtual = estadoResponse.data;
       setReserva(reservaAtual);
       setEstado(estadoAtual);

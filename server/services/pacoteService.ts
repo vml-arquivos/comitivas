@@ -4,6 +4,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import Decimal from "decimal.js";
 import { normalizarGrupoHospedagem, resolverRecursosContratacao, type GrupoHospedagem, type RecursosContratados } from "./contratacaoRecursos.js";
+import { InventoryService } from "./inventoryService.js";
 
 export interface ItemSelecionado { id: string; nome: string; tipo: string; valor: number; quantidade: number; }
 export interface ParticipantePacote { nome_completo: string; cpf?: string; data_nascimento?: string; telefone?: string; email?: string; sexo_operacional?: GrupoHospedagem; }
@@ -154,6 +155,103 @@ async function alocarRecursosNaTransacao(
 }
 
 export class PacoteService {
+  /**
+   * Retoma o único carrinho não concluído do cliente para o lote informado.
+   * A operação é idempotente: um carrinho com hold válido apenas é devolvido;
+   * um hold expirado é renovado com nova reserva de inventário, sem duplicar a
+   * reserva, o contrato ou a comissão.
+   */
+  static async retomarCarrinho(usuario_id: string, lote_id: string) {
+    return db.transaction(async (tx) => {
+      const existente = (await tx.execute(sql`
+        SELECT *
+          FROM reservas
+         WHERE usuario_id = ${usuario_id}
+           AND lote_id = ${lote_id}
+           AND COALESCE(checkout_estado, '') NOT IN ('cancelado_cliente', 'troca_pacote_cliente', 'reiniciado_cliente', 'cancelamento_aprovado')
+         ORDER BY criado_em DESC
+         LIMIT 1
+         FOR UPDATE
+      `)).rows[0] as any | undefined;
+      if (!existente) return null;
+
+      const pacote = existente.pacote_id
+        ? (await tx.execute(sql`SELECT id, lote_id, forma_contratacao, modalidade_hospedagem FROM pacotes WHERE id = ${existente.pacote_id} FOR SHARE`)).rows[0] as PacoteOperacional | undefined
+        : undefined;
+      const recursos = pacote
+        ? resolverRecursosContratacao(pacote.forma_contratacao, pacote.modalidade_hospedagem)
+        : { transporte: false, hospedagem: false, estrutura_quarto: null };
+      const quantidadeRow = (await tx.execute(sql`
+        SELECT GREATEST(1, COUNT(*)::int) AS quantidade
+          FROM reserva_participantes
+         WHERE reserva_id = ${existente.id} OR grupo_id = ${existente.grupo_id || null}
+      `)).rows[0] as { quantidade: number } | undefined;
+      const quantidadePessoas = Math.max(1, Number(quantidadeRow?.quantidade || 1));
+      const cadastro = (await tx.select({ sexo: usuarios.sexo }).from(usuarios).where(eq(usuarios.id, usuario_id)).limit(1))[0];
+      const grupoHospedagem = normalizarGrupoHospedagem(cadastro?.sexo) || normalizarGrupoHospedagem(existente.grupo_hospedagem);
+
+      const hold = existente.inventario_hold_id
+        ? (await tx.execute(sql`SELECT id, status, expira_em FROM inventario_holds WHERE id = ${existente.inventario_hold_id} FOR UPDATE`)).rows[0] as { id: string; status: string; expira_em: Date } | undefined
+        : undefined;
+      const holdValido = hold && (hold.status === "convertido" || (hold.status === "ativo" && new Date(hold.expira_em).getTime() > Date.now()));
+      if (holdValido) {
+        return {
+          reserva: existente,
+          calculo: { valor_total: Number(existente.valor_total || 0), valor_base: Number(existente.valor_total || 0), subtotal: Number(existente.valor_total || 0), desconto_cupom: Number(existente.desconto_aplicado || 0), itens_selecionados: [] },
+          operacao: { recursos, assento_alocacao_id: null, quarto_alocacao_id: null },
+          quantidade_pessoas: quantidadePessoas,
+          retomada: false,
+        };
+      }
+
+      const pagamentosPendentes = (await tx.execute(sql`
+        SELECT COUNT(*)::int AS total
+          FROM pagamentos
+         WHERE reserva_id = ${existente.id}
+           AND status NOT IN ('cancelado', 'recusado', 'reembolsado')
+           AND (COALESCE(valor_pago_centavos, 0) > 0 OR status_reconciliado IN ('pendente', 'parcial', 'quitado'))
+      `)).rows[0] as { total: number } | undefined;
+      if (Number(pagamentosPendentes?.total || 0) > 0) {
+        return {
+          reserva: existente,
+          calculo: { valor_total: Number(existente.valor_total || 0), valor_base: Number(existente.valor_total || 0), subtotal: Number(existente.valor_total || 0), desconto_cupom: Number(existente.desconto_aplicado || 0), itens_selecionados: [] },
+          operacao: { recursos, assento_alocacao_id: null, quarto_alocacao_id: null },
+          quantidade_pessoas: quantidadePessoas,
+          retomada: false,
+        };
+      }
+
+      if (hold?.status === "ativo") {
+        await InventoryService.liberarReservaNaTransacao(tx, existente.id, "Renovação do carrinho", false);
+      }
+
+      const lote = (await tx.execute(sql`SELECT id, "vagas_disponíveis" FROM lotes WHERE id = ${lote_id} FOR UPDATE`)).rows[0] as { id: string; vagas_disponíveis: number } | undefined;
+      if (!lote || Number(lote.vagas_disponíveis) < quantidadePessoas) throw new Error("A excursão ficou sem vagas para retomar este carrinho");
+      const baixa = await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = "vagas_disponíveis" - ${quantidadePessoas}, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${lote_id} AND "vagas_disponíveis" >= ${quantidadePessoas} RETURNING id`);
+      if (!baixa.rows.length) throw new Error("A excursão ficou sem vagas para retomar este carrinho");
+
+      const operacao = await alocarRecursosNaTransacao(tx, pacote, existente.id, usuario_id, lote_id, grupoHospedagem, quantidadePessoas);
+      const holdId = hold?.id || createId();
+      const agora = new Date();
+      if (hold) {
+        await tx.update(inventarioHolds).set({ lote_id, modalidade: pacote?.modalidade_hospedagem || null, quantidade: quantidadePessoas, status: "ativo", expira_em: InventoryService.expirationDate(agora), liberado_em: null, motivo_liberacao: null, convertido_em: null, criado_em: agora }).where(eq(inventarioHolds.id, hold.id));
+      } else {
+        await tx.insert(inventarioHolds).values({ id: holdId, reserva_id: existente.id, lote_id, modalidade: pacote?.modalidade_hospedagem || null, quantidade: quantidadePessoas, status: "ativo", expira_em: InventoryService.expirationDate(agora), criado_em: agora });
+      }
+      if (existente.cupom_id) {
+        await tx.execute(sql`UPDATE cupons SET uso_atual = COALESCE(uso_atual, 0) + 1 WHERE id = ${existente.cupom_id}`);
+      }
+      await tx.update(reservas).set({
+        status: existente.status === "abandonado" ? "pacote_montado" : existente.status,
+        checkout_estado: existente.status === "abandonado" || existente.checkout_estado === "carrinho_salvo" ? "inventario_reservado" : existente.checkout_estado,
+        inventario_hold_id: holdId,
+        atualizado_em: agora,
+      }).where(eq(reservas.id, existente.id));
+      const atualizada = (await tx.select().from(reservas).where(eq(reservas.id, existente.id)).limit(1))[0] || existente;
+      return { reserva: atualizada, calculo: { valor_total: Number(atualizada.valor_total || 0), valor_base: Number(atualizada.valor_total || 0), subtotal: Number(atualizada.valor_total || 0), desconto_cupom: Number(atualizada.desconto_aplicado || 0), itens_selecionados: [] }, operacao, quantidade_pessoas: quantidadePessoas, retomada: true };
+    });
+  }
+
   static async buscarItensDisponiveis(lote_id: string) {
     return db.select().from(itens_addon).where(and(eq(itens_addon.lote_id, lote_id), eq(itens_addon.ativo, true)));
   }
