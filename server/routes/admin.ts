@@ -12,6 +12,7 @@ import { PacoteService, ConfiguracaoPacote } from "../services/pacoteService.js"
 import { ClienteExclusaoService, ErroExclusaoCliente } from "../services/clienteExclusaoService.js";
 import { OperacaoOnibusService } from "../services/operacaoOnibusService.js";
 import { IdentityDocumentService, TipoIdentidade } from "../services/identityDocumentService.js";
+import { DadosLimpezaService } from "../services/dadosLimpezaService.js";
 import { db } from "../db/index.js";
 import { reservas, eventos, lotes, pacotes, usuarios, leads_origem, descontosAdministrativos, pagamentos, contratosDocumentos, contratoValidacoes, contratoEventos, otpDesafios, pagamentoParcelas, emails_enviados, clienteDocumentos, clienteHistorico, videosEvento, fotos_evento, comissaoRegras, comissoes, convitesAcesso, auditoriaAdmin, inventarioHolds, sessoes, passwordResetTokens, verificacoesEmail, assentoAlocacoes, assentosOnibus, onibusOperacionais, pontosEmbarqueOperacao, saidasOperacionais, checkinsOperacao } from "../db/schema.js";
 import { eq, and, inArray, or, sql, desc, isNull, ne } from "drizzle-orm";
@@ -499,6 +500,34 @@ router.use((req: Request, res: Response, next) => {
   return requireRole("admin")(req, res, next);
 });
 
+router.get("/dados-incompletos/resumo", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    return res.json(await DadosLimpezaService.resumo(req.query as any));
+  } catch (error) {
+    console.error("[ADMIN] Erro ao resumir dados incompletos:", error);
+    return res.status(500).json({ erro: "Não foi possível consultar os dados incompletos" });
+  }
+});
+
+router.post("/dados-incompletos/limpar", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    if (String(req.body?.confirmacao || "") !== "LIMPAR_DADOS_INCOMPLETOS") {
+      return res.status(400).json({ erro: "Confirmação inválida. Digite LIMPAR_DADOS_INCOMPLETOS para executar a limpeza." });
+    }
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const resultado = await DadosLimpezaService.limpar(req.body?.escopo, {
+      id: req.usuario.id,
+      tipo: req.usuario.tipo,
+      ip: req.ip || req.socket.remoteAddress || null,
+      userAgent: req.get("user-agent") || null,
+    });
+    return res.json({ mensagem: "Limpeza de dados incompletos concluída", resultado });
+  } catch (error: any) {
+    console.error("[ADMIN] Erro ao limpar dados incompletos:", error);
+    return res.status(409).json({ erro: error.message || "Não foi possível limpar os dados incompletos" });
+  }
+});
+
 function clientePodeSerOperado(req: Request, usuarioId: string): boolean {
   return Boolean(req.usuario && usuarioId && req.usuario.tipo !== "cliente");
 }
@@ -846,6 +875,32 @@ router.get("/reservas", async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error("[ADMIN] Erro ao listar reservas:", error);
     res.status(500).json({ erro: "Erro ao listar reservas" });
+  }
+});
+
+router.delete("/reservas/:reserva_id/incompleta", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    if (String(req.body?.confirmacao || "") !== "EXCLUIR_RESERVA_INCOMPLETA") {
+      return res.status(400).json({ erro: "Confirmação inválida para excluir a reserva incompleta." });
+    }
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const resultado = await DadosLimpezaService.limpar({
+      reservas: true,
+      contratos: false,
+      leads_sem_contato: false,
+      leads_sem_reserva: false,
+      reserva_ids: [req.params.reserva_id],
+    }, {
+      id: req.usuario.id,
+      tipo: req.usuario.tipo,
+      ip: req.ip || req.socket.remoteAddress || null,
+      userAgent: req.get("user-agent") || null,
+    });
+    if (resultado.reservas !== 1) return res.status(404).json({ erro: "Reserva não encontrada ou protegida por contrato/pagamento concluído" });
+    return res.json({ mensagem: "Reserva incompleta excluída", resultado });
+  } catch (error: any) {
+    console.error("[ADMIN] Erro ao excluir reserva incompleta:", error);
+    return res.status(409).json({ erro: error.message || "Não foi possível excluir a reserva incompleta" });
   }
 });
 

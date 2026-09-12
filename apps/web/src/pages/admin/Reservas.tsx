@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../../contexts/AuthContext';
+import { api, useAuth } from '../../contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, Button, Input } from '@ui/index';
-import { Download, Eye, Mail, FileSignature } from 'lucide-react';
+import { Download, Eye, Mail, FileSignature, Trash2 } from 'lucide-react';
+import LimpezaDadosIncompletos from '../../components/admin/LimpezaDadosIncompletos';
 
 const statusReserva: Record<string, string> = {
   visitante: 'Visitante',
@@ -18,6 +19,7 @@ const statusReserva: Record<string, string> = {
 const formatarMoeda = (valor: string | number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor || 0));
 
 export default function Reservas() {
+  const { user } = useAuth();
   const [reservas, setReservas] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -82,6 +84,18 @@ export default function Reservas() {
     navigate(`/admin/contratos?reserva=${encodeURIComponent(reserva.id)}`);
   };
 
+  const handleExcluirReservaIncompleta = async (reserva: any) => {
+    if (reserva.status === 'cliente_confirmado') return;
+    if (!window.confirm(`Excluir definitivamente a reserva ${reserva.id.substring(0, 8)} e todos os dados incompletos do checkout? Contratos validados e pagamentos efetivados serão protegidos.`)) return;
+    try {
+      await api.delete(`/admin/reservas/${reserva.id}/incompleta`, { data: { confirmacao: 'EXCLUIR_RESERVA_INCOMPLETA' } });
+      setAcaoMsg('Reserva incompleta excluída com sucesso.');
+      await fetchReservas();
+    } catch (err: any) {
+      setAcaoMsg(err.response?.data?.erro || 'Não foi possível excluir esta reserva.');
+    }
+  };
+
   return (
     <div className="admin-page">
       <div className="admin-page-header">
@@ -106,6 +120,8 @@ export default function Reservas() {
         </button>
         . Versões já validadas permanecem preservadas.
       </div>
+
+      {['admin', 'dev'].includes(user?.tipo || '') && <LimpezaDadosIncompletos onConcluido={() => void fetchReservas()} />}
 
       <Card>
         <CardContent className="p-0">
@@ -136,7 +152,7 @@ export default function Reservas() {
                     </td>
                     <td className="px-6 py-4">{formatarMoeda(reserva.valor_total)}</td>
                     <td className="px-6 py-4 text-right space-x-2">
-                      {!reserva.contrato_disponivel && !reserva.contrato_pdf_url && (
+                      {reserva.status !== 'cliente_confirmado' && (
                         <button onClick={() => abrirGerarContrato(reserva)} className="text-gray-500 hover:text-primary transition-colors p-1" title="Gerar contrato manualmente">
                           <FileSignature size={18} />
                         </button>
@@ -147,6 +163,11 @@ export default function Reservas() {
                       <button onClick={() => handleReenviarContrato(reserva.id)} className="text-gray-500 hover:text-primary transition-colors p-1" title="Reenviar E-mail">
                         <Mail size={18} />
                       </button>
+                      {reserva.status !== 'cliente_confirmado' && (
+                        <button onClick={() => void handleExcluirReservaIncompleta(reserva)} className="rounded p-1 text-red-700 transition-colors hover:bg-red-50" title="Excluir reserva incompleta" aria-label="Excluir reserva incompleta">
+                          <Trash2 size={18} />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

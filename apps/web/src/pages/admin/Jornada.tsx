@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, Button, Input } from '@ui/index';
-import { AlertCircle, CalendarClock, Copy, Link as LinkIcon, MessageCircle, RefreshCw, Save, Search, StickyNote, UserCheck, X } from 'lucide-react';
-import { api } from '../../contexts/AuthContext';
+import { AlertCircle, CalendarClock, Copy, Link as LinkIcon, MessageCircle, RefreshCw, Save, Search, StickyNote, Trash2, UserCheck, X } from 'lucide-react';
+import { api, useAuth } from '../../contexts/AuthContext';
+import LimpezaDadosIncompletos from '../../components/admin/LimpezaDadosIncompletos';
 
 type Lead = {
   id: string;
@@ -80,6 +81,7 @@ function paraDataLocal(valor?: string | null) {
 }
 
 export default function Jornada() {
+  const { user } = useAuth();
   const [link, setLink] = useState('');
   const [leads, setLeads] = useState<Lead[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -157,6 +159,17 @@ export default function Jornada() {
     }
   };
 
+  const excluirLead = async (lead: Lead) => {
+    if (lead.reserva || lead.email || lead.whatsapp) return;
+    if (!window.confirm(`Excluir o lead ${lead.nome}? Esta ação remove somente o contato do CRM e não afeta clientes ou reservas.`)) return;
+    try {
+      await api.delete(`/jornada/leads/${lead.id}`);
+      setLeads((atuais) => atuais.filter((item) => item.id !== lead.id));
+    } catch (err: any) {
+      setError(err.response?.data?.erro || 'Não foi possível excluir o lead.');
+    }
+  };
+
   return (
     <div className="admin-page">
       <section className="admin-page-header">
@@ -214,6 +227,8 @@ export default function Jornada() {
         </CardContent>
       </Card>
 
+      {['admin', 'dev'].includes(user?.tipo || '') && <LimpezaDadosIncompletos onConcluido={() => void carregarLeads()} />}
+
       <div className="overflow-x-auto pb-4">
         <div className="grid min-w-[1320px] grid-cols-5 gap-4">
           {colunas.map((coluna) => {
@@ -270,9 +285,16 @@ export default function Jornada() {
                           </div>
                         </div>
                       ) : (
-                        <button type="button" onClick={() => abrirAcompanhamento(lead)} className="mt-3 flex w-full items-center justify-center gap-1 rounded-md border border-slate-200 px-2 py-2 text-xs font-semibold text-slate-600 hover:border-primary hover:text-primary">
-                          <StickyNote size={14} /> Anotar acompanhamento
-                        </button>
+                        <div className="mt-3 flex gap-2">
+                          <button type="button" onClick={() => abrirAcompanhamento(lead)} className="flex min-w-0 flex-1 items-center justify-center gap-1 rounded-md border border-slate-200 px-2 py-2 text-xs font-semibold text-slate-600 hover:border-primary hover:text-primary">
+                            <StickyNote size={14} /> Anotar acompanhamento
+                          </button>
+                          {!lead.email && !lead.whatsapp && !lead.reserva && (
+                            <button type="button" onClick={() => void excluirLead(lead)} className="rounded-md border border-red-200 px-2 py-2 text-red-700 hover:bg-red-50" title="Excluir lead sem contato" aria-label="Excluir lead sem contato">
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                        </div>
                       )}
                     </article>
                   ))}

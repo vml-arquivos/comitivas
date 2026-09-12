@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { authMiddleware, requireRole, isAdminOrDev } from "../middleware/authMiddleware.js";
 import { db } from "../db/index.js";
-import { leads_origem, pacotes, reservas, usuarios } from "../db/schema.js";
+import { auditoriaAdmin, leads_origem, pacotes, reservas, usuarios } from "../db/schema.js";
 import { eq, and, desc, isNull, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { AuthService } from "../services/authService.js";
@@ -165,6 +165,35 @@ router.patch("/leads/:lead_id", authMiddleware, requireRole("admin", "vendedor")
   } catch (error: any) {
     console.error("[JORNADA] Erro ao atualizar acompanhamento:", error);
     res.status(500).json({ erro: "Erro ao salvar acompanhamento" });
+  }
+});
+
+router.delete("/leads/:lead_id", authMiddleware, requireRole("admin", "vendedor"), async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const condicao = isAdminOrDev(req.usuario.tipo)
+      ? eq(leads_origem.id, req.params.lead_id)
+      : and(eq(leads_origem.id, req.params.lead_id), eq(leads_origem.vendedor_id, req.usuario.id));
+    const lead = (await db.select().from(leads_origem).where(condicao).limit(1))[0];
+    if (!lead) return res.status(404).json({ erro: "Contato não encontrado na sua carteira" });
+    const possuiReserva = lead.usuario_id
+      ? (await db.select({ id: reservas.id }).from(reservas).where(eq(reservas.usuario_id, lead.usuario_id)).limit(1))[0]
+      : null;
+    if (possuiReserva) return res.status(409).json({ erro: "Este contato já possui reserva; exclua a reserva incompleta antes de remover o lead" });
+    await db.transaction(async (tx) => {
+      await tx.insert(auditoriaAdmin).values({
+        id: createId(), ator_id: req.usuario!.id, ator_tipo: req.usuario!.tipo,
+        acao: "lead_excluido", entidade: "lead", entidade_id: lead.id,
+        antes: { nome: lead.nome, email: lead.email, whatsapp: lead.whatsapp, status: lead.status },
+        depois: { motivo: "exclusao_manual_do_crm" }, ip: req.ip || null,
+        user_agent: req.get("user-agent") || null, criado_em: new Date(),
+      });
+      await tx.delete(leads_origem).where(eq(leads_origem.id, lead.id));
+    });
+    return res.json({ mensagem: "Lead excluído" });
+  } catch (error: any) {
+    console.error("[JORNADA] Erro ao excluir lead:", error);
+    return res.status(409).json({ erro: error.message || "Não foi possível excluir o lead" });
   }
 });
 
