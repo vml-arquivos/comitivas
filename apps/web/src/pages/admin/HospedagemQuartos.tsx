@@ -52,6 +52,7 @@ export default function HospedagemQuartos() {
 
   const carregarMapa = async (id = loteId) => {
     if (!id) return setMapa(null);
+    await api.post(`/hospedagem/lotes/${id}/reconciliar`).catch(() => undefined);
     const [mapaRes, pacotesRes] = await Promise.all([api.get(`/hospedagem/lotes/${id}`), api.get(`/pacotes/lotes/${id}/pacotes`)]);
     setMapa(mapaRes.data);
     setPacotes(pacotesRes.data.pacotes || []);
@@ -239,11 +240,11 @@ export default function HospedagemQuartos() {
                   <span className={`admin-status ${lotado ? 'bg-slate-100 text-slate-700' : Number(quarto.ocupadas) > 0 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>{lotado ? 'Lotado' : Number(quarto.ocupadas) > 0 ? 'Parcial' : 'Disponível'}</span>
                 </div>
                 {resumo.conjunto && <p className="mt-1 truncate text-xs text-slate-500">{resumo.conjunto}{resumo.estrutura ? ` · ${resumo.estrutura}` : ''}</p>}
-                <p className="mt-1 text-xs text-slate-500">{quarto.ocupadas}/{quarto.capacidade} ocupadas · {quarto.pacote_nome || 'Todos os pacotes'}</p>
+                <p className="mt-1 text-xs font-medium text-slate-700">{quarto.ocupadas}/{quarto.capacidade} ocupadas · {quarto.pacote_nome || 'Todos os pacotes'}</p>
               </div>
-              <div className="flex gap-1">
-                <Button variant="outline" className="px-3" onClick={() => abrirEdicao(quarto)}>Editar</Button>
-                <Button variant="outline" className="text-red-700" aria-label={`Excluir ${quarto.nome}`} onClick={() => { if (confirm('Excluir este quarto?')) void executar(() => api.delete(`/hospedagem/quartos/${quarto.id}`), 'Quarto excluído da operação.'); }}><Trash2 size={15} /></Button>
+              <div className="flex gap-2">
+                <Button variant="outline" className="!min-h-10 !border-[#073F50] !bg-white !px-3 !text-[#073F50] hover:!bg-slate-100" onClick={() => abrirEdicao(quarto)}>Editar</Button>
+                <Button variant="danger" size="sm" className="!h-10 !min-h-10 !w-10 !rounded-lg !bg-[#B42318] !p-0 hover:!bg-[#8E1B12]" title={`Excluir ${quarto.nome}`} aria-label={`Excluir ${quarto.nome}`} onClick={() => { if (confirm('Excluir este quarto?')) void executar(() => api.delete(`/hospedagem/quartos/${quarto.id}`), 'Quarto excluído da operação.'); }}><Trash2 size={17} strokeWidth={2.5} /></Button>
               </div>
             </header>
             <div className="p-4">

@@ -6,6 +6,10 @@ router.get("/lotes/:loteId", async (req: Request, res: Response) => {
   try { return res.json(await HospedagemService.obterMapa(req.params.loteId)); }
   catch (error: any) { return res.status(error.message === "Lote não encontrado" ? 404 : 400).json({ erro: error.message || "Erro ao carregar hospedagem" }); }
 });
+router.post("/lotes/:loteId/reconciliar", async (req: Request, res: Response) => {
+  try { return res.json(await HospedagemService.reconciliarLote(req.params.loteId, req.usuario!.id)); }
+  catch (error: any) { return res.status(409).json({ erro: error.message || "Erro ao reconciliar quartos" }); }
+});
 router.post("/lotes/:loteId/quartos", async (req: Request, res: Response) => {
   try { return res.status(201).json({ quarto: await HospedagemService.salvarQuarto(req.params.loteId, null, req.body, req.usuario!.id) }); }
   catch (error: any) { return res.status(400).json({ erro: error.message || "Erro ao criar quarto" }); }

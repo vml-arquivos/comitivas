@@ -193,6 +193,62 @@ export class HospedagemService {
     });
   }
 
+  /** Aloca a primeira vaga compatível sem duplicar uma alocação existente. */
+  static async alocarAutomaticamente(reservaId: string, atorId: string) {
+    return db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`reserva-quarto:${reservaId}`}))`);
+      const reserva = linhas(await tx.execute(sql`SELECT r.id, r.usuario_id, r.lote_id, r.pacote_id,
+        r.grupo_hospedagem, r.recursos_contratados, p.modalidade_hospedagem, p.forma_contratacao
+        FROM reservas r LEFT JOIN pacotes p ON p.id = r.pacote_id
+        WHERE r.id = ${reservaId} FOR UPDATE OF r`))[0];
+      if (!reserva || !reserva.pacote_id) return null;
+      const recursosRegistrados = reserva.recursos_contratados;
+      const recursos = typeof recursosRegistrados?.transporte === "boolean" && typeof recursosRegistrados?.hospedagem === "boolean"
+        ? recursosRegistrados
+        : resolverRecursosContratacao(reserva.forma_contratacao, reserva.modalidade_hospedagem);
+      if (!recursos.hospedagem) return null;
+      const existente = linhas(await tx.execute(sql`SELECT qa.id, qa.quarto_id, qa.numero_vaga
+        FROM quarto_alocacoes qa WHERE qa.reserva_id = ${reservaId} AND qa.status = 'ativa' LIMIT 1`))[0];
+      if (existente) return existente;
+      const quarto = linhas(await tx.execute(sql`SELECT q.*, COALESCE(ocupadas.total, 0)::int AS ocupadas
+        FROM quartos_hospedagem q
+        LEFT JOIN LATERAL (SELECT COUNT(*)::int AS total FROM quarto_alocacoes qa WHERE qa.quarto_id = q.id AND qa.status = 'ativa') ocupadas ON true
+        WHERE q.lote_id = ${reserva.lote_id} AND q.ativo = true
+          AND (q.pacote_id IS NULL OR q.pacote_id = ${reserva.pacote_id})
+          AND (${reserva.grupo_hospedagem}::text IS NULL OR q.genero = ${reserva.grupo_hospedagem})
+          AND (${recursos.estrutura_quarto}::text IS NULL OR q.estrutura = ${recursos.estrutura_quarto})
+          AND COALESCE(ocupadas.total, 0) < q.capacidade
+        ORDER BY (q.pacote_id = ${reserva.pacote_id}) DESC, COALESCE(ocupadas.total, 0), q.nome
+        LIMIT 1 FOR UPDATE OF q`))[0];
+      if (!quarto) return null;
+      const vaga = linhas(await tx.execute(sql`SELECT serie.numero FROM generate_series(1, ${Number(quarto.capacidade)}) AS serie(numero)
+        WHERE NOT EXISTS (SELECT 1 FROM quarto_alocacoes qa WHERE qa.quarto_id = ${quarto.id} AND qa.numero_vaga = serie.numero AND qa.status = 'ativa')
+        ORDER BY serie.numero LIMIT 1`))[0];
+      if (!vaga) return null;
+      const id = createId();
+      const criada = linhas(await tx.execute(sql`INSERT INTO quarto_alocacoes (id, quarto_id, reserva_id, usuario_id, numero_vaga, status, alocado_por, alocado_em)
+        VALUES (${id}, ${quarto.id}, ${reservaId}, ${reserva.usuario_id}, ${Number(vaga.numero)}, 'ativa', ${atorId}, CURRENT_TIMESTAMP) RETURNING *`))[0];
+      await registrar(tx, "quarto_alocacao", id, "hospede_alocado_automaticamente", atorId, undefined, { ...criada, genero: quarto.genero, quarto: quarto.nome, estrutura: quarto.estrutura, recursos });
+      return criada;
+    });
+  }
+
+  static async reconciliarLote(loteId: string, atorId: string) {
+    const pendentes = linhas(await db.execute(sql`SELECT r.id FROM reservas r
+      JOIN pacotes p ON p.id = r.pacote_id
+      WHERE r.lote_id = ${loteId} AND r.status <> 'abandonado'
+        AND p.forma_contratacao LIKE '%hospedagem%'
+        AND p.modalidade_hospedagem <> 'camping'
+        AND NOT EXISTS (SELECT 1 FROM quarto_alocacoes qa WHERE qa.reserva_id = r.id AND qa.status = 'ativa')
+      ORDER BY r.criado_em, r.id`));
+    const alocadas: any[] = [];
+    for (const reserva of pendentes) {
+      const alocacao = await this.alocarAutomaticamente(String(reserva.id), atorId);
+      if (alocacao) alocadas.push(alocacao);
+    }
+    return { verificadas: pendentes.length, alocadas };
+  }
+
   static async alocar(quartoId: string, reservaId: string, atorId: string) {
     return db.transaction(async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`quarto:${quartoId}`})), pg_advisory_xact_lock(hashtext(${`reserva-quarto:${reservaId}`}))`);

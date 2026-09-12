@@ -45,4 +45,19 @@ describe("cadastro em lote e identificação visual", () => {
     expect(hospedagem).toContain("Lotado");
     expect(onibus).toContain("iniciaisPessoa(assento.cliente_nome)");
   });
+
+  it("reconcilia hospedagem automaticamente e mantém a ação de excluir visível", async () => {
+    const [servico, rota, hospedagem] = await Promise.all([
+      fonte("../server/services/hospedagemService.ts"),
+      fonte("../server/routes/hospedagem.ts"),
+      fonte("../apps/web/src/pages/admin/HospedagemQuartos.tsx"),
+    ]);
+    expect(servico).toContain("alocarAutomaticamente");
+    expect(servico).toContain("hospede_alocado_automaticamente");
+    expect(servico).toContain("reconciliarLote");
+    expect(rota).toContain('router.post("/lotes/:loteId/reconciliar"');
+    expect(hospedagem).toContain("/reconciliar");
+    expect(hospedagem).toContain("!bg-[#B42318]");
+    expect(hospedagem).toContain("aria-label={`Excluir ${quarto.nome}`}");
+  });
 });
