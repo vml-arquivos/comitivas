@@ -6,10 +6,10 @@ async function fonte(caminho: string) {
 }
 
 describe("exclusão definitiva individual de clientes", () => {
-  it("é uma rota exclusiva do DEV e não expõe erro SQL", async () => {
+  it("é uma rota administrativa protegida e não expõe erro SQL", async () => {
     const rota = await fonte("../server/routes/admin.ts");
 
-    expect(rota).toContain('router.delete("/usuarios/:id/definitivo", requireRole("dev")');
+    expect(rota).toContain('router.delete("/usuarios/:id/definitivo", requireRole("admin")');
     expect(rota).toContain("ClienteExclusaoService.excluirDefinitivamente");
     expect(rota).toContain('erro: "Não foi possível excluir definitivamente. Nenhum dado foi removido."');
   });
@@ -37,15 +37,15 @@ describe("exclusão definitiva individual de clientes", () => {
     expect(deleteUsuario).toBeGreaterThan(deleteReserva);
   });
 
-  it("mantém o arquivamento normal para ADMIN e mostra a ação destrutiva somente ao DEV", async () => {
+  it("mantém o arquivamento normal para outros perfis e mostra a ação destrutiva a admin/dev", async () => {
     const [clientes, ficha] = await Promise.all([
       fonte("../apps/web/src/pages/admin/Clientes.tsx"),
       fonte("../apps/web/src/pages/admin/ClienteFicha.tsx"),
     ]);
 
-    expect(clientes).toContain("user?.tipo === 'dev' && usuario.tipo === 'cliente'");
+    expect(clientes).toContain("['admin', 'dev'].includes(user?.tipo || '') && usuario.tipo === 'cliente'");
     expect(clientes).toContain("Se houver registros, o usuário será arquivado");
-    expect(ficha).toContain("usuarioLogado?.tipo === 'dev'");
+    expect(ficha).toContain("['admin', 'dev'].includes(usuarioLogado?.tipo || '')");
     expect(ficha).toContain("Excluir definitivamente");
   });
 });

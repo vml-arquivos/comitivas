@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, useAuth } from '../../contexts/AuthContext';
 import { Card, CardContent, Button, Input } from '@ui/index';
-import LimpezaDadosIncompletos from '../../components/admin/LimpezaDadosIncompletos';
 import { Eye, Download, FileSignature, X, FileText, RefreshCw, Trash2 } from 'lucide-react';
 
 interface ContratoLinha {
@@ -324,8 +323,6 @@ export default function Contratos() {
           </Button>
         </div>
       </div>
-
-      {['admin', 'dev'].includes(user?.tipo || '') && <LimpezaDadosIncompletos onConcluido={() => void carregar()} />}
 
       <div className="admin-card flex flex-col gap-3 p-4 sm:flex-row">
         <Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por cliente, e-mail, CPF, evento ou reserva" className="flex-1" />

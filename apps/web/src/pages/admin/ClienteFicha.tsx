@@ -345,7 +345,7 @@ export default function ClienteFicha() {
 
   const excluirOuArquivar = async () => {
     if (!clienteId || !ficha) return;
-    if (usuarioLogado?.tipo === 'dev') {
+    if (['admin', 'dev'].includes(usuarioLogado?.tipo || '')) {
       const confirmacao = prompt(
         `EXCLUSÃO DEFINITIVA\n\nEsta ação apagará o cliente e todos os testes vinculados: reservas, contratos, pagamentos, documentos e lugares. Não pode ser desfeita.\n\nDigite o e-mail completo para confirmar:\n${ficha.usuario.email}`,
       );
@@ -565,7 +565,7 @@ export default function ClienteFicha() {
           </Button>
           <Button variant="outline" className="gap-2 !text-red-700" onClick={() => void excluirOuArquivar()}>
             <Trash2 size={16} />
-            {usuarioLogado?.tipo === 'dev' ? 'Excluir definitivamente' : 'Excluir'}
+            {['admin', 'dev'].includes(usuarioLogado?.tipo || '') ? 'Excluir definitivamente' : 'Excluir'}
           </Button>
           <Link to="/admin/boletos">
             <Button variant="outline" className="gap-2">

@@ -54,7 +54,7 @@ async function removerArquivosGerenciados(clienteId: string, arquivos: string[])
 
 /**
  * Limpeza individual de dados de teste. Esta operação é intencionalmente
- * separada do fluxo normal de exclusão/arquivamento e só é exposta ao DEV.
+ * separada do fluxo normal de exclusão/arquivamento e só é exposta a ADMIN/DEV.
  * Toda a árvore relacional é removida na mesma transação; se uma FK nova não
  * estiver coberta, o PostgreSQL desfaz a operação inteira.
  */
@@ -117,9 +117,14 @@ export class ClienteExclusaoService {
 
       // Rompe o ciclo reservas <-> inventario_holds e remove filhos das reservas.
       await tx.execute(sql`UPDATE reservas SET inventario_hold_id = NULL WHERE usuario_id = ${clienteId}`);
+      await tx.execute(sql`UPDATE reservas SET grupo_id = NULL WHERE grupo_id IN (SELECT id FROM reserva_grupos WHERE responsavel_id = ${clienteId})`);
+      await tx.execute(sql`DELETE FROM reserva_participantes WHERE reserva_id IN (SELECT id FROM reservas WHERE usuario_id = ${clienteId}) OR grupo_id IN (SELECT id FROM reserva_grupos WHERE responsavel_id = ${clienteId})`);
+      await tx.execute(sql`DELETE FROM reserva_grupos WHERE responsavel_id = ${clienteId}`);
       await tx.execute(sql`DELETE FROM assento_holds WHERE reserva_id IN (SELECT id FROM reservas WHERE usuario_id = ${clienteId}) OR usuario_id = ${clienteId}`);
       await tx.execute(sql`DELETE FROM assento_alocacoes WHERE reserva_id IN (SELECT id FROM reservas WHERE usuario_id = ${clienteId}) OR usuario_id = ${clienteId}`);
+      await tx.execute(sql`DELETE FROM quarto_alocacoes WHERE reserva_id IN (SELECT id FROM reservas WHERE usuario_id = ${clienteId}) OR usuario_id = ${clienteId}`);
       await tx.execute(sql`DELETE FROM checkins_operacao WHERE reserva_id IN (SELECT id FROM reservas WHERE usuario_id = ${clienteId})`);
+      await tx.execute(sql`DELETE FROM reserva_solicitacoes WHERE reserva_id IN (SELECT id FROM reservas WHERE usuario_id = ${clienteId}) OR usuario_id = ${clienteId}`);
       await tx.execute(sql`DELETE FROM contrato_eventos WHERE reserva_id IN (SELECT id FROM reservas WHERE usuario_id = ${clienteId})`);
       await tx.execute(sql`DELETE FROM otp_desafios WHERE reserva_id IN (SELECT id FROM reservas WHERE usuario_id = ${clienteId}) OR usuario_id = ${clienteId}`);
       await tx.execute(sql`DELETE FROM contrato_validacoes WHERE reserva_id IN (SELECT id FROM reservas WHERE usuario_id = ${clienteId}) OR usuario_id = ${clienteId}`);

@@ -5,7 +5,6 @@ import type { LucideIcon } from 'lucide-react';
 import { api, useAuth } from '../../contexts/AuthContext';
 import { Button } from '@ui/index';
 import { FunnelChart, HorizontalBars, LineTrend } from '../../components/admin/DataVisuals';
-import LimpezaDadosIncompletos from '../../components/admin/LimpezaDadosIncompletos';
 
 type DashboardData = {
   resumo: Record<string, number | string>;
@@ -225,7 +224,6 @@ export default function Dashboard() {
           </div>
         )}
       </section>
-      {['admin', 'dev'].includes(user?.tipo || '') && <LimpezaDadosIncompletos onConcluido={() => void carregar()} />}
     </div>
   );
 }

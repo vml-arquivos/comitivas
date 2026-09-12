@@ -571,7 +571,7 @@ export default function Vendas() {
                 ))}
               </section>
             )}
-            <section className="space-y-3 border-t border-gray-100 pt-5">
+            {user?.tipo !== 'vendedor' && <section className="space-y-3 border-t border-gray-100 pt-5">
               <h2 className="font-semibold text-gray-900">4. Promoção configurada</h2>
               <Input
                 label="Código do cupom (opcional)"
@@ -583,7 +583,7 @@ export default function Vendas() {
                 placeholder="Digite um cupom criado pelo administrador"
               />
               <p className="text-xs text-gray-500">O servidor valida evento, pacote, vendedor, valor mínimo, validade e limite por cliente.</p>
-            </section>
+            </section>}
             <div className="flex flex-wrap gap-3">
               <Button type="button" variant="outline" disabled={salvando} onClick={() => void calcular()} className="flex items-center gap-2">
                 <Calculator size={17} /> Calcular preço

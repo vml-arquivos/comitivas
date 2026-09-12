@@ -24,6 +24,7 @@ const Confirmacao = lazy(() => import('./pages/cliente/Confirmacao'));
 const MinhaConta = lazy(() => import('./pages/cliente/MinhaConta'));
 const DadosCadastrais = lazy(() => import('./pages/cliente/DadosCadastrais'));
 const Dashboard = lazy(() => import('./pages/admin/Dashboard'));
+const PainelVendedor = lazy(() => import('./pages/admin/PainelVendedor'));
 const Vendas = lazy(() => import('./pages/admin/Vendas'));
 const Reservas = lazy(() => import('./pages/admin/Reservas'));
 const Clientes = lazy(() => import('./pages/admin/Clientes'));
@@ -142,12 +143,13 @@ function AppRoutes() {
         </ProtectedRoute>
       }>
         <Route index element={<Dashboard />} />
+        <Route path="painel-vendedor" element={<ProtectedRoute roles={['admin', 'dev', 'vendedor']}><PainelVendedor /></ProtectedRoute>} />
         <Route path="vendas" element={<ProtectedRoute roles={['admin', 'dev', 'vendedor']}><Vendas /></ProtectedRoute>} />
         <Route path="vendas/interna" element={<ProtectedRoute roles={['admin', 'dev', 'vendedor']}><Vendas /></ProtectedRoute>} />
         <Route path="solicitacoes" element={<ProtectedRoute roles={['admin', 'dev', 'vendedor']}><Solicitacoes /></ProtectedRoute>} />
         <Route path="reservas" element={<ProtectedRoute roles={['admin', 'dev', 'vendedor']}><Reservas /></ProtectedRoute>} />
         <Route path="contratos" element={
-          <ProtectedRoute roles={['admin', 'dev', 'vendedor']}>
+          <ProtectedRoute roles={['admin', 'dev']}>
             <Contratos />
           </ProtectedRoute>
         } />

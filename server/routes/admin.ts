@@ -488,14 +488,59 @@ router.get("/dashboard", requireRole("admin", "vendedor"), async (req: Request, 
   }
 });
 
+router.get("/painel-vendedor", requireRole("admin", "dev", "vendedor"), async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const vendedores = req.usuario.tipo === "vendedor"
+      ? await db.select({ id: usuarios.id, nome: usuarios.nome, email: usuarios.email, equipe_nome: usuarios.equipe_nome, gestor_id: usuarios.gestor_id }).from(usuarios).where(eq(usuarios.id, req.usuario.id))
+      : await db.select({ id: usuarios.id, nome: usuarios.nome, email: usuarios.email, equipe_nome: usuarios.equipe_nome, gestor_id: usuarios.gestor_id }).from(usuarios).where(req.usuario.tipo === "dev" ? eq(usuarios.tipo, "vendedor") : and(eq(usuarios.tipo, "vendedor"), eq(usuarios.gestor_id, req.usuario.id)));
+    const vendedorIds = vendedores.map((vendedor) => vendedor.id);
+    const reservasEquipe = vendedorIds.length ? await db.select({
+      id: reservas.id,
+      vendedor_id: reservas.vendedor_id,
+      usuario_id: reservas.usuario_id,
+      status: reservas.status,
+      checkout_estado: reservas.checkout_estado,
+      valor_total: reservas.valor_total,
+      valor_total_centavos: reservas.valor_total_centavos,
+      comissao_centavos: reservas.comissao_centavos,
+      criado_em: reservas.criado_em,
+      cliente_nome: usuarios.nome,
+      cliente_email: usuarios.email,
+      evento_nome: eventos.nome,
+      lote_nome: lotes.nome,
+      pacote_nome: pacotes.nome,
+    }).from(reservas)
+      .innerJoin(usuarios, eq(reservas.usuario_id, usuarios.id))
+      .innerJoin(lotes, eq(reservas.lote_id, lotes.id))
+      .innerJoin(eventos, eq(lotes.evento_id, eventos.id))
+      .leftJoin(pacotes, eq(reservas.pacote_id, pacotes.id))
+      .where(and(inArray(reservas.vendedor_id, vendedorIds), eq(usuarios.tipo, "cliente")))
+      .orderBy(desc(reservas.criado_em)).limit(200) : [];
+    const reservaIds = reservasEquipe.map((reserva) => reserva.id);
+    const pagamentosEquipe = reservaIds.length ? await db.select({ reserva_id: pagamentos.reserva_id, status: pagamentos.status, status_reconciliado: pagamentos.status_reconciliado, valor_centavos: pagamentos.valor_centavos, valor_pago_centavos: pagamentos.valor_pago_centavos }).from(pagamentos).where(inArray(pagamentos.reserva_id, reservaIds)) : [];
+    const leadsEquipe = vendedorIds.length ? await db.select({ id: leads_origem.id, vendedor_id: leads_origem.vendedor_id, usuario_id: leads_origem.usuario_id, nome: leads_origem.nome, email: leads_origem.email, whatsapp: leads_origem.whatsapp, status: leads_origem.status, atualizado_em: leads_origem.atualizado_em }).from(leads_origem).where(inArray(leads_origem.vendedor_id, vendedorIds)).orderBy(desc(leads_origem.atualizado_em)).limit(200) : [];
+    const recebidoCentavos = pagamentosEquipe.reduce((total, pagamento) => total + (pagamento.status_reconciliado === "quitado" || pagamento.status === "aprovado" ? Number(pagamento.valor_pago_centavos || pagamento.valor_centavos || 0) : 0), 0);
+    const clientes = new Set(reservasEquipe.map((reserva) => reserva.usuario_id));
+    const resumoPorVendedor = vendedores.map((vendedor) => {
+      const vendas = reservasEquipe.filter((reserva) => reserva.vendedor_id === vendedor.id);
+      const leads = leadsEquipe.filter((lead) => lead.vendedor_id === vendedor.id);
+      return { ...vendedor, leads: leads.length, vendas: vendas.length, confirmadas: vendas.filter((venda) => venda.status === "cliente_confirmado").length, receita_centavos: vendas.reduce((total, venda) => total + Number(venda.valor_total_centavos || Math.round(Number(venda.valor_total || 0) * 100)), 0), comissao_centavos: vendas.reduce((total, venda) => total + Number(venda.comissao_centavos || 0), 0) };
+    });
+    return res.json({ perfil: req.usuario.tipo, equipe_nome: vendedores.find((vendedor) => vendedor.id === req.usuario!.id)?.equipe_nome || (req.usuario.tipo === "vendedor" ? null : "Minha equipe"), resumo: { vendedores: vendedores.length, leads: leadsEquipe.length, clientes: clientes.size, vendas: reservasEquipe.length, confirmadas: reservasEquipe.filter((reserva) => reserva.status === "cliente_confirmado").length, receita_centavos: reservasEquipe.reduce((total, reserva) => total + Number(reserva.valor_total_centavos || Math.round(Number(reserva.valor_total || 0) * 100)), 0), recebido_centavos: recebidoCentavos, comissao_centavos: reservasEquipe.reduce((total, reserva) => total + Number(reserva.comissao_centavos || 0), 0) }, vendedores: resumoPorVendedor, leads: leadsEquipe, ultimas_vendas: reservasEquipe.slice(0, 30) });
+  } catch (error) {
+    console.error("[ADMIN] Erro no painel de vendedor:", error);
+    return res.status(500).json({ erro: "Não foi possível carregar o painel comercial" });
+  }
+});
+
 // Vendedores podem consultar reservas atribuídas e operar somente o módulo
 // interno de vendas. As demais operações administrativas continuam exclusivas
 // do administrador.
 router.use((req: Request, res: Response, next) => {
   if (req.usuario?.tipo === "vendedor" && (
     (req.method === "GET" && req.path === "/reservas") ||
-    req.path.startsWith("/vendas") ||
-    req.path.startsWith("/contratos")
+    req.path.startsWith("/vendas")
   )) return next();
   return requireRole("admin")(req, res, next);
 });
@@ -668,6 +713,7 @@ router.post("/vendas/clientes", async (req: Request, res: Response) => {
 
 router.post("/vendas/calcular", async (req: Request, res: Response) => {
   try {
+    if (req.usuario?.tipo === "vendedor" && String(req.body?.cupom || "").trim()) return res.status(403).json({ erro: "Vendedores não podem aplicar cupons ou descontos" });
     const usuarioId = String(req.body?.usuario_id || "").trim();
     const cliente = (await db.select({ id: usuarios.id, ativo: usuarios.ativo }).from(usuarios).where(and(eq(usuarios.id, usuarioId), eq(usuarios.tipo, "cliente"))).limit(1))[0];
     if (!cliente || !cliente.ativo) return res.status(404).json({ erro: "Cliente ativo não encontrado" });
@@ -683,6 +729,7 @@ router.post("/vendas/calcular", async (req: Request, res: Response) => {
 router.post("/vendas/reservar", async (req: Request, res: Response) => {
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    if (req.usuario.tipo === "vendedor" && String(req.body?.cupom || "").trim()) return res.status(403).json({ erro: "Vendedores não podem aplicar cupons ou descontos" });
     const usuarioId = String(req.body?.usuario_id || "").trim();
     const cliente = (await db.select().from(usuarios).where(and(eq(usuarios.id, usuarioId), eq(usuarios.tipo, "cliente"), eq(usuarios.ativo, true))).limit(1))[0];
     if (!cliente) return res.status(404).json({ erro: "Cliente ativo não encontrado" });
@@ -1107,8 +1154,13 @@ router.get("/usuarios", requireRole("admin"), async (req: Request, res: Response
       .offset(offset))
       .filter((usuario) => podeExporUsuario(req.usuario?.tipo, usuario.tipo));
 
+    const totalResult = await db
+      .select({ total: sql<number>`count(*)` })
+      .from(usuarios)
+      .where(condicoes.length > 0 ? and(...condicoes) : undefined);
+
     res.json({
-      total: resultado.length,
+      total: Number(totalResult[0]?.total || 0),
       pagina: parseInt(pagina as string),
       limite: parseInt(limite as string),
       usuarios: resultado,
@@ -1249,8 +1301,11 @@ router.put("/usuarios/:id", requireRole("admin"), async (req: Request, res: Resp
     } = req.body ?? {};
 
     const existente = await db.select().from(usuarios).where(eq(usuarios.id, id)).limit(1);
-    if (existente.length === 0 || !podeExporUsuario(req.usuario?.tipo, existente[0]?.tipo) || (existente[0]?.tipo === "admin" && req.usuario?.tipo !== "dev")) {
+    if (existente.length === 0 || !podeExporUsuario(req.usuario?.tipo, existente[0]?.tipo)) {
       return res.status(404).json({ erro: "Usuário não encontrado" });
+    }
+    if (id === req.usuario?.id && tipo !== undefined && String(tipo) !== existente[0].tipo) {
+      return res.status(409).json({ erro: "Não altere o próprio cargo durante a sessão ativa" });
     }
 
     const atualizacoes: Partial<typeof usuarios.$inferInsert> = { atualizado_em: new Date() };
@@ -1281,7 +1336,7 @@ router.put("/usuarios/:id", requireRole("admin"), async (req: Request, res: Resp
       atualizacoes.telefone = telefoneNormalizado || null;
     }
     if (tipo !== undefined) {
-      const permitido = req.usuario?.tipo === "dev" ? ["cliente", "vendedor", "admin", "dev"].includes(String(tipo)) : ["cliente", "vendedor"].includes(String(tipo));
+      const permitido = req.usuario?.tipo === "dev" ? ["cliente", "vendedor", "admin", "dev"].includes(String(tipo)) : ["cliente", "vendedor", "admin"].includes(String(tipo));
       if (!permitido) return res.status(403).json({ erro: "Você não pode atribuir este nível de acesso" });
       atualizacoes.tipo = String(tipo) as any;
       revogarSessoes = tipo !== existente[0].tipo;
@@ -1294,16 +1349,19 @@ router.put("/usuarios/:id", requireRole("admin"), async (req: Request, res: Resp
       atualizacoes.data_nascimento = dataNascimento;
     }
     if (endereco !== undefined) atualizacoes.endereco = String(endereco).trim() || null;
-    if (existente[0].tipo === "vendedor" && equipe_nome !== undefined) atualizacoes.equipe_nome = String(equipe_nome).trim().slice(0, 120) || null;
-    if (existente[0].tipo === "vendedor" && gestor_id !== undefined) {
-      const gestorId = req.usuario?.tipo === "dev" ? String(gestor_id || "").trim() || null : req.usuario?.id || null;
+    const tipoFinal = atualizacoes.tipo || existente[0].tipo;
+    if (tipoFinal === "vendedor" && equipe_nome !== undefined) atualizacoes.equipe_nome = String(equipe_nome).trim().slice(0, 120) || null;
+    if (tipoFinal === "vendedor") {
+      const gestorId = req.usuario?.tipo === "dev" && gestor_id !== undefined ? String(gestor_id || "").trim() || null : (String(gestor_id || "").trim() || existente[0].gestor_id || req.usuario?.id || null);
       if (gestorId) {
         const gestor = (await db.select({ id: usuarios.id, tipo: usuarios.tipo, ativo: usuarios.ativo }).from(usuarios).where(eq(usuarios.id, gestorId)).limit(1))[0];
         if (!gestor || !["admin", "dev"].includes(String(gestor.tipo)) || gestor.ativo === false || (gestor.tipo === "dev" && req.usuario?.tipo !== "dev")) return res.status(400).json({ erro: "Gestor inválido" });
       }
       atualizacoes.gestor_id = gestorId;
+    } else if (atualizacoes.tipo !== undefined) {
+      atualizacoes.gestor_id = null;
+      atualizacoes.equipe_nome = null;
     }
-    const tipoFinal = atualizacoes.tipo || existente[0].tipo;
     if (tipoFinal === "cliente") {
       const faltantes = camposFaltantesCadastroMinimo({
         nome: atualizacoes.nome ?? existente[0].nome,
@@ -1458,7 +1516,7 @@ router.delete("/usuarios/:id", requireRole("admin"), async (req: Request, res: R
   }
 });
 
-router.delete("/usuarios/:id/definitivo", requireRole("dev"), async (req: Request, res: Response) => {
+router.delete("/usuarios/:id/definitivo", requireRole("admin"), async (req: Request, res: Response) => {
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
     const resultado = await ClienteExclusaoService.excluirDefinitivamente(
@@ -1476,6 +1534,44 @@ router.delete("/usuarios/:id/definitivo", requireRole("dev"), async (req: Reques
     console.error("[ADMIN] Erro ao excluir cliente definitivamente:", error);
     if (error instanceof ErroExclusaoCliente) return res.status(error.status).json({ erro: error.message });
     return res.status(409).json({ erro: "Não foi possível excluir definitivamente. Nenhum dado foi removido." });
+  }
+});
+
+router.post("/usuarios/clientes/excluir-lote", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const todos = req.body?.todos === true;
+    const idsInformados: string[] = Array.isArray(req.body?.ids)
+      ? Array.from(new Set<string>(req.body.ids.map((id: unknown) => String(id || "").trim()).filter(Boolean)))
+      : [];
+    const confirmacaoEsperada = todos ? "EXCLUIR_TODOS_CLIENTES" : "EXCLUIR_CLIENTES";
+    if (String(req.body?.confirmacao || "") !== confirmacaoEsperada) {
+      return res.status(400).json({ erro: `Confirmação inválida. Digite ${confirmacaoEsperada} para continuar.` });
+    }
+    if (!todos && idsInformados.length === 0) return res.status(400).json({ erro: "Selecione pelo menos um cliente." });
+
+    const clientes = todos
+      ? await db.select({ id: usuarios.id, email: usuarios.email }).from(usuarios).where(eq(usuarios.tipo, "cliente"))
+      : await db.select({ id: usuarios.id, email: usuarios.email }).from(usuarios).where(and(eq(usuarios.tipo, "cliente"), inArray(usuarios.id, idsInformados)));
+    const removidos: string[] = [];
+    const falhas: Array<{ id: string; erro: string }> = [];
+    for (const cliente of clientes) {
+      try {
+        await ClienteExclusaoService.excluirDefinitivamente(cliente.id, cliente.email, {
+          id: req.usuario.id,
+          tipo: req.usuario.tipo,
+          ip: req.ip || null,
+          userAgent: req.get("user-agent") || null,
+        });
+        removidos.push(cliente.id);
+      } catch (error: any) {
+        falhas.push({ id: cliente.id, erro: error.message || "Não foi possível excluir" });
+      }
+    }
+    return res.json({ mensagem: `${removidos.length} cliente(s) excluído(s) definitivamente`, removidos, falhas, total_solicitado: clientes.length });
+  } catch (error: any) {
+    console.error("[ADMIN] Erro ao excluir clientes em lote:", error);
+    return res.status(409).json({ erro: error.message || "Não foi possível excluir os clientes" });
   }
 });
 
@@ -2489,7 +2585,10 @@ router.post("/dev/bootstrap", requireRole("dev"), (_req: Request, res: Response)
 
 router.get("/dev/equipe", requireRole("admin"), async (req: Request, res: Response) => {
   const solicitanteDev = req.usuario?.tipo === "dev";
-  const equipe = await db.select(CAMPOS_PUBLICOS_USUARIO).from(usuarios).where(inArray(usuarios.tipo, (solicitanteDev ? ["dev", "admin", "vendedor"] : ["admin", "vendedor"]) as any)).orderBy(desc(usuarios.criado_em));
+  const filtroEquipe = solicitanteDev
+    ? inArray(usuarios.tipo, ["dev", "admin", "vendedor"] as any)
+    : or(eq(usuarios.id, req.usuario!.id), and(eq(usuarios.tipo, "vendedor"), eq(usuarios.gestor_id, req.usuario!.id)));
+  const equipe = await db.select(CAMPOS_PUBLICOS_USUARIO).from(usuarios).where(filtroEquipe).orderBy(desc(usuarios.criado_em));
   const convites = await db.select({
     id: convitesAcesso.id,
     papel: convitesAcesso.papel,

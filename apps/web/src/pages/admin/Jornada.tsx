@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, Button, Input } from '@ui/index';
 import { AlertCircle, CalendarClock, Copy, Link as LinkIcon, MessageCircle, RefreshCw, Save, Search, StickyNote, Trash2, UserCheck, X } from 'lucide-react';
 import { api, useAuth } from '../../contexts/AuthContext';
-import LimpezaDadosIncompletos from '../../components/admin/LimpezaDadosIncompletos';
 
 type Lead = {
   id: string;
@@ -226,8 +225,6 @@ export default function Jornada() {
           </p>
         </CardContent>
       </Card>
-
-      {['admin', 'dev'].includes(user?.tipo || '') && <LimpezaDadosIncompletos onConcluido={() => void carregarLeads()} />}
 
       <div className="overflow-x-auto pb-4">
         <div className="grid min-w-[1320px] grid-cols-5 gap-4">

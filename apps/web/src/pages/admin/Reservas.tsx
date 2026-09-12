@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { api, useAuth } from '../../contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, Button, Input } from '@ui/index';
 import { Download, Eye, Mail, FileSignature, Trash2 } from 'lucide-react';
-import LimpezaDadosIncompletos from '../../components/admin/LimpezaDadosIncompletos';
 
 const statusReserva: Record<string, string> = {
   visitante: 'Visitante',
@@ -120,8 +119,6 @@ export default function Reservas() {
         </button>
         . Versões já validadas permanecem preservadas.
       </div>
-
-      {['admin', 'dev'].includes(user?.tipo || '') && <LimpezaDadosIncompletos onConcluido={() => void fetchReservas()} />}
 
       <Card>
         <CardContent className="p-0">

@@ -30,6 +30,12 @@ const navGroups: NavGroup[] = [
         icon: LayoutDashboard,
         roles: ['admin', 'dev', 'vendedor'],
       },
+      {
+        name: 'Meu painel comercial',
+        path: '/admin/painel-vendedor',
+        icon: BarChart3,
+        roles: ['admin', 'dev', 'vendedor'],
+      },
     ],
   },
   {
@@ -104,7 +110,7 @@ const navGroups: NavGroup[] = [
         name: 'Contratos',
         path: '/admin/contratos',
         icon: FileText,
-        roles: ['admin', 'dev', 'vendedor'],
+        roles: ['admin', 'dev'],
       },
       {
         name: 'Galeria e vídeos',
