@@ -28,6 +28,7 @@ import {
   saidasOperacionais,
   quartoAlocacoes,
   quartosHospedagem,
+  reservaParticipantes,
 } from "../db/schema.js";
 
 export type FormaPagamentoContrato = "pix" | "boleto" | "credito";
@@ -143,6 +144,7 @@ type SnapshotVenda = {
   transporte: { rodoviario_incluido: boolean; local_embarque: string | null; ponto_referencia: string | null; data_saida: string | null; data_retorno: string | null; horario_saida: string | null; horario_retorno: string | null; veiculo: string | null; saida_id?: string | null; onibus_id?: string | null; onibus_nome?: string | null; onibus_identificacao?: string | null; poltrona?: number | null; ponto_embarque_id?: string | null };
   bagagem?: { limite_kg: number | null };
   seguro?: { seguradora: string | null; apolice: string | null; cobertura: string | null; telefone: string | null };
+  participantes?: Array<{ nome?: string; cpf?: string | null; nascimento?: string | null; grupo?: string | null }>;
   uso_imagem?: { autorizado: boolean; prazo_anos: number };
   observacoes_especificas?: string | null;
   politicas: Record<string, unknown>;
@@ -443,6 +445,11 @@ export class ContratoService {
     const hospedagemForm = formulario.hospedagem || {};
     const transporteForm = formulario.transporte || {};
     const seguroForm = formulario.seguro || {};
+    const participantes = reserva.grupo_id
+      ? await db.select({ nome: reservaParticipantes.nome_completo, cpf: reservaParticipantes.cpf, nascimento: reservaParticipantes.data_nascimento, grupo: reservaParticipantes.sexo_operacional })
+        .from(reservaParticipantes)
+        .where(eq(reservaParticipantes.grupo_id, reserva.grupo_id))
+      : [];
     const recursosSalvos = reserva.recursos_contratados && typeof reserva.recursos_contratados === "object"
       ? reserva.recursos_contratados as Partial<RecursosContratados>
       : {};
@@ -517,6 +524,7 @@ export class ContratoService {
       transporte: { rodoviario_incluido: rodoviario, local_embarque: rodoviario ? textoOpcional(transporteForm.local_embarque, textoOpcional(alocacao?.ponto_embarque_endereco || alocacao?.ponto_embarque_nome || lote.local_embarque)) : null, ponto_referencia: rodoviario ? textoOpcional(transporteForm.ponto_referencia, textoOpcional(alocacao?.ponto_embarque_nome)) : null, data_saida: rodoviario ? dataISOouNulo(transporteForm.data_saida) || formatarDataISO(alocacao?.data_partida || lote.data_embarque) : null, data_retorno: rodoviario ? dataISOouNulo(transporteForm.data_retorno) || formatarDataISO(alocacao?.data_retorno || lote.data_retorno) : null, horario_saida: rodoviario ? textoOpcional(transporteForm.horario_saida, alocacao?.ponto_embarque_horario ? formatarDataHora(alocacao.ponto_embarque_horario) : alocacao?.data_partida ? formatarDataHora(alocacao.data_partida) : lote.data_embarque ? formatarDataHora(lote.data_embarque) : null) : null, horario_retorno: rodoviario ? textoOpcional(transporteForm.horario_retorno, alocacao?.data_retorno ? formatarDataHora(alocacao.data_retorno) : lote.data_retorno ? formatarDataHora(lote.data_retorno) : null) : null, veiculo: rodoviario ? textoOpcional(transporteForm.veiculo, alocacao ? "Ônibus" : null) : null, saida_id: alocacao?.saida_id || null, onibus_id: alocacao?.onibus_id || null, onibus_nome: alocacao?.onibus_nome || null, onibus_identificacao: alocacao?.onibus_identificacao || null, poltrona: alocacao?.poltrona || null, ponto_embarque_id: alocacao?.ponto_embarque_id || null },
       bagagem: { limite_kg: numeroOpcional(formulario.bagagem?.limite_kg) },
       seguro: { seguradora: textoOpcional(seguroForm.seguradora), apolice: textoOpcional(seguroForm.apolice), cobertura: textoOpcional(seguroForm.cobertura), telefone: textoOpcional(seguroForm.telefone) },
+      participantes: participantes.map((participante) => ({ nome: participante.nome, cpf: participante.cpf, nascimento: dataISOouNulo(participante.nascimento), grupo: participante.grupo })),
       uso_imagem: { autorizado: formulario.uso_imagem?.autorizado === true, prazo_anos: Number(formulario.uso_imagem?.prazo_anos) > 0 ? Math.min(10, Math.round(Number(formulario.uso_imagem?.prazo_anos))) : 3 },
       observacoes_especificas: textoOpcional(formulario.observacoes_especificas),
       politicas: { cancelamento: ["Superior a 90 dias: retenção de 10%", "Entre 80 e 60 dias: retenção de 20%", "Entre 50 e 30 dias: retenção de 30%", "Entre 20 e 15 dias: retenção de 50%", "Menos de 15 dias: retenção de 80%", "No-show ou abandono: retenção de 100%"], reembolso: "Até 30 dias da formalização do pedido" },

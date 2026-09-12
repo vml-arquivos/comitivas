@@ -47,6 +47,6 @@ describe("limpeza administrativa de dados incompletos", () => {
     expect(reservas).toContain("/admin/reservas/${reserva.id}/incompleta");
     expect(reservas).toContain("Gerar contrato manualmente");
     expect(jornada).toContain("/jornada/leads/${lead.id}");
-    expect(jornada).toContain("Excluir lead sem contato");
+    expect(jornada).toContain("Excluir contato");
   });
 });

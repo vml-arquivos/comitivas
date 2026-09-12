@@ -85,7 +85,9 @@ router.get("/leads", authMiddleware, requireRole("admin", "vendedor"), async (re
         : [];
 
       const statusReserva = ultimaReserva[0]?.status;
-      const status = statusReserva === "cliente_confirmado"
+      const status = lead.status === "lead_frio"
+        ? "lead_frio"
+        : statusReserva === "cliente_confirmado"
         ? "cliente_confirmado"
         : statusReserva === "aguardando_pagamento"
           ? "aguardando_pagamento"
@@ -127,6 +129,9 @@ router.patch("/leads/:lead_id", authMiddleware, requireRole("admin", "vendedor")
     const observacoes = req.body?.observacoes !== undefined
       ? String(req.body.observacoes).trim()
       : undefined;
+    const statusPermitidos = new Set(["novo", "interessado", "visitante", "cadastrado", "pacote_montado", "checkout_iniciado", "aguardando_pagamento", "cliente_confirmado", "contrato_gerado", "abandonado", "lead_frio"]);
+    const status = req.body?.status !== undefined ? String(req.body.status).trim() : undefined;
+    if (status !== undefined && !statusPermitidos.has(status)) return res.status(400).json({ erro: "Etapa comercial inválida" });
     if (observacoes !== undefined && observacoes.length > 4000) {
       return res.status(400).json({ erro: "As observações devem ter no máximo 4.000 caracteres" });
     }
@@ -149,11 +154,13 @@ router.patch("/leads/:lead_id", authMiddleware, requireRole("admin", "vendedor")
     const atualizado = await db.update(leads_origem).set({
       observacoes,
       proximo_contato_em: proximoContato,
+      status,
       atualizado_em: new Date(),
     }).where(condicao).returning({
       id: leads_origem.id,
       observacoes: leads_origem.observacoes,
       proximo_contato_em: leads_origem.proximo_contato_em,
+      status: leads_origem.status,
       atualizado_em: leads_origem.atualizado_em,
     });
 

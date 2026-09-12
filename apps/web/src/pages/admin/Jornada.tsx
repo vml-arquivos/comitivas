@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, Button, Input } from '@ui/index';
-import { AlertCircle, CalendarClock, Copy, Link as LinkIcon, MessageCircle, RefreshCw, Save, Search, StickyNote, Trash2, UserCheck, X } from 'lucide-react';
+import { AlertCircle, CalendarClock, Copy, FileText, Link as LinkIcon, MessageCircle, RefreshCw, Save, Search, StickyNote, Trash2, UserCheck, X } from 'lucide-react';
 import { api, useAuth } from '../../contexts/AuthContext';
 
 type Lead = {
@@ -60,7 +61,28 @@ const colunas = [
     estilo: 'bg-red-50 border-red-200',
     badge: 'bg-red-200 text-red-800',
   },
+  {
+    id: 'frio',
+    titulo: 'Leads frios',
+    statuses: ['lead_frio'],
+    estilo: 'bg-slate-100 border-slate-300',
+    badge: 'bg-slate-300 text-slate-800',
+  },
 ];
+
+const etapas = [
+  ['novo', 'Novo interesse'],
+  ['interessado', 'Interessado'],
+  ['visitante', 'Visitante'],
+  ['cadastrado', 'Cadastro iniciado'],
+  ['pacote_montado', 'Pacote montado'],
+  ['checkout_iniciado', 'Em checkout'],
+  ['aguardando_pagamento', 'Aguardando pagamento'],
+  ['contrato_gerado', 'Contrato gerado'],
+  ['cliente_confirmado', 'Confirmado'],
+  ['lead_frio', 'Lead frio'],
+  ['abandonado', 'Abandonado'],
+] as const;
 
 function tempoRelativo(valor: string) {
   const minutos = Math.max(0, Math.floor((Date.now() - new Date(valor).getTime()) / 60000));
@@ -81,6 +103,7 @@ function paraDataLocal(valor?: string | null) {
 
 export default function Jornada() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [link, setLink] = useState('');
   const [leads, setLeads] = useState<Lead[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -158,8 +181,18 @@ export default function Jornada() {
     }
   };
 
+  const alterarEtapa = async (lead: Lead, status: string) => {
+    setError('');
+    try {
+      const response = await api.patch(`/jornada/leads/${lead.id}`, { status });
+      setLeads((atuais) => atuais.map((item) => item.id === lead.id ? { ...item, ...response.data.lead, status } : item));
+    } catch (err: any) {
+      setError(err.response?.data?.erro || 'Não foi possível mover o contato.');
+    }
+  };
+
   const excluirLead = async (lead: Lead) => {
-    if (lead.reserva || lead.email || lead.whatsapp) return;
+    if (lead.reserva) return;
     if (!window.confirm(`Excluir o lead ${lead.nome}? Esta ação remove somente o contato do CRM e não afeta clientes ou reservas.`)) return;
     try {
       await api.delete(`/jornada/leads/${lead.id}`);
@@ -286,13 +319,16 @@ export default function Jornada() {
                           <button type="button" onClick={() => abrirAcompanhamento(lead)} className="flex min-w-0 flex-1 items-center justify-center gap-1 rounded-md border border-slate-200 px-2 py-2 text-xs font-semibold text-slate-600 hover:border-primary hover:text-primary">
                             <StickyNote size={14} /> Anotar acompanhamento
                           </button>
-                          {!lead.email && !lead.whatsapp && !lead.reserva && (
-                            <button type="button" onClick={() => void excluirLead(lead)} className="rounded-md border border-red-200 px-2 py-2 text-red-700 hover:bg-red-50" title="Excluir lead sem contato" aria-label="Excluir lead sem contato">
-                              <Trash2 size={14} />
-                            </button>
-                          )}
+                          {lead.reserva && <button type="button" onClick={() => navigate(`/admin/contratos?reserva=${encodeURIComponent(lead.reserva!.id)}`)} className="rounded-md border border-slate-200 px-2 py-2 text-slate-600 hover:border-primary hover:text-primary" title="Abrir contrato" aria-label="Abrir contrato"><FileText size={14} /></button>}
+                          {!lead.reserva && <button type="button" onClick={() => void excluirLead(lead)} className="rounded-md border border-red-200 px-2 py-2 text-red-700 hover:bg-red-50" title="Excluir contato" aria-label="Excluir contato"><Trash2 size={14} /></button>}
                         </div>
                       )}
+                      <div className="mt-2 flex items-center gap-2">
+                        <label className="sr-only" htmlFor={`etapa-${lead.id}`}>Etapa de {lead.nome}</label>
+                        <select id={`etapa-${lead.id}`} value={lead.status} onChange={(event) => void alterarEtapa(lead, event.target.value)} className="min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-slate-600">
+                          {etapas.map(([valor, label]) => <option key={valor} value={valor}>{label}</option>)}
+                        </select>
+                      </div>
                     </article>
                   ))}
                   {!isLoading && itens.length === 0 && <p className="rounded-xl border border-dashed border-slate-300 p-5 text-center text-xs text-slate-500">Nenhum contato nesta etapa.</p>}

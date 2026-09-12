@@ -67,6 +67,8 @@ export default function Checkout() {
   const [metodoPagamento, setMetodoPagamento] = useState<MetodoPagamento>('pix');
   const [quantidadeParcelas, setQuantidadeParcelas] = useState(1);
   const [canalOtp, setCanalOtp] = useState<CanalOtp>('email');
+  const [cupomCodigo, setCupomCodigo] = useState('');
+  const [cupomMensagem, setCupomMensagem] = useState('');
   const [codigo, setCodigo] = useState('');
   const [otpEnviado, setOtpEnviado] = useState(false);
   const [consentiuGeo, setConsentiuGeo] = useState(false);
@@ -87,6 +89,7 @@ export default function Checkout() {
       setEstado(estadoAtual);
       setDocumento(estadoAtual.contrato);
       setPagamento(estadoAtual.pagamento);
+      if (reservaAtual.cupom_codigo) setCupomCodigo(reservaAtual.cupom_codigo);
       const formasCheckout = Array.isArray(reservaAtual.formas_pagamento_checkout) ? reservaAtual.formas_pagamento_checkout : ['pix', 'boleto'];
       if (reservaAtual.forma_pagamento === 'pix' || reservaAtual.forma_pagamento === 'boleto') {
         setMetodoPagamento(reservaAtual.forma_pagamento);
@@ -189,6 +192,25 @@ export default function Checkout() {
       await carregarDados(true);
     } catch (err: any) {
       setError(err.response?.data?.erro || 'Não foi possível preparar o contrato.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const aplicarCupom = async () => {
+    if (!reservaId || !cupomCodigo.trim()) {
+      setCupomMensagem('Informe o código do cupom.');
+      return;
+    }
+    setIsProcessing(true);
+    setCupomMensagem('');
+    setError('');
+    try {
+      const response = await api.post(`/pacotes/reservas/${reservaId}/aplicar-cupom`, { codigo: cupomCodigo.trim() });
+      setCupomMensagem(`Cupom ${response.data.codigo} aplicado.`);
+      await carregarDados(true);
+    } catch (err: any) {
+      setCupomMensagem(err.response?.data?.erro || 'Não foi possível aplicar o cupom.');
     } finally {
       setIsProcessing(false);
     }
@@ -380,6 +402,7 @@ export default function Checkout() {
           <div className="mt-5 flex items-center gap-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">
             <RefreshCw size={15} /> {estado?.checkout_estado || reserva?.status || 'checkout'} · hold de vaga protegido durante o checkout
           </div>
+          {Array.isArray(reserva?.participantes) && reserva.participantes.length > 1 && <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs font-black uppercase tracking-wide text-slate-500">Pessoas identificadas</p><ul className="mt-2 space-y-1 text-sm font-semibold text-slate-700">{reserva.participantes.map((participante: any) => <li key={participante.id}>{participante.nome_completo}</li>)}</ul></div>}
         </CardContent>
       </Card>
 
@@ -457,6 +480,14 @@ export default function Checkout() {
           <CardTitle>Condição de pagamento</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5 p-6">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <label className="block text-sm font-semibold text-slate-700">Cupom de desconto</label>
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+              <input value={cupomCodigo} onChange={(event) => setCupomCodigo(event.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 50))} placeholder="Digite seu cupom" disabled={Boolean(reserva?.forma_pagamento) || contratoValidado} className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono uppercase" />
+              <Button type="button" variant="outline" onClick={aplicarCupom} isLoading={isProcessing} disabled={Boolean(reserva?.forma_pagamento) || contratoValidado || !cupomCodigo.trim()}>Aplicar</Button>
+            </div>
+            {cupomMensagem && <p className="mt-2 text-xs font-semibold text-slate-600">{cupomMensagem}</p>}
+          </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <button type="button" disabled={!pixDisponivel || Boolean(reserva?.forma_pagamento) || contratoValidado} onClick={() => setMetodoPagamento('pix')} className={`rounded-xl border p-5 text-left transition ${!pixDisponivel ? 'cursor-not-allowed border-gray-200 bg-gray-50 opacity-60' : metodoPagamento === 'pix' ? 'border-primary bg-red-50 ring-2 ring-primary/20' : 'border-gray-200'}`}>
               <QrCode className="text-primary" />

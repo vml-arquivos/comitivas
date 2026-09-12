@@ -3,8 +3,9 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { api, useAuth } from '../../contexts/AuthContext';
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@ui/index';
-import { ArrowLeft, ArrowRight, Check, CheckCircle2, Info, TentTree, Wind, Snowflake, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Info, TentTree, Wind, Snowflake, Sparkles, Trash2, UserPlus } from 'lucide-react';
 import {
+  type ParticipanteCheckout,
   lerIntencaoCheckout,
   lerLeadId,
   lerLeadIntentToken,
@@ -22,8 +23,6 @@ interface PacotePublicado {
   modalidade_hospedagem: 'camping' | 'quarto_ventilador' | 'quarto_ar_condicionado';
   forma_contratacao: 'onibus' | 'hospedagem' | 'onibus_hospedagem' | 'livre';
   disponibilidade: 'disponivel' | 'ultimas_vagas' | 'esgotado';
-  vagas_disponiveis?: number;
-  vagas_hospedagem_por_grupo?: { masculino: number; feminino: number } | null;
 }
 
 const modalidadeMeta: Record<PacotePublicado['modalidade_hospedagem'], { label: string; icon: typeof TentTree; destaque: string }> = {
@@ -42,12 +41,10 @@ export default function ConfiguradorPacote() {
   const { user, isLoading: authLoading } = useAuth();
   const [searchParams] = useSearchParams();
   const pacoteSolicitado = searchParams.get('pacote');
-  const [itensDisponiveis, setItensDisponiveis] = useState<any[]>([]);
   const [pacotes, setPacotes] = useState<PacotePublicado[]>([]);
   const [pacoteId, setPacoteId] = useState<string>('');
-  const [itensSelecionados, setItensSelecionados] = useState<Record<string, number>>({});
-  const [cupomCodigo, setCupomCodigo] = useState('');
   const [grupoHospedagem, setGrupoHospedagem] = useState<'' | 'masculino' | 'feminino'>('');
+  const [participantes, setParticipantes] = useState<ParticipanteCheckout[]>([]);
   const [calculo, setCalculo] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isCalculating, setIsCalculating] = useState(false);
@@ -67,12 +64,8 @@ export default function ConfiguradorPacote() {
         return;
       }
       try {
-        const [itensResponse, pacotesResponse] = await Promise.all([
-          api.get(`/pacotes/lotes/${loteId}/itens`),
-          api.get(`/pacotes/lotes/${loteId}/pacotes`),
-        ]);
+        const pacotesResponse = await api.get(`/pacotes/lotes/${loteId}/pacotes`);
         const listaPacotes = pacotesResponse.data.pacotes || [];
-        setItensDisponiveis(itensResponse.data.itens || []);
         setPacotes(listaPacotes);
         const intencaoSalva = lerIntencaoCheckout();
         const pacoteDaUrl = pacoteSolicitado
@@ -86,21 +79,18 @@ export default function ConfiguradorPacote() {
         if (pacoteDaUrl) {
           setPacoteId(pacoteDaUrl.id);
           if (intencaoSalva && intencaoSalva.loteId === loteId && intencaoSalva.pacoteId === pacoteDaUrl.id) {
-            setItensSelecionados(intencaoSalva.itensSelecionados || {});
-            setCupomCodigo(intencaoSalva.cupomCodigo || '');
             setGrupoHospedagem(intencaoSalva.grupoHospedagem || '');
+            setParticipantes(intencaoSalva.participantes || []);
           }
         } else if (pacoteSalvoValido && pacoteSalvoId) {
           setPacoteId(pacoteSalvoId);
-          setItensSelecionados(intencaoSalva?.itensSelecionados || {});
-          setCupomCodigo(intencaoSalva?.cupomCodigo || '');
           setGrupoHospedagem(intencaoSalva?.grupoHospedagem || '');
+          setParticipantes(intencaoSalva?.participantes || []);
         } else if (listaPacotes.length === 1 && listaPacotes[0].disponibilidade !== 'esgotado') {
           setPacoteId(listaPacotes[0].id);
         }
       } catch (err: any) {
         setError(err.response?.data?.erro || 'Não foi possível carregar as opções do pacote. Tente novamente.');
-        setItensDisponiveis([]);
         setPacotes([]);
       } finally {
         setIsLoading(false);
@@ -115,17 +105,6 @@ export default function ConfiguradorPacote() {
     && pacoteSelecionado.modalidade_hospedagem !== 'camping'
     && ['hospedagem', 'onibus_hospedagem', 'livre'].includes(pacoteSelecionado.forma_contratacao),
   );
-  const incluiTransporte = Boolean(
-    pacoteSelecionado
-    && (pacoteSelecionado.modalidade_hospedagem === 'camping' || ['onibus', 'onibus_hospedagem'].includes(pacoteSelecionado.forma_contratacao)),
-  );
-
-  useEffect(() => {
-    if (grupoHospedagem && pacoteSelecionado?.vagas_hospedagem_por_grupo?.[grupoHospedagem] === 0) {
-      setGrupoHospedagem('');
-    }
-  }, [grupoHospedagem, pacoteSelecionado]);
-
   useEffect(() => {
     if (isLoading || !loteId || (pacotes.length > 0 && !pacoteId)) {
       setCalculo(null);
@@ -134,10 +113,7 @@ export default function ConfiguradorPacote() {
     const timer = setTimeout(async () => {
       setIsCalculating(true);
       try {
-        const itensPayload = Object.entries(itensSelecionados)
-          .filter(([, quantidade]) => quantidade > 0)
-          .map(([id, quantidade]) => ({ id, quantidade }));
-        const response = await api.post('/pacotes/calcular', { lote_id: loteId, pacote_id: pacoteId || undefined, itens: itensPayload, cupom_codigo: cupomCodigo.trim() || undefined });
+        const response = await api.post('/pacotes/calcular', { lote_id: loteId, pacote_id: pacoteId || undefined, itens: [] });
         setCalculo(response.data);
       } catch (err: any) {
         setError(err.response?.data?.erro || 'Erro ao calcular o valor do pacote.');
@@ -147,21 +123,7 @@ export default function ConfiguradorPacote() {
       }
     }, 250);
     return () => clearTimeout(timer);
-  }, [itensSelecionados, loteId, pacoteId, pacotes.length, cupomCodigo, isLoading]);
-
-  const gruposItens = useMemo(() => itensDisponiveis.reduce<Record<string, any[]>>((grupos, item) => {
-    const grupo = item.tipo || 'Outros';
-    (grupos[grupo] ||= []).push(item);
-    return grupos;
-  }, {}), [itensDisponiveis]);
-
-  const alterarQuantidade = (item: any, valor: number) => {
-    const minimo = Number(item.min_quantity ?? 0);
-    const maximo = Number(item.max_quantity ?? 99);
-    const passo = Math.max(1, Number(item.step ?? 1));
-    const quantidade = Math.min(maximo, Math.max(minimo, valor));
-    setItensSelecionados((prev) => ({ ...prev, [item.id]: quantidade > 0 ? Math.round(quantidade / passo) * passo : 0 }));
-  };
+  }, [loteId, pacoteId, pacotes.length, isLoading]);
 
   const selecionarPacote = (id: string) => {
     setPacoteId(id);
@@ -175,6 +137,18 @@ export default function ConfiguradorPacote() {
         lead_intent_token: leadIntentToken,
       }).catch(() => undefined);
     }
+  };
+
+  const adicionarParticipante = () => {
+    setParticipantes((atuais) => [...atuais, { nome_completo: '', sexo_operacional: grupoHospedagem || undefined }]);
+  };
+
+  const atualizarParticipante = (indice: number, campo: keyof ParticipanteCheckout, valor: string) => {
+    setParticipantes((atuais) => atuais.map((participante, index) => index === indice ? { ...participante, [campo]: valor } : participante));
+  };
+
+  const removerParticipante = (indice: number) => {
+    setParticipantes((atuais) => atuais.filter((_, index) => index !== indice));
   };
 
   const handleReservar = async () => {
@@ -191,15 +165,18 @@ export default function ConfiguradorPacote() {
       setError('Selecione o grupo de hospedagem masculino ou feminino para reservar a vaga correta.');
       return;
     }
+    if (participantes.some((participante) => !participante.nome_completo.trim())) {
+      setError('Informe o nome completo de cada pessoa adicionada à comitiva.');
+      return;
+    }
     setError('');
     let leadId = lerLeadId();
     const leadIntentToken = lerLeadIntentToken();
     const intent = {
       loteId: loteId!,
       pacoteId,
-      itensSelecionados,
-      cupomCodigo: cupomCodigo.trim() || undefined,
       grupoHospedagem: grupoHospedagem || undefined,
+      participantes,
       criadoEm: new Date().toISOString(),
     };
     salvarIntencaoCheckout(intent);
@@ -226,15 +203,12 @@ export default function ConfiguradorPacote() {
         const origem = await api.post('/jornada/registrar-origem', { codigo_origem: referencia });
         leadId = origem.data.lead_id || undefined;
       }
-      const itensPayload = Object.entries(itensSelecionados)
-        .filter(([, quantidade]) => quantidade > 0)
-        .map(([id, quantidade]) => ({ id, quantidade }));
       const response = await api.post('/pacotes/reservar', {
         lote_id: loteId,
         pacote_id: pacoteId || undefined,
-        itens: itensPayload,
-        cupom_codigo: cupomCodigo.trim() || undefined,
+        itens: [],
         grupo_hospedagem: grupoHospedagem || undefined,
+        participantes,
         lead_id: leadId || undefined,
         lead_intent_token: leadIntentToken || undefined,
       });
@@ -260,13 +234,13 @@ export default function ConfiguradorPacote() {
         <div className="flex flex-col gap-4 rounded-2xl border border-[#182D3B]/10 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
           <button type="button" onClick={() => navigate('/eventos')} className="inline-flex items-center gap-2 text-sm font-extrabold text-[#851F32] hover:underline"><ArrowLeft size={16}/>Voltar e comparar pacotes</button>
           <div className="flex items-center gap-2 overflow-x-auto text-[11px] font-black uppercase tracking-[.1em] text-slate-400">
-            <span className="rounded-full bg-[#851F32] px-3 py-1.5 text-white">1 · Pacote</span><ArrowRight size={13}/><span>2 · Adicionais</span><ArrowRight size={13}/><span>3 · Checkout</span>
+            <span className="rounded-full bg-[#851F32] px-3 py-1.5 text-white">1 · Pacote</span><ArrowRight size={13}/><span>2 · Pessoas</span><ArrowRight size={13}/><span>3 · Checkout</span>
           </div>
         </div>
         <section className="rounded-[1.6rem] bg-[#182D3B] p-5 text-white shadow-[0_18px_50px_rgba(24,45,59,0.18)] sm:rounded-[2rem] sm:p-7">
           <div className="flex items-center gap-3 text-[#E3AAB4]"><Sparkles size={18} /><span className="text-xs font-bold uppercase tracking-[0.18em]">Sua experiência, suas escolhas</span></div>
           <h1 className="font-editorial mt-3 text-2xl font-bold tracking-[-0.025em] sm:text-4xl">Monte seu pacote de viagem</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-7 text-white/75">Defina a hospedagem e complemente a sua reserva. O valor e o contrato serão gerados com base exatamente nas escolhas confirmadas.</p>
+          <p className="mt-3 max-w-2xl text-sm leading-7 text-white/75">Escolha seu pacote e, se quiser, identifique as pessoas que viajarão com você.</p>
         </section>
 
         {error && <div className="rounded-lg bg-red-50 p-4 text-red-700">{error}</div>}
@@ -291,55 +265,46 @@ export default function ConfiguradorPacote() {
                 </button>;
               })}
             </div>
-            {pacoteSelecionado && <div className="mt-3 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"><CheckCircle2 size={17} className="mt-0.5 shrink-0"/><p><strong>{pacoteSelecionado.nome}</strong> selecionado. Você pode adicionar extras abaixo ou seguir direto para o checkout.</p></div>}
+            {pacoteSelecionado && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"><strong>{pacoteSelecionado.nome}</strong> selecionado.</div>}
             {exigeHospedagem && <fieldset className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
-              <legend className="px-1 text-sm font-semibold text-slate-800">Grupo do quarto</legend>
-              <p className="mb-3 text-xs text-slate-500">Usado somente para direcionar a vaga ao quarto correspondente.</p>
+              <legend className="px-1 text-sm font-semibold text-slate-800">Escolha o grupo do quarto</legend>
               <div className="grid grid-cols-2 gap-3">
                 {(['feminino', 'masculino'] as const).map((grupo) => {
-                  const vagas = pacoteSelecionado?.vagas_hospedagem_por_grupo?.[grupo];
-                  const esgotado = vagas === 0;
-                  return <button key={grupo} type="button" disabled={esgotado} aria-pressed={grupoHospedagem === grupo} onClick={() => setGrupoHospedagem(grupo)} className={`rounded-xl border px-4 py-3 text-sm font-semibold capitalize transition disabled:cursor-not-allowed disabled:opacity-50 ${grupoHospedagem === grupo ? 'border-primary bg-primary/5 text-primary ring-2 ring-primary/15' : 'border-slate-200 text-slate-700 hover:border-primary/40'}`}>{grupo}{typeof vagas === 'number' ? ` · ${vagas} vaga${vagas === 1 ? '' : 's'}` : ''}</button>;
+                  return <button key={grupo} type="button" aria-pressed={grupoHospedagem === grupo} onClick={() => { setGrupoHospedagem(grupo); setParticipantes((atuais) => atuais.map((participante) => ({ ...participante, sexo_operacional: participante.sexo_operacional || grupo }))); }} className={`rounded-xl border px-4 py-3 text-sm font-semibold capitalize transition ${grupoHospedagem === grupo ? 'border-primary bg-primary/5 text-primary ring-2 ring-primary/15' : 'border-slate-200 text-slate-700 hover:border-primary/40'}`}>{grupo}</button>;
                 })}
               </div>
             </fieldset>}
           </section>
         )}
 
-        <section>
-          <div className="mb-3"><h2 className="text-xl font-bold text-slate-900">Personalize com adicionais</h2><p className="text-sm text-gray-500">Selecione apenas o que deseja incluir na experiência.</p></div>
-          <div className="space-y-6">
-            {Object.entries(gruposItens).map(([grupo, itens]) => <div key={grupo}>
-              <h3 className="mb-3 text-sm font-black uppercase tracking-[0.14em] text-primary">{grupo}</h3>
-              <div className="space-y-3">{itens.map((item) => {
-                const quantidade = Number(itensSelecionados[item.id] || 0);
-                const minimo = Number(item.min_quantity ?? 0);
-                const maximo = Number(item.max_quantity ?? 99);
-                const obrigatorio = minimo > 0;
-                return <Card key={item.id} className={`transition-all ${quantidade > 0 ? 'border-primary ring-1 ring-primary' : 'hover:border-gray-300'}`}>
-                  <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-start gap-4"><div className={`mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${quantidade > 0 ? 'border-primary bg-primary text-white' : 'border-gray-300'}`}>{quantidade > 0 && <Check size={14} />}</div><div><h3 className="font-semibold text-gray-900">{item.nome}{obrigatorio && <span className="ml-2 text-xs font-bold uppercase text-primary">Obrigatório</span>}</h3><p className="text-sm text-gray-500">{item.descricao || 'Adicional disponível para este lote.'}</p><p className="mt-1 text-xs text-slate-500">{formatarMoeda(item.valor)} por unidade{maximo < 99 ? ` · máximo ${maximo}` : ''}</p></div></div>
-                    <div className="flex items-center justify-between gap-4 sm:justify-end"><span className="text-sm font-semibold text-slate-900">{formatarMoeda(Number(item.valor) * quantidade)}</span><div className="flex items-center gap-2 rounded-lg border border-slate-200 p-1"><button type="button" onClick={() => alterarQuantidade(item, quantidade - 1)} disabled={quantidade <= minimo} className="h-8 w-8 rounded-md text-lg font-bold hover:bg-slate-100 disabled:opacity-40" aria-label={`Reduzir ${item.nome}`}>−</button><span className="w-7 text-center text-sm font-bold" aria-live="polite">{quantidade}</span><button type="button" onClick={() => alterarQuantidade(item, quantidade + 1)} disabled={quantidade >= maximo} className="h-8 w-8 rounded-md text-lg font-bold hover:bg-slate-100 disabled:opacity-40" aria-label={`Adicionar ${item.nome}`}>+</button></div></div>
-                  </CardContent>
-                </Card>;
-              })}</div>
-            </div>)}
-            {itensDisponiveis.length === 0 && <p className="rounded-lg border border-dashed p-5 text-center text-sm text-gray-500">Não há adicionais disponíveis para este lote.</p>}
+        <section className="rounded-2xl border border-slate-200 bg-white p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div><h2 className="text-xl font-bold text-slate-900">Vai viajar com mais alguém?</h2><p className="text-sm text-gray-500">Adicione as pessoas da sua comitiva. Os dados serão identificados no contrato.</p></div>
+            <Button type="button" variant="outline" onClick={adicionarParticipante}><UserPlus size={16} className="mr-2" />Adicionar pessoa</Button>
           </div>
+          {participantes.length > 0 && <div className="mt-4 space-y-3">
+            {participantes.map((participante, indice) => <div key={indice} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="mb-3 flex items-center justify-between"><p className="text-sm font-bold text-slate-800">Pessoa {indice + 2}</p><button type="button" onClick={() => removerParticipante(indice)} className="rounded-md p-2 text-red-700 hover:bg-red-50" aria-label={`Remover pessoa ${indice + 2}`}><Trash2 size={16} /></button></div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="text-xs font-semibold text-slate-600 sm:col-span-2">Nome completo<input value={participante.nome_completo} onChange={(event) => atualizarParticipante(indice, 'nome_completo', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" required /></label>
+                <label className="text-xs font-semibold text-slate-600">CPF (opcional)<input value={participante.cpf || ''} onChange={(event) => atualizarParticipante(indice, 'cpf', event.target.value)} inputMode="numeric" className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
+                <label className="text-xs font-semibold text-slate-600">Data de nascimento<input type="date" value={participante.data_nascimento || ''} onChange={(event) => atualizarParticipante(indice, 'data_nascimento', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
+                <label className="text-xs font-semibold text-slate-600">Telefone (opcional)<input value={participante.telefone || ''} onChange={(event) => atualizarParticipante(indice, 'telefone', event.target.value)} inputMode="tel" className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
+                <label className="text-xs font-semibold text-slate-600">E-mail (opcional)<input type="email" value={participante.email || ''} onChange={(event) => atualizarParticipante(indice, 'email', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
+                {exigeHospedagem && <label className="text-xs font-semibold text-slate-600">Grupo<select value={participante.sexo_operacional || grupoHospedagem || ''} onChange={(event) => atualizarParticipante(indice, 'sexo_operacional', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">A definir</option><option value="feminino">Feminino</option><option value="masculino">Masculino</option></select></label>}
+              </div>
+            </div>)}
+        </div>}
         </section>
       </div>
 
       <aside className="lg:col-span-1">
         <Card className="sticky top-[104px] overflow-hidden border-[#182D3B]/10 shadow-[0_18px_45px_rgba(24,45,59,0.10)]"><CardHeader className="border-b bg-[#182D3B] text-white"><CardTitle>Resumo da reserva</CardTitle></CardHeader><CardContent className="space-y-4 p-6">
           <div className="flex justify-between text-sm"><span className="text-gray-600">Pacote</span><span className="max-w-40 text-right font-medium">{pacoteSelecionado?.nome || (pacotes.length ? 'Escolha uma opção' : 'Pacote base')}</span></div>
-          {pacoteSelecionado && <div className="flex justify-between text-sm"><span className="text-gray-600">Vagas</span><span className="max-w-44 text-right font-medium">{incluiTransporte ? 'Transporte' : ''}{incluiTransporte && exigeHospedagem ? ' + ' : ''}{exigeHospedagem ? `Quarto ${grupoHospedagem || 'a definir'}` : ''}</span></div>}
           <div className="flex justify-between text-sm"><span className="text-gray-600">Valor-base</span><span className="font-medium">{formatarMoeda(calculo?.valor_base || 0)}</span></div>
-          {Object.entries(itensSelecionados).some(([, qtd]) => qtd > 0) && <div className="space-y-2 border-t pt-4"><p className="text-xs font-bold uppercase text-gray-500">Adicionais</p>{Object.entries(itensSelecionados).filter(([, qtd]) => qtd > 0).map(([id, qtd]) => { const item = itensDisponiveis.find((i) => i.id === id); return item ? <div key={id} className="flex justify-between text-sm"><span className="text-gray-600">{item.nome}</span><span>{formatarMoeda(Number(item.valor) * qtd)}</span></div> : null; })}</div>}
           <div className="border-t pt-4"><div className="flex items-center justify-between"><span className="text-lg font-bold">Total</span><span className="text-2xl font-bold text-primary">{isCalculating ? '...' : formatarMoeda(calculo?.valor_total || 0)}</span></div></div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Prévia do contrato</p><p className="mt-2 text-sm leading-relaxed text-slate-700">Serão registrados: <strong>{pacoteSelecionado?.nome || 'pacote base'}</strong>{Object.entries(itensSelecionados).filter(([, qtd]) => qtd > 0).length ? ` e ${Object.entries(itensSelecionados).filter(([, qtd]) => qtd > 0).length} adicional(is)` : ''}, com o total calculado pelo servidor.</p></div>
-          <label className="block text-sm font-semibold text-slate-700">Cupom de desconto (opcional)<input value={cupomCodigo} onChange={(event) => setCupomCodigo(event.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 50))} placeholder="Digite seu cupom" className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono uppercase" /></label>
-          <Button className="mt-3 w-full" size="lg" onClick={handleReservar} isLoading={isReserving || authLoading} disabled={authLoading || isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado' || (exigeHospedagem && !grupoHospedagem)}>{user ? 'Continuar para checkout' : 'Entrar para continuar'}</Button>
-          <div className="flex gap-2 rounded-md bg-blue-50 p-3 text-xs text-blue-700"><Info size={16} className="shrink-0" /><p>{user ? 'Os valores são calculados no servidor. Seu contrato refletirá exatamente as escolhas confirmadas.' : 'Você só precisará criar sua conta na próxima etapa. Sua escolha ficará salva para continuar sem recomeçar.'}</p></div>
+          <Button className="mt-3 w-full" size="lg" onClick={handleReservar} isLoading={isReserving} disabled={isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado' || (exigeHospedagem && !grupoHospedagem)}>{user ? 'Continuar para checkout' : 'Continuar'}</Button>
+          <div className="flex gap-2 rounded-md bg-blue-50 p-3 text-xs text-blue-700"><Info size={16} className="shrink-0" /><p>Na próxima etapa você entra ou cria sua conta. Sua escolha ficará salva para continuar sem recomeçar.</p></div>
         </CardContent></Card>
       </aside>
 
@@ -349,7 +314,7 @@ export default function ConfiguradorPacote() {
             <p className="truncate text-xs font-bold text-slate-500">{pacoteSelecionado?.nome || 'Escolha um pacote'}</p>
             <p className="text-lg font-black text-[#182D3B]">{isCalculating ? 'Calculando…' : formatarMoeda(calculo?.valor_total || pacoteSelecionado?.valor_total || 0)}</p>
           </div>
-          <Button onClick={handleReservar} isLoading={isReserving || authLoading} disabled={authLoading || isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado' || (exigeHospedagem && !grupoHospedagem)}>{user ? 'Continuar' : 'Entrar para continuar'} <ArrowRight size={16}/></Button>
+          <Button onClick={handleReservar} isLoading={isReserving} disabled={isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado' || (exigeHospedagem && !grupoHospedagem)}>{user ? 'Continuar' : 'Continuar'} <ArrowRight size={16}/></Button>
         </div>
       </div>
     </div>

@@ -48,6 +48,7 @@ export type ContratoModeloSnapshot = {
   };
   bagagem?: { limite_kg: number | null };
   seguro?: { seguradora: string | null; apolice: string | null; cobertura: string | null; telefone: string | null };
+  participantes?: Array<{ nome?: string; cpf?: string | null; nascimento?: string | null; grupo?: string | null }>;
   uso_imagem?: { autorizado: boolean; prazo_anos: number };
   data_contrato: string;
   versao_contratual: string;
@@ -164,6 +165,9 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
   const bagagem = snapshot.bagagem || { limite_kg: null };
   const seguro = snapshot.seguro || { seguradora: null, apolice: null, cobertura: null, telefone: null };
   const usoImagem = snapshot.uso_imagem || { autorizado: true, prazo_anos: 3 };
+  const participantes = (Array.isArray(snapshot.participantes) ? snapshot.participantes : [])
+    .filter((participante) => String(participante?.nome || '').trim())
+    .slice(0, 50);
   const nome = valueOrBlank(c.nome, "______________________________");
   const nascimento = formatDate(c.nascimento, "__/__/____");
   const endereco = valueOrBlank(c.endereco);
@@ -211,6 +215,9 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
     .slice(0, 30);
   const adicionaisResumo = adicionais.length
     ? `<p><strong>Adicionais:</strong> ${adicionais.map((item) => `${escapeHtml(item.nome)}${item.quantidade > 1 ? ` (${escapeHtml(item.quantidade)}x)` : ""}`).join(", ")}</p>`
+    : "";
+  const participantesResumo = participantes.length > 1
+    ? `<p><strong>Participantes identificados:</strong> ${participantes.map((participante) => `${escapeHtml(participante.nome)}${participante.cpf ? ` — CPF ${escapeHtml(cpf(participante.cpf))}` : ''}`).join('; ')}.</p>`
     : "";
   const limiteBagagem = bagagem.limite_kg ? `${bagagem.limite_kg} kg` : "________ kg";
   const poltronaRegistrada = Number.isInteger(Number(t.poltrona)) && Number(t.poltrona) > 0;
@@ -301,6 +308,7 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
     <p><strong>Pagamento:</strong> ${escapeHtml(valueOrBlank(f.forma_pagamento, "A definir"))} · ${escapeHtml(f.parcelas || 1)} parcela(s)</p>
     <p><strong>Reserva:</strong> ${escapeHtml(reservaId)}</p>
     ${adicionaisResumo}
+    ${participantesResumo}
   </div>
 </section>
 <h2>QUALIFICAÇÃO DAS PARTES:</h2>

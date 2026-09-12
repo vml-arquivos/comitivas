@@ -3,12 +3,21 @@ export const LEAD_ID_KEY = 'comitivas_lead_id';
 export const LEAD_INTENT_TOKEN_KEY = 'comitivas_lead_intent_token';
 export const SELLER_REFERRAL_KEY = 'comitivas_seller_referral';
 
+export interface ParticipanteCheckout {
+  nome_completo: string;
+  cpf?: string;
+  data_nascimento?: string;
+  telefone?: string;
+  email?: string;
+  sexo_operacional?: 'masculino' | 'feminino';
+}
+
 export interface CheckoutIntent {
   loteId: string;
   pacoteId: string;
-  itensSelecionados: Record<string, number>;
-  cupomCodigo?: string;
+  itensSelecionados?: Record<string, number>;
   grupoHospedagem?: 'masculino' | 'feminino';
+  participantes?: ParticipanteCheckout[];
   criadoEm: string;
 }
 

@@ -7,16 +7,18 @@ async function fonte(caminho: string) {
 }
 
 describe("checkout, cupom e contrato", () => {
-  it("preserva o cupom durante login e retomada da compra", async () => {
+  it("mantém o pacote simples e leva o cupom para o pagamento", async () => {
     const [configurador, intent] = await Promise.all([
       fonte("../apps/web/src/pages/cliente/ConfiguradorPacote.tsx"),
       fonte("../apps/web/src/utils/checkoutIntent.ts"),
     ]);
 
-    expect(intent).toContain("cupomCodigo?: string");
-    expect(configurador).toContain("setCupomCodigo(intencaoSalva.cupomCodigo || '')");
-    expect(configurador).toContain("cupomCodigo: cupomCodigo.trim() || undefined");
-    expect(configurador).toContain("cupom_codigo: cupomCodigo.trim() || undefined");
+    expect(intent).toContain("participantes?: ParticipanteCheckout[]");
+    expect(configurador).toContain("participantes");
+    expect(configurador).not.toContain("Prévia do contrato");
+    expect(configurador).not.toContain("vagas_hospedagem_por_grupo");
+    expect(configurador).not.toContain("Cupom de desconto (opcional)");
+    expect(configurador).not.toContain("/itens");
     expect(configurador).toContain("lead_intent_token: leadIntentToken || undefined");
   });
 
@@ -30,6 +32,7 @@ describe("checkout, cupom e contrato", () => {
     expect(checkout).toContain("reserva?.cupom_codigo");
     expect(rota).toContain("cupom_codigo: cupomSelecionado?.codigo || null");
     expect(rota).toContain("desconto_cupom: reserva[0].desconto_aplicado");
+    expect(rota).toContain('router.post("/reservas/:reserva_id/aplicar-cupom"');
     expect(rota).toContain('res.status(400).json({ erro: error?.message');
   });
 
@@ -143,6 +146,21 @@ describe("checkout, cupom e contrato", () => {
     expect(service).toContain("rodoviario && recursos.hospedagem");
     expect(template).toContain('"hospedagem_transporte"');
     expect(pacotes).toContain('"hospedagem_transporte"');
+  });
+
+  it("preserva pessoas adicionadas e suas alocações operacionais", async () => {
+    const [servico, rota, jornada] = await Promise.all([
+      fonte("../server/services/pacoteService.ts"),
+      fonte("../server/routes/pacotes.ts"),
+      fonte("../server/routes/jornada.ts"),
+    ]);
+    expect(servico).toContain("quantidadePessoas");
+    expect(servico).toContain("reserva_participantes");
+    expect(servico).toContain("assento_id =");
+    expect(servico).toContain("vaga_quarto_id =");
+    expect(rota).toContain("/reservas/:reserva_id/aplicar-cupom");
+    expect(jornada).toContain('"lead_frio"');
+    expect(jornada).toContain("statusPermitidos");
   });
 
   it("normaliza o timestamp bruto do desafio antes de registrar a validação OTP", async () => {

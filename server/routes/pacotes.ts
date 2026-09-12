@@ -6,7 +6,7 @@ import { ConfiguracaoService } from "../services/configuracaoService.js";
 import { GatewayConfigService } from "../services/gatewayConfigService.js";
 import { AuthService } from "../services/authService.js";
 import { db } from "../db/index.js";
-import { eventos, lotes, pacotes, itens_addon, reservas, usuarios, leads_origem, pagamentos, pagamentoParcelas, cupons } from "../db/schema.js";
+import { eventos, lotes, pacotes, itens_addon, reservas, usuarios, leads_origem, pagamentos, pagamentoParcelas, cupons, cuponsUtilizacoes, precosLedger, reservaParticipantes } from "../db/schema.js";
 import { eq, and, desc, inArray, isNull, or, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { CatalogoExclusaoService } from "../services/catalogoExclusaoService.js";
@@ -212,6 +212,7 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
         assento_alocacao_id: resultado.operacao.assento_alocacao_id,
         quarto_alocacao_id: resultado.operacao.quarto_alocacao_id,
       },
+      quantidade_pessoas: resultado.quantidade_pessoas || 1,
     });
   } catch (error: any) {
     console.error("[PACOTES] Erro ao reservar:", error);
@@ -337,6 +338,10 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
       .where(eq(usuarios.id, reserva[0].usuario_id))
       .limit(1);
 
+    const participantesReserva = await db.select({ id: reservaParticipantes.id, nome_completo: reservaParticipantes.nome_completo, cpf: reservaParticipantes.cpf, data_nascimento: reservaParticipantes.data_nascimento, telefone: reservaParticipantes.telefone, email: reservaParticipantes.email, sexo_operacional: reservaParticipantes.sexo_operacional, assento_id: reservaParticipantes.assento_id, quarto_id: reservaParticipantes.quarto_id, vaga_quarto_id: reservaParticipantes.vaga_quarto_id })
+      .from(reservaParticipantes)
+      .where(reserva[0].grupo_id ? eq(reservaParticipantes.grupo_id, reserva[0].grupo_id) : eq(reservaParticipantes.reserva_id, reserva[0].id));
+
     const pacoteSelecionado = reserva[0].pacote_id
       ? await db
         .select({
@@ -417,6 +422,7 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
       cupom_codigo: cupomSelecionado?.codigo || null,
       desconto_cupom: reserva[0].desconto_aplicado || "0.00",
       contratante: contratante[0] || null,
+      participantes: participantesReserva,
       parcelas_boleto_maximas: parcelasBoletoMaximas,
       parcelas_credito_maximas: parcelasCreditoMaximas,
       formas_pagamento_permitidas: regrasPacote.formasPermitidas,
@@ -476,14 +482,76 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
       .from(pacotes)
       .where(and(eq(pacotes.lote_id, req.params.lote_id), eq(pacotes.ativo, true)));
 
-    const pacotesComCapacidade = await Promise.all(lista.map(async (pacote) => {
+    const pacotesComDisponibilidade = await Promise.all(lista.map(async (pacote) => {
       const capacidade = await PacoteService.obterDisponibilidadeFisica(pacote);
-      return { ...pacote, disponibilidade_configurada: pacote.disponibilidade, ...capacidade };
+      return {
+        id: pacote.id,
+        nome: pacote.nome,
+        descricao: pacote.descricao,
+        valor_total: pacote.valor_total,
+        modalidade_hospedagem: pacote.modalidade_hospedagem,
+        forma_contratacao: pacote.forma_contratacao,
+        disponibilidade_configurada: pacote.disponibilidade,
+        disponibilidade: capacidade.disponibilidade,
+      };
     }));
-    res.json({ lote_id: req.params.lote_id, pacotes: pacotesComCapacidade });
+    res.json({ lote_id: req.params.lote_id, pacotes: pacotesComDisponibilidade });
   } catch (error) {
     console.error("[PACOTES] Erro ao listar pacotes:", error);
     res.status(500).json({ erro: "Erro ao listar pacotes" });
+  }
+});
+
+// Cupom é aplicado somente no checkout, depois da escolha do pacote.
+router.post("/reservas/:reserva_id/aplicar-cupom", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const codigo = String(req.body?.codigo || "").trim().toUpperCase();
+    if (!codigo) return res.status(400).json({ erro: "Informe o código do cupom" });
+    const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
+    if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
+    if (reserva.usuario_id !== req.usuario.id && !isAdminOrDev(req.usuario.tipo)) return res.status(403).json({ erro: "Acesso negado" });
+    if (reserva.forma_pagamento || ["contrato_validado", "contrato_aprovado_admin", "aguardando_pagamento", "quitado"].includes(String(reserva.checkout_estado))) {
+      return res.status(409).json({ erro: "O cupom só pode ser aplicado antes da validação do contrato e do pagamento" });
+    }
+    const lote = (await db.select({ evento_id: lotes.evento_id }).from(lotes).where(eq(lotes.id, reserva.lote_id)).limit(1))[0];
+    const cupom = lote ? (await db.select().from(cupons).where(and(
+      eq(cupons.codigo, codigo), eq(cupons.evento_id, lote.evento_id), eq(cupons.ativo, true),
+      or(isNull(cupons.pacote_id), reserva.pacote_id ? eq(cupons.pacote_id, reserva.pacote_id) : isNull(cupons.pacote_id)),
+      or(isNull(cupons.vendedor_id), reserva.vendedor_id ? eq(cupons.vendedor_id, reserva.vendedor_id) : isNull(cupons.vendedor_id)),
+    )).limit(1))[0] : undefined;
+    if (!cupom) return res.status(400).json({ erro: "Cupom inválido para este evento ou pacote" });
+    if (cupom.validade && new Date(cupom.validade).getTime() < Date.now()) return res.status(400).json({ erro: "Cupom expirado" });
+    if (cupom.uso_maximo !== null && Number(cupom.uso_atual || 0) >= Number(cupom.uso_maximo)) return res.status(400).json({ erro: "Cupom com limite de uso atingido" });
+    if (reserva.cupom_id && reserva.cupom_id !== cupom.id) return res.status(409).json({ erro: "Já existe outro cupom aplicado nesta reserva" });
+    const base = Number(reserva.valor_total || 0) + Number(reserva.desconto_aplicado || 0);
+    if (cupom.valor_minimo !== null && base < Number(cupom.valor_minimo)) return res.status(400).json({ erro: `Este cupom exige valor mínimo de R$ ${cupom.valor_minimo}` });
+    if (cupom.limite_por_cliente) {
+      const usos = await db.select({ id: cuponsUtilizacoes.id }).from(cuponsUtilizacoes).where(and(eq(cuponsUtilizacoes.cupom_id, cupom.id), eq(cuponsUtilizacoes.usuario_id, reserva.usuario_id))).limit(1);
+      if (usos.length >= Number(cupom.limite_por_cliente) && reserva.cupom_id !== cupom.id) return res.status(400).json({ erro: "Este cupom já atingiu o limite por cliente" });
+    }
+    let desconto = cupom.desconto_percentual !== null
+      ? base * Number(cupom.desconto_percentual) / 100
+      : Number(cupom.desconto_fixo || 0);
+    desconto = Math.min(Math.max(0, desconto), base);
+    await db.transaction(async (tx) => {
+      const reservaBloqueada = (await tx.select({ cupom_id: reservas.cupom_id }).from(reservas).where(eq(reservas.id, reserva.id)).for("update").limit(1))[0];
+      if (!reservaBloqueada) throw new Error("Reserva não encontrada");
+      if (reservaBloqueada.cupom_id && reservaBloqueada.cupom_id !== cupom.id) throw new Error("Já existe outro cupom aplicado nesta reserva");
+      const novaAplicacao = !reservaBloqueada.cupom_id;
+      const bloqueado = (await tx.select({ id: cupons.id, ativo: cupons.ativo, uso_atual: cupons.uso_atual, uso_maximo: cupons.uso_maximo }).from(cupons).where(eq(cupons.id, cupom.id)).for("update").limit(1))[0];
+      if (!bloqueado || !bloqueado.ativo || (bloqueado.uso_maximo !== null && Number(bloqueado.uso_atual || 0) >= Number(bloqueado.uso_maximo) && novaAplicacao)) throw new Error("Cupom com limite de uso atingido");
+      if (novaAplicacao) {
+        await tx.update(cupons).set({ uso_atual: sql`COALESCE(${cupons.uso_atual}, 0) + 1` }).where(eq(cupons.id, cupom.id));
+        await tx.insert(cuponsUtilizacoes).values({ id: createId(), cupom_id: cupom.id, usuario_id: reserva.usuario_id, reserva_id: reserva.id });
+      }
+      await tx.update(reservas).set({ cupom_id: cupom.id, desconto_aplicado: desconto.toFixed(2), valor_total: (base - desconto).toFixed(2), valor_total_centavos: Math.round((base - desconto) * 100), atualizado_em: new Date() }).where(eq(reservas.id, reserva.id));
+      await tx.insert(precosLedger).values({ id: createId(), reserva_id: reserva.id, tipo: "cupom", codigo: cupom.id, descricao: `Cupom ${cupom.codigo}`, quantidade: 1, valor_unitario_centavos: -Math.round(desconto * 100), valor_total_centavos: -Math.round(desconto * 100), criado_em: new Date(), metadados: { origem: "checkout" } });
+    });
+    return res.json({ codigo: cupom.codigo, desconto_cupom: desconto.toFixed(2), valor_total: (base - desconto).toFixed(2) });
+  } catch (error: any) {
+    console.error("[PACOTES] Erro ao aplicar cupom:", error?.message || "falha não detalhada");
+    return res.status(400).json({ erro: error?.message || "Não foi possível aplicar o cupom" });
   }
 });
 
