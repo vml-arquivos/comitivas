@@ -76,12 +76,15 @@ describe("checkout, cupom e contrato", () => {
   });
 
   it("aprova automaticamente somente após documento válido e cadastro completo", async () => {
-    const rota = await fonte("../server/routes/cliente.ts");
+    const [rota, service] = await Promise.all([
+      fonte("../server/routes/cliente.ts"),
+      fonte("../server/services/cadastroAprovacaoService.ts"),
+    ]);
     expect(rota).toContain("aprovarCadastroSeElegivel");
-    expect(rota).toContain("camposFaltantesCadastroMinimo(usuario)");
-    expect(rota).toContain("automatico_documento_validado");
-    expect(rota).toContain("cadastro_aprovado_automaticamente");
-    expect(rota).toContain("pg_advisory_xact_lock");
+    expect(service).toContain("camposFaltantesCadastroMinimo(usuario)");
+    expect(service).toContain("automatico_documento_validado");
+    expect(service).toContain("cadastro_aprovado_automaticamente");
+    expect(service).toContain("pg_advisory_xact_lock");
   });
 
   it("persiste o message_id somente após confirmação do provedor de e-mail", async () => {
@@ -103,6 +106,16 @@ describe("checkout, cupom e contrato", () => {
     expect(pagamentos).toContain("Cobrança gerada");
     expect(pagamentos).toContain("enfileirarPagamentoQuitado");
     expect(pagamentos).toContain("pagamento-quitado:${reservaId}");
+  });
+
+  it("reavalia aprovação automática quando o cliente completa o perfil", async () => {
+    const auth = await fonte("../server/routes/auth.ts");
+    const service = await fonte("../server/services/cadastroAprovacaoService.ts");
+    expect(auth).toContain("aprovarCadastroSeElegivel(req.usuario.id)");
+    expect(auth).toContain("aprovacao_automatica");
+    expect(service).toContain("documentoId?: string | null");
+    expect(service).toContain("orderBy(desc(clienteDocumentos.validado_em)");
+    expect(service).toContain("pg_advisory_xact_lock");
   });
 
   it("normaliza o timestamp bruto do desafio antes de registrar a validação OTP", async () => {

@@ -7,6 +7,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { AuthService } from "../services/authService.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 import { EmailProvider } from "../services/notificationProvider.js";
+import { aprovarCadastroSeElegivel } from "../services/cadastroAprovacaoService.js";
 import { camposFaltantesCadastroMinimo } from "../security/governance.js";
 import { OAuthProviderName, OAuthService } from "../services/oauthService.js";
 
@@ -563,7 +564,13 @@ router.put("/perfil", authMiddleware, async (req: Request, res: Response) => {
     });
 
     if (!atualizado[0]) return res.status(404).json({ erro: "Usuário não encontrado" });
-    res.json({ mensagem: "Dados atualizados com sucesso", usuario: atualizado[0] });
+    const aprovacaoAutomatica = atualizado[0].tipo === "cliente"
+      ? await aprovarCadastroSeElegivel(req.usuario.id).catch((error) => {
+        console.error("[AUTH] Falha ao avaliar aprovação automática após perfil:", error?.message || "erro");
+        return { aprovado: false, atualizado: false };
+      })
+      : { aprovado: false, atualizado: false };
+    res.json({ mensagem: "Dados atualizados com sucesso", usuario: atualizado[0], aprovacao_automatica: aprovacaoAutomatica });
   } catch (error: any) {
     console.error("[AUTH] Erro ao atualizar perfil:", error);
     if (erroDeUnicidade(error)) {
