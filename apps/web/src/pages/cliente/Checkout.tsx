@@ -83,9 +83,15 @@ export default function Checkout() {
     if (!silencioso) setIsLoading(true);
     try {
       let reservaAtual = (await api.get(`/pacotes/reservas/${reservaId}`)).data;
+      let erroRetomada = '';
+      setReserva(reservaAtual);
       if (reservaAtual.carrinho_retomavel) {
-        await api.post(`/pacotes/reservas/${reservaId}/retomar`);
-        reservaAtual = (await api.get(`/pacotes/reservas/${reservaId}`)).data;
+        try {
+          await api.post(`/pacotes/reservas/${reservaId}/retomar`);
+          reservaAtual = (await api.get(`/pacotes/reservas/${reservaId}`)).data;
+        } catch (retomarError: any) {
+          erroRetomada = retomarError.response?.data?.erro || 'Não foi possível renovar o carrinho. Seus dados continuam preservados para análise.';
+        }
       }
       const estadoResponse = await api.get(`/contratos/estado/${reservaId}`);
       const estadoAtual = estadoResponse.data;
@@ -113,6 +119,7 @@ export default function Checkout() {
         const htmlResponse = await api.get(`/contratos/visualizar/${reservaId}`, { responseType: 'text' });
         setContratoHtml(String(htmlResponse.data));
       }
+      if (erroRetomada) setError(erroRetomada);
     } catch (err: any) {
       if (!silencioso) setError(err.response?.data?.erro || 'Erro ao carregar sua reserva.');
     } finally {

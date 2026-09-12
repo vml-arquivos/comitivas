@@ -190,9 +190,18 @@ export class PacoteService {
       const cadastro = (await tx.select({ sexo: usuarios.sexo }).from(usuarios).where(eq(usuarios.id, usuario_id)).limit(1))[0];
       const grupoHospedagem = normalizarGrupoHospedagem(cadastro?.sexo) || normalizarGrupoHospedagem(existente.grupo_hospedagem);
 
-      const hold = existente.inventario_hold_id
-        ? (await tx.execute(sql`SELECT id, status, expira_em FROM inventario_holds WHERE id = ${existente.inventario_hold_id} FOR UPDATE`)).rows[0] as { id: string; status: string; expira_em: Date } | undefined
-        : undefined;
+      // A rotina de expiração libera o hold e limpa reservas.inventario_hold_id,
+      // mas inventario_holds.reserva_id é histórico e UNIQUE. Sempre localize o
+      // registro pela reserva, priorizando a referência atual quando existir;
+      // assim a retomada reativa o mesmo hold em vez de tentar inserir outro.
+      const hold = (await tx.execute(sql`
+        SELECT id, status, expira_em
+          FROM inventario_holds
+         WHERE reserva_id = ${existente.id}
+         ORDER BY CASE WHEN id = ${existente.inventario_hold_id || null} THEN 0 ELSE 1 END, criado_em DESC
+         LIMIT 1
+         FOR UPDATE
+      `)).rows[0] as { id: string; status: string; expira_em: Date } | undefined;
       const holdValido = hold && (hold.status === "convertido" || (hold.status === "ativo" && new Date(hold.expira_em).getTime() > Date.now()));
       if (holdValido) {
         return {
@@ -204,6 +213,14 @@ export class PacoteService {
         };
       }
 
+      const contratoValidado = (await tx.execute(sql`
+        SELECT 1
+          FROM contratos_documentos
+         WHERE reserva_id = ${existente.id}
+           AND validado_em IS NOT NULL
+           AND status <> 'invalidado'
+         LIMIT 1
+      `)).rows.length > 0;
       const pagamentosPendentes = (await tx.execute(sql`
         SELECT COUNT(*)::int AS total
           FROM pagamentos
@@ -211,7 +228,7 @@ export class PacoteService {
            AND status NOT IN ('cancelado', 'recusado', 'reembolsado')
            AND (COALESCE(valor_pago_centavos, 0) > 0 OR status_reconciliado IN ('pendente', 'parcial', 'quitado'))
       `)).rows[0] as { total: number } | undefined;
-      if (Number(pagamentosPendentes?.total || 0) > 0) {
+      if (contratoValidado || Number(pagamentosPendentes?.total || 0) > 0) {
         return {
           reserva: existente,
           calculo: { valor_total: Number(existente.valor_total || 0), valor_base: Number(existente.valor_total || 0), subtotal: Number(existente.valor_total || 0), desconto_cupom: Number(existente.desconto_aplicado || 0), itens_selecionados: [] },
@@ -234,7 +251,7 @@ export class PacoteService {
       const holdId = hold?.id || createId();
       const agora = new Date();
       if (hold) {
-        await tx.update(inventarioHolds).set({ lote_id, modalidade: pacote?.modalidade_hospedagem || null, quantidade: quantidadePessoas, status: "ativo", expira_em: InventoryService.expirationDate(agora), liberado_em: null, motivo_liberacao: null, convertido_em: null, criado_em: agora }).where(eq(inventarioHolds.id, hold.id));
+        await tx.update(inventarioHolds).set({ lote_id, modalidade: pacote?.modalidade_hospedagem || null, quantidade: quantidadePessoas, status: "ativo", expira_em: InventoryService.expirationDate(agora), liberado_em: null, motivo_liberacao: null, convertido_em: null }).where(eq(inventarioHolds.id, hold.id));
       } else {
         await tx.insert(inventarioHolds).values({ id: holdId, reserva_id: existente.id, lote_id, modalidade: pacote?.modalidade_hospedagem || null, quantidade: quantidadePessoas, status: "ativo", expira_em: InventoryService.expirationDate(agora), criado_em: agora });
       }

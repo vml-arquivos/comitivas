@@ -17,7 +17,11 @@ describe('carrinho persistente', () => {
     const checkout = await ler('apps/web/src/pages/cliente/Checkout.tsx');
     expect(service).toContain('static async retomarCarrinho');
     expect(service).toContain('ORDER BY criado_em DESC');
+    expect(service).toContain('WHERE reserva_id = ${existente.id}');
+    expect(service).toContain('ORDER BY CASE WHEN id = ${existente.inventario_hold_id || null} THEN 0 ELSE 1 END');
+    expect(service).toContain('status <> \'invalidado\'');
     expect(route).toContain('/reservas/:reserva_id/retomar');
+    expect(route).toContain('["pacote_montado", "checkout_iniciado", "abandonado"]');
     expect(checkout).toContain('carrinho_retomavel');
   });
 

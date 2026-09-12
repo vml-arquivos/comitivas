@@ -446,7 +446,7 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
       credito_parcelas_maximo: configPagamento.credito_parcelas_maximo,
       boleto_modo: configPagamento.boleto_modo,
       gateway_automatico_disponivel: gatewayAutomaticoDisponivel,
-      carrinho_retomavel: ["pacote_montado", "checkout_iniciado", "contrato_gerado", "abandonado"].includes(String(reserva[0].status))
+      carrinho_retomavel: ["pacote_montado", "checkout_iniciado", "abandonado"].includes(String(reserva[0].status))
         && !["cancelado_cliente", "troca_pacote_cliente", "reiniciado_cliente", "cancelamento_aprovado"].includes(String(reserva[0].checkout_estado || "")),
     });
   } catch (error) {
