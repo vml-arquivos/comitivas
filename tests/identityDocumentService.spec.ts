@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { avaliarCorrespondenciaDocumento, configuracaoValidacaoDocumental, normalizarNome } from "../server/services/identityDocumentService.js";
+import { aprovarDocumentoPermissivo, avaliarCorrespondenciaDocumento, configuracaoValidacaoDocumental, normalizarNome } from "../server/services/identityDocumentService.js";
 
 const cadastro = {
   nome: "Ana Araújo Silva",
@@ -52,7 +52,7 @@ describe("validação documental", () => {
   it("usa somente o pipeline local mesmo quando existe configuração histórica do Gemini", () => {
     const anterior = process.env.DOCUMENT_AI_PROVIDER;
     process.env.DOCUMENT_AI_PROVIDER = "gemini";
-    expect(configuracaoValidacaoDocumental()).toMatchObject({ provedor: "local", modelo: "tesseract+opencv", leituraAutomaticaDisponivel: true });
+    expect(configuracaoValidacaoDocumental()).toMatchObject({ provedor: "local", modelo: "mime-signature", modo: "permissivo", leituraAutomaticaDisponivel: true });
     if (anterior === undefined) delete process.env.DOCUMENT_AI_PROVIDER;
     else process.env.DOCUMENT_AI_PROVIDER = anterior;
   });
@@ -60,5 +60,10 @@ describe("validação documental", () => {
   it("não aprova documento sem fotografia ou sem leitura legível", () => {
     expect(avaliarCorrespondenciaDocumento(leitura({ possui_foto: false }), cadastro, "cnh").status).toBe("rejeitado");
     expect(avaliarCorrespondenciaDocumento(leitura({ legivel: false }), cadastro, "cnh").status).toBe("rejeitado");
+  });
+
+  it("aceita arquivo documental válido mesmo com OCR, foto ou dados incompletos", () => {
+    expect(aprovarDocumentoPermissivo("cnh")).toMatchObject({ status: "aprovado", confianca: 1 });
+    expect(aprovarDocumentoPermissivo("rg").motivos[0]).toContain("assinatura MIME");
   });
 });
