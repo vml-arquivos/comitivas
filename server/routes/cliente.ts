@@ -337,7 +337,7 @@ router.get("/portal", async (req: Request, res: Response) => {
   }
 });
 
-const parserDocumentoIdentidade = raw({ type: "application/octet-stream", limit: "12mb" });
+const parserDocumentoIdentidade = raw({ type: ["application/octet-stream", "application/pdf", "image/*"], limit: "12mb" });
 
 function uploadDocumentoIdentidade(req: Request, res: Response, next: NextFunction) {
   parserDocumentoIdentidade(req, res, (error?: any) => {

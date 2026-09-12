@@ -16,8 +16,15 @@ export async function aprovarCadastroSeElegivel(usuarioId: string, documentoId?:
       email: usuarios.email,
       cpf: usuarios.cpf,
       telefone: usuarios.telefone,
+      sexo: usuarios.sexo,
       data_nascimento: usuarios.data_nascimento,
       endereco: usuarios.endereco,
+      cep: usuarios.cep,
+      logradouro: usuarios.logradouro,
+      numero: usuarios.numero,
+      bairro: usuarios.bairro,
+      cidade: usuarios.cidade,
+      estado: usuarios.estado,
       ativo: usuarios.ativo,
       email_confirmado: usuarios.email_confirmado,
       cadastro_status: usuarios.cadastro_status,
@@ -26,7 +33,7 @@ export async function aprovarCadastroSeElegivel(usuarioId: string, documentoId?:
     }).from(usuarios).where(eq(usuarios.id, usuarioId)).limit(1))[0];
     if (!usuario) return { aprovado: false, atualizado: false };
     if (usuario.cadastro_status === "aprovado") return { aprovado: true, atualizado: false };
-    if (!usuario.ativo || !usuario.email_confirmado || camposFaltantesCadastroMinimo(usuario).length > 0) return { aprovado: false, atualizado: false };
+    if (!usuario.ativo || !usuario.email_confirmado || camposFaltantesCadastroMinimo(usuario, { exigirSexoEnderecoEstruturado: true }).length > 0) return { aprovado: false, atualizado: false };
 
     const condicoes = [
       eq(clienteDocumentos.usuario_id, usuarioId),

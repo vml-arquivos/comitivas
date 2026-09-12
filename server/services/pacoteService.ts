@@ -77,7 +77,7 @@ async function alocarRecursosNaTransacao(
   let quartoAlocacaoId: string | null = null;
 
   if (recursos.hospedagem && !grupoHospedagem) {
-    throw new Error("Selecione o grupo de hospedagem masculino ou feminino");
+    throw new Error("Complete seu cadastro informando o sexo para direcionar a hospedagem");
   }
 
   if (recursos.transporte) {
@@ -297,7 +297,8 @@ export class PacoteService {
           FROM pacotes WHERE id = ${config.pacote_id} AND lote_id = ${lote_id} AND ativo = true FOR SHARE`)).rows[0] as PacoteOperacional | undefined
         : undefined;
       if (config.pacote_id && !pacoteOperacional) throw new Error("Pacote selecionado não encontrado, incompatível com o lote ou inativo");
-      const grupoHospedagem = normalizarGrupoHospedagem(config.grupo_hospedagem);
+      const cadastroResponsavel = (await tx.select({ sexo: usuarios.sexo }).from(usuarios).where(eq(usuarios.id, usuario_id)).limit(1))[0];
+      const grupoHospedagem = normalizarGrupoHospedagem(cadastroResponsavel?.sexo) || normalizarGrupoHospedagem(config.grupo_hospedagem);
       await bloquearDuplicidadePorCpf(tx, lote_id, usuario_id);
       const baixa = await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = "vagas_disponíveis" - ${quantidadePessoas}, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${lote_id} AND "vagas_disponíveis" >= ${quantidadePessoas} RETURNING id`);
       if (baixa.rows.length === 0) throw new Error("Vagas indisponíveis");
@@ -358,7 +359,7 @@ export class PacoteService {
       if (!novaReserva) throw new Error("Não foi possível criar a reserva");
       const operacao = await alocarRecursosNaTransacao(tx, pacoteOperacional, novaReserva.id, usuario_id, lote_id, grupoHospedagem, quantidadePessoas);
       const grupoId = createId();
-      const responsavel = (await tx.select({ nome: usuarios.nome, cpf: usuarios.cpf, data_nascimento: usuarios.data_nascimento, telefone: usuarios.telefone, email: usuarios.email }).from(usuarios).where(eq(usuarios.id, usuario_id)).limit(1))[0];
+      const responsavel = (await tx.select({ nome: usuarios.nome, cpf: usuarios.cpf, data_nascimento: usuarios.data_nascimento, telefone: usuarios.telefone, email: usuarios.email, sexo: usuarios.sexo }).from(usuarios).where(eq(usuarios.id, usuario_id)).limit(1))[0];
       await tx.insert(reservaGrupos).values({
         id: grupoId,
         responsavel_id: usuario_id,
@@ -375,7 +376,7 @@ export class PacoteService {
           id: createId(), grupo_id: grupoId, reserva_id: novaReserva.id,
           nome_completo: responsavel?.nome || "Responsável pela reserva", cpf: responsavel?.cpf || null,
           data_nascimento: responsavel?.data_nascimento || null, telefone: responsavel?.telefone || null,
-          email: responsavel?.email || null, sexo_operacional: grupoHospedagem || null,
+          email: responsavel?.email || null, sexo_operacional: normalizarGrupoHospedagem(responsavel?.sexo) || grupoHospedagem || null,
           vinculo_responsavel: "responsável", menor_idade: false, documento_status: "nao_iniciada",
           criado_em: agora, atualizado_em: agora,
         },

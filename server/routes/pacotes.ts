@@ -220,7 +220,7 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
     if (mensagem === "DUPLICIDADE_RESERVA_ATIVA") {
       return res.status(409).json({ erro: "Já existe uma contratação para este viajante neste período. Continue pela reserva existente.", reserva_id: error?.reservaId || null });
     }
-    const erroDeRegra = /cupom|pacote|lote|vaga|adicional|quantidade|origem|incompatível|inválid/i.test(mensagem);
+    const erroDeRegra = /cupom|pacote|lote|vaga|adicional|quantidade|origem|incompatível|inválid|cadastro|sexo|endereço/i.test(mensagem);
     res.status(erroDeRegra ? 400 : 500).json({ erro: erroDeRegra ? mensagem : "Não foi possível criar a reserva" });
   }
 });
@@ -330,7 +330,15 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
         nome: usuarios.nome,
         cpf: usuarios.cpf,
         data_nascimento: usuarios.data_nascimento,
+        sexo: usuarios.sexo,
         endereco: usuarios.endereco,
+        cep: usuarios.cep,
+        logradouro: usuarios.logradouro,
+        numero: usuarios.numero,
+        complemento: usuarios.complemento,
+        bairro: usuarios.bairro,
+        cidade: usuarios.cidade,
+        estado: usuarios.estado,
         telefone: usuarios.telefone,
         email: usuarios.email,
       })

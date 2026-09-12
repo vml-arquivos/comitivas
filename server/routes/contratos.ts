@@ -69,12 +69,12 @@ async function emailConfirmado(reservaId: string): Promise<boolean> {
 }
 
 async function camposCadastroFaltantes(reservaId: string): Promise<string[]> {
-  const registro = (await db.select({ nome: usuarios.nome, email: usuarios.email, cpf: usuarios.cpf, telefone: usuarios.telefone, data_nascimento: usuarios.data_nascimento, endereco: usuarios.endereco })
+  const registro = (await db.select({ nome: usuarios.nome, email: usuarios.email, cpf: usuarios.cpf, telefone: usuarios.telefone, sexo: usuarios.sexo, data_nascimento: usuarios.data_nascimento, endereco: usuarios.endereco, cep: usuarios.cep, logradouro: usuarios.logradouro, numero: usuarios.numero, bairro: usuarios.bairro, cidade: usuarios.cidade, estado: usuarios.estado })
     .from(reservas)
     .innerJoin(usuarios, eq(reservas.usuario_id, usuarios.id))
     .where(eq(reservas.id, reservaId))
     .limit(1))[0];
-  return camposFaltantesCadastroMinimo(registro);
+  return camposFaltantesCadastroMinimo(registro, { exigirSexoEnderecoEstruturado: true });
 }
 
 async function documentoIdentidadeValidado(reservaId: string): Promise<boolean> {
@@ -224,7 +224,15 @@ router.get("/estado/:reserva_id", authMiddleware, async (req: Request, res: Resp
       cpf: usuarios.cpf,
       telefone: usuarios.telefone,
       data_nascimento: usuarios.data_nascimento,
+      sexo: usuarios.sexo,
       endereco: usuarios.endereco,
+      cep: usuarios.cep,
+      logradouro: usuarios.logradouro,
+      numero: usuarios.numero,
+      complemento: usuarios.complemento,
+      bairro: usuarios.bairro,
+      cidade: usuarios.cidade,
+      estado: usuarios.estado,
     }).from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0];
     const faltantesCadastro = await camposCadastroFaltantes(reserva.id);
     const documentoIdentidade = (await db.select({

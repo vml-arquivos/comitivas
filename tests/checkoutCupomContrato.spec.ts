@@ -84,7 +84,7 @@ describe("checkout, cupom e contrato", () => {
       fonte("../server/services/cadastroAprovacaoService.ts"),
     ]);
     expect(rota).toContain("aprovarCadastroSeElegivel");
-    expect(service).toContain("camposFaltantesCadastroMinimo(usuario)");
+    expect(service).toContain("camposFaltantesCadastroMinimo(usuario, { exigirSexoEnderecoEstruturado: true })");
     expect(service).toContain("automatico_documento_validado");
     expect(service).toContain("cadastro_aprovado_automaticamente");
     expect(service).toContain("pg_advisory_xact_lock");

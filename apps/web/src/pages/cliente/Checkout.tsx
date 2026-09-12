@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../contexts/AuthContext';
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@ui/index';
-import { AlertCircle, CheckCircle2, Download, Eye, FileCheck2, FileText, Landmark, Mail, QrCode, ShieldCheck, Smartphone, Tent, Upload, Wind, Snowflake, RefreshCw } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Download, Eye, FileCheck2, FileText, Landmark, Mail, Pencil, QrCode, ShieldCheck, Smartphone, Tent, Upload, Wind, Snowflake, RefreshCw } from 'lucide-react';
 
 type MetodoPagamento = 'pix' | 'boleto';
 type CanalOtp = 'email' | 'whatsapp';
@@ -430,16 +430,33 @@ export default function Checkout() {
                 {contratante?.telefone || 'Não informado'} • {contratante?.email || 'Não informado'}
               </dd>
             </div>
+            <div>
+              <dt className="text-gray-500">Sexo cadastrado</dt>
+              <dd className="font-semibold">{contratante?.sexo || 'Não informado'}</dd>
+            </div>
+            <div>
+              <dt className="text-gray-500">CEP</dt>
+              <dd className="font-semibold">{contratante?.cep || 'Não informado'}</dd>
+            </div>
             <div className="sm:col-span-2">
               <dt className="text-gray-500">Endereço</dt>
-              <dd className="font-semibold">{contratante?.endereco || 'Não informado'}</dd>
+              <dd className="font-semibold">
+                {[
+                  contratante?.logradouro,
+                  contratante?.numero,
+                  contratante?.complemento,
+                  contratante?.bairro,
+                  contratante?.cidade && contratante?.estado ? `${contratante.cidade} — ${contratante.estado}` : contratante?.cidade || contratante?.estado,
+                ].filter(Boolean).join(', ') || contratante?.endereco || 'Não informado'}
+              </dd>
             </div>
           </dl>
-          {dadosIncompletos.length > 0 && (
-            <Link to={`/meus-dados?redirect=${encodeURIComponent(`/checkout/${reservaId}`)}`} className="mt-5 inline-block rounded-lg bg-amber-900 px-4 py-2 text-sm font-bold text-white">
-              Completar dados essenciais
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <Link to={`/meus-dados?redirect=${encodeURIComponent(`/checkout/${reservaId}`)}`} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:border-primary hover:text-primary">
+              <Pencil size={15} /> Revisar e editar meus dados
             </Link>
-          )}
+            {dadosIncompletos.length > 0 && <span className="text-xs font-semibold text-amber-800">Faltam: {dadosIncompletos.join(', ')}</span>}
+          </div>
         </CardContent>
       </Card>
 

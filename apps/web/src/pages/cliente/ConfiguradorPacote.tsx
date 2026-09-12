@@ -43,7 +43,6 @@ export default function ConfiguradorPacote() {
   const pacoteSolicitado = searchParams.get('pacote');
   const [pacotes, setPacotes] = useState<PacotePublicado[]>([]);
   const [pacoteId, setPacoteId] = useState<string>('');
-  const [grupoHospedagem, setGrupoHospedagem] = useState<'' | 'masculino' | 'feminino'>('');
   const [participantes, setParticipantes] = useState<ParticipanteCheckout[]>([]);
   const [calculo, setCalculo] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -79,12 +78,10 @@ export default function ConfiguradorPacote() {
         if (pacoteDaUrl) {
           setPacoteId(pacoteDaUrl.id);
           if (intencaoSalva && intencaoSalva.loteId === loteId && intencaoSalva.pacoteId === pacoteDaUrl.id) {
-            setGrupoHospedagem(intencaoSalva.grupoHospedagem || '');
             setParticipantes(intencaoSalva.participantes || []);
           }
         } else if (pacoteSalvoValido && pacoteSalvoId) {
           setPacoteId(pacoteSalvoId);
-          setGrupoHospedagem(intencaoSalva?.grupoHospedagem || '');
           setParticipantes(intencaoSalva?.participantes || []);
         } else if (listaPacotes.length === 1 && listaPacotes[0].disponibilidade !== 'esgotado') {
           setPacoteId(listaPacotes[0].id);
@@ -140,7 +137,7 @@ export default function ConfiguradorPacote() {
   };
 
   const adicionarParticipante = () => {
-    setParticipantes((atuais) => [...atuais, { nome_completo: '', sexo_operacional: grupoHospedagem || undefined }]);
+    setParticipantes((atuais) => [...atuais, { nome_completo: '' }]);
   };
 
   const atualizarParticipante = (indice: number, campo: keyof ParticipanteCheckout, valor: string) => {
@@ -161,13 +158,30 @@ export default function ConfiguradorPacote() {
       setError('Esta modalidade está esgotada. Escolha outra opção para continuar.');
       return;
     }
-    if (exigeHospedagem && !grupoHospedagem) {
-      setError('Selecione o grupo de hospedagem masculino ou feminino para reservar a vaga correta.');
-      return;
-    }
     if (participantes.some((participante) => !participante.nome_completo.trim())) {
       setError('Informe o nome completo de cada pessoa adicionada à comitiva.');
       return;
+    }
+    if (user) {
+      try {
+        const perfil = (await api.get('/auth/perfil')).data.usuario;
+        const cadastroCompleto = Boolean(
+          ['masculino', 'feminino'].includes(String(perfil?.sexo || '').toLowerCase())
+          && String(perfil?.cep || '').replace(/\D/g, '').length === 8
+          && String(perfil?.logradouro || '').trim()
+          && String(perfil?.numero || '').trim()
+          && String(perfil?.bairro || '').trim()
+          && String(perfil?.cidade || '').trim()
+          && String(perfil?.estado || '').trim(),
+        );
+        if (!cadastroCompleto) {
+          const retorno = `/pacote/${loteId}?retomar=1${pacoteId ? `&pacote=${encodeURIComponent(pacoteId)}` : ''}`;
+          navigate(`/meus-dados?redirect=${encodeURIComponent(retorno)}`);
+          return;
+        }
+      } catch {
+        // O backend repetirá a validação se a consulta de perfil não estiver disponível.
+      }
     }
     setError('');
     let leadId = lerLeadId();
@@ -175,7 +189,6 @@ export default function ConfiguradorPacote() {
     const intent = {
       loteId: loteId!,
       pacoteId,
-      grupoHospedagem: grupoHospedagem || undefined,
       participantes,
       criadoEm: new Date().toISOString(),
     };
@@ -207,7 +220,6 @@ export default function ConfiguradorPacote() {
         lote_id: loteId,
         pacote_id: pacoteId || undefined,
         itens: [],
-        grupo_hospedagem: grupoHospedagem || undefined,
         participantes,
         lead_id: leadId || undefined,
         lead_intent_token: leadIntentToken || undefined,
@@ -266,14 +278,6 @@ export default function ConfiguradorPacote() {
               })}
             </div>
             {pacoteSelecionado && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"><strong>{pacoteSelecionado.nome}</strong> selecionado.</div>}
-            {exigeHospedagem && <fieldset className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
-              <legend className="px-1 text-sm font-semibold text-slate-800">Escolha o grupo do quarto</legend>
-              <div className="grid grid-cols-2 gap-3">
-                {(['feminino', 'masculino'] as const).map((grupo) => {
-                  return <button key={grupo} type="button" aria-pressed={grupoHospedagem === grupo} onClick={() => { setGrupoHospedagem(grupo); setParticipantes((atuais) => atuais.map((participante) => ({ ...participante, sexo_operacional: participante.sexo_operacional || grupo }))); }} className={`rounded-xl border px-4 py-3 text-sm font-semibold capitalize transition ${grupoHospedagem === grupo ? 'border-primary bg-primary/5 text-primary ring-2 ring-primary/15' : 'border-slate-200 text-slate-700 hover:border-primary/40'}`}>{grupo}</button>;
-                })}
-              </div>
-            </fieldset>}
           </section>
         )}
 
@@ -291,7 +295,7 @@ export default function ConfiguradorPacote() {
                 <label className="text-xs font-semibold text-slate-600">Data de nascimento<input type="date" value={participante.data_nascimento || ''} onChange={(event) => atualizarParticipante(indice, 'data_nascimento', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
                 <label className="text-xs font-semibold text-slate-600">Telefone (opcional)<input value={participante.telefone || ''} onChange={(event) => atualizarParticipante(indice, 'telefone', event.target.value)} inputMode="tel" className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
                 <label className="text-xs font-semibold text-slate-600">E-mail (opcional)<input type="email" value={participante.email || ''} onChange={(event) => atualizarParticipante(indice, 'email', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
-                {exigeHospedagem && <label className="text-xs font-semibold text-slate-600">Grupo<select value={participante.sexo_operacional || grupoHospedagem || ''} onChange={(event) => atualizarParticipante(indice, 'sexo_operacional', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">A definir</option><option value="feminino">Feminino</option><option value="masculino">Masculino</option></select></label>}
+                {exigeHospedagem && <label className="text-xs font-semibold text-slate-600">Sexo da pessoa<select value={participante.sexo_operacional || ''} onChange={(event) => atualizarParticipante(indice, 'sexo_operacional', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">A definir</option><option value="feminino">Feminino</option><option value="masculino">Masculino</option></select></label>}
               </div>
             </div>)}
         </div>}
@@ -303,7 +307,7 @@ export default function ConfiguradorPacote() {
           <div className="flex justify-between text-sm"><span className="text-gray-600">Pacote</span><span className="max-w-40 text-right font-medium">{pacoteSelecionado?.nome || (pacotes.length ? 'Escolha uma opção' : 'Pacote base')}</span></div>
           <div className="flex justify-between text-sm"><span className="text-gray-600">Valor-base</span><span className="font-medium">{formatarMoeda(calculo?.valor_base || 0)}</span></div>
           <div className="border-t pt-4"><div className="flex items-center justify-between"><span className="text-lg font-bold">Total</span><span className="text-2xl font-bold text-primary">{isCalculating ? '...' : formatarMoeda(calculo?.valor_total || 0)}</span></div></div>
-          <Button className="mt-3 w-full" size="lg" onClick={handleReservar} isLoading={isReserving} disabled={isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado' || (exigeHospedagem && !grupoHospedagem)}>{user ? 'Continuar para checkout' : 'Continuar'}</Button>
+          <Button className="mt-3 w-full" size="lg" onClick={handleReservar} isLoading={isReserving} disabled={isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado'}>{user ? 'Continuar para checkout' : 'Continuar'}</Button>
           <div className="flex gap-2 rounded-md bg-blue-50 p-3 text-xs text-blue-700"><Info size={16} className="shrink-0" /><p>Na próxima etapa você entra ou cria sua conta. Sua escolha ficará salva para continuar sem recomeçar.</p></div>
         </CardContent></Card>
       </aside>
@@ -314,7 +318,7 @@ export default function ConfiguradorPacote() {
             <p className="truncate text-xs font-bold text-slate-500">{pacoteSelecionado?.nome || 'Escolha um pacote'}</p>
             <p className="text-lg font-black text-[#182D3B]">{isCalculating ? 'Calculando…' : formatarMoeda(calculo?.valor_total || pacoteSelecionado?.valor_total || 0)}</p>
           </div>
-          <Button onClick={handleReservar} isLoading={isReserving} disabled={isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado' || (exigeHospedagem && !grupoHospedagem)}>{user ? 'Continuar' : 'Continuar'} <ArrowRight size={16}/></Button>
+          <Button onClick={handleReservar} isLoading={isReserving} disabled={isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado'}>{user ? 'Continuar' : 'Continuar'} <ArrowRight size={16}/></Button>
         </div>
       </div>
     </div>

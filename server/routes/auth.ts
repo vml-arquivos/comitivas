@@ -104,8 +104,16 @@ interface CadastroRequest {
   email: string;
   cpf: string;
   telefone: string;
+  sexo: string;
   data_nascimento: string;
-  endereco: string;
+  endereco?: string;
+  cep: string;
+  logradouro: string;
+  numero: string;
+  complemento?: string;
+  bairro: string;
+  cidade: string;
+  estado: string;
   lead_id?: string;
   lead_intent_token?: string;
   vendedor_ref?: string;
@@ -119,6 +127,37 @@ interface LoginRequest {
 
 function somenteDigitos(valor: unknown): string {
   return String(valor ?? "").replace(/\D/g, "");
+}
+
+function normalizarSexo(valor: unknown): "masculino" | "feminino" | null {
+  const sexo = String(valor || "").trim().toLowerCase();
+  return sexo === "masculino" || sexo === "feminino" ? sexo : null;
+}
+
+function normalizarUf(valor: unknown): string {
+  return String(valor || "").trim().toUpperCase().slice(0, 2);
+}
+
+function montarEnderecoDetalhado(campos: {
+  cep?: unknown;
+  logradouro?: unknown;
+  numero?: unknown;
+  complemento?: unknown;
+  bairro?: unknown;
+  cidade?: unknown;
+  estado?: unknown;
+  endereco?: unknown;
+}): string {
+  const legado = String(campos.endereco || "").trim();
+  const partes = [
+    String(campos.logradouro || "").trim(),
+    String(campos.numero || "").trim(),
+    String(campos.complemento || "").trim(),
+    String(campos.bairro || "").trim(),
+    [String(campos.cidade || "").trim(), normalizarUf(campos.estado)].filter(Boolean).join("/"),
+    somenteDigitos(campos.cep) ? `CEP ${somenteDigitos(campos.cep)}` : "",
+  ].filter(Boolean);
+  return partes.length ? partes.join(", ") : legado;
 }
 
 function cpfValido(cpf: string): boolean {
@@ -246,7 +285,7 @@ router.get("/oauth/:provider/callback", async (req: Request, res: Response) => {
     if (!usuario.email_confirmado) {
       await emitirConfirmacaoEmail(usuario);
       limparCookieOAuth(res);
-      const faltantes = camposFaltantesCadastroMinimo(usuario);
+      const faltantes = camposFaltantesCadastroMinimo(usuario, { exigirSexoEnderecoEstruturado: true });
       const destinoDepoisDaConfirmacao = faltantes.length
         ? `/meus-dados?redirect=${encodeURIComponent(destino)}`
         : destino;
@@ -267,16 +306,24 @@ router.get("/oauth/:provider/callback", async (req: Request, res: Response) => {
 
 router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Response) => {
   try {
-    const { nome, email, cpf, telefone, data_nascimento, endereco, lead_id, lead_intent_token, vendedor_ref, senha } = req.body;
+    const { nome, email, cpf, telefone, sexo, data_nascimento, endereco, cep, logradouro, numero, complemento, bairro, cidade, estado, lead_id, lead_intent_token, vendedor_ref, senha } = req.body;
     const emailNormalizado = String(email || "").trim().toLowerCase();
     const nomeNormalizado = String(nome || "").trim();
     const cpfNormalizado = somenteDigitos(cpf);
     const telefoneNormalizado = somenteDigitos(telefone);
-    const enderecoNormalizado = String(endereco || "").trim();
+    const sexoNormalizado = normalizarSexo(sexo);
+    const cepNormalizado = somenteDigitos(cep);
+    const logradouroNormalizado = String(logradouro || "").trim();
+    const numeroNormalizado = String(numero || "").trim();
+    const complementoNormalizado = String(complemento || "").trim();
+    const bairroNormalizado = String(bairro || "").trim();
+    const cidadeNormalizada = String(cidade || "").trim();
+    const estadoNormalizado = normalizarUf(estado);
+    const enderecoNormalizado = montarEnderecoDetalhado({ cep: cepNormalizado, logradouro: logradouroNormalizado, numero: numeroNormalizado, complemento: complementoNormalizado, bairro: bairroNormalizado, cidade: cidadeNormalizada, estado: estadoNormalizado, endereco });
 
     // Validações
-    if (!nomeNormalizado || !emailNormalizado || !cpfNormalizado || !telefoneNormalizado || !data_nascimento || !enderecoNormalizado || !senha) {
-      return res.status(400).json({ erro: "Nome, e-mail, CPF, telefone, data de nascimento, endereço e senha são obrigatórios" });
+    if (!nomeNormalizado || !emailNormalizado || !cpfNormalizado || !telefoneNormalizado || !sexoNormalizado || !data_nascimento || !cepNormalizado || !logradouroNormalizado || !numeroNormalizado || !bairroNormalizado || !cidadeNormalizada || !estadoNormalizado || !enderecoNormalizado || !senha) {
+      return res.status(400).json({ erro: "Nome, e-mail, CPF, sexo, telefone, data de nascimento, endereço detalhado e senha são obrigatórios" });
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailNormalizado)) {
       return res.status(400).json({ erro: "Informe um e-mail válido" });
@@ -287,7 +334,10 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
     if (telefoneNormalizado.length < 10 || telefoneNormalizado.length > 13) {
       return res.status(400).json({ erro: "Informe um telefone com DDD válido" });
     }
-    if (enderecoNormalizado.length < 8 || enderecoNormalizado.length > 500) {
+    if (cepNormalizado.length !== 8) {
+      return res.status(400).json({ erro: "Informe um CEP válido com 8 dígitos" });
+    }
+    if (estadoNormalizado.length !== 2 || enderecoNormalizado.length < 8 || enderecoNormalizado.length > 800) {
       return res.status(400).json({ erro: "Informe um endereço completo válido" });
     }
     if (senha.length < 8) {
@@ -332,8 +382,16 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
           email: emailNormalizado,
           cpf: cpfNormalizado,
           telefone: telefoneNormalizado,
+          sexo: sexoNormalizado,
           data_nascimento: dataNascimento,
           endereco: enderecoNormalizado,
+          cep: cepNormalizado,
+          logradouro: logradouroNormalizado,
+          numero: numeroNormalizado,
+          complemento: complementoNormalizado || null,
+          bairro: bairroNormalizado,
+          cidade: cidadeNormalizada,
+          estado: estadoNormalizado,
           senha_hash: senhaHash,
           tipo: "cliente",
           email_confirmado: false,
@@ -495,8 +553,16 @@ router.get("/perfil", authMiddleware, async (req: Request, res: Response) => {
       email: usuarios.email,
       cpf: usuarios.cpf,
       telefone: usuarios.telefone,
+      sexo: usuarios.sexo,
       data_nascimento: usuarios.data_nascimento,
       endereco: usuarios.endereco,
+      cep: usuarios.cep,
+      logradouro: usuarios.logradouro,
+      numero: usuarios.numero,
+      complemento: usuarios.complemento,
+      bairro: usuarios.bairro,
+      cidade: usuarios.cidade,
+      estado: usuarios.estado,
       tipo: usuarios.tipo,
       cadastro_status: usuarios.cadastro_status,
     }).from(usuarios).where(eq(usuarios.id, req.usuario.id)).limit(1);
@@ -520,6 +586,19 @@ router.put("/perfil", authMiddleware, async (req: Request, res: Response) => {
     }
     const cpfNormalizado = campos.cpf !== undefined ? somenteDigitos(campos.cpf) : undefined;
     const telefoneNormalizado = campos.telefone !== undefined ? somenteDigitos(campos.telefone) : undefined;
+    const sexoNormalizado = campos.sexo !== undefined ? normalizarSexo(campos.sexo) : undefined;
+    const cepNormalizado = campos.cep !== undefined ? somenteDigitos(campos.cep) : undefined;
+    const estadoNormalizado = campos.estado !== undefined ? normalizarUf(campos.estado) : undefined;
+    const camposEnderecoInformados = ["cep", "logradouro", "numero", "complemento", "bairro", "cidade", "estado", "endereco"].some((campo) => campos[campo] !== undefined);
+    const enderecoNormalizado = camposEnderecoInformados
+      ? montarEnderecoDetalhado({ cep: cepNormalizado, logradouro: campos.logradouro, numero: campos.numero, complemento: campos.complemento, bairro: campos.bairro, cidade: campos.cidade, estado: estadoNormalizado, endereco: campos.endereco })
+      : undefined;
+    if (campos.sexo !== undefined && !sexoNormalizado) {
+      return res.status(400).json({ erro: "Informe sexo masculino ou feminino" });
+    }
+    if (campos.cep !== undefined && cepNormalizado?.length !== 8) {
+      return res.status(400).json({ erro: "Informe um CEP válido com 8 dígitos" });
+    }
     if (cpfNormalizado !== undefined && !cpfValido(cpfNormalizado)) {
       return res.status(400).json({ erro: "Informe um CPF válido" });
     }
@@ -532,8 +611,16 @@ router.put("/perfil", authMiddleware, async (req: Request, res: Response) => {
         nome: campos.nome ? String(campos.nome).trim() : undefined,
         cpf: cpfNormalizado !== undefined ? cpfNormalizado : undefined,
         telefone: telefoneNormalizado !== undefined ? (telefoneNormalizado || null) : undefined,
+        sexo: sexoNormalizado !== undefined ? sexoNormalizado : undefined,
         data_nascimento: campos.data_nascimento !== undefined ? dataNascimento : undefined,
-        endereco: campos.endereco !== undefined ? (String(campos.endereco).trim() || null) : undefined,
+        endereco: camposEnderecoInformados ? (enderecoNormalizado || null) : undefined,
+        cep: cepNormalizado !== undefined ? (cepNormalizado || null) : undefined,
+        logradouro: campos.logradouro !== undefined ? (String(campos.logradouro).trim() || null) : undefined,
+        numero: campos.numero !== undefined ? (String(campos.numero).trim() || null) : undefined,
+        complemento: campos.complemento !== undefined ? (String(campos.complemento).trim() || null) : undefined,
+        bairro: campos.bairro !== undefined ? (String(campos.bairro).trim() || null) : undefined,
+        cidade: campos.cidade !== undefined ? (String(campos.cidade).trim() || null) : undefined,
+        estado: estadoNormalizado !== undefined ? (estadoNormalizado || null) : undefined,
         atualizado_em: new Date(),
       }).where(eq(usuarios.id, req.usuario!.id)).returning({
         id: usuarios.id,
@@ -541,13 +628,21 @@ router.put("/perfil", authMiddleware, async (req: Request, res: Response) => {
         email: usuarios.email,
         cpf: usuarios.cpf,
         telefone: usuarios.telefone,
+        sexo: usuarios.sexo,
         data_nascimento: usuarios.data_nascimento,
         endereco: usuarios.endereco,
+        cep: usuarios.cep,
+        logradouro: usuarios.logradouro,
+        numero: usuarios.numero,
+        complemento: usuarios.complemento,
+        bairro: usuarios.bairro,
+        cidade: usuarios.cidade,
+        estado: usuarios.estado,
         tipo: usuarios.tipo,
       });
 
       if (usuarioAtualizado[0]?.tipo === "cliente") {
-        const faltantes = camposFaltantesCadastroMinimo(usuarioAtualizado[0]);
+        const faltantes = camposFaltantesCadastroMinimo(usuarioAtualizado[0], { exigirSexoEnderecoEstruturado: true });
         if (faltantes.length) throw new Error(`Complete os dados essenciais: ${faltantes.join(", ")}`);
       }
 

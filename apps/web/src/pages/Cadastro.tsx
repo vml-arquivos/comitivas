@@ -3,6 +3,7 @@ import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth, api } from '../contexts/AuthContext';
 import { Button, Input, Card, CardHeader, CardTitle, CardContent } from '@ui/index';
 import { destinoSeguro, lerLeadId, lerLeadIntentToken, lerReferenciaVendedor, salvarReferenciaVendedor } from '../utils/checkoutIntent';
+import { buscarEnderecoPorCep, formatarCep } from '../utils/cep';
 
 export default function Cadastro() {
   const [step, setStep] = useState(1);
@@ -11,12 +12,21 @@ export default function Cadastro() {
     email: '',
     cpf: '',
     telefone: '',
+    sexo: '',
     data_nascimento: '',
-    endereco: '',
+    cep: '',
+    logradouro: '',
+    numero: '',
+    complemento: '',
+    bairro: '',
+    cidade: '',
+    estado: '',
     senha: ''
   });
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [cepBuscando, setCepBuscando] = useState(false);
+  const [cepMensagem, setCepMensagem] = useState('');
   const { user, isLoading: authLoading, login } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -34,13 +44,41 @@ export default function Cadastro() {
     }
   }, [authLoading, navigate, redirect, user]);
 
+  const preencherEnderecoPorCep = async (valor: string) => {
+    const cep = valor.replace(/\D/g, '');
+    if (cep.length !== 8) {
+      setCepMensagem('');
+      return;
+    }
+    setCepBuscando(true);
+    setCepMensagem('Consultando CEP...');
+    try {
+      const endereco = await buscarEnderecoPorCep(cep);
+      setFormData((atual) => ({
+        ...atual,
+        cep: formatarCep(endereco.cep),
+        logradouro: endereco.logradouro,
+        bairro: endereco.bairro,
+        cidade: endereco.cidade,
+        estado: endereco.estado,
+      }));
+      setCepMensagem('Endereço localizado. Confira e informe número e complemento.');
+    } catch (err: any) {
+      setCepMensagem(err?.message || 'Não foi possível localizar este CEP.');
+    } finally {
+      setCepBuscando(false);
+    }
+  };
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const valor = e.target.name === 'cep' ? formatarCep(e.target.value) : e.target.value;
+    setFormData((atual) => ({ ...atual, [e.target.name]: valor }));
+    if (e.target.name === 'cep') void preencherEnderecoPorCep(valor);
   };
 
   const validateStep1 = () => {
-    if (!formData.nome || !formData.email || !formData.cpf || !formData.telefone || !formData.senha) {
-      setError('Preencha todos os campos obrigatórios');
+    if (!formData.nome || !formData.email || !formData.cpf || !formData.telefone || !formData.sexo || !formData.senha) {
+      setError('Preencha nome, e-mail, CPF, telefone, sexo e senha');
       return false;
     }
     if (formData.senha.length < 8) {
@@ -61,8 +99,8 @@ export default function Cadastro() {
   };
 
   const validateStep2 = () => {
-    if (!formData.data_nascimento || !formData.endereco.trim()) {
-      setError('Informe a data de nascimento e o endereço completo');
+    if (!formData.data_nascimento || !formData.cep || !formData.logradouro || !formData.numero || !formData.bairro || !formData.cidade || !formData.estado) {
+      setError('Informe a data de nascimento e o endereço completo. Consulte o CEP e informe o número.');
       return false;
     }
     if (new Date(`${formData.data_nascimento}T12:00:00Z`).getTime() >= Date.now()) {
@@ -90,8 +128,15 @@ export default function Cadastro() {
         email: formData.email,
         cpf: formData.cpf,
         telefone: formData.telefone,
+        sexo: formData.sexo,
         data_nascimento: formData.data_nascimento,
-        endereco: formData.endereco,
+        cep: formData.cep,
+        logradouro: formData.logradouro,
+        numero: formData.numero,
+        complemento: formData.complemento,
+        bairro: formData.bairro,
+        cidade: formData.cidade,
+        estado: formData.estado,
         senha: formData.senha,
         lead_id: lerLeadId() || undefined,
         lead_intent_token: lerLeadIntentToken() || undefined,
@@ -139,12 +184,19 @@ export default function Cadastro() {
                 <Input label="E-mail *" type="email" name="email" autoComplete="email" inputMode="email" value={formData.email} onChange={handleChange} required />
                 <Input label="CPF *" name="cpf" autoComplete="off" inputMode="numeric" maxLength={14} value={formData.cpf} onChange={handleChange} placeholder="000.000.000-00" required />
                 <Input label="Telefone *" name="telefone" autoComplete="tel" inputMode="tel" value={formData.telefone} onChange={handleChange} placeholder="(00) 00000-0000" required />
+                <label className="block text-sm font-semibold text-slate-700">Sexo *<select name="sexo" value={formData.sexo} onChange={handleChange} required className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-normal"><option value="">Selecione</option><option value="feminino">Feminino</option><option value="masculino">Masculino</option></select></label>
                 <Input label="Senha *" type="password" name="senha" autoComplete="new-password" value={formData.senha} onChange={handleChange} required minLength={8} />
               </>
             ) : (
               <>
                 <Input label="Data de nascimento *" type="date" name="data_nascimento" value={formData.data_nascimento} onChange={handleChange} required />
-                <Input label="Endereço completo *" name="endereco" autoComplete="street-address" value={formData.endereco} onChange={handleChange} placeholder="Rua, número, bairro, cidade, estado e CEP" required />
+                <div className="sm:col-span-2"><Input label="CEP *" name="cep" autoComplete="postal-code" inputMode="numeric" maxLength={9} value={formData.cep} onChange={handleChange} placeholder="00000-000" required />{cepMensagem && <p className={`mt-1 text-xs ${cepBuscando ? 'text-slate-500' : 'text-emerald-700'}`}>{cepMensagem}</p>}</div>
+                <div className="sm:col-span-2"><Input label="Logradouro *" name="logradouro" autoComplete="street-address" value={formData.logradouro} onChange={handleChange} placeholder="Rua, avenida, estrada..." required /></div>
+                <Input label="Número *" name="numero" autoComplete="address-line2" value={formData.numero} onChange={handleChange} required />
+                <Input label="Complemento" name="complemento" autoComplete="address-line3" value={formData.complemento} onChange={handleChange} placeholder="Apartamento, bloco, casa..." />
+                <Input label="Bairro *" name="bairro" autoComplete="address-level3" value={formData.bairro} onChange={handleChange} required />
+                <Input label="Cidade *" name="cidade" autoComplete="address-level2" value={formData.cidade} onChange={handleChange} required />
+                <Input label="Estado *" name="estado" autoComplete="address-level1" maxLength={2} value={formData.estado} onChange={handleChange} placeholder="UF" required />
               </>
             )}
             

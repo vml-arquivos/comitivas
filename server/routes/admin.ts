@@ -654,7 +654,7 @@ router.post("/vendas/clientes", async (req: Request, res: Response) => {
     const telefone = somenteDigitos(req.body?.telefone);
     const endereco = String(req.body?.endereco || "").trim();
     const dataNascimento = req.body?.data_nascimento ? new Date(req.body.data_nascimento) : null;
-    const faltantes = camposFaltantesCadastroMinimo({ nome, email, cpf, telefone, data_nascimento: dataNascimento, endereco });
+    const faltantes = camposFaltantesCadastroMinimo({ nome, email, cpf, telefone, data_nascimento: dataNascimento, endereco }, { exigirSexoEnderecoEstruturado: false });
     if (faltantes.length) return res.status(400).json({ erro: `Complete os dados essenciais do cliente: ${faltantes.join(", ")}` });
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ erro: "Informe um e-mail válido" });
     if (!cpfValido(cpf)) return res.status(400).json({ erro: "Informe um CPF válido" });
@@ -1105,9 +1105,17 @@ const CAMPOS_PUBLICOS_USUARIO = {
   email: usuarios.email,
   cpf: usuarios.cpf,
   telefone: usuarios.telefone,
+  sexo: usuarios.sexo,
   tipo: usuarios.tipo,
   data_nascimento: usuarios.data_nascimento,
   endereco: usuarios.endereco,
+  cep: usuarios.cep,
+  logradouro: usuarios.logradouro,
+  numero: usuarios.numero,
+  complemento: usuarios.complemento,
+  bairro: usuarios.bairro,
+  cidade: usuarios.cidade,
+  estado: usuarios.estado,
   ativo: usuarios.ativo,
   cadastro_status: usuarios.cadastro_status,
   aprovado_em: usuarios.aprovado_em,
@@ -1234,7 +1242,7 @@ router.post("/usuarios", requireRole("admin"), async (req: Request, res: Respons
     const enderecoNormalizado = String(endereco || "").trim();
     if (telefoneNormalizado && (telefoneNormalizado.length < 10 || telefoneNormalizado.length > 13)) return res.status(400).json({ erro: "Informe um telefone com DDD válido" });
     if (tipoNormalizado === "cliente") {
-      const faltantes = camposFaltantesCadastroMinimo({ nome: nomeNormalizado, email: emailNormalizado, cpf: cpfNormalizado, telefone: telefoneNormalizado, data_nascimento: dataNascimento, endereco: enderecoNormalizado });
+      const faltantes = camposFaltantesCadastroMinimo({ nome: nomeNormalizado, email: emailNormalizado, cpf: cpfNormalizado, telefone: telefoneNormalizado, data_nascimento: dataNascimento, endereco: enderecoNormalizado }, { exigirSexoEnderecoEstruturado: false });
       if (faltantes.length) return res.status(400).json({ erro: `Complete os dados essenciais do cliente: ${faltantes.join(", ")}` });
     }
 
@@ -1370,7 +1378,7 @@ router.put("/usuarios/:id", requireRole("admin"), async (req: Request, res: Resp
         telefone: atualizacoes.telefone === undefined ? existente[0].telefone : atualizacoes.telefone,
         data_nascimento: atualizacoes.data_nascimento === undefined ? existente[0].data_nascimento : atualizacoes.data_nascimento,
         endereco: atualizacoes.endereco === undefined ? existente[0].endereco : atualizacoes.endereco,
-      });
+      }, { exigirSexoEnderecoEstruturado: false });
       if (faltantes.length) return res.status(400).json({ erro: `Complete os dados essenciais do cliente: ${faltantes.join(", ")}` });
     }
     if (senha) {
@@ -2248,9 +2256,9 @@ router.post("/contratos/gerar/:reserva_id", async (req: Request, res: Response) 
     }
     const reserva = reservaResult[0];
     if (!(await vendedorPodeOperarReserva(req, reserva))) return res.status(403).json({ erro: "Reserva fora da sua carteira" });
-    const cliente = (await db.select({ ativo: usuarios.ativo, cadastro_status: usuarios.cadastro_status, aprovado_em: usuarios.aprovado_em, aprovado_por: usuarios.aprovado_por, nome: usuarios.nome, email: usuarios.email, cpf: usuarios.cpf, telefone: usuarios.telefone, data_nascimento: usuarios.data_nascimento, endereco: usuarios.endereco }).from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0];
+    const cliente = (await db.select({ ativo: usuarios.ativo, cadastro_status: usuarios.cadastro_status, aprovado_em: usuarios.aprovado_em, aprovado_por: usuarios.aprovado_por, nome: usuarios.nome, email: usuarios.email, cpf: usuarios.cpf, telefone: usuarios.telefone, sexo: usuarios.sexo, data_nascimento: usuarios.data_nascimento, endereco: usuarios.endereco, cep: usuarios.cep, logradouro: usuarios.logradouro, numero: usuarios.numero, bairro: usuarios.bairro, cidade: usuarios.cidade, estado: usuarios.estado }).from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0];
     if (!cadastroAprovadoComEvidencia(cliente)) return res.status(409).json({ erro: "O cadastro do cliente precisa de aprovação registrada antes da geração do contrato" });
-    const faltantes = camposFaltantesCadastroMinimo(cliente);
+    const faltantes = camposFaltantesCadastroMinimo(cliente, { exigirSexoEnderecoEstruturado: true });
     if (faltantes.length) return res.status(409).json({ erro: `Complete os dados essenciais antes do contrato: ${faltantes.join(", ")}` });
 
     const metodoPagamento = req.body?.metodo_pagamento ?? reserva.forma_pagamento;
