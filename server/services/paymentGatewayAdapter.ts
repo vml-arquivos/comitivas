@@ -32,7 +32,8 @@ export interface PagamentoGatewayResponse {
 
 function statusCoraParaLocal(status: unknown): "pendente" | "processando" | "aprovado" | "cancelado" | "recusado" {
   switch (String(status || "").toUpperCase()) {
-    case "PAID": return "aprovado";
+    case "PAID":
+    case "PAID_OUT": return "aprovado";
     case "CANCELED":
     case "CANCELLED": return "cancelado";
     case "DRAFT": return "processando";

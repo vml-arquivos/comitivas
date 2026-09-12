@@ -59,5 +59,9 @@ describe("cadastro em lote e identificação visual", () => {
     expect(hospedagem).toContain("/reconciliar");
     expect(hospedagem).toContain("!bg-[#B42318]");
     expect(hospedagem).toContain("aria-label={`Excluir ${quarto.nome}`}");
+    expect(servico).toContain("p.forma_contratacao = 'livre'");
+    expect(hospedagem).toContain("Quartos femininos");
+    expect(hospedagem).toContain("Quartos masculinos");
+    expect(hospedagem).toContain("filtroGenero");
   });
 });

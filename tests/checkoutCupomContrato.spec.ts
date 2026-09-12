@@ -75,6 +75,36 @@ describe("checkout, cupom e contrato", () => {
     expect(pagamentos).toContain("camposFaltantesCadastroMinimo");
   });
 
+  it("aprova automaticamente somente após documento válido e cadastro completo", async () => {
+    const rota = await fonte("../server/routes/cliente.ts");
+    expect(rota).toContain("aprovarCadastroSeElegivel");
+    expect(rota).toContain("camposFaltantesCadastroMinimo(usuario)");
+    expect(rota).toContain("automatico_documento_validado");
+    expect(rota).toContain("cadastro_aprovado_automaticamente");
+    expect(rota).toContain("pg_advisory_xact_lock");
+  });
+
+  it("persiste o message_id somente após confirmação do provedor de e-mail", async () => {
+    const [email, outbox] = await Promise.all([
+      fonte("../server/services/emailService.ts"),
+      fonte("../server/services/notificationOutboxService.ts"),
+    ]);
+    expect(email).toContain("enviarEmailDetalhado");
+    expect(outbox).toContain("envio.sent");
+    expect(outbox).toContain("message_id: envio.messageId || null");
+    expect(outbox).toContain("status: \"falhou\"");
+  });
+
+  it("enfileira contrato e dados da cobrança após geração Cora", async () => {
+    const pagamentos = await fonte("../server/routes/pagamentos.ts");
+    expect(pagamentos).toContain("enfileirarCobrancaGerada");
+    expect(pagamentos).toContain("cobranca-gerada:${params.idempotencyKey}");
+    expect(pagamentos).toContain("anexoContratoSeDisponivel");
+    expect(pagamentos).toContain("Cobrança gerada");
+    expect(pagamentos).toContain("enfileirarPagamentoQuitado");
+    expect(pagamentos).toContain("pagamento-quitado:${reservaId}");
+  });
+
   it("normaliza o timestamp bruto do desafio antes de registrar a validação OTP", async () => {
     const otp = await fonte("../server/services/otpService.ts");
     expect(otp).toContain("function dataBancoOuNula(valor: unknown)");

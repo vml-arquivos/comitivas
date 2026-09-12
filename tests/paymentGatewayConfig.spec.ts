@@ -45,4 +45,22 @@ describe("PaymentGatewayAdapter.validarConfiguracaoSegura", () => {
     process.env.NODE_ENV = "development"; process.env.PAYMENT_GATEWAY = "cora"; delete process.env.CORA_CLIENT_ID; delete process.env.CORA_CERT_PATH; delete process.env.CORA_PRIVATE_KEY_PATH;
     expect(() => PaymentGatewayAdapter.validarConfiguracaoSegura()).not.toThrow();
   });
+
+  it("mantém a normalização de liquidação final PAID_OUT no adapter", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const fonte = await readFile(new URL("../server/services/paymentGatewayAdapter.ts", import.meta.url), "utf8");
+    expect(fonte).toContain('case "PAID_OUT": return "aprovado";');
+  });
+
+  it("mantém certificados e chaves fora do frontend e do cofre de produção", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const [tela, config] = await Promise.all([
+      readFile(new URL("../apps/web/src/pages/admin/GatewayPagamento.tsx", import.meta.url), "utf8"),
+      readFile(new URL("../server/services/gatewayConfigService.ts", import.meta.url), "utf8"),
+    ]);
+    expect(tela).not.toContain("private_key_pem");
+    expect(tela).not.toContain("certificate_pem");
+    expect(config).toContain("Segredos Cora são somente runtime");
+    expect(config).toContain("if (this.runtimeOnly()) return false;");
+  });
 });

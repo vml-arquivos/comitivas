@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import fs from "node:fs/promises";
 import { authMiddleware, isAdminOrDev } from "../middleware/authMiddleware.js";
 import { PaymentGatewayAdapter } from "../services/paymentGatewayAdapter.js";
 import { ConfiguracaoService } from "../services/configuracaoService.js";
@@ -11,6 +12,7 @@ import { comissoes, contratosDocumentos, inventarioHolds, leads_origem, lotes, p
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { cadastroAprovadoComEvidencia, camposFaltantesCadastroMinimo } from "../security/governance.js";
+import { NotificationOutboxService } from "../services/notificationOutboxService.js";
 
 const router = Router();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -31,6 +33,61 @@ function stableUuid(value: string): string {
 function centavos(valor: unknown): number {
   const numero = Number(valor);
   return Number.isFinite(numero) ? Math.round(numero * 100) : 0;
+}
+
+function escaparEmail(valor: unknown): string {
+  return String(valor ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+}
+
+async function anexoContratoSeDisponivel(caminho: unknown, reservaId: string) {
+  const arquivo = String(caminho || "").trim();
+  if (!arquivo || /^https?:\/\//i.test(arquivo)) return [];
+  try {
+    await fs.access(arquivo);
+    return [{ nome: `contrato-${reservaId}.pdf`, caminho: arquivo }];
+  } catch {
+    return [];
+  }
+}
+
+async function enfileirarCobrancaGerada(params: { reserva: any; cliente: any; pagamento: any; idempotencyKey: string }) {
+  if (!params.cliente?.email) return;
+  const urlPagamento = params.pagamento.url_pagamento || params.pagamento.document_url || "";
+  const parcelas = Array.isArray(params.pagamento.parcelas) ? params.pagamento.parcelas : [];
+  const linhasParcelas = parcelas.map((parcela: any) => `<li>Parcela ${escaparEmail(parcela.sequencia || parcela.numero || "")} — R$ ${escaparEmail(parcela.valor || "")} — vencimento ${escaparEmail(parcela.vencimento || "a confirmar")}</li>`).join("");
+  const corpo = `<!doctype html><html lang="pt-BR"><body style="font-family:Arial,sans-serif;color:#182D3B;background:#F8F5EF;padding:24px"><div style="max-width:680px;margin:auto;background:#fff;border:1px solid #eadfd8;border-radius:16px;padding:28px"><p style="color:#851F32;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Excursão das Comitivas</p><h1 style="font-size:24px">Sua cobrança foi gerada</h1><p>Olá, <strong>${escaparEmail(params.cliente.nome)}</strong>.</p><p>A cobrança da reserva <strong>${escaparEmail(params.reserva.id)}</strong> foi criada com sucesso. Confira os dados abaixo e mantenha este e-mail guardado.</p>${linhasParcelas ? `<h2 style="font-size:17px">Cronograma</h2><ul>${linhasParcelas}</ul>` : ""}${urlPagamento ? `<p><a href="${escaparEmail(urlPagamento)}" style="display:inline-block;background:#851F32;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none">Abrir cobrança</a></p>` : ""}<p>O contrato validado segue anexado quando o arquivo está disponível. Ele também permanece acessível na área autenticada do cliente.</p><p style="font-size:12px;color:#64748b">Se você não reconhece esta cobrança, contate a equipe antes de efetuar o pagamento.</p></div></body></html>`;
+  await NotificationOutboxService.enfileirarEmail({
+    reserva_id: params.reserva.id,
+    usuario_id: params.cliente.id,
+    tipo: "cobranca_gerada",
+    chave_idempotente: `cobranca-gerada:${params.idempotencyKey}`,
+    template: "cobranca_gerada",
+    versao: "2026.1",
+    destinatario: params.cliente.email,
+    assunto: `Cobrança gerada — reserva ${params.reserva.id}`,
+    corpo_html: corpo,
+    anexos: await anexoContratoSeDisponivel(params.reserva.contrato_pdf_url, params.reserva.id),
+    remetente: "finance",
+  });
+}
+
+async function enfileirarPagamentoQuitado(reservaId: string) {
+  const registro = (await db.select({ reserva: reservas, cliente: usuarios }).from(reservas).innerJoin(usuarios, eq(usuarios.id, reservas.usuario_id)).where(eq(reservas.id, reservaId)).limit(1))[0];
+  if (!registro?.cliente.email) return;
+  const corpo = `<!doctype html><html lang="pt-BR"><body style="font-family:Arial,sans-serif;color:#182D3B;background:#F8F5EF;padding:24px"><div style="max-width:680px;margin:auto;background:#fff;border:1px solid #eadfd8;border-radius:16px;padding:28px"><p style="color:#851F32;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Excursão das Comitivas</p><h1 style="font-size:24px">Pagamento confirmado</h1><p>Olá, <strong>${escaparEmail(registro.cliente.nome)}</strong>.</p><p>O pagamento da reserva <strong>${escaparEmail(reservaId)}</strong> foi reconciliado como quitado. O contrato validado continua disponível na sua área autenticada.</p><p>Guarde este e-mail como comprovante operacional da confirmação.</p></div></body></html>`;
+  await NotificationOutboxService.enfileirarEmail({
+    reserva_id: reservaId,
+    usuario_id: registro.cliente.id,
+    tipo: "pagamento_confirmado",
+    chave_idempotente: `pagamento-quitado:${reservaId}`,
+    template: "pagamento_confirmado",
+    versao: "2026.1",
+    destinatario: registro.cliente.email,
+    assunto: `Pagamento confirmado — reserva ${reservaId}`,
+    corpo_html: corpo,
+    anexos: await anexoContratoSeDisponivel(registro.reserva.contrato_pdf_url, reservaId),
+    remetente: "finance",
+  });
 }
 
 function webhookAssinado(req: Request): boolean {
@@ -192,6 +249,9 @@ router.post("/criar", authMiddleware, async (req: Request, res: Response) => {
     });
 
     await db.update(reservas).set({ checkout_estado: "aguardando_pagamento", status: "aguardando_pagamento", atualizado_em: new Date() }).where(eq(reservas.id, reserva_id));
+    await enfileirarCobrancaGerada({ reserva, cliente, pagamento: pagamentoGateway, idempotencyKey }).catch((error) => {
+      console.error("[PAGAMENTOS] Não foi possível enfileirar e-mail de cobrança:", error?.message || "falha não detalhada");
+    });
     return res.json({
       gateway_id: pagamentoGateway.id,
       status: pagamentoGateway.status,
@@ -240,6 +300,8 @@ router.get("/status/:reserva_id", authMiddleware, async (req: Request, res: Resp
       if (["PAID", "PAID_OUT"].includes(String(remoto?.status || "").toUpperCase())) {
         await db.update(pagamentos).set({ status: "aprovado", valor_pago_centavos: pagamento.valor_centavos || centavos(pagamento.valor), atualizado_em: new Date() }).where(eq(pagamentos.id, pagamento.id));
         await reconciliarPagamento(pagamento.id);
+        const quitado = (await db.select({ status_reconciliado: pagamentos.status_reconciliado }).from(pagamentos).where(eq(pagamentos.id, pagamento.id)).limit(1))[0]?.status_reconciliado === "quitado";
+        if (quitado) await enfileirarPagamentoQuitado(req.params.reserva_id).catch((error) => console.error("[PAGAMENTOS] Falha ao enfileirar confirmação:", error?.message || "erro"));
       }
     }
     const atualizado = (await db.select().from(pagamentos).where(eq(pagamentos.id, pagamento.id)).limit(1))[0] || pagamento;
@@ -307,6 +369,8 @@ router.post("/webhook/cora", async (req: Request, res: Response) => {
           if (parcela) await db.update(pagamentoParcelas).set({ status: "aprovado", valor_pago_centavos: parcela.valor_centavos || centavos(parcela.valor), atualizado_em: new Date() }).where(eq(pagamentoParcelas.id, parcela.id));
           else await db.update(pagamentos).set({ status: "aprovado", atualizado_em: new Date() }).where(eq(pagamentos.id, pagamento.id));
           await reconciliarPagamento(pagamento.id);
+          const quitado = (await db.select({ status_reconciliado: pagamentos.status_reconciliado }).from(pagamentos).where(eq(pagamentos.id, pagamento.id)).limit(1))[0]?.status_reconciliado === "quitado";
+          if (quitado) await enfileirarPagamentoQuitado(pagamento.reserva_id).catch((error) => console.error("[WEBHOOK CORA] Falha ao enfileirar confirmação:", error?.message || "erro"));
         } else if (tipo.includes("canceled") || tipo.includes("cancelled")) {
           if (parcela) await db.update(pagamentoParcelas).set({ status: "cancelado", atualizado_em: new Date() }).where(eq(pagamentoParcelas.id, parcela.id));
           else await db.update(pagamentos).set({ status: "cancelado", status_reconciliado: "cancelado", atualizado_em: new Date() }).where(eq(pagamentos.id, pagamento.id));

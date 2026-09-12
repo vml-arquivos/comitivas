@@ -43,10 +43,10 @@ export class NotificationOutboxService {
           destinatario = reserva?.email || "";
         }
         if (!destinatario) throw new Error("Destinatário não encontrado");
-        const enviado = await EmailService.enviarEmail({ destinatario, assunto: String(payload.assunto || item.template), corpo_html: String(payload.corpo_html || ""), anexos: (item.anexos as any[]) || [], remetente: (payload.email_sender || "system") as EmailSenderKind });
-        if (!enviado) throw new Error("SMTP não confirmou o envio");
+        const envio = await EmailService.enviarEmailDetalhado({ destinatario, assunto: String(payload.assunto || item.template), corpo_html: String(payload.corpo_html || ""), anexos: (item.anexos as any[]) || [], remetente: (payload.email_sender || "system") as EmailSenderKind });
+        if (!envio.sent) throw new Error(envio.reason || "O provedor não confirmou o envio");
         const enviadoEm = new Date();
-        await db.update(notificacoesOutbox).set({ status: "enviado", enviado_em: enviadoEm, ultimo_erro: null }).where(eq(notificacoesOutbox.id, item.id));
+        await db.update(notificacoesOutbox).set({ status: "enviado", message_id: envio.messageId || null, enviado_em: enviadoEm, ultimo_erro: null }).where(eq(notificacoesOutbox.id, item.id));
         if (item.reserva_id) {
           await db.insert(emails_enviados).values({
             reserva_id: item.reserva_id,

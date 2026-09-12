@@ -2,13 +2,14 @@ import { Router, Request, Response, NextFunction, raw } from "express";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 import { db } from "../db/index.js";
 import {
   clienteDocumentos,
   clienteHistorico,
+  auditoriaAdmin,
   contratoValidacoes,
   contratosDocumentos,
   emails_enviados,
@@ -31,6 +32,7 @@ import {
 import { EmailService } from "../services/emailService.js";
 import { ReservaSolicitacaoService } from "../services/reservaSolicitacaoService.js";
 import { configuracaoValidacaoDocumental, IdentityDocumentService, TipoIdentidade } from "../services/identityDocumentService.js";
+import { camposFaltantesCadastroMinimo } from "../security/governance.js";
 
 const router = Router();
 router.use(authMiddleware);
@@ -41,6 +43,7 @@ const TIPOS_HISTORICO_CLIENTE = [
   "cliente_reinicio",
   "cliente_atendimento",
   "analise_solicitacao",
+  "cadastro_aprovado",
 ];
 
 function escaparHtml(valor: unknown): string {
@@ -85,6 +88,78 @@ async function registrarSolicitacao(params: {
     criado_em: new Date(),
   }).returning({ id: clienteHistorico.id, criado_em: clienteHistorico.criado_em }))[0];
   return criado;
+}
+
+/**
+ * Aprova o cadastro somente quando o documento já foi aprovado pelo pipeline
+ * documental local, o e-mail está confirmado e todos os campos mínimos estão
+ * completos. O lock torna a decisão idempotente diante de dois uploads/retries.
+ */
+async function aprovarCadastroSeElegivel(usuarioId: string, documentoId: string): Promise<{ aprovado: boolean; atualizado: boolean }> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`cadastro-aprovacao:${usuarioId}`}))`);
+    const usuario = (await tx.select({
+      id: usuarios.id,
+      nome: usuarios.nome,
+      email: usuarios.email,
+      cpf: usuarios.cpf,
+      telefone: usuarios.telefone,
+      data_nascimento: usuarios.data_nascimento,
+      endereco: usuarios.endereco,
+      ativo: usuarios.ativo,
+      email_confirmado: usuarios.email_confirmado,
+      cadastro_status: usuarios.cadastro_status,
+      aprovado_em: usuarios.aprovado_em,
+      aprovado_por: usuarios.aprovado_por,
+    }).from(usuarios).where(eq(usuarios.id, usuarioId)).limit(1))[0];
+    if (!usuario) return { aprovado: false, atualizado: false };
+    if (usuario.cadastro_status === "aprovado") return { aprovado: true, atualizado: false };
+    if (!usuario.ativo || !usuario.email_confirmado || camposFaltantesCadastroMinimo(usuario).length > 0) {
+      return { aprovado: false, atualizado: false };
+    }
+
+    const documento = (await tx.select({ id: clienteDocumentos.id, validado_em: clienteDocumentos.validado_em }).from(clienteDocumentos).where(and(
+      eq(clienteDocumentos.id, documentoId),
+      eq(clienteDocumentos.usuario_id, usuarioId),
+      eq(clienteDocumentos.categoria, "identidade"),
+      eq(clienteDocumentos.validacao_status, "aprovado"),
+      isNull(clienteDocumentos.removido_em),
+    )).limit(1))[0];
+    if (!documento?.validado_em) return { aprovado: false, atualizado: false };
+
+    const agora = new Date();
+    const antes = { cadastro_status: usuario.cadastro_status, aprovado_em: usuario.aprovado_em, aprovado_por: usuario.aprovado_por };
+    const atualizado = (await tx.update(usuarios).set({
+      cadastro_status: "aprovado",
+      aprovado_em: agora,
+      aprovado_por: "automatico_documento_validado",
+      atualizado_em: agora,
+    }).where(and(eq(usuarios.id, usuarioId), inArray(usuarios.cadastro_status, ["pendente", "em_analise"]))).returning({ id: usuarios.id }))[0];
+    if (!atualizado) return { aprovado: false, atualizado: false };
+
+    await tx.insert(clienteHistorico).values({
+      id: createId(),
+      usuario_id: usuarioId,
+      tipo: "cadastro_aprovado",
+      titulo: "Cadastro aprovado automaticamente",
+      descricao: "Cadastro completo e documento de identificação aprovado.",
+      metadados: { documento_id: documentoId, motivo: "documento_validado_e_cadastro_completo" },
+      criado_por: null,
+      criado_em: agora,
+    });
+    await tx.insert(auditoriaAdmin).values({
+      id: createId(),
+      ator_id: null,
+      ator_tipo: "system",
+      acao: "cadastro_aprovado_automaticamente",
+      entidade: "usuario",
+      entidade_id: usuarioId,
+      antes,
+      depois: { cadastro_status: "aprovado", aprovado_em: agora, aprovado_por: "automatico_documento_validado", documento_id: documentoId },
+      criado_em: agora,
+    });
+    return { aprovado: true, atualizado: true };
+  });
 }
 
 async function avisarEquipe(params: { assunto: string; clienteNome: string; clienteEmail: string; mensagem: string }) {
@@ -414,14 +489,19 @@ router.post("/documentos/identidade", uploadDocumentoIdentidade, async (req: Req
     documentoPersistido = true;
 
     const validacao = await IdentityDocumentService.validar(documento.id);
+    const aprovacao = validacao.status === "aprovado"
+      ? await aprovarCadastroSeElegivel(req.usuario.id, documento.id)
+      : { aprovado: false, atualizado: false };
     await registrarSolicitacao({
       usuarioId: req.usuario.id,
       tipo: "documento_identidade",
       titulo: "Documento de identificação enviado",
-      descricao: validacao.status === "aprovado" ? "Dados conferidos com o cadastro." : "Documento encaminhado para conferência.",
-      metadados: { documento_id: documento.id, tipo_identidade: tipo, status: validacao.status },
+      descricao: aprovacao.atualizado
+        ? "Documento válido e cadastro aprovado automaticamente."
+        : validacao.status === "aprovado" ? "Dados conferidos com o cadastro." : "Documento encaminhado para conferência.",
+      metadados: { documento_id: documento.id, tipo_identidade: tipo, status: validacao.status, cadastro_aprovado: aprovacao.aprovado },
     });
-    return res.status(201).json({ documento: { id: documento.id, tipo_identidade: tipo, ...validacao } });
+    return res.status(201).json({ documento: { id: documento.id, tipo_identidade: tipo, ...validacao }, cadastro: aprovacao });
   } catch (error) {
     if (arquivoCriado && !documentoPersistido) await fs.unlink(arquivoCriado).catch(() => undefined);
     console.error("[CLIENTE] Erro ao enviar documento de identificação");

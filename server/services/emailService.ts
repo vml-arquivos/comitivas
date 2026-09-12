@@ -2,7 +2,7 @@ import { db } from "../db/index.js";
 import { emails_enviados, reservas, usuarios } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { obterRemetente, obterReplyTo, type EmailSenderKind } from "./emailSenderConfig.js";
-import { enviarEmailTransacional } from "./emailDeliveryService.js";
+import { enviarEmailTransacional, type EmailDeliveryResult } from "./emailDeliveryService.js";
 
 export interface EmailPayload {
   destinatario: string;
@@ -17,8 +17,8 @@ export interface EmailPayload {
 }
 
 export class EmailService {
-  static async enviarEmail(payload: EmailPayload): Promise<boolean> {
-    const resultado = await enviarEmailTransacional({
+  static async enviarEmailDetalhado(payload: EmailPayload): Promise<EmailDeliveryResult> {
+    return enviarEmailTransacional({
       remetente: obterRemetente(payload.remetente || "system"),
       replyTo: payload.replyTo || obterReplyTo(),
       destinatario: payload.destinatario,
@@ -26,6 +26,10 @@ export class EmailService {
       corpo_html: payload.corpo_html,
       anexos: payload.anexos,
     });
+  }
+
+  static async enviarEmail(payload: EmailPayload): Promise<boolean> {
+    const resultado = await this.enviarEmailDetalhado(payload);
 
     if (resultado.sent) {
       console.log(`[EmailService] E-mail enviado via ${resultado.provider || "provedor"}: ${resultado.messageId || "sem messageId"}`);

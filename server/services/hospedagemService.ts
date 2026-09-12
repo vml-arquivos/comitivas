@@ -237,7 +237,7 @@ export class HospedagemService {
     const pendentes = linhas(await db.execute(sql`SELECT r.id FROM reservas r
       JOIN pacotes p ON p.id = r.pacote_id
       WHERE r.lote_id = ${loteId} AND r.status <> 'abandonado'
-        AND p.forma_contratacao LIKE '%hospedagem%'
+        AND (p.forma_contratacao LIKE '%hospedagem%' OR p.forma_contratacao = 'livre')
         AND p.modalidade_hospedagem <> 'camping'
         AND NOT EXISTS (SELECT 1 FROM quarto_alocacoes qa WHERE qa.reserva_id = r.id AND qa.status = 'ativa')
       ORDER BY r.criado_em, r.id`));

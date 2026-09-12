@@ -46,6 +46,7 @@ export default function HospedagemQuartos() {
   const [quartoId, setQuartoId] = useState('');
   const [movendo, setMovendo] = useState<any | null>(null);
   const [hospedeDetalhe, setHospedeDetalhe] = useState<any | null>(null);
+  const [filtroGenero, setFiltroGenero] = useState<'todos' | GeneroQuarto>('todos');
   const [erro, setErro] = useState('');
   const [mensagem, setMensagem] = useState('');
   const [salvando, setSalvando] = useState(false);
@@ -81,6 +82,8 @@ export default function HospedagemQuartos() {
     ...lote,
     evento_nome: eventos.find((evento) => evento.id === lote.evento_id)?.nome || 'Excursão',
   })), [lotes, eventos]);
+
+  const quartosVisiveis = useMemo(() => (mapa?.quartos || []).filter((quarto: any) => filtroGenero === 'todos' || quarto.genero === filtroGenero), [mapa, filtroGenero]);
 
   const executar = async (acao: () => Promise<unknown>, sucesso: string) => {
     setSalvando(true);
@@ -225,8 +228,22 @@ export default function HospedagemQuartos() {
         </div>
       </section>
 
+      <section className="admin-card flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between" aria-label="Separar quartos por grupo">
+        <div>
+          <p className="text-sm font-semibold text-[#073F50]">Visualização por grupo</p>
+          <p className="text-xs text-slate-600">Separe os quartos femininos e masculinos para conferir a ocupação sem mistura.</p>
+        </div>
+        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Grupo de quartos">
+          {([
+            ['todos', `Todos (${mapa.quartos.length})`],
+            ['feminino', `Quartos femininos (${mapa.quartos.filter((quarto: any) => quarto.genero === 'feminino').length})`],
+            ['masculino', `Quartos masculinos (${mapa.quartos.filter((quarto: any) => quarto.genero === 'masculino').length})`],
+          ] as const).map(([valor, rotulo]) => <button key={valor} type="button" role="tab" aria-selected={filtroGenero === valor} onClick={() => setFiltroGenero(valor)} className={`rounded-lg border px-3 py-2 text-xs font-semibold transition ${filtroGenero === valor ? 'border-[#073F50] bg-[#073F50] text-white' : 'border-slate-300 bg-white text-[#073F50] hover:bg-slate-100'}`}>{rotulo}</button>)}
+        </div>
+      </section>
+
       <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
-        {mapa.quartos.map((quarto: any) => {
+        {quartosVisiveis.map((quarto: any) => {
           const alocacoes = mapa.alocacoes.filter((item: any) => item.quarto_id === quarto.id);
           const resumo = resumoQuarto(quarto.nome);
           const lotado = Number(quarto.livres) === 0;
@@ -272,6 +289,7 @@ export default function HospedagemQuartos() {
           </article>;
         })}
       </div>
+      {quartosVisiveis.length === 0 && <div className="admin-card p-6 text-center text-sm font-medium text-slate-600">Nenhum quarto deste grupo foi cadastrado para a viagem.</div>}
       <p className="text-sm text-slate-600"><strong>Local da hospedagem:</strong> {mapa.local_hospedagem || mapa.lote?.local_hospedagem || 'Não informado'}</p>
     </>}
 

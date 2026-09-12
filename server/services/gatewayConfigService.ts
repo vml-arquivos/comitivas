@@ -21,21 +21,46 @@ export type GatewayAdminInput = {
 };
 
 export class GatewayConfigService {
+  private static runtimeOnly() {
+    return process.env.NODE_ENV === "production" || process.env.CORA_ENV === "production";
+  }
+
+  private static async runtimeStatus() {
+    const clientId = process.env.CORA_CLIENT_ID?.trim() || "";
+    const certPath = process.env.CORA_CERT_PATH?.trim() || "";
+    const keyPath = process.env.CORA_PRIVATE_KEY_PATH?.trim() || "";
+    const webhook = process.env.CORA_WEBHOOK_HMAC_SECRET?.trim() || "";
+    let certificados = false;
+    if (certPath && keyPath) {
+      try {
+        await Promise.all([fs.access(certPath), fs.access(keyPath)]);
+        certificados = true;
+      } catch { certificados = false; }
+    }
+    return { client: Boolean(clientId), certificados, webhook: Boolean(webhook), configurado: Boolean(clientId && certificados) };
+  }
+
   static async obterMascara() {
     const linha = (await db.select().from(gatewayCredenciais).where(eq(gatewayCredenciais.id, "cora")).limit(1))[0];
-    if (!linha) return { id: "cora", provedor: "cora", ambiente: "stage", ativo: false, configurado: false };
+    if (!linha) {
+      const runtime = await this.runtimeStatus();
+      return { id: "cora", provedor: "cora", ambiente: process.env.CORA_ENV === "production" ? "production" : "stage", ativo: runtime.configurado, configurado: runtime.configurado, client_id_mascarado: runtime.client ? "configurado no Coolify" : null, certificado_configurado: runtime.certificados, chave_privada_configurada: runtime.certificados, webhook_configurado: runtime.webhook };
+    }
     let clientId: string | null = null;
     try { clientId = SecretVaultService.decrypt(linha.client_id_enc); } catch { clientId = null; }
+    const runtime = await this.runtimeStatus();
+    const dbConfigurado = Boolean(linha.client_id_enc && linha.certificate_enc && linha.private_key_enc);
+    const configurado = this.runtimeOnly() ? runtime.configurado : dbConfigurado || runtime.configurado;
     return {
       id: linha.id,
       provedor: linha.provedor,
       ambiente: linha.ambiente,
       ativo: Boolean(linha.ativo),
-      configurado: Boolean(linha.client_id_enc && linha.certificate_enc && linha.private_key_enc),
-      client_id_mascarado: clientId ? SecretVaultService.masked(clientId) : null,
-      certificado_configurado: Boolean(linha.certificate_enc),
-      chave_privada_configurada: Boolean(linha.private_key_enc),
-      webhook_configurado: Boolean(linha.webhook_secret_enc),
+      configurado,
+      client_id_mascarado: clientId ? SecretVaultService.masked(clientId) : runtime.client ? "configurado no Coolify" : null,
+      certificado_configurado: this.runtimeOnly() ? runtime.certificados : Boolean(linha.certificate_enc) || runtime.certificados,
+      chave_privada_configurada: this.runtimeOnly() ? runtime.certificados : Boolean(linha.private_key_enc) || runtime.certificados,
+      webhook_configurado: this.runtimeOnly() ? runtime.webhook : Boolean(linha.webhook_secret_enc) || runtime.webhook,
       token_url: linha.token_url,
       api_base: linha.api_base,
       installments_api_base: linha.installments_api_base,
@@ -51,13 +76,17 @@ export class GatewayConfigService {
   }
 
   static async salvar(dados: GatewayAdminInput, atualizadoPor: string) {
+    if (this.runtimeOnly() && [dados.client_id, dados.certificate_pem, dados.private_key_pem, dados.webhook_secret].some((valor) => String(valor || "").trim())) {
+      throw new Error("Segredos Cora são somente runtime; configure-os no Coolify e não os envie pelo painel");
+    }
     const atual = (await db.select().from(gatewayCredenciais).where(eq(gatewayCredenciais.id, "cora")).limit(1))[0];
+    const runtime = await this.runtimeStatus();
     const ambiente = dados.ambiente === "production" ? "production" : dados.ambiente === "stage" ? "stage" : (atual?.ambiente || "stage");
     const ativoFinal = dados.ativo !== undefined ? Boolean(dados.ativo) : Boolean(atual?.ativo);
-    const clientConfigurado = Boolean(dados.client_id?.trim() || atual?.client_id_enc);
-    const certificadoConfigurado = Boolean(dados.certificate_pem?.trim() || atual?.certificate_enc);
-    const chaveConfigurada = Boolean(dados.private_key_pem?.trim() || atual?.private_key_enc);
-    const webhookConfigurado = Boolean(dados.webhook_secret?.trim() || atual?.webhook_secret_enc || process.env.CORA_WEBHOOK_HMAC_SECRET?.trim());
+    const clientConfigurado = this.runtimeOnly() ? runtime.client : Boolean(dados.client_id?.trim() || atual?.client_id_enc);
+    const certificadoConfigurado = this.runtimeOnly() ? runtime.certificados : Boolean(dados.certificate_pem?.trim() || atual?.certificate_enc);
+    const chaveConfigurada = this.runtimeOnly() ? runtime.certificados : Boolean(dados.private_key_pem?.trim() || atual?.private_key_enc);
+    const webhookConfigurado = this.runtimeOnly() ? runtime.webhook : Boolean(dados.webhook_secret?.trim() || atual?.webhook_secret_enc || process.env.CORA_WEBHOOK_HMAC_SECRET?.trim());
     const webhookPublico = String(dados.webhook_public_url ?? atual?.webhook_public_url ?? process.env.CORA_WEBHOOK_PUBLIC_URL ?? "").trim();
     if (ativoFinal && (!clientConfigurado || !certificadoConfigurado || !chaveConfigurada)) {
       throw new Error("Para ativar a Cora, informe Client ID, certificado mTLS e private key");
@@ -86,6 +115,7 @@ export class GatewayConfigService {
   }
 
   static async aplicarRuntime(): Promise<boolean> {
+    if (this.runtimeOnly()) return false;
     const linha = (await db.select().from(gatewayCredenciais).where(eq(gatewayCredenciais.id, "cora")).limit(1))[0];
     if (!linha?.ativo || !linha.client_id_enc || !linha.certificate_enc || !linha.private_key_enc) return false;
     const clientId = SecretVaultService.decrypt(linha.client_id_enc);
