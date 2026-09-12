@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import { authMiddleware, requireRole } from "../middleware/authMiddleware.js";
 import { db } from "../db/index.js";
 import { lotes, eventos } from "../db/schema.js";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { CatalogoExclusaoService } from "../services/catalogoExclusaoService.js";
 
@@ -146,13 +146,21 @@ router.put("/:lote_id", authMiddleware, requireRole("admin"), async (req: Reques
       ativo,
     } = req.body;
 
-    const loteAtualizado = await db
-      .update(lotes)
-      .set({
+    const loteAtualizado = await db.transaction(async (tx) => {
+      const atual = (await tx.execute(sql`SELECT id, vagas_totais, "vagas_disponíveis" FROM lotes WHERE id = ${lote_id} FOR UPDATE`)).rows[0] as { id: string; vagas_totais: number; vagas_disponíveis: number } | undefined;
+      if (!atual) return [];
+      const ocupadas = Math.max(0, Number(atual.vagas_totais) - Number(atual.vagas_disponíveis));
+      const novoTotal = vagas_totais !== undefined ? Number(vagas_totais) : Number(atual.vagas_totais);
+      if (!Number.isInteger(novoTotal) || novoTotal < ocupadas) throw new Error(`A capacidade não pode ser menor que as ${ocupadas} vagas já ocupadas ou bloqueadas`);
+      const novaDisponibilidade = vagas_totais !== undefined
+        ? novoTotal - ocupadas
+        : vagas_disponiveis !== undefined ? Number(vagas_disponiveis) : Number(atual.vagas_disponíveis);
+      if (!Number.isInteger(novaDisponibilidade) || novaDisponibilidade < 0 || novaDisponibilidade > novoTotal) throw new Error("A quantidade de vagas disponíveis é inválida");
+      return tx.update(lotes).set({
         nome: nome || undefined,
         descricao: descricao !== undefined ? descricao : undefined,
-        vagas_totais: vagas_totais !== undefined ? parseInt(vagas_totais) : undefined,
-        "vagas_disponíveis": vagas_disponiveis !== undefined ? parseInt(vagas_disponiveis) : undefined,
+        vagas_totais: novoTotal,
+        "vagas_disponíveis": novaDisponibilidade,
         data_inicio: data_inicio ? new Date(data_inicio) : undefined,
         data_fim: data_fim ? new Date(data_fim) : undefined,
         data_embarque: data_embarque !== undefined ? (data_embarque ? new Date(data_embarque) : null) : undefined,
@@ -162,9 +170,8 @@ router.put("/:lote_id", authMiddleware, requireRole("admin"), async (req: Reques
         valor_base: valor_base !== undefined ? valor_base.toString() : undefined,
         ativo: ativo !== undefined ? ativo : undefined,
         atualizado_em: new Date(),
-      })
-      .where(eq(lotes.id, lote_id))
-      .returning();
+      }).where(eq(lotes.id, lote_id)).returning();
+    });
 
     if (loteAtualizado.length === 0) {
       return res.status(404).json({ erro: "Lote não encontrado" });
@@ -176,7 +183,8 @@ router.put("/:lote_id", authMiddleware, requireRole("admin"), async (req: Reques
     });
   } catch (error: any) {
     console.error("[LOTES] Erro ao atualizar:", error);
-    res.status(500).json({ erro: error.message || "Erro ao atualizar lote" });
+    const status = /capacidade|quantidade de vagas/i.test(error?.message || "") ? 409 : 500;
+    res.status(status).json({ erro: error.message || "Erro ao atualizar lote" });
   }
 });
 

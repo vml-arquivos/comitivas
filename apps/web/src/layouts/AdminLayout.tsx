@@ -36,8 +36,14 @@ const navGroups: NavGroup[] = [
     label: 'Comercial & clientes',
     items: [
       {
-        name: 'Vendas internas',
+        name: 'Vendas',
         path: '/admin/vendas',
+        icon: ShoppingCart,
+        roles: ['admin', 'dev', 'vendedor'],
+      },
+      {
+        name: 'Vendas internas',
+        path: '/admin/vendas/interna',
         icon: ShoppingCart,
         roles: ['admin', 'dev', 'vendedor'],
       },

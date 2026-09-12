@@ -88,7 +88,10 @@ function prepararDados(modalidade: "camping" | "quarto_ventilador" | "quarto_ar_
 }
 
 describe("ContratoService.gerarContratoHTML", () => {
-  beforeEach(() => prepararDados("camping"));
+  beforeEach(() => {
+    prepararDados("quarto_ventilador");
+    banco.resultados[4][0].forma_contratacao = "hospedagem";
+  });
 
   it("usa o período e o itinerário do fim de semana", async () => {
     const html = await ContratoService.gerarContratoHTML({
@@ -105,7 +108,7 @@ describe("ContratoService.gerarContratoHTML", () => {
     expect(html).toContain("Excursão das Comitivas — Festa do Peão de Barretos 2026");
     expect(html).toContain("1º Fim de Semana — 20 a 23/08/2026");
     expect(html).toContain("Parque do Peão — Barretos/SP");
-    expect(html).toContain("1.900,00");
+    expect(html).toContain("2.200,00");
     expect(html).toContain("CLÁUSULA SEGUNDA");
     expect(html).not.toContain("Brasília/DF, com embarque adicional em Goiânia/GO");
     expect(html).toContain("não abrangendo transporte rodoviário interestadual");
@@ -121,16 +124,21 @@ describe("ContratoService.gerarContratoHTML", () => {
       usuario_id: "cliente-validacao",
       lote_id: "lote-validacao",
       aceite_ip: "127.0.0.1",
+      formulario: {
+        hospedagem: { modalidade: "camping" },
+        servicos_inclusos: ["Serviço não contratado"],
+      },
     });
 
     expect(html).toContain("123.456.789-09");
     expect(html).toContain("Open Bar das 09h às 19h");
     expect(html).not.toContain("Paratudo");
-    expect(html).toContain("translado entre a chácara e o Parque do Peão");
+    expect(html).toContain("translado compreende exclusivamente o percurso entre a hospedagem e o Parque do Peão");
     expect(html).toContain("CLÁUSULA VIGÉSIMA");
-    expect(html).toContain("roupa de cama é de responsabilidade exclusiva do hóspede");
-    expect(html).toContain("( X ) CAMPING");
-    expect(html).toContain("(  ) QUARTO COM VENTILADOR COMPARTILHADO.");
+    expect(html).toContain("roupa de cama e os itens de higiene pessoal são de responsabilidade do hóspede");
+    expect(html).toContain("( X ) QUARTO COM VENTILADOR COMPARTILHADO.");
+    expect(html).toContain("(  ) QUARTO COM CLIMATIZADOR COMPARTILHADO.");
+    expect(html).not.toContain("Serviço não contratado");
   });
 
   it("gera o modelo com transporte e registra o vendedor responsável", async () => {

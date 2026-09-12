@@ -10,7 +10,6 @@ import { eventos, lotes, pacotes, itens_addon, reservas, usuarios, leads_origem,
 import { eq, and, desc, inArray, isNull, or, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { CatalogoExclusaoService } from "../services/catalogoExclusaoService.js";
-import { OperacaoOnibusService } from "../services/operacaoOnibusService.js";
 
 const router = Router();
 
@@ -148,7 +147,7 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
 
     const ip = req.ip || req.socket.remoteAddress || "desconhecido";
 
-    let origem: { lead_id?: string; vendedor_id?: string; codigo_origem?: string } = {};
+    let origem: { lead_id?: string; vendedor_id?: string; codigo_origem?: string } = { codigo_origem: "site" };
     let leadAtualizado: Array<{ id: string }> = [];
     if (req.body.lead_id) {
       const leadId = String(req.body.lead_id);
@@ -184,8 +183,6 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
       ip,
       origem,
     );
-    const alocacaoOperacional = await OperacaoOnibusService.alocarPrimeiroDisponivel(config.lote_id, resultado.reserva.id, req.usuario.id);
-
     // Cadastro direto não possui lead_id no navegador. Atualiza o card ligado
     // à conta para que pacote e etapa também apareçam no CRM.
     if (leadAtualizado.length === 0) {
@@ -208,13 +205,22 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
       reserva_id: resultado.reserva.id,
       status: resultado.reserva.status,
       calculo: resultado.calculo,
-      operacao: alocacaoOperacional ? { poltrona_atribuida: true, alocacao_id: alocacaoOperacional.id } : { poltrona_atribuida: false, motivo: "Atribuição pendente no mapa operacional" },
+      operacao: {
+        transporte: resultado.operacao.recursos.transporte,
+        hospedagem: resultado.operacao.recursos.hospedagem,
+        poltrona_atribuida: Boolean(resultado.operacao.assento_alocacao_id),
+        assento_alocacao_id: resultado.operacao.assento_alocacao_id,
+        quarto_alocacao_id: resultado.operacao.quarto_alocacao_id,
+      },
     });
   } catch (error: any) {
     console.error("[PACOTES] Erro ao reservar:", error);
     const mensagem = error?.message || "Erro ao criar reserva";
+    if (mensagem === "DUPLICIDADE_RESERVA_ATIVA") {
+      return res.status(409).json({ erro: "Já existe uma contratação para este viajante neste período. Continue pela reserva existente.", reserva_id: error?.reservaId || null });
+    }
     const erroDeRegra = /cupom|pacote|lote|vaga|adicional|quantidade|origem|incompatível|inválid/i.test(mensagem);
-    res.status(erroDeRegra ? 400 : 500).json({ erro: mensagem });
+    res.status(erroDeRegra ? 400 : 500).json({ erro: erroDeRegra ? mensagem : "Não foi possível criar a reserva" });
   }
 });
 
@@ -470,7 +476,11 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
       .from(pacotes)
       .where(and(eq(pacotes.lote_id, req.params.lote_id), eq(pacotes.ativo, true)));
 
-    res.json({ lote_id: req.params.lote_id, pacotes: lista });
+    const pacotesComCapacidade = await Promise.all(lista.map(async (pacote) => {
+      const capacidade = await PacoteService.obterDisponibilidadeFisica(pacote);
+      return { ...pacote, disponibilidade_configurada: pacote.disponibilidade, ...capacidade };
+    }));
+    res.json({ lote_id: req.params.lote_id, pacotes: pacotesComCapacidade });
   } catch (error) {
     console.error("[PACOTES] Erro ao listar pacotes:", error);
     res.status(500).json({ erro: "Erro ao listar pacotes" });

@@ -3,14 +3,135 @@ import { eventos, lotes, pacotes, itens_addon, cupons, reservas, inventarioHolds
 import { createId } from "@paralleldrive/cuid2";
 import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import Decimal from "decimal.js";
+import { normalizarGrupoHospedagem, resolverRecursosContratacao, type GrupoHospedagem, type RecursosContratados } from "./contratacaoRecursos.js";
 
 export interface ItemSelecionado { id: string; nome: string; tipo: string; valor: number; quantidade: number; }
-export interface ConfiguracaoPacote { lote_id: string; pacote_id?: string; itens: ItemSelecionado[]; cupom_codigo?: string; usuario_id?: string; vendedor_id?: string; }
+export interface ConfiguracaoPacote { lote_id: string; pacote_id?: string; itens: ItemSelecionado[]; cupom_codigo?: string; usuario_id?: string; vendedor_id?: string; grupo_hospedagem?: GrupoHospedagem; }
 export interface ResultadoCalculo { valor_base: number; itens_selecionados: ItemSelecionado[]; subtotal: number; desconto_cupom: number; valor_total: number; pacote_id?: string; pacote_nome?: string; modalidade_hospedagem?: string; cupom_id?: string; mensagem?: string; }
 
 export interface OrigemReserva { lead_id?: string; vendedor_id?: string; codigo_origem?: string; }
 
 function dinheiro(valor: Decimal): number { return valor.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber(); }
+
+function cpfNormalizado(valor: unknown): string {
+  return String(valor ?? "").replace(/\D/g, "");
+}
+
+async function bloquearDuplicidadePorCpf(tx: any, loteId: string, usuarioId: string): Promise<void> {
+  const pessoa = (await tx.execute(sql`SELECT cpf FROM usuarios WHERE id = ${usuarioId} FOR SHARE`)).rows[0] as { cpf: string | null } | undefined;
+  const cpf = cpfNormalizado(pessoa?.cpf);
+  if (!cpf) return;
+
+  // O advisory lock serializa duas abas/contas concorrentes mesmo antes da consulta.
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`reserva:${loteId}:${cpf}`}))`);
+  const existente = (await tx.execute(sql`
+    SELECT r.id
+      FROM reservas r
+      JOIN usuarios u ON u.id = r.usuario_id
+     WHERE r.lote_id = ${loteId}
+       AND regexp_replace(COALESCE(u.cpf, ''), '[^0-9]', '', 'g') = ${cpf}
+       AND COALESCE(r.status::text, '') <> 'abandonado'
+       AND COALESCE(r.checkout_estado, '') NOT IN ('expirado', 'cancelado', 'cancelado_cliente', 'cancelamento_aprovado')
+     LIMIT 1
+  `)).rows[0] as { id: string } | undefined;
+  if (existente) {
+    const erro = new Error("DUPLICIDADE_RESERVA_ATIVA");
+    (erro as Error & { reservaId?: string }).reservaId = existente.id;
+    throw erro;
+  }
+}
+
+type PacoteOperacional = {
+  id: string;
+  lote_id: string;
+  forma_contratacao: string;
+  modalidade_hospedagem: string | null;
+};
+
+async function alocarRecursosNaTransacao(
+  tx: any,
+  pacote: PacoteOperacional | undefined,
+  reservaId: string,
+  usuarioId: string,
+  loteId: string,
+  grupoHospedagem: GrupoHospedagem | null,
+): Promise<{ recursos: RecursosContratados; assento_alocacao_id: string | null; quarto_alocacao_id: string | null }> {
+  const recursos = pacote
+    ? resolverRecursosContratacao(pacote.forma_contratacao, pacote.modalidade_hospedagem)
+    : { transporte: false, hospedagem: false, estrutura_quarto: null };
+  let assentoAlocacaoId: string | null = null;
+  let quartoAlocacaoId: string | null = null;
+
+  if (recursos.hospedagem && !grupoHospedagem) {
+    throw new Error("Selecione o grupo de hospedagem masculino ou feminino");
+  }
+
+  if (recursos.transporte) {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`capacidade-transporte:${loteId}`}))`);
+    const assento = (await tx.execute(sql`
+      SELECT a.id AS assento_id, a.numero, o.id AS onibus_id, o.nome AS onibus_nome, s.id AS saida_id
+      FROM saidas_operacionais s
+      JOIN onibus_operacionais o ON o.saida_id = s.id AND o.ativo = true
+      JOIN assentos_onibus a ON a.onibus_id = o.id AND a.status = 'disponivel' AND a.numero <= o.capacidade
+      WHERE s.lote_id = ${loteId} AND s.ativa = true
+        AND NOT EXISTS (SELECT 1 FROM assento_alocacoes aa WHERE aa.assento_id = a.id AND aa.status = 'ativa')
+        AND NOT EXISTS (SELECT 1 FROM assento_holds h WHERE h.assento_id = a.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP)
+      ORDER BY o.venda_ordem, o.criado_em, a.numero
+      LIMIT 1 FOR UPDATE OF a
+    `)).rows[0] as { assento_id: string; numero: number; onibus_id: string; onibus_nome: string; saida_id: string } | undefined;
+    if (!assento) throw new Error("As vagas de transporte deste período estão esgotadas");
+    assentoAlocacaoId = createId();
+    await tx.execute(sql`INSERT INTO assento_alocacoes
+      (id, assento_id, reserva_id, usuario_id, status, alocado_por, alocado_em)
+      VALUES (${assentoAlocacaoId}, ${assento.assento_id}, ${reservaId}, ${usuarioId}, 'ativa', ${usuarioId}, CURRENT_TIMESTAMP)`);
+    await tx.execute(sql`UPDATE reservas SET saida_operacional_id = ${assento.saida_id}, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${reservaId}`);
+    await tx.execute(sql`INSERT INTO checkins_operacao (id, saida_id, reserva_id, status, atualizado_em)
+      VALUES (${createId()}, ${assento.saida_id}, ${reservaId}, 'pendente', CURRENT_TIMESTAMP)
+      ON CONFLICT (saida_id, reserva_id) DO NOTHING`);
+    await tx.execute(sql`INSERT INTO operacao_historico
+      (id, saida_id, entidade, entidade_id, acao, ator_id, depois, criado_em)
+      VALUES (${createId()}, ${assento.saida_id}, 'alocacao', ${assentoAlocacaoId}, 'assento_alocado_checkout', ${usuarioId},
+        ${JSON.stringify({ reserva_id: reservaId, onibus_id: assento.onibus_id, onibus_nome: assento.onibus_nome, poltrona: assento.numero })}::jsonb, CURRENT_TIMESTAMP)`);
+  }
+
+  if (recursos.hospedagem && recursos.estrutura_quarto && grupoHospedagem) {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`capacidade-hospedagem:${loteId}:${recursos.estrutura_quarto}:${grupoHospedagem}`}))`);
+    const quarto = (await tx.execute(sql`
+      SELECT q.id AS quarto_id, q.nome AS quarto_nome, vaga.numero AS numero_vaga
+      FROM quartos_hospedagem q
+      CROSS JOIN LATERAL generate_series(1, q.capacidade) AS vaga(numero)
+      WHERE q.lote_id = ${loteId} AND q.ativo = true
+        AND q.genero = ${grupoHospedagem}
+        AND q.estrutura = ${recursos.estrutura_quarto}
+        AND (q.pacote_id IS NULL OR q.pacote_id = ${pacote?.id || null})
+        AND NOT EXISTS (
+          SELECT 1 FROM quarto_alocacoes qa
+          WHERE qa.quarto_id = q.id AND qa.numero_vaga = vaga.numero AND qa.status = 'ativa'
+        )
+      ORDER BY CASE WHEN q.pacote_id = ${pacote?.id || null} THEN 0 ELSE 1 END, q.nome, vaga.numero
+      LIMIT 1 FOR UPDATE OF q
+    `)).rows[0] as { quarto_id: string; quarto_nome: string; numero_vaga: number } | undefined;
+    if (!quarto) {
+      const estrutura = recursos.estrutura_quarto === "ar_condicionado" ? "com ar-condicionado" : "com ventilador";
+      throw new Error(`As vagas de quarto ${estrutura} para o grupo ${grupoHospedagem} estão esgotadas`);
+    }
+    quartoAlocacaoId = createId();
+    await tx.execute(sql`INSERT INTO quarto_alocacoes
+      (id, quarto_id, reserva_id, usuario_id, numero_vaga, status, alocado_por, alocado_em)
+      VALUES (${quartoAlocacaoId}, ${quarto.quarto_id}, ${reservaId}, ${usuarioId}, ${Number(quarto.numero_vaga)}, 'ativa', ${usuarioId}, CURRENT_TIMESTAMP)`);
+    await tx.execute(sql`INSERT INTO operacao_historico
+      (id, saida_id, entidade, entidade_id, acao, ator_id, depois, criado_em)
+      VALUES (${createId()}, NULL, 'quarto_alocacao', ${quartoAlocacaoId}, 'hospede_alocado_checkout', ${usuarioId},
+        ${JSON.stringify({ reserva_id: reservaId, quarto_id: quarto.quarto_id, quarto: quarto.quarto_nome, vaga: Number(quarto.numero_vaga), grupo: grupoHospedagem, estrutura: recursos.estrutura_quarto })}::jsonb, CURRENT_TIMESTAMP)`);
+  }
+
+  await tx.execute(sql`UPDATE reservas SET
+    grupo_hospedagem = ${recursos.hospedagem ? grupoHospedagem : null},
+    recursos_contratados = ${JSON.stringify(recursos)}::jsonb,
+    atualizado_em = CURRENT_TIMESTAMP
+    WHERE id = ${reservaId}`);
+  return { recursos, assento_alocacao_id: assentoAlocacaoId, quarto_alocacao_id: quartoAlocacaoId };
+}
 
 export class PacoteService {
   static async buscarItensDisponiveis(lote_id: string) {
@@ -20,6 +141,55 @@ export class PacoteService {
   static async validarVagasDisponíveis(lote_id: string, quantidade = 1): Promise<boolean> {
     const lote = (await db.select({ vagas: lotes.vagas_disponíveis, ativo: lotes.ativo }).from(lotes).where(eq(lotes.id, lote_id)).limit(1))[0];
     return Boolean(lote?.ativo && Number(lote.vagas) >= quantidade);
+  }
+
+  static async obterDisponibilidadeFisica(pacote: typeof pacotes.$inferSelect) {
+    const recursos = resolverRecursosContratacao(pacote.forma_contratacao, pacote.modalidade_hospedagem);
+    const lote = (await db.select({ vagas: lotes.vagas_disponíveis }).from(lotes).where(eq(lotes.id, pacote.lote_id)).limit(1))[0];
+    const vagasLote = Math.max(0, Number(lote?.vagas || 0));
+    let vagasTransporte: number | null = null;
+    let vagasHospedagem: number | null = null;
+    let vagasHospedagemPorGrupo: Record<GrupoHospedagem, number> | null = null;
+
+    if (recursos.transporte) {
+      const linha = (await db.execute(sql`SELECT COUNT(*)::int AS total
+        FROM saidas_operacionais s
+        JOIN onibus_operacionais o ON o.saida_id = s.id AND o.ativo = true
+        JOIN assentos_onibus a ON a.onibus_id = o.id AND a.status = 'disponivel' AND a.numero <= o.capacidade
+        WHERE s.lote_id = ${pacote.lote_id} AND s.ativa = true
+          AND NOT EXISTS (SELECT 1 FROM assento_alocacoes aa WHERE aa.assento_id = a.id AND aa.status = 'ativa')
+          AND NOT EXISTS (SELECT 1 FROM assento_holds h WHERE h.assento_id = a.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP)`)).rows[0] as { total: number } | undefined;
+      vagasTransporte = Math.max(0, Number(linha?.total || 0));
+    }
+
+    if (recursos.hospedagem && recursos.estrutura_quarto) {
+      const linhasGrupo = (await db.execute(sql`SELECT q.genero,
+          COALESCE(SUM(q.capacidade - (SELECT COUNT(*) FROM quarto_alocacoes qa WHERE qa.quarto_id = q.id AND qa.status = 'ativa')), 0)::int AS total
+        FROM quartos_hospedagem q
+        WHERE q.lote_id = ${pacote.lote_id} AND q.ativo = true
+          AND q.estrutura = ${recursos.estrutura_quarto}
+          AND (q.pacote_id IS NULL OR q.pacote_id = ${pacote.id})
+        GROUP BY q.genero`)).rows as Array<{ genero: GrupoHospedagem; total: number }>;
+      vagasHospedagemPorGrupo = { masculino: 0, feminino: 0 };
+      for (const linha of linhasGrupo) {
+        if (linha.genero === "masculino" || linha.genero === "feminino") vagasHospedagemPorGrupo[linha.genero] = Math.max(0, Number(linha.total || 0));
+      }
+      vagasHospedagem = vagasHospedagemPorGrupo.masculino + vagasHospedagemPorGrupo.feminino;
+    }
+
+    const limites = [vagasLote, vagasTransporte, vagasHospedagem].filter((valor): valor is number => valor !== null);
+    const vagasDisponiveis = Math.max(0, Math.min(...limites));
+    const disponibilidade = pacote.disponibilidade === "esgotado" || vagasDisponiveis === 0
+      ? "esgotado"
+      : vagasDisponiveis <= 5 ? "ultimas_vagas" : pacote.disponibilidade || "disponivel";
+    return {
+      recursos,
+      vagas_disponiveis: vagasDisponiveis,
+      vagas_transporte: vagasTransporte,
+      vagas_hospedagem: vagasHospedagem,
+      vagas_hospedagem_por_grupo: vagasHospedagemPorGrupo,
+      disponibilidade,
+    };
   }
 
   static async calcularValorPacote(config: ConfiguracaoPacote): Promise<ResultadoCalculo> {
@@ -96,10 +266,17 @@ export class PacoteService {
   static async reservarPacote(usuario_id: string, lote_id: string, config: ConfiguracaoPacote, ip_origem: string, origem: OrigemReserva = {}) {
     if (config.lote_id !== lote_id) throw new Error("Lote inconsistente na configuração do pacote");
     const calculo = await this.calcularValorPacote({ ...config, usuario_id, vendedor_id: origem.vendedor_id });
-    const reserva = await db.transaction(async (tx) => {
+    const resultadoTransacao = await db.transaction(async (tx) => {
       const loteLock = await tx.execute(sql`SELECT id, "vagas_disponíveis" FROM lotes WHERE id = ${lote_id} FOR UPDATE`);
       const lote = loteLock.rows[0] as { id: string; vagas_disponíveis: number } | undefined;
       if (!lote || Number(lote.vagas_disponíveis) < 1) throw new Error("Vagas indisponíveis");
+      const pacoteOperacional = config.pacote_id
+        ? (await tx.execute(sql`SELECT id, lote_id, forma_contratacao, modalidade_hospedagem
+          FROM pacotes WHERE id = ${config.pacote_id} AND lote_id = ${lote_id} AND ativo = true FOR SHARE`)).rows[0] as PacoteOperacional | undefined
+        : undefined;
+      if (config.pacote_id && !pacoteOperacional) throw new Error("Pacote selecionado não encontrado, incompatível com o lote ou inativo");
+      const grupoHospedagem = normalizarGrupoHospedagem(config.grupo_hospedagem);
+      await bloquearDuplicidadePorCpf(tx, lote_id, usuario_id);
       const baixa = await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = "vagas_disponíveis" - 1, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${lote_id} AND "vagas_disponíveis" > 0 RETURNING id`);
       if (baixa.rows.length === 0) throw new Error("Vagas indisponíveis");
 
@@ -157,6 +334,7 @@ export class PacoteService {
       }).returning();
       const novaReserva = inserido[0];
       if (!novaReserva) throw new Error("Não foi possível criar a reserva");
+      const operacao = await alocarRecursosNaTransacao(tx, pacoteOperacional, novaReserva.id, usuario_id, lote_id, grupoHospedagem);
       if (calculo.cupom_id && usuario_id) {
         await tx.insert(cuponsUtilizacoes).values({ id: createId(), cupom_id: calculo.cupom_id, usuario_id, reserva_id: novaReserva.id });
       }
@@ -171,8 +349,8 @@ export class PacoteService {
         ...(calculo.desconto_cupom > 0 ? [{ tipo: "cupom", codigo: calculo.cupom_id, descricao: "Desconto de cupom", quantidade: 1, valor_unitario_centavos: -Math.round(calculo.desconto_cupom * 100), valor_total_centavos: -Math.round(calculo.desconto_cupom * 100) }] : []),
       ];
       await tx.insert(precosLedger).values(linhasLedger.map((linha) => ({ id: createId(), reserva_id: novaReserva.id, ...linha, criado_em: agora, metadados: { fonte: "PacoteService.calcularValorPacote", preco_versao: "2026.1" } })));
-      return novaReserva;
+      return { reserva: novaReserva, operacao };
     });
-    return { reserva, calculo, ip_origem };
+    return { reserva: resultadoTransacao.reserva, calculo, operacao: resultadoTransacao.operacao, ip_origem };
   }
 }

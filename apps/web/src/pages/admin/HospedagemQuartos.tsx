@@ -9,7 +9,7 @@ type GeneroQuarto = 'feminino' | 'masculino';
 type EstruturaQuarto = 'ar_condicionado' | 'ventilador' | 'sem_climatizacao' | 'outro';
 type LinhaQuartos = { id: string; quantidade: string; capacidade: string; genero: GeneroQuarto; estrutura: EstruturaQuarto };
 
-const vazio = { nome: '', genero: 'feminino' as GeneroQuarto, capacidade: '4', pacote_id: '', observacoes: '' };
+const vazio = { nome: '', genero: 'feminino' as GeneroQuarto, capacidade: '4', estrutura: 'ar_condicionado' as EstruturaQuarto, pacote_id: '', observacoes: '' };
 const novaChave = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`;
 const novaLinha = (): LinhaQuartos => ({ id: novaChave(), quantidade: '1', capacidade: '4', genero: 'feminino', estrutura: 'ar_condicionado' });
 const novoLote = () => ({ titulo: '', pacote_id: '', observacoes: '', chave_idempotencia: novaChave(), configuracoes: [novaLinha()] });
@@ -106,7 +106,7 @@ export default function HospedagemQuartos() {
 
   const abrirEdicao = (quarto: any) => {
     setEditando(quarto);
-    setForm({ nome: quarto.nome, genero: quarto.genero, capacidade: String(quarto.capacidade), pacote_id: quarto.pacote_id || '', observacoes: quarto.observacoes || '' });
+    setForm({ nome: quarto.nome, genero: quarto.genero, capacidade: String(quarto.capacidade), estrutura: quarto.estrutura || 'outro', pacote_id: quarto.pacote_id || '', observacoes: quarto.observacoes || '' });
     setModal(true);
   };
 
@@ -271,17 +271,21 @@ export default function HospedagemQuartos() {
           </article>;
         })}
       </div>
+      <p className="text-sm text-slate-600"><strong>Local da hospedagem:</strong> {mapa.local_hospedagem || mapa.lote?.local_hospedagem || 'Não informado'}</p>
     </>}
 
     <AdminModal aberto={modal} titulo={editando ? 'Editar quarto' : 'Cadastrar quartos'} descricao={editando ? 'Atualize este quarto sem alterar os demais.' : 'Crie vários quartos de uma vez. Use “Incluir mais” para combinar capacidades, grupos e estruturas.'} fechar={() => setModal(false)} largura="ampla">
       <form onSubmit={salvarQuarto} className="space-y-5">
         {editando ? <>
           <Input required label="Nome / identificação" value={form.nome} onChange={(event) => setForm({ ...form, nome: event.target.value })} />
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-3">
             <label className="text-sm font-medium">Grupo
               <select className="admin-field mt-1" value={form.genero} onChange={(event) => setForm({ ...form, genero: event.target.value as GeneroQuarto })}><option value="feminino">Feminino</option><option value="masculino">Masculino</option></select>
             </label>
             <Input required label="Quantidade de vagas" type="number" min="1" max="30" value={form.capacidade} onChange={(event) => setForm({ ...form, capacidade: event.target.value })} />
+            <label className="text-sm font-medium">Estrutura
+              <select className="admin-field mt-1" value={form.estrutura} onChange={(event) => setForm({ ...form, estrutura: event.target.value as EstruturaQuarto })}>{Object.entries(estruturaLabel).map(([valor, label]) => <option key={valor} value={valor}>{label}</option>)}</select>
+            </label>
           </div>
           <label className="text-sm font-medium">Pacote específico (opcional)
             <select className="admin-field mt-1" value={form.pacote_id} onChange={(event) => setForm({ ...form, pacote_id: event.target.value })}><option value="">Todos os pacotes do período</option>{pacotes.map((pacote) => <option key={pacote.id} value={pacote.id}>{pacote.nome}</option>)}</select>
@@ -295,7 +299,7 @@ export default function HospedagemQuartos() {
             </label>
           </div>
           <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3"><div><h3 className="font-semibold text-[#073F50]">Configurações</h3><p className="text-xs text-slate-500">Cada linha gera automaticamente a quantidade informada.</p></div><Button type="button" variant="outline" onClick={() => setLoteForm((atual) => ({ ...atual, configuracoes: [...atual.configuracoes, novaLinha()] }))}><Plus size={15} className="mr-1" />Incluir mais</Button></div>
+            <div className="flex items-center justify-between gap-3"><div><h3 className="font-semibold text-[#073F50]">Configurações</h3><p className="text-xs text-slate-500">Cada linha gera automaticamente a quantidade informada.</p></div><Button type="button" variant="outline" onClick={() => setLoteForm((atual) => ({ ...atual, configuracoes: [...atual.configuracoes, novaLinha()] }))}><Plus size={15} className="mr-1" />Incluir mais quartos</Button></div>
             {loteForm.configuracoes.map((linha, indice) => <div key={linha.id} className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_1.2fr_auto] lg:items-end">
               <Input required label="Quantidade de quartos" type="number" min="1" max="50" value={linha.quantidade} onChange={(event) => atualizarLinha(linha.id, 'quantidade', event.target.value)} />
               <Input required label="Vagas por quarto" type="number" min="1" max="30" value={linha.capacidade} onChange={(event) => atualizarLinha(linha.id, 'capacidade', event.target.value)} />

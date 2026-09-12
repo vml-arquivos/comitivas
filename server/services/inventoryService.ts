@@ -38,6 +38,7 @@ export class InventoryService {
     const alterado = await tx.execute(sql`UPDATE inventario_holds SET status = 'liberado', liberado_em = ${agora}, motivo_liberacao = ${motivo}
       WHERE id = ${row.id} AND (status = 'ativo' OR (${incluirConvertido} AND status = 'convertido')) RETURNING id`);
     if (alterado.rows.length === 0) return false;
+    await this.liberarRecursosFisicosNaTransacao(tx, reservaId, motivo, agora);
     await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = LEAST("vagas_totais", "vagas_disponíveis" + ${Number(row.quantidade)}), atualizado_em = ${agora} WHERE id = ${row.lote_id}`);
     if (row.cupom_id) await tx.execute(sql`UPDATE cupons SET uso_atual = GREATEST(0, COALESCE(uso_atual, 0) - 1) WHERE id = ${row.cupom_id}`);
     await tx.update(reservas).set({ inventario_hold_id: null, atualizado_em: agora }).where(eq(reservas.id, reservaId));
@@ -46,6 +47,17 @@ export class InventoryService {
 
   static async liberarReserva(reservaId: string, motivo = "Liberado manualmente"): Promise<boolean> {
     return db.transaction((tx) => this.liberarReservaNaTransacao(tx, reservaId, motivo));
+  }
+
+  private static async liberarRecursosFisicosNaTransacao(tx: any, reservaId: string, motivo: string, agora: Date): Promise<void> {
+    await tx.execute(sql`UPDATE assento_alocacoes SET status = 'cancelada', encerrado_em = ${agora}, motivo = ${motivo}
+      WHERE reserva_id = ${reservaId} AND status = 'ativa'`);
+    await tx.execute(sql`UPDATE quarto_alocacoes SET status = 'cancelada', encerrado_em = ${agora}, motivo = ${motivo}
+      WHERE reserva_id = ${reservaId} AND status = 'ativa'`);
+    await tx.execute(sql`UPDATE assento_holds SET status = 'liberado', liberado_em = COALESCE(liberado_em, ${agora})
+      WHERE reserva_id = ${reservaId} AND status = 'ativo'`);
+    await tx.execute(sql`UPDATE reservas SET saida_operacional_id = NULL, ponto_embarque_id = NULL, atualizado_em = ${agora}
+      WHERE id = ${reservaId}`);
   }
 
   static async liberarExpirados(): Promise<number> {
@@ -61,6 +73,7 @@ export class InventoryService {
       for (const row of rows.rows as Array<{ id: string; reserva_id: string; lote_id: string; quantidade: number; cupom_id: string | null }>) {
         const alterado = await tx.update(inventarioHolds).set({ status: "liberado", liberado_em: agora, motivo_liberacao: "Expiração do hold" }).where(and(eq(inventarioHolds.id, row.id), eq(inventarioHolds.status, "ativo"))).returning({ id: inventarioHolds.id });
         if (!alterado[0]) continue;
+        await this.liberarRecursosFisicosNaTransacao(tx, row.reserva_id, "Expiração do checkout", agora);
         await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = LEAST("vagas_totais", "vagas_disponíveis" + ${Number(row.quantidade)}), atualizado_em = ${agora} WHERE id = ${row.lote_id}`);
         if (row.cupom_id) {
           await tx.execute(sql`UPDATE cupons SET uso_atual = GREATEST(0, COALESCE(uso_atual, 0) - 1) WHERE id = ${row.cupom_id}`);

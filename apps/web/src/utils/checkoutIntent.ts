@@ -8,6 +8,7 @@ export interface CheckoutIntent {
   pacoteId: string;
   itensSelecionados: Record<string, number>;
   cupomCodigo?: string;
+  grupoHospedagem?: 'masculino' | 'feminino';
   criadoEm: string;
 }
 

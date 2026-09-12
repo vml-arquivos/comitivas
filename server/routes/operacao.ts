@@ -73,7 +73,7 @@ router.delete("/onibus/:onibusId", async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error("[OPERACAO] Falha ao excluir ou arquivar ônibus:", error);
     if (error?.message === "Ônibus não encontrado") return res.status(404).json({ erro: error.message });
-    return res.status(500).json({ erro: "Não foi possível excluir ou arquivar o ônibus" });
+    return res.status(409).json({ erro: error?.message || "Não foi possível excluir ou arquivar o ônibus" });
   }
 });
 

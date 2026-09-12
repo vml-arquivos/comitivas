@@ -218,10 +218,30 @@ router.get("/estado/:reserva_id", authMiddleware, async (req: Request, res: Resp
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
     if (!(await podeAcessarReserva(req, reserva))) return res.status(403).json({ erro: "Acesso negado" });
+    const cadastro = (await db.select({
+      nome: usuarios.nome,
+      email: usuarios.email,
+      cpf: usuarios.cpf,
+      telefone: usuarios.telefone,
+      data_nascimento: usuarios.data_nascimento,
+      endereco: usuarios.endereco,
+    }).from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0];
+    const faltantesCadastro = await camposCadastroFaltantes(reserva.id);
+    const documentoIdentidade = (await db.select({
+      id: clienteDocumentos.id,
+      tipo_identidade: clienteDocumentos.tipo_identidade,
+      validacao_status: clienteDocumentos.validacao_status,
+      erro_validacao: clienteDocumentos.erro_validacao,
+      criado_em: clienteDocumentos.criado_em,
+    }).from(clienteDocumentos).where(and(
+      eq(clienteDocumentos.usuario_id, reserva.usuario_id),
+      eq(clienteDocumentos.categoria, "identidade"),
+      isNull(clienteDocumentos.removido_em),
+    )).orderBy(desc(clienteDocumentos.criado_em)).limit(1))[0] || null;
     const documento = (await db.select({ id: contratosDocumentos.id, versao: contratosDocumentos.versao, status: contratosDocumentos.status, snapshot_sha256: contratosDocumentos.snapshot_sha256, pdf_sha256: contratosDocumentos.pdf_sha256, pdf_disponivel: sql<boolean>`${contratosDocumentos.arquivo} IS NOT NULL` }).from(contratosDocumentos).where(eq(contratosDocumentos.reserva_id, reserva.id)).orderBy(desc(contratosDocumentos.versao)).limit(1))[0] || null;
     const pagamento = (await db.select().from(pagamentos).where(eq(pagamentos.reserva_id, reserva.id)).orderBy(desc(pagamentos.criado_em)).limit(1))[0] || null;
     const checkoutEstado = reserva.checkout_estado || (reserva.status === "cliente_confirmado" ? "primeira_parcela_confirmada" : reserva.status === "aguardando_pagamento" ? "aguardando_pagamento" : reserva.status === "contrato_gerado" ? "contrato_validado" : reserva.status);
-    return res.json({ reserva_id: reserva.id, status: reserva.status, checkout_estado: checkoutEstado, contrato: documento, pagamento: pagamento ? { id: pagamento.id, status: pagamento.status, gateway_id: pagamento.gateway_id, valor: pagamento.valor, valor_pago_centavos: pagamento.valor_pago_centavos, resposta: pagamento.gateway_resposta } : null });
+    return res.json({ reserva_id: reserva.id, status: reserva.status, checkout_estado: checkoutEstado, contrato: documento, pagamento: pagamento ? { id: pagamento.id, status: pagamento.status, gateway_id: pagamento.gateway_id, valor: pagamento.valor, valor_pago_centavos: pagamento.valor_pago_centavos, resposta: pagamento.gateway_resposta } : null, cadastro: { completo: faltantesCadastro.length === 0, campos_faltantes: faltantesCadastro, dados: cadastro || null }, documento_identidade: { obrigatorio: process.env.DOCUMENT_IDENTITY_REQUIRED_FOR_CONTRACT === "true", enviado: Boolean(documentoIdentidade), validado: documentoIdentidade?.validacao_status === "aprovado", documento: documentoIdentidade } });
   } catch (error) {
     console.error("[CONTRATOS] Erro ao consultar estado:", error);
     return res.status(500).json({ erro: "Erro ao consultar estado do checkout" });

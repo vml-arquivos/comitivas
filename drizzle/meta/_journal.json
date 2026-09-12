@@ -2,117 +2,23 @@
   "version": "5",
   "dialect": "postgresql",
   "entries": [
-    {
-      "idx": 0,
-      "version": "5",
-      "when": 1784937600000,
-      "tag": "0000_dados_contratuais_e_hospedagem",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "5",
-      "when": 1784937660000,
-      "tag": "0001_reserva_pacote_escolhido",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "5",
-      "when": 1784937720000,
-      "tag": "0002_condicoes_pagamento_reserva",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "5",
-      "when": 1784949600000,
-      "tag": "0003_leads_crm_conversao",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "5",
-      "when": 1784950200000,
-      "tag": "0004_disponibilidade_modalidades",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "5",
-      "when": 1784951100000,
-      "tag": "0005_producao_crm_itinerario_barretos",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "5",
-      "when": 1785000000000,
-      "tag": "0006_configuracoes_pagamento",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "5",
-      "when": 1787421000000,
-      "tag": "0007_evolucao_comitivas",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "5",
-      "when": 1787913588000,
-      "tag": "0008_contratacao_integridade_operacional",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "5",
-      "when": 1788000000000,
-      "tag": "0009_comercial_preco_comissao_email",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "5",
-      "when": 1788667200000,
-      "tag": "0010_clientes_ficha_documentos_historico",
-      "breakpoints": true
-    },
-    {
-      "idx": 11,
-      "version": "5",
-      "when": 1788825600000,
-      "tag": "0011_governanca_dev_gateway_boleto_manual",
-      "breakpoints": true
-    },
-    {
-      "idx": 12,
-      "version": "5",
-      "when": 1789000000000,
-      "tag": "0012_operacao_pacotes_vendas",
-      "breakpoints": true
-    },
-    {
-      "idx": 13,
-      "version": "5",
-      "when": 1789010000000,
-      "tag": "0013_operacao_onibus_equipe",
-      "breakpoints": true
-    },
-    {
-      "idx": 14,
-      "version": "5",
-      "when": 1789011000000,
-      "tag": "0014_fila_onibus_quartos_solicitacoes",
-      "breakpoints": true
-    },
-    {
-      "idx": 15,
-      "version": "5",
-      "when": 1789097400000,
-      "tag": "0015_validacao_documental_identidade",
-      "breakpoints": true
-    }
+    { "idx": 0, "version": "5", "when": 1784937600000, "tag": "0000_dados_contratuais_e_hospedagem", "breakpoints": true },
+    { "idx": 1, "version": "5", "when": 1784937660000, "tag": "0001_reserva_pacote_escolhido", "breakpoints": true },
+    { "idx": 2, "version": "5", "when": 1784937720000, "tag": "0002_condicoes_pagamento_reserva", "breakpoints": true },
+    { "idx": 3, "version": "5", "when": 1784949600000, "tag": "0003_leads_crm_conversao", "breakpoints": true },
+    { "idx": 4, "version": "5", "when": 1784950200000, "tag": "0004_disponibilidade_modalidades", "breakpoints": true },
+    { "idx": 5, "version": "5", "when": 1784951100000, "tag": "0005_producao_crm_itinerario_barretos", "breakpoints": true },
+    { "idx": 6, "version": "5", "when": 1785000000000, "tag": "0006_configuracoes_pagamento", "breakpoints": true },
+    { "idx": 7, "version": "5", "when": 1787421000000, "tag": "0007_evolucao_comitivas", "breakpoints": true },
+    { "idx": 8, "version": "5", "when": 1787913588000, "tag": "0008_contratacao_integridade_operacional", "breakpoints": true },
+    { "idx": 9, "version": "5", "when": 1788000000000, "tag": "0009_comercial_preco_comissao_email", "breakpoints": true },
+    { "idx": 10, "version": "5", "when": 1788667200000, "tag": "0010_clientes_ficha_documentos_historico", "breakpoints": true },
+    { "idx": 11, "version": "5", "when": 1788825600000, "tag": "0011_governanca_dev_gateway_boleto_manual", "breakpoints": true },
+    { "idx": 12, "version": "5", "when": 1789000000000, "tag": "0012_operacao_pacotes_vendas", "breakpoints": true },
+    { "idx": 13, "version": "5", "when": 1789010000000, "tag": "0013_operacao_onibus_equipe", "breakpoints": true },
+    { "idx": 14, "version": "5", "when": 1789011000000, "tag": "0014_fila_onibus_quartos_solicitacoes", "breakpoints": true },
+    { "idx": 15, "version": "5", "when": 1789097400000, "tag": "0015_validacao_documental_identidade", "breakpoints": true },
+    { "idx": 16, "version": "5", "when": 1789108274000, "tag": "0016_contratacao_grupo_participantes", "breakpoints": true },
+    { "idx": 17, "version": "5", "when": 1789196400000, "tag": "0017_capacidade_contratacao", "breakpoints": true }
   ]
 }

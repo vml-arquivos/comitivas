@@ -1,6 +1,7 @@
 import { createId } from "@paralleldrive/cuid2";
 import { sql } from "drizzle-orm";
 import { db } from "../db/index.js";
+import { resolverRecursosContratacao } from "./contratacaoRecursos.js";
 
 export type AssentoLayout = { numero: number; fileira: number; posicao: "A" | "B" | "C" | "D" };
 export type StatusFilaOnibus = "em_venda" | "aguardando" | "esgotado";
@@ -184,12 +185,42 @@ export class OperacaoOnibusService {
   static async atualizarOnibus(id: string, input: any, atorId: string) {
     const status = input?.status === undefined ? null : texto(input.status, 30);
     if (status && !["planejamento", "confirmado", "em_viagem", "concluido", "cancelado"].includes(status)) throw new Error("Status do ônibus inválido");
+    const capacidade = input?.capacidade === undefined ? null : Number(input.capacidade);
+    if (capacidade !== null) gerarLayoutAssentos(capacidade);
     return db.transaction(async (tx) => {
       const antes = linhas(await tx.execute(sql`SELECT * FROM onibus_operacionais WHERE id = ${id} FOR UPDATE`))[0];
       if (!antes) throw new Error("Ônibus não encontrado");
       if (input?.ativo === false) {
         const ocupadas = linhas(await tx.execute(sql`SELECT COUNT(*)::int AS total FROM assento_alocacoes aa JOIN assentos_onibus a ON a.id = aa.assento_id WHERE a.onibus_id = ${id} AND aa.status = 'ativa'`))[0];
         if (Number(ocupadas?.total) > 0) throw new Error("Mova ou libere as poltronas ocupadas antes de arquivar o ônibus");
+      }
+      if (capacidade !== null && capacidade !== Number(antes.capacidade)) {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`capacidade-onibus:${id}`}))`);
+        if (capacidade < Number(antes.capacidade)) {
+          const protegida = linhas(await tx.execute(sql`SELECT a.numero
+            FROM assentos_onibus a
+            WHERE a.onibus_id = ${id} AND a.numero > ${capacidade}
+              AND (
+                (a.status = 'bloqueado' AND COALESCE(a.motivo_bloqueio, '') <> 'Fora da capacidade atual')
+                OR EXISTS (SELECT 1 FROM assento_alocacoes aa WHERE aa.assento_id = a.id AND aa.status = 'ativa')
+                OR EXISTS (SELECT 1 FROM assento_holds h WHERE h.assento_id = a.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP)
+              )
+            ORDER BY a.numero LIMIT 1 FOR UPDATE OF a`))[0];
+          if (protegida) throw new Error(`A capacidade não pode ser reduzida: a poltrona ${protegida.numero} está ocupada ou bloqueada`);
+          await tx.execute(sql`UPDATE assentos_onibus SET status = 'bloqueado', motivo_bloqueio = 'Fora da capacidade atual', atualizado_em = CURRENT_TIMESTAMP
+            WHERE onibus_id = ${id} AND numero > ${capacidade}`);
+        } else {
+          for (const assento of gerarLayoutAssentos(capacidade)) {
+            await tx.execute(sql`INSERT INTO assentos_onibus (id, onibus_id, numero, fileira, posicao, status, atualizado_em)
+              VALUES (${createId()}, ${id}, ${assento.numero}, ${assento.fileira}, ${assento.posicao}, 'disponivel', CURRENT_TIMESTAMP)
+              ON CONFLICT (onibus_id, numero) DO UPDATE SET
+                fileira = EXCLUDED.fileira,
+                posicao = EXCLUDED.posicao,
+                status = CASE WHEN assentos_onibus.motivo_bloqueio = 'Fora da capacidade atual' THEN 'disponivel' ELSE assentos_onibus.status END,
+                motivo_bloqueio = CASE WHEN assentos_onibus.motivo_bloqueio = 'Fora da capacidade atual' THEN NULL ELSE assentos_onibus.motivo_bloqueio END,
+                atualizado_em = CURRENT_TIMESTAMP`);
+          }
+        }
       }
       const depois = linhas(await tx.execute(sql`UPDATE onibus_operacionais SET
         nome = COALESCE(${input?.nome === undefined ? null : texto(input.nome, 120)}, nome),
@@ -198,7 +229,7 @@ export class OperacaoOnibusService {
         motorista_nome = CASE WHEN ${input?.motorista_nome === undefined} THEN motorista_nome ELSE ${texto(input?.motorista_nome, 160) || null} END,
         motorista_telefone = CASE WHEN ${input?.motorista_telefone === undefined} THEN motorista_telefone ELSE ${texto(input?.motorista_telefone, 20) || null} END,
         responsavel_nome = CASE WHEN ${input?.responsavel_nome === undefined} THEN responsavel_nome ELSE ${texto(input?.responsavel_nome, 160) || null} END,
-        status = COALESCE(${status}, status), ativo = COALESCE(${typeof input?.ativo === "boolean" ? input.ativo : null}, ativo), atualizado_em = CURRENT_TIMESTAMP
+        capacidade = COALESCE(${capacidade}, capacidade), status = COALESCE(${status}, status), ativo = COALESCE(${typeof input?.ativo === "boolean" ? input.ativo : null}, ativo), atualizado_em = CURRENT_TIMESTAMP
         WHERE id = ${id} RETURNING *`))[0];
       await registrar(tx, antes.saida_id, "onibus", id, "onibus_atualizado", atorId, antes, depois);
       return depois;
@@ -210,25 +241,21 @@ export class OperacaoOnibusService {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`onibus-excluir:${id}`}))`);
       const antes = linhas(await tx.execute(sql`SELECT * FROM onibus_operacionais WHERE id = ${id} FOR UPDATE`))[0];
       if (!antes) throw new Error("Ônibus não encontrado");
-
-      await tx.execute(sql`UPDATE reservas SET saida_operacional_id = NULL, ponto_embarque_id = NULL, atualizado_em = CURRENT_TIMESTAMP
-        WHERE saida_operacional_id = ${antes.saida_id} AND id IN (
-          SELECT aa.reserva_id FROM assento_alocacoes aa
-          JOIN assentos_onibus a ON a.id = aa.assento_id
-          WHERE a.onibus_id = ${id} AND aa.status = 'ativa'
-        )`);
-      await tx.execute(sql`UPDATE assento_holds SET status = 'liberado', liberado_em = COALESCE(liberado_em, CURRENT_TIMESTAMP)
-        WHERE status = 'ativo' AND assento_id IN (SELECT id FROM assentos_onibus WHERE onibus_id = ${id})`);
-      await tx.execute(sql`UPDATE assento_alocacoes SET status = 'cancelada', encerrado_em = CURRENT_TIMESTAMP,
-        motivo = 'Ônibus retirado da operação'
-        WHERE status = 'ativa' AND assento_id IN (SELECT id FROM assentos_onibus WHERE onibus_id = ${id})`);
+      const protegido = linhas(await tx.execute(sql`SELECT
+        COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM assento_alocacoes aa WHERE aa.assento_id = a.id AND aa.status = 'ativa'))::int AS ocupadas,
+        COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM assento_holds h WHERE h.assento_id = a.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP))::int AS temporarias,
+        COUNT(*) FILTER (WHERE a.status = 'bloqueado' AND COALESCE(a.motivo_bloqueio, '') <> 'Fora da capacidade atual')::int AS bloqueadas
+        FROM assentos_onibus a WHERE a.onibus_id = ${id}`))[0];
+      if (Number(protegido?.ocupadas || 0) + Number(protegido?.temporarias || 0) + Number(protegido?.bloqueadas || 0) > 0) {
+        throw new Error("Remaneje as pessoas e desbloqueie os lugares antes de excluir o ônibus");
+      }
       const depois = linhas(await tx.execute(sql`UPDATE onibus_operacionais SET ativo = false,
         status = CASE WHEN status = 'concluido' THEN status ELSE 'cancelado' END,
         atualizado_em = CURRENT_TIMESTAMP WHERE id = ${id} RETURNING *`))[0];
       await registrar(tx, antes.saida_id, "onibus", id, "onibus_arquivado", atorId, antes, depois);
       return {
         modo: "arquivado",
-        mensagem: "Ônibus retirado da operação. Passageiros, lugares e histórico foram preservados.",
+        mensagem: "Ônibus sem ocupação retirado da operação; o histórico foi preservado.",
       };
     });
   }
@@ -290,7 +317,7 @@ export class OperacaoOnibusService {
       COUNT(aa.id) FILTER (WHERE aa.status = 'ativa')::int AS ocupadas,
       COUNT(a.id) FILTER (WHERE a.status = 'bloqueado')::int AS bloqueadas,
       COUNT(h.id) FILTER (WHERE h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP)::int AS em_hold
-      FROM onibus_operacionais o LEFT JOIN assentos_onibus a ON a.onibus_id = o.id
+      FROM onibus_operacionais o LEFT JOIN assentos_onibus a ON a.onibus_id = o.id AND a.numero <= o.capacidade
       LEFT JOIN assento_alocacoes aa ON aa.assento_id = a.id AND aa.status = 'ativa'
       LEFT JOIN assento_holds h ON h.assento_id = a.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP
       WHERE o.saida_id = ${saidaId} AND o.ativo = true GROUP BY o.id ORDER BY o.venda_ordem, o.criado_em`));
@@ -306,13 +333,17 @@ export class OperacaoOnibusService {
       LEFT JOIN usuarios u ON u.id = aa.usuario_id
       LEFT JOIN pontos_embarque_operacao p ON p.id = aa.ponto_embarque_id
       LEFT JOIN assento_holds h ON h.assento_id = a.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP
-      WHERE o.saida_id = ${saidaId} AND o.ativo = true ORDER BY o.venda_ordem, o.criado_em, a.numero`));
+      WHERE o.saida_id = ${saidaId} AND o.ativo = true AND a.numero <= o.capacidade ORDER BY o.venda_ordem, o.criado_em, a.numero`));
     const pontos = linhas(await db.execute(sql`SELECT * FROM pontos_embarque_operacao WHERE saida_id = ${saidaId} AND ativo = true ORDER BY ordem, horario NULLS LAST, nome`));
     const reservasDisponiveis = linhas(await db.execute(sql`SELECT r.id, r.usuario_id, r.status, r.valor_total, u.nome AS cliente_nome, u.email AS cliente_email, p.nome AS pacote_nome
       FROM reservas r JOIN usuarios u ON u.id = r.usuario_id AND u.tipo = 'cliente'
       LEFT JOIN pacotes p ON p.id = r.pacote_id
       LEFT JOIN assento_alocacoes aa ON aa.reserva_id = r.id AND aa.status = 'ativa'
       WHERE r.lote_id = ${saida.lote_id} AND r.status <> 'abandonado' AND aa.id IS NULL
+        AND (
+          COALESCE((r.recursos_contratados->>'transporte')::boolean, false) = true
+          OR (r.recursos_contratados = '{}'::jsonb AND (p.modalidade_hospedagem = 'camping' OR p.forma_contratacao IN ('onibus', 'onibus_hospedagem')))
+        )
       ORDER BY u.nome, r.criado_em`));
     const capacidade = onibus.reduce((total, item) => total + Number(item.capacidade || 0), 0);
     const ocupadas = onibus.reduce((total, item) => total + Number(item.ocupadas || 0), 0);
@@ -344,8 +375,16 @@ export class OperacaoOnibusService {
         FROM assentos_onibus a JOIN onibus_operacionais o ON o.id = a.onibus_id JOIN saidas_operacionais s ON s.id = o.saida_id WHERE a.id = ${assentoId} FOR UPDATE OF a`))[0];
       if (!alvo || !alvo.onibus_ativo || !alvo.saida_ativa) throw new Error("Poltrona não encontrada ou indisponível");
       if (alvo.assento_status !== "disponivel") throw new Error("A poltrona está bloqueada");
-      const reserva = linhas(await tx.execute(sql`SELECT r.id, r.usuario_id, r.lote_id, r.status, u.tipo FROM reservas r JOIN usuarios u ON u.id = r.usuario_id WHERE r.id = ${reservaId} FOR UPDATE OF r`))[0];
+      const reserva = linhas(await tx.execute(sql`SELECT r.id, r.usuario_id, r.lote_id, r.status, r.recursos_contratados,
+        u.tipo, p.forma_contratacao, p.modalidade_hospedagem
+        FROM reservas r JOIN usuarios u ON u.id = r.usuario_id LEFT JOIN pacotes p ON p.id = r.pacote_id
+        WHERE r.id = ${reservaId} FOR UPDATE OF r`))[0];
       if (!reserva || reserva.tipo !== "cliente" || reserva.lote_id !== alvo.lote_id || reserva.status === "abandonado") throw new Error("A reserva não pertence a esta saída ou não está disponível");
+      const recursosRegistrados = reserva.recursos_contratados;
+      const recursos = typeof recursosRegistrados?.transporte === "boolean" && typeof recursosRegistrados?.hospedagem === "boolean"
+        ? recursosRegistrados
+        : resolverRecursosContratacao(reserva.forma_contratacao, reserva.modalidade_hospedagem);
+      if (!recursos.transporte) throw new Error("Este pacote não inclui transporte");
       const atual = linhas(await tx.execute(sql`SELECT aa.*, a.numero, o.nome AS onibus_nome FROM assento_alocacoes aa JOIN assentos_onibus a ON a.id = aa.assento_id JOIN onibus_operacionais o ON o.id = a.onibus_id WHERE aa.reserva_id = ${reservaId} AND aa.status = 'ativa' FOR UPDATE OF aa`))[0];
       if (atual?.assento_id === assentoId) return atual;
       if (atual) throw new Error(`A reserva já ocupa a poltrona ${atual.numero} do ${atual.onibus_nome}; use a ação Mover`);

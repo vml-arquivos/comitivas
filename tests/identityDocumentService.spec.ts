@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { avaliarCorrespondenciaDocumento, normalizarNome } from "../server/services/identityDocumentService.js";
+import { avaliarCorrespondenciaDocumento, configuracaoValidacaoDocumental, normalizarNome } from "../server/services/identityDocumentService.js";
 
 const cadastro = {
   nome: "Ana Araújo Silva",
@@ -47,5 +47,18 @@ describe("validação documental", () => {
     const resultado = avaliarCorrespondenciaDocumento(leitura({ tipo_documento: "passaporte", cpf: null }), cadastro, "passaporte");
     expect(resultado.status).toBe("aprovado");
     expect(resultado.cpf_corresponde).toBeNull();
+  });
+
+  it("usa somente o pipeline local mesmo quando existe configuração histórica do Gemini", () => {
+    const anterior = process.env.DOCUMENT_AI_PROVIDER;
+    process.env.DOCUMENT_AI_PROVIDER = "gemini";
+    expect(configuracaoValidacaoDocumental()).toMatchObject({ provedor: "local", modelo: "tesseract+opencv", leituraAutomaticaDisponivel: true });
+    if (anterior === undefined) delete process.env.DOCUMENT_AI_PROVIDER;
+    else process.env.DOCUMENT_AI_PROVIDER = anterior;
+  });
+
+  it("não aprova documento sem fotografia ou sem leitura legível", () => {
+    expect(avaliarCorrespondenciaDocumento(leitura({ possui_foto: false }), cadastro, "cnh").status).toBe("rejeitado");
+    expect(avaliarCorrespondenciaDocumento(leitura({ legivel: false }), cadastro, "cnh").status).toBe("rejeitado");
   });
 });

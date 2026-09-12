@@ -20,7 +20,10 @@ interface PacotePublicado {
   descricao: string;
   valor_total: string;
   modalidade_hospedagem: 'camping' | 'quarto_ventilador' | 'quarto_ar_condicionado';
+  forma_contratacao: 'onibus' | 'hospedagem' | 'onibus_hospedagem' | 'livre';
   disponibilidade: 'disponivel' | 'ultimas_vagas' | 'esgotado';
+  vagas_disponiveis?: number;
+  vagas_hospedagem_por_grupo?: { masculino: number; feminino: number } | null;
 }
 
 const modalidadeMeta: Record<PacotePublicado['modalidade_hospedagem'], { label: string; icon: typeof TentTree; destaque: string }> = {
@@ -44,6 +47,7 @@ export default function ConfiguradorPacote() {
   const [pacoteId, setPacoteId] = useState<string>('');
   const [itensSelecionados, setItensSelecionados] = useState<Record<string, number>>({});
   const [cupomCodigo, setCupomCodigo] = useState('');
+  const [grupoHospedagem, setGrupoHospedagem] = useState<'' | 'masculino' | 'feminino'>('');
   const [calculo, setCalculo] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isCalculating, setIsCalculating] = useState(false);
@@ -84,11 +88,13 @@ export default function ConfiguradorPacote() {
           if (intencaoSalva && intencaoSalva.loteId === loteId && intencaoSalva.pacoteId === pacoteDaUrl.id) {
             setItensSelecionados(intencaoSalva.itensSelecionados || {});
             setCupomCodigo(intencaoSalva.cupomCodigo || '');
+            setGrupoHospedagem(intencaoSalva.grupoHospedagem || '');
           }
         } else if (pacoteSalvoValido && pacoteSalvoId) {
           setPacoteId(pacoteSalvoId);
           setItensSelecionados(intencaoSalva?.itensSelecionados || {});
           setCupomCodigo(intencaoSalva?.cupomCodigo || '');
+          setGrupoHospedagem(intencaoSalva?.grupoHospedagem || '');
         } else if (listaPacotes.length === 1 && listaPacotes[0].disponibilidade !== 'esgotado') {
           setPacoteId(listaPacotes[0].id);
         }
@@ -104,6 +110,21 @@ export default function ConfiguradorPacote() {
   }, [loteId, pacoteSolicitado]);
 
   const pacoteSelecionado = useMemo(() => pacotes.find((pacote) => pacote.id === pacoteId), [pacotes, pacoteId]);
+  const exigeHospedagem = Boolean(
+    pacoteSelecionado
+    && pacoteSelecionado.modalidade_hospedagem !== 'camping'
+    && ['hospedagem', 'onibus_hospedagem', 'livre'].includes(pacoteSelecionado.forma_contratacao),
+  );
+  const incluiTransporte = Boolean(
+    pacoteSelecionado
+    && (pacoteSelecionado.modalidade_hospedagem === 'camping' || ['onibus', 'onibus_hospedagem'].includes(pacoteSelecionado.forma_contratacao)),
+  );
+
+  useEffect(() => {
+    if (grupoHospedagem && pacoteSelecionado?.vagas_hospedagem_por_grupo?.[grupoHospedagem] === 0) {
+      setGrupoHospedagem('');
+    }
+  }, [grupoHospedagem, pacoteSelecionado]);
 
   useEffect(() => {
     if (isLoading || !loteId || (pacotes.length > 0 && !pacoteId)) {
@@ -166,6 +187,10 @@ export default function ConfiguradorPacote() {
       setError('Esta modalidade está esgotada. Escolha outra opção para continuar.');
       return;
     }
+    if (exigeHospedagem && !grupoHospedagem) {
+      setError('Selecione o grupo de hospedagem masculino ou feminino para reservar a vaga correta.');
+      return;
+    }
     setError('');
     let leadId = lerLeadId();
     const leadIntentToken = lerLeadIntentToken();
@@ -174,6 +199,7 @@ export default function ConfiguradorPacote() {
       pacoteId,
       itensSelecionados,
       cupomCodigo: cupomCodigo.trim() || undefined,
+      grupoHospedagem: grupoHospedagem || undefined,
       criadoEm: new Date().toISOString(),
     };
     salvarIntencaoCheckout(intent);
@@ -208,6 +234,7 @@ export default function ConfiguradorPacote() {
         pacote_id: pacoteId || undefined,
         itens: itensPayload,
         cupom_codigo: cupomCodigo.trim() || undefined,
+        grupo_hospedagem: grupoHospedagem || undefined,
         lead_id: leadId || undefined,
         lead_intent_token: leadIntentToken || undefined,
       });
@@ -265,6 +292,17 @@ export default function ConfiguradorPacote() {
               })}
             </div>
             {pacoteSelecionado && <div className="mt-3 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"><CheckCircle2 size={17} className="mt-0.5 shrink-0"/><p><strong>{pacoteSelecionado.nome}</strong> selecionado. Você pode adicionar extras abaixo ou seguir direto para o checkout.</p></div>}
+            {exigeHospedagem && <fieldset className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+              <legend className="px-1 text-sm font-semibold text-slate-800">Grupo do quarto</legend>
+              <p className="mb-3 text-xs text-slate-500">Usado somente para direcionar a vaga ao quarto correspondente.</p>
+              <div className="grid grid-cols-2 gap-3">
+                {(['feminino', 'masculino'] as const).map((grupo) => {
+                  const vagas = pacoteSelecionado?.vagas_hospedagem_por_grupo?.[grupo];
+                  const esgotado = vagas === 0;
+                  return <button key={grupo} type="button" disabled={esgotado} aria-pressed={grupoHospedagem === grupo} onClick={() => setGrupoHospedagem(grupo)} className={`rounded-xl border px-4 py-3 text-sm font-semibold capitalize transition disabled:cursor-not-allowed disabled:opacity-50 ${grupoHospedagem === grupo ? 'border-primary bg-primary/5 text-primary ring-2 ring-primary/15' : 'border-slate-200 text-slate-700 hover:border-primary/40'}`}>{grupo}{typeof vagas === 'number' ? ` · ${vagas} vaga${vagas === 1 ? '' : 's'}` : ''}</button>;
+                })}
+              </div>
+            </fieldset>}
           </section>
         )}
 
@@ -293,13 +331,14 @@ export default function ConfiguradorPacote() {
 
       <aside className="lg:col-span-1">
         <Card className="sticky top-[104px] overflow-hidden border-[#182D3B]/10 shadow-[0_18px_45px_rgba(24,45,59,0.10)]"><CardHeader className="border-b bg-[#182D3B] text-white"><CardTitle>Resumo da reserva</CardTitle></CardHeader><CardContent className="space-y-4 p-6">
-          <div className="flex justify-between text-sm"><span className="text-gray-600">Hospedagem</span><span className="max-w-40 text-right font-medium">{pacoteSelecionado?.nome || (pacotes.length ? 'Escolha uma opção' : 'Pacote base')}</span></div>
+          <div className="flex justify-between text-sm"><span className="text-gray-600">Pacote</span><span className="max-w-40 text-right font-medium">{pacoteSelecionado?.nome || (pacotes.length ? 'Escolha uma opção' : 'Pacote base')}</span></div>
+          {pacoteSelecionado && <div className="flex justify-between text-sm"><span className="text-gray-600">Vagas</span><span className="max-w-44 text-right font-medium">{incluiTransporte ? 'Transporte' : ''}{incluiTransporte && exigeHospedagem ? ' + ' : ''}{exigeHospedagem ? `Quarto ${grupoHospedagem || 'a definir'}` : ''}</span></div>}
           <div className="flex justify-between text-sm"><span className="text-gray-600">Valor-base</span><span className="font-medium">{formatarMoeda(calculo?.valor_base || 0)}</span></div>
           {Object.entries(itensSelecionados).some(([, qtd]) => qtd > 0) && <div className="space-y-2 border-t pt-4"><p className="text-xs font-bold uppercase text-gray-500">Adicionais</p>{Object.entries(itensSelecionados).filter(([, qtd]) => qtd > 0).map(([id, qtd]) => { const item = itensDisponiveis.find((i) => i.id === id); return item ? <div key={id} className="flex justify-between text-sm"><span className="text-gray-600">{item.nome}</span><span>{formatarMoeda(Number(item.valor) * qtd)}</span></div> : null; })}</div>}
           <div className="border-t pt-4"><div className="flex items-center justify-between"><span className="text-lg font-bold">Total</span><span className="text-2xl font-bold text-primary">{isCalculating ? '...' : formatarMoeda(calculo?.valor_total || 0)}</span></div></div>
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Prévia do contrato</p><p className="mt-2 text-sm leading-relaxed text-slate-700">Serão registrados: <strong>{pacoteSelecionado?.nome || 'pacote base'}</strong>{Object.entries(itensSelecionados).filter(([, qtd]) => qtd > 0).length ? ` e ${Object.entries(itensSelecionados).filter(([, qtd]) => qtd > 0).length} adicional(is)` : ''}, com o total calculado pelo servidor.</p></div>
           <label className="block text-sm font-semibold text-slate-700">Cupom de desconto (opcional)<input value={cupomCodigo} onChange={(event) => setCupomCodigo(event.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 50))} placeholder="Digite seu cupom" className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono uppercase" /></label>
-          <Button className="mt-3 w-full" size="lg" onClick={handleReservar} isLoading={isReserving || authLoading} disabled={authLoading || isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado'}>{user ? 'Continuar para checkout' : 'Entrar para continuar'}</Button>
+          <Button className="mt-3 w-full" size="lg" onClick={handleReservar} isLoading={isReserving || authLoading} disabled={authLoading || isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado' || (exigeHospedagem && !grupoHospedagem)}>{user ? 'Continuar para checkout' : 'Entrar para continuar'}</Button>
           <div className="flex gap-2 rounded-md bg-blue-50 p-3 text-xs text-blue-700"><Info size={16} className="shrink-0" /><p>{user ? 'Os valores são calculados no servidor. Seu contrato refletirá exatamente as escolhas confirmadas.' : 'Você só precisará criar sua conta na próxima etapa. Sua escolha ficará salva para continuar sem recomeçar.'}</p></div>
         </CardContent></Card>
       </aside>
@@ -310,7 +349,7 @@ export default function ConfiguradorPacote() {
             <p className="truncate text-xs font-bold text-slate-500">{pacoteSelecionado?.nome || 'Escolha um pacote'}</p>
             <p className="text-lg font-black text-[#182D3B]">{isCalculating ? 'Calculando…' : formatarMoeda(calculo?.valor_total || pacoteSelecionado?.valor_total || 0)}</p>
           </div>
-          <Button onClick={handleReservar} isLoading={isReserving || authLoading} disabled={authLoading || isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado'}>{user ? 'Continuar' : 'Entrar para continuar'} <ArrowRight size={16}/></Button>
+          <Button onClick={handleReservar} isLoading={isReserving || authLoading} disabled={authLoading || isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado' || (exigeHospedagem && !grupoHospedagem)}>{user ? 'Continuar' : 'Entrar para continuar'} <ArrowRight size={16}/></Button>
         </div>
       </div>
     </div>

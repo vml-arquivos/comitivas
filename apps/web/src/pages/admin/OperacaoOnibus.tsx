@@ -6,6 +6,7 @@ import {
   Download,
   MapPin,
   MoveRight,
+  Pencil,
   Plus,
   RefreshCw,
   Trash2,
@@ -112,7 +113,8 @@ export default function OperacaoOnibus() {
   const [reservaId, setReservaId] = useState("");
   const [pontoId, setPontoId] = useState("");
   const [movendoAlocacao, setMovendoAlocacao] = useState<string | null>(null);
-  const [modal, setModal] = useState<"saida" | "onibus" | "ponto" | null>(null);
+  const [modal, setModal] = useState<"saida" | "onibus" | "editar_onibus" | "ponto" | null>(null);
+  const [onibusEditando, setOnibusEditando] = useState<string | null>(null);
   const [saidaForm, setSaidaForm] = useState({
     lote_id: "",
     nome: "",
@@ -246,17 +248,35 @@ export default function OperacaoOnibus() {
     }
   };
 
-  const criarOnibus = async (event: React.FormEvent) => {
+  const salvarOnibus = async (event: React.FormEvent) => {
     event.preventDefault();
-        if (!saidaId) return;
+    if (!saidaId) return;
     if (await executar(
-      () =>
-        api.post(`/operacao/saidas/${saidaId}/onibus`, {
+      () => onibusEditando
+        ? api.patch(`/operacao/onibus/${onibusEditando}`, { ...onibusForm, capacidade: Number(onibusForm.capacidade) })
+        : api.post(`/operacao/saidas/${saidaId}/onibus`, {
           ...onibusForm,
           capacidade: Number(onibusForm.capacidade),
         }),
-      "Transporte e mapa de lugares criados.",
-    )) setModal(null);
+      onibusEditando ? "Transporte e capacidade atualizados." : "Transporte e mapa de lugares criados.",
+    )) {
+      setModal(null);
+      setOnibusEditando(null);
+    }
+  };
+
+  const abrirEdicaoOnibus = (onibus: any) => {
+    setOnibusEditando(onibus.id);
+    setOnibusForm({
+      nome: onibus.nome || "",
+      capacidade: String(onibus.capacidade || 1),
+      identificacao: onibus.identificacao || "",
+      placa: onibus.placa || "",
+      motorista_nome: onibus.motorista_nome || "",
+      motorista_telefone: onibus.motorista_telefone || "",
+      responsavel_nome: onibus.responsavel_nome || "",
+    });
+    setModal("editar_onibus");
   };
 
   const criarPonto = async (event: React.FormEvent) => {
@@ -481,7 +501,7 @@ export default function OperacaoOnibus() {
             </div>
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" onClick={() => setModal("ponto")}><MapPin size={16} className="mr-2" />Novo ponto</Button>
-              <Button type="button" onClick={() => setModal("onibus")}><BusFront size={16} className="mr-2" />Novo veículo</Button>
+              <Button type="button" onClick={() => { setOnibusEditando(null); setOnibusForm({ nome: `Transporte ${(mapa?.onibus.length || 0) + 1}`, capacidade: "44", identificacao: "", placa: "", motorista_nome: "", motorista_telefone: "", responsavel_nome: "" }); setModal("onibus"); }}><BusFront size={16} className="mr-2" />Novo veículo</Button>
             </div>
           </section>
 
@@ -537,14 +557,10 @@ export default function OperacaoOnibus() {
                           {onibus.fila_status === "em_venda" ? `Em venda · ${onibus.vagas_venda} lugares` : onibus.fila_status === "esgotado" ? "Esgotado" : "Aguardando liberação"}
                         </span>
                       </div>
-                      <Button
-                        variant="outline"
-                        className="text-red-700"
-                        onClick={() => void excluirOnibus(onibus.id)}
-                      >
-                        <Trash2 size={15} className="mr-2" />
-                        Excluir
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button variant="outline" onClick={() => abrirEdicaoOnibus(onibus)}><Pencil size={15} className="mr-2" />Editar</Button>
+                        <Button variant="outline" className="text-red-700" onClick={() => void excluirOnibus(onibus.id)}><Trash2 size={15} className="mr-2" />Excluir</Button>
+                      </div>
                     </div>
                     <div className="grid max-w-md grid-cols-4 gap-x-2 gap-y-2 rounded-2xl bg-[#f5f8f7] p-4 sm:gap-x-4">
                       {assentos.map((assento) => (
@@ -767,8 +783,8 @@ export default function OperacaoOnibus() {
         </form>
       </AdminModal>
 
-      <AdminModal aberto={modal === "onibus"} titulo="Novo veículo" descricao="A capacidade informada gera automaticamente o mapa de lugares." fechar={() => setModal(null)} largura="ampla">
-        <form onSubmit={criarOnibus} className="grid gap-4 sm:grid-cols-2">
+      <AdminModal aberto={modal === "onibus" || modal === "editar_onibus"} titulo={onibusEditando ? "Editar veículo" : "Novo veículo"} descricao="A capacidade pode aumentar ou diminuir, sem remover lugares ocupados ou bloqueados." fechar={() => { setModal(null); setOnibusEditando(null); }} largura="ampla">
+        <form onSubmit={salvarOnibus} className="grid gap-4 sm:grid-cols-2">
           <Input required label="Nome / identificação" value={onibusForm.nome} onChange={(e) => setOnibusForm({ ...onibusForm, nome: e.target.value })} />
           <Input required label="Quantidade de lugares" type="number" min={1} max={100} value={onibusForm.capacidade} onChange={(e) => setOnibusForm({ ...onibusForm, capacidade: e.target.value })} />
           <Input label="Prefixo / referência" value={onibusForm.identificacao} onChange={(e) => setOnibusForm({ ...onibusForm, identificacao: e.target.value })} />
@@ -776,7 +792,7 @@ export default function OperacaoOnibus() {
           <Input label="Motorista / condutor" value={onibusForm.motorista_nome} onChange={(e) => setOnibusForm({ ...onibusForm, motorista_nome: e.target.value })} />
           <Input label="Telefone do condutor" value={onibusForm.motorista_telefone} onChange={(e) => setOnibusForm({ ...onibusForm, motorista_telefone: e.target.value })} />
           <div className="sm:col-span-2"><Input label="Responsável pelo transporte" value={onibusForm.responsavel_nome} onChange={(e) => setOnibusForm({ ...onibusForm, responsavel_nome: e.target.value })} /></div>
-          <div className="flex justify-end gap-2 sm:col-span-2"><Button type="button" variant="outline" onClick={() => setModal(null)}>Cancelar</Button><Button type="submit" disabled={salvando}>{salvando ? "Criando..." : "Criar mapa"}</Button></div>
+          <div className="flex justify-end gap-2 sm:col-span-2"><Button type="button" variant="outline" onClick={() => { setModal(null); setOnibusEditando(null); }}>Cancelar</Button><Button type="submit" disabled={salvando}>{salvando ? "Salvando..." : onibusEditando ? "Salvar alterações" : "Criar mapa"}</Button></div>
         </form>
       </AdminModal>
 

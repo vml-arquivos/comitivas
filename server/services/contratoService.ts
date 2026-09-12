@@ -10,6 +10,7 @@ import { generateBrandedPdfBuffer } from "../../packages/contract-engine/branded
 import { renderizarContratoModeloPadrao } from "../../packages/contract-engine/contratoModeloPadrao.js";
 import { db } from "../db/index.js";
 import regrasRuntime from "../../packages/legal-content/regras-2026.1.json";
+import { resolverRecursosContratacao, type RecursosContratados } from "./contratacaoRecursos.js";
 import {
   contratosDocumentos,
   contratoEventos,
@@ -442,16 +443,23 @@ export class ContratoService {
     const hospedagemForm = formulario.hospedagem || {};
     const transporteForm = formulario.transporte || {};
     const seguroForm = formulario.seguro || {};
-    const modeloConfigurado = String(pacote?.contrato_modelo || "auto");
-    const transporteConfigurado = modeloConfigurado === "transporte" || String(pacote?.forma_contratacao || "").includes("onibus") || transporteFoiContratado(adicionais);
-    const rodoviario = transporteForm.rodoviario_incluido === undefined ? transporteConfigurado : transporteForm.rodoviario_incluido === true;
-    const modeloOficial: "hospedagem" | "transporte" = modeloConfigurado === "transporte"
-      ? "transporte"
-      : modeloConfigurado === "hospedagem"
-        ? "hospedagem"
-        : rodoviario ? "transporte" : "hospedagem";
-    const localHospedagem = textoOpcional(hospedagemForm.local, lote.local_hospedagem || "Chácara Recanto Novo Encantado ou Santa Thereza") || "Chácara Recanto Novo Encantado ou Santa Thereza";
-    const modalidadeHospedagem = textoOpcional(hospedagemForm.modalidade, pacote?.modalidade_hospedagem || null);
+    const recursosSalvos = reserva.recursos_contratados && typeof reserva.recursos_contratados === "object"
+      ? reserva.recursos_contratados as Partial<RecursosContratados>
+      : {};
+    const recursosDerivados = pacote
+      ? resolverRecursosContratacao(pacote.forma_contratacao, pacote.modalidade_hospedagem)
+      : { transporte: transporteFoiContratado(adicionais), hospedagem: false, estrutura_quarto: null };
+    const recursos: RecursosContratados = typeof recursosSalvos.transporte === "boolean" && typeof recursosSalvos.hospedagem === "boolean"
+      ? { transporte: recursosSalvos.transporte, hospedagem: recursosSalvos.hospedagem, estrutura_quarto: recursosSalvos.estrutura_quarto || null }
+      : recursosDerivados;
+    // Os serviços contratados são autoritativos no backend; o formulário não
+    // pode adicionar transporte ou hospedagem que o pacote não inclua.
+    const rodoviario = recursos.transporte;
+    const modeloOficial: "hospedagem" | "transporte" = rodoviario ? "transporte" : "hospedagem";
+    const localHospedagem = textoOpcional(lote.local_hospedagem, textoOpcional(hospedagemForm.local, "Chácara Recanto Novo Encantado ou Santa Thereza")) || "Chácara Recanto Novo Encantado ou Santa Thereza";
+    const modalidadeHospedagem = recursos.hospedagem
+      ? textoOpcional(pacote?.modalidade_hospedagem, textoOpcional(hospedagemForm.modalidade))
+      : null;
     const regrasHash = sha256(REGRAS_CONVIVENCIA_OFICIAIS);
     const configuracaoPagamento = pacote?.configuracao_pagamento && typeof pacote.configuracao_pagamento === "object"
       ? pacote.configuracao_pagamento as Record<string, unknown>
@@ -485,7 +493,9 @@ export class ContratoService {
       .where(and(eq(quartoAlocacoes.reserva_id, reserva.id), eq(quartoAlocacoes.status, "ativa")))
       .limit(1))[0];
     const dataLimite = this.calcularDataLimiteEfetiva(pacote?.data_limite_pagamento, lote.data_embarque || lote.data_inicio, prazoSegurancaDias);
-    const servicos = ["Hospedagem", "Café da manhã", "Almoço", "Open Bar das 09h às 19h", "Translado entre a chácara e o Parque do Peão"];
+    const servicos = recursos.hospedagem
+      ? ["Hospedagem", "Café da manhã", "Almoço", "Open Bar das 09h às 19h", "Translado interno entre a hospedagem e o Parque do Peão"]
+      : [];
     if (rodoviario) servicos.unshift("Transporte rodoviário de ida e volta, conforme programação previamente divulgada pela CONTRATADA");
     const cronograma = cronogramaPagamento(total, dataLimite, parcelas, aceite);
     return {
@@ -494,15 +504,15 @@ export class ContratoService {
       vendedor: vendedor ? { id: vendedor.id, nome: vendedor.nome, email: vendedor.email } : null,
       evento: { id: evento.id, nome: evento.nome, local: evento.local, data_inicio: formatarDataISO(evento.data_inicio), data_fim: formatarDataISO(evento.data_fim) },
       lote: { id: lote.id, nome: lote.nome, descricao: lote.descricao },
-      periodo: { check_in: dataISOouNulo(hospedagemForm.check_in) || formatarDataISO(lote.data_inicio) || "", check_out: dataISOouNulo(hospedagemForm.check_out) || formatarDataISO(lote.data_fim) || "" },
+      periodo: { check_in: formatarDataISO(lote.data_inicio) || dataISOouNulo(hospedagemForm.check_in) || "", check_out: formatarDataISO(lote.data_fim) || dataISOouNulo(hospedagemForm.check_out) || "" },
       pacote: { id: pacote?.id || null, nome: pacote?.nome || null, descricao: pacote?.descricao || null, valor_total: pacote?.valor_total || null },
-      hospedagem: { modalidade: modalidadeHospedagem, modalidade_nome: MODALIDADES_HOSPEDAGEM[modalidadeHospedagem || ""] || "Conforme contratação registrada", local: localHospedagem, quarto: quarto?.nome || null, grupo: quarto?.genero || null, vaga: quarto?.numero_vaga || null },
-      servicos_inclusos: Array.isArray(formulario.servicos_inclusos) && formulario.servicos_inclusos.length > 0 ? formulario.servicos_inclusos.map((item) => String(item).trim()).filter(Boolean).slice(0, 30) : servicos,
+      hospedagem: { modalidade: modalidadeHospedagem, modalidade_nome: modalidadeHospedagem ? MODALIDADES_HOSPEDAGEM[modalidadeHospedagem] || "Conforme contratação registrada" : "Não contratada", local: recursos.hospedagem ? localHospedagem : "", quarto: recursos.hospedagem ? quarto?.nome || null : null, grupo: recursos.hospedagem ? quarto?.genero || null : null, vaga: recursos.hospedagem ? quarto?.numero_vaga || null : null },
+      servicos_inclusos: servicos,
       adicionais: adicionais.map((item) => ({ id: item.id, codigo: item.codigo, nome: item.nome, tipo: item.tipo, transporte_rodoviario: item.transporte_rodoviario, quantidade: item.quantidade, valor_unitario: item.valor.toFixed(2) })),
       quantidade: 1,
       precos_unitarios: itens.map((item) => ({ nome: item.nome, quantidade: item.quantidade, valor_unitario: item.valor.toFixed(2), total: item.valor.times(item.quantidade).toFixed(2) })),
       financeiro: { subtotal: subtotal.toFixed(2), valor_base: condicaoPagamento?.valor_base || subtotal.minus(descontoCupom).minus(decimal(descontoAdministrativo?.valor_desconto)).toFixed(2), cupom: descontoCupom.toFixed(2), desconto_pagamento: descontoPagamento.toFixed(2), taxa_pagamento: condicaoPagamento?.taxa_pagamento || "0.00", juros_pagamento: condicaoPagamento?.juros_pagamento || "0.00", multa_atraso_percentual: Number(configuracaoPagamento.multa_atraso_percentual ?? 2), juros_mora_mensal_percentual: Number(configuracaoPagamento.juros_mora_mensal_percentual ?? 1), desconto_administrativo: decimal(descontoAdministrativo?.valor_desconto).toFixed(2), total: total.toFixed(2), forma_pagamento: reserva.forma_pagamento, parcelas, valor_parcela: cronograma[0]?.valor || (reserva.valor_parcela ? decimal(reserva.valor_parcela).toFixed(2) : total.div(parcelas).toFixed(2)), vencimentos: cronograma.map((item) => item.vencimento), cronograma },
-      transporte: { rodoviario_incluido: rodoviario, local_embarque: rodoviario ? textoOpcional(transporteForm.local_embarque, alocacao?.ponto_embarque_endereco || alocacao?.ponto_embarque_nome || lote.local_embarque) : null, ponto_referencia: rodoviario ? textoOpcional(transporteForm.ponto_referencia, alocacao?.ponto_embarque_nome || null) : null, data_saida: rodoviario ? dataISOouNulo(transporteForm.data_saida) || formatarDataISO(alocacao?.data_partida || lote.data_embarque) : null, data_retorno: rodoviario ? dataISOouNulo(transporteForm.data_retorno) || formatarDataISO(alocacao?.data_retorno || lote.data_retorno) : null, horario_saida: rodoviario ? textoOpcional(transporteForm.horario_saida, alocacao?.ponto_embarque_horario ? formatarDataHora(alocacao.ponto_embarque_horario) : alocacao?.data_partida ? formatarDataHora(alocacao.data_partida) : lote.data_embarque ? formatarDataHora(lote.data_embarque) : null) : null, horario_retorno: rodoviario ? textoOpcional(transporteForm.horario_retorno, alocacao?.data_retorno ? formatarDataHora(alocacao.data_retorno) : lote.data_retorno ? formatarDataHora(lote.data_retorno) : null) : null, veiculo: rodoviario ? textoOpcional(transporteForm.veiculo, alocacao ? "Ônibus" : null) : null, saida_id: alocacao?.saida_id || null, onibus_id: alocacao?.onibus_id || null, onibus_nome: alocacao?.onibus_nome || null, onibus_identificacao: alocacao?.onibus_identificacao || null, poltrona: alocacao?.poltrona || null, ponto_embarque_id: alocacao?.ponto_embarque_id || null },
+      transporte: { rodoviario_incluido: rodoviario, local_embarque: rodoviario ? textoOpcional(alocacao?.ponto_embarque_endereco || alocacao?.ponto_embarque_nome || lote.local_embarque, textoOpcional(transporteForm.local_embarque)) : null, ponto_referencia: rodoviario ? textoOpcional(alocacao?.ponto_embarque_nome, textoOpcional(transporteForm.ponto_referencia)) : null, data_saida: rodoviario ? formatarDataISO(alocacao?.data_partida || lote.data_embarque) || dataISOouNulo(transporteForm.data_saida) : null, data_retorno: rodoviario ? formatarDataISO(alocacao?.data_retorno || lote.data_retorno) || dataISOouNulo(transporteForm.data_retorno) : null, horario_saida: rodoviario ? textoOpcional(alocacao?.ponto_embarque_horario ? formatarDataHora(alocacao.ponto_embarque_horario) : alocacao?.data_partida ? formatarDataHora(alocacao.data_partida) : lote.data_embarque ? formatarDataHora(lote.data_embarque) : null, textoOpcional(transporteForm.horario_saida)) : null, horario_retorno: rodoviario ? textoOpcional(alocacao?.data_retorno ? formatarDataHora(alocacao.data_retorno) : lote.data_retorno ? formatarDataHora(lote.data_retorno) : null, textoOpcional(transporteForm.horario_retorno)) : null, veiculo: rodoviario ? textoOpcional(alocacao ? "Ônibus" : null, textoOpcional(transporteForm.veiculo)) : null, saida_id: alocacao?.saida_id || null, onibus_id: alocacao?.onibus_id || null, onibus_nome: alocacao?.onibus_nome || null, onibus_identificacao: alocacao?.onibus_identificacao || null, poltrona: alocacao?.poltrona || null, ponto_embarque_id: alocacao?.ponto_embarque_id || null },
       bagagem: { limite_kg: numeroOpcional(formulario.bagagem?.limite_kg) },
       seguro: { seguradora: textoOpcional(seguroForm.seguradora), apolice: textoOpcional(seguroForm.apolice), cobertura: textoOpcional(seguroForm.cobertura), telefone: textoOpcional(seguroForm.telefone) },
       uso_imagem: { autorizado: formulario.uso_imagem?.autorizado === true, prazo_anos: Number(formulario.uso_imagem?.prazo_anos) > 0 ? Math.min(10, Math.round(Number(formulario.uso_imagem?.prazo_anos))) : 3 },
