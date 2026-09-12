@@ -110,7 +110,7 @@ export interface CondicaoPagamentoCalculada {
 type ItemContrato = { id?: string; codigo?: string; nome: string; tipo?: string; transporte_rodoviario?: boolean; quantidade: number; valor: Decimal };
 
 type SnapshotVenda = {
-  modelo_oficial: "hospedagem" | "transporte";
+  modelo_oficial: "hospedagem" | "transporte" | "hospedagem_transporte";
   cliente: Record<string, unknown>;
   vendedor?: { id: string; nome: string; email: string } | null;
   evento: Record<string, unknown>;
@@ -455,7 +455,9 @@ export class ContratoService {
     // Os serviços contratados são autoritativos no backend; o formulário não
     // pode adicionar transporte ou hospedagem que o pacote não inclua.
     const rodoviario = recursos.transporte;
-    const modeloOficial: "hospedagem" | "transporte" = rodoviario ? "transporte" : "hospedagem";
+    const modeloOficial: SnapshotVenda["modelo_oficial"] = rodoviario && recursos.hospedagem
+      ? "hospedagem_transporte"
+      : rodoviario ? "transporte" : "hospedagem";
     const localHospedagem = textoOpcional(lote.local_hospedagem, textoOpcional(hospedagemForm.local, "Chácara Recanto Novo Encantado ou Santa Thereza")) || "Chácara Recanto Novo Encantado ou Santa Thereza";
     const modalidadeHospedagem = recursos.hospedagem
       ? textoOpcional(pacote?.modalidade_hospedagem, textoOpcional(hospedagemForm.modalidade))

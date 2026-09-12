@@ -493,7 +493,7 @@ router.post("/", authMiddleware, requireRole("admin"), async (req: Request, res:
     const { lote_id, nome, descricao, valor_total, itens_selecionados, modalidade_hospedagem, disponibilidade, contrato_modelo, ativo } = req.body;
     const modalidadesValidas = ["camping", "quarto_ventilador", "quarto_ar_condicionado"];
     const disponibilidadesValidas = ["disponivel", "ultimas_vagas", "esgotado"];
-    const modelosContratoValidos = ["auto", "hospedagem", "transporte"];
+    const modelosContratoValidos = ["auto", "hospedagem", "transporte", "hospedagem_transporte"];
 
     if (!lote_id || !nome || valor_total === undefined || !modalidade_hospedagem) {
       return res.status(400).json({ erro: "lote_id, nome, valor_total e modalidade_hospedagem são obrigatórios" });
@@ -546,7 +546,7 @@ router.put("/:pacote_id", authMiddleware, requireRole("admin"), async (req: Requ
     const { nome, descricao, valor_total, itens_selecionados, modalidade_hospedagem, disponibilidade, contrato_modelo, ativo } = req.body;
     const modalidadesValidas = ["camping", "quarto_ventilador", "quarto_ar_condicionado"];
     const disponibilidadesValidas = ["disponivel", "ultimas_vagas", "esgotado"];
-    const modelosContratoValidos = ["auto", "hospedagem", "transporte"];
+    const modelosContratoValidos = ["auto", "hospedagem", "transporte", "hospedagem_transporte"];
 
     if (modalidade_hospedagem && !modalidadesValidas.includes(modalidade_hospedagem)) {
       return res.status(400).json({ erro: "Modalidade de hospedagem inválida" });

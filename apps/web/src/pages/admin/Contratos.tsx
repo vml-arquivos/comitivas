@@ -2,11 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, useAuth } from '../../contexts/AuthContext';
 import { Card, CardContent, Button, Input } from '@ui/index';
-import { Eye, Download, FileSignature, X, FileText, RefreshCw } from 'lucide-react';
+import { Eye, Download, FileSignature, X, FileText, RefreshCw, Trash2 } from 'lucide-react';
 
 interface ContratoLinha {
   reserva_id: string;
   status_reserva: string;
+  checkout_estado?: string;
   valor_total: string;
   forma_pagamento: string | null;
   quantidade_parcelas: number | null;
@@ -32,17 +33,11 @@ interface ContratoLinha {
     status: string;
     aprovado_admin_em: string | null;
     validado_em: string | null;
+    modelo_oficial?: 'hospedagem' | 'transporte' | 'hospedagem_transporte' | null;
+    pode_excluir?: boolean;
+    snapshot?: Record<string, any> | null;
   } | null;
 }
-
-type ModeloContrato = {
-  id: string;
-  nome: string;
-  versao: string;
-  status: string;
-  fonte: string;
-  descricao: string;
-};
 
 type FormularioContrato = {
   contratante: {
@@ -101,30 +96,38 @@ const inputClass = 'admin-field';
 const sectionClass = 'rounded-xl border border-gray-200 bg-gray-50/70 p-4 space-y-4';
 
 function formularioInicial(contrato: ContratoLinha): FormularioContrato {
+  const snapshot = contrato.documento?.snapshot || {};
+  const cliente = snapshot.cliente || {};
+  const hospedagem = snapshot.hospedagem || {};
+  const transporte = snapshot.transporte || {};
+  const seguro = snapshot.seguro || {};
+  const periodo = snapshot.periodo || {};
+  const bagagem = snapshot.bagagem || {};
+  const usoImagem = snapshot.uso_imagem || {};
   return {
     contratante: {
-      nome: contrato.cliente_nome || '',
-      cpf: contrato.cliente_cpf || '',
-      nascimento: '',
-      endereco: '',
-      telefone: '',
-      email: contrato.cliente_email || '',
+      nome: cliente.nome || contrato.cliente_nome || '',
+      cpf: cliente.cpf || contrato.cliente_cpf || '',
+      nascimento: cliente.nascimento || '',
+      endereco: cliente.endereco || '',
+      telefone: cliente.telefone || '',
+      email: cliente.email || contrato.cliente_email || '',
     },
-    hospedagem: { check_in: '', check_out: '', modalidade: '', local: '' },
+    hospedagem: { check_in: periodo.check_in || '', check_out: periodo.check_out || '', modalidade: hospedagem.modalidade || '', local: hospedagem.local || '' },
     transporte: {
-      rodoviario_incluido: false,
-      local_embarque: '',
-      ponto_referencia: '',
-      data_saida: '',
-      horario_saida: '',
-      data_retorno: '',
-      horario_retorno: '',
-      veiculo: '',
+      rodoviario_incluido: transporte.rodoviario_incluido === true,
+      local_embarque: transporte.local_embarque || '',
+      ponto_referencia: transporte.ponto_referencia || '',
+      data_saida: transporte.data_saida || '',
+      horario_saida: transporte.horario_saida || '',
+      data_retorno: transporte.data_retorno || '',
+      horario_retorno: transporte.horario_retorno || '',
+      veiculo: transporte.veiculo || '',
     },
-    bagagem: { limite_kg: '' },
-    seguro: { seguradora: '', apolice: '', cobertura: '', telefone: '' },
-    uso_imagem: { autorizado: false, prazo_anos: '3' },
-    observacoes_especificas: '',
+    bagagem: { limite_kg: bagagem.limite_kg ? String(bagagem.limite_kg) : '' },
+    seguro: { seguradora: seguro.seguradora || '', apolice: seguro.apolice || '', cobertura: seguro.cobertura || '', telefone: seguro.telefone || '' },
+    uso_imagem: { autorizado: usoImagem.autorizado !== false, prazo_anos: String(usoImagem.prazo_anos || 3) },
+    observacoes_especificas: snapshot.observacoes_especificas || '',
   };
 }
 
@@ -132,10 +135,9 @@ export default function Contratos() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const [contratos, setContratos] = useState<ContratoLinha[]>([]);
-  const [modelos, setModelos] = useState<ModeloContrato[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filtro, setFiltro] = useState<'' | 'gerados' | 'pendentes'>('');
+  const [filtro, setFiltro] = useState<'' | 'gerados' | 'pendentes' | 'abandonados'>('');
   const [busca, setBusca] = useState('');
   const [acaoMsg, setAcaoMsg] = useState<string | null>(null);
 
@@ -154,9 +156,8 @@ export default function Contratos() {
     try {
       const params: Record<string, string> = {};
       if (filtro) params.status = filtro;
-      const [response, modelosResponse] = await Promise.all([api.get('/admin/contratos', { params }), api.get('/admin/contratos/modelos')]);
+      const response = await api.get('/admin/contratos', { params });
       setContratos(response.data.contratos || []);
-      setModelos(modelosResponse.data.modelos || []);
     } catch (err: any) {
       setError(err.response?.data?.erro || 'Erro ao carregar contratos.');
     } finally {
@@ -209,6 +210,29 @@ export default function Contratos() {
       await carregar();
     } catch (err: any) {
       setError(err.response?.data?.erro || 'Não foi possível aprovar o contrato.');
+    }
+  };
+
+  const handleExcluir = async (contrato: ContratoLinha) => {
+    if (!contrato.documento?.id || !contrato.documento.pode_excluir) return;
+    if (!window.confirm(`Apagar o contrato pendente de ${contrato.cliente_nome}? A reserva poderá ser retomada no checkout, mas esta versão será removida.`)) return;
+    try {
+      await api.delete(`/admin/contratos/${contrato.documento.id}`);
+      setAcaoMsg('Contrato pendente apagado. A reserva voltou para o início do checkout.');
+      await carregar();
+    } catch (err: any) {
+      setError(err.response?.data?.erro || 'Não foi possível apagar o contrato.');
+    }
+  };
+
+  const handleLimparAbandonados = async () => {
+    if (!window.confirm('Apagar todos os contratos pendentes de reservas abandonadas ou canceladas? Contratos validados, aprovados ou com pagamento serão preservados.')) return;
+    try {
+      const response = await api.post('/admin/contratos/limpar-abandonados');
+      setAcaoMsg(response.data.mensagem || 'Limpeza concluída.');
+      await carregar();
+    } catch (err: any) {
+      setError(err.response?.data?.erro || 'Não foi possível limpar os contratos abandonados.');
     }
   };
 
@@ -287,40 +311,18 @@ export default function Contratos() {
       <div className="admin-page-header">
         <div>
           <p className="admin-eyebrow">Documentos oficiais</p>
-          <h1 className="admin-title">Contratos</h1>
-          <p className="admin-subtitle">Gere, visualize, valide e baixe cada versão vinculada à reserva.</p>
+          <h1 className="admin-title">Gerar e administrar contratos</h1>
+          <p className="admin-subtitle">Edite minutas pendentes, gere a versão adequada ao pacote, valide e baixe contratos concluídos.</p>
         </div>
-        <Button type="button" variant="outline" onClick={() => void carregar()} className="flex items-center gap-2">
-          <RefreshCw size={16} /> Atualizar
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" onClick={() => void handleLimparAbandonados()} className="flex items-center gap-2 text-red-700 hover:border-red-300 hover:bg-red-50">
+            <Trash2 size={16} /> Limpar abandonados
+          </Button>
+          <Button type="button" variant="outline" onClick={() => void carregar()} className="flex items-center gap-2">
+            <RefreshCw size={16} /> Atualizar
+          </Button>
+        </div>
       </div>
-
-      {modelos.length > 0 && (
-        <Card className="admin-card">
-          <CardContent className="p-6">
-            <div className="mb-4 flex items-center gap-2">
-              <FileText size={19} className="text-[#DF6248]" />
-              <h2 className="font-black text-[#073F50]">Modelos oficiais disponíveis</h2>
-            </div>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {modelos.map((modelo) => (
-                <div key={modelo.id} className="rounded-xl border border-slate-200 bg-[#f8faf9] p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-bold text-[#073F50]">{modelo.nome}</p>
-                      <p className="mt-1 text-xs text-gray-500">
-                        Versão {modelo.versao} · {modelo.fonte}
-                      </p>
-                    </div>
-                    <span className="admin-status bg-green-100 text-green-800">{modelo.status}</span>
-                  </div>
-                  <p className="mt-2 text-sm text-gray-600">{modelo.descricao}</p>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       <div className="admin-card flex flex-col gap-3 p-4 sm:flex-row">
         <Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por cliente, e-mail, CPF, evento ou reserva" className="flex-1" />
@@ -328,6 +330,7 @@ export default function Contratos() {
           <option value="">Todos os status</option>
           <option value="gerados">Contrato gerado</option>
           <option value="pendentes">Sem contrato</option>
+          <option value="abandonados">Abandonados com contrato pendente</option>
         </select>
       </div>
       {error && <div className="rounded-lg bg-red-50 p-4 text-red-700">{error}</div>}
@@ -518,6 +521,7 @@ export default function Contratos() {
                             {c.operacao.ponto_embarque ? ` · ${c.operacao.ponto_embarque}` : ''}
                           </div>
                         )}
+                        {c.documento?.modelo_oficial && <div className="mt-1 text-xs font-semibold text-[#073F50]">{c.documento.modelo_oficial === 'hospedagem_transporte' ? 'Contrato: transporte + hospedagem' : c.documento.modelo_oficial === 'transporte' ? 'Contrato: somente transporte' : 'Contrato: somente hospedagem'}</div>}
                       </td>
                       <td className="px-6 py-4 font-medium">{moeda.format(Number(c.valor_total || 0))}</td>
                       <td className="px-6 py-4">
@@ -548,6 +552,16 @@ export default function Contratos() {
                               <Button type="button" onClick={() => void handleAprovar(c.documento!.id)}>
                                 Aprovar
                               </Button>
+                            )}
+                            {['admin', 'dev'].includes(user?.tipo || '') && c.documento?.pode_excluir && (
+                              <>
+                                <button onClick={() => abrirGerarContrato(c)} className="rounded-md p-1 text-[#073F50] transition-colors hover:bg-slate-100" title="Editar minuta e gerar nova versão" aria-label="Editar minuta">
+                                  <FileSignature size={18} />
+                                </button>
+                                <button onClick={() => void handleExcluir(c)} className="rounded-md p-1 text-red-700 transition-colors hover:bg-red-50" title="Apagar contrato pendente" aria-label="Apagar contrato pendente">
+                                  <Trash2 size={18} />
+                                </button>
+                              </>
                             )}
                           </>
                         ) : (

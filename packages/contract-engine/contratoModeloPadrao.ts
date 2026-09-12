@@ -8,7 +8,7 @@ const MODALIDADES_HOSPEDAGEM: Record<string, string> = {
 };
 
 export type ContratoModeloSnapshot = {
-  modelo_oficial?: "hospedagem" | "transporte";
+  modelo_oficial?: "hospedagem" | "transporte" | "hospedagem_transporte";
   evento?: { nome?: string; local?: string; data_inicio?: string | null; data_fim?: string | null };
   lote?: { nome?: string; descricao?: string | null };
   pacote?: { nome?: string; descricao?: string | null; valor_total?: string | null };

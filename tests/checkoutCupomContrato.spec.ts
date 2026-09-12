@@ -118,6 +118,33 @@ describe("checkout, cupom e contrato", () => {
     expect(service).toContain("pg_advisory_xact_lock");
   });
 
+  it("oferece limpeza administrativa sem permitir apagar contratos concluídos", async () => {
+    const [admin, contratos] = await Promise.all([
+      fonte("../server/routes/admin.ts"),
+      fonte("../apps/web/src/pages/admin/Contratos.tsx"),
+    ]);
+    expect(admin).toContain('router.delete("/contratos/:contratoId", requireRole("admin")');
+    expect(admin).toContain('router.post("/contratos/limpar-abandonados", requireRole("admin")');
+    expect(admin).toContain("STATUS_CONTRATO_EXCLUIVEL");
+    expect(admin).toContain("Contratos validados, aprovados ou assinados não podem ser apagados");
+    expect(admin).toContain("contrato_pendente_excluido");
+    expect(contratos).toContain("handleLimparAbandonados");
+    expect(contratos).toContain("handleExcluir");
+    expect(contratos).not.toContain("Modelos oficiais disponíveis");
+  });
+
+  it("classifica automaticamente os três contratos conforme os recursos contratados", async () => {
+    const [service, template, pacotes] = await Promise.all([
+      fonte("../server/services/contratoService.ts"),
+      fonte("../packages/contract-engine/contratoModeloPadrao.ts"),
+      fonte("../server/routes/pacotes.ts"),
+    ]);
+    expect(service).toContain('"hospedagem_transporte"');
+    expect(service).toContain("rodoviario && recursos.hospedagem");
+    expect(template).toContain('"hospedagem_transporte"');
+    expect(pacotes).toContain('"hospedagem_transporte"');
+  });
+
   it("normaliza o timestamp bruto do desafio antes de registrar a validação OTP", async () => {
     const otp = await fonte("../server/services/otpService.ts");
     expect(otp).toContain("function dataBancoOuNula(valor: unknown)");

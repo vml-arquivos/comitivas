@@ -38,7 +38,7 @@ interface Pacote {
   itens_selecionados?: unknown[];
   modalidade_hospedagem: 'camping' | 'quarto_ventilador' | 'quarto_ar_condicionado';
   disponibilidade: 'disponivel' | 'ultimas_vagas' | 'esgotado';
-  contrato_modelo: 'auto' | 'hospedagem' | 'transporte';
+  contrato_modelo: 'auto' | 'hospedagem' | 'transporte' | 'hospedagem_transporte';
   forma_contratacao: 'onibus' | 'hospedagem' | 'onibus_hospedagem' | 'livre';
   onibus_config?: Array<{
     id: string;
@@ -970,8 +970,9 @@ export default function EventosAdmin() {
                                     className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                                   >
                                     <option value="auto">Automático conforme serviços</option>
-                                    <option value="hospedagem">Hospedagem</option>
-                                    <option value="transporte">Transporte + hospedagem</option>
+                                    <option value="hospedagem">Somente hospedagem</option>
+                                    <option value="transporte">Somente transporte</option>
+                                    <option value="hospedagem_transporte">Transporte + hospedagem</option>
                                   </select>
                                 </div>
                                 <div>

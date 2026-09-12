@@ -13,7 +13,7 @@ import { ClienteExclusaoService, ErroExclusaoCliente } from "../services/cliente
 import { OperacaoOnibusService } from "../services/operacaoOnibusService.js";
 import { IdentityDocumentService, TipoIdentidade } from "../services/identityDocumentService.js";
 import { db } from "../db/index.js";
-import { reservas, eventos, lotes, pacotes, usuarios, leads_origem, descontosAdministrativos, pagamentos, contratosDocumentos, contratoValidacoes, pagamentoParcelas, emails_enviados, clienteDocumentos, clienteHistorico, videosEvento, fotos_evento, comissaoRegras, comissoes, convitesAcesso, auditoriaAdmin, inventarioHolds, sessoes, passwordResetTokens, verificacoesEmail, assentoAlocacoes, assentosOnibus, onibusOperacionais, pontosEmbarqueOperacao, saidasOperacionais, checkinsOperacao } from "../db/schema.js";
+import { reservas, eventos, lotes, pacotes, usuarios, leads_origem, descontosAdministrativos, pagamentos, contratosDocumentos, contratoValidacoes, contratoEventos, otpDesafios, pagamentoParcelas, emails_enviados, clienteDocumentos, clienteHistorico, videosEvento, fotos_evento, comissaoRegras, comissoes, convitesAcesso, auditoriaAdmin, inventarioHolds, sessoes, passwordResetTokens, verificacoesEmail, assentoAlocacoes, assentosOnibus, onibusOperacionais, pontosEmbarqueOperacao, saidasOperacionais, checkinsOperacao } from "../db/schema.js";
 import { eq, and, inArray, or, sql, desc, isNull, ne } from "drizzle-orm";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
@@ -1895,6 +1895,7 @@ router.get("/contratos", async (req: Request, res: Response) => {
       .select({
         reserva_id: reservas.id,
         status_reserva: reservas.status,
+        checkout_estado: reservas.checkout_estado,
         valor_total: reservas.valor_total,
         forma_pagamento: reservas.forma_pagamento,
         quantidade_parcelas: reservas.quantidade_parcelas,
@@ -1939,6 +1940,7 @@ router.get("/contratos", async (req: Request, res: Response) => {
         aprovado_admin_em: contratosDocumentos.aprovado_admin_em,
         pdf_sha256: contratosDocumentos.pdf_sha256,
         arquivo: contratosDocumentos.arquivo,
+        snapshot: contratosDocumentos.snapshot,
       }).from(contratosDocumentos)
         .where(and(inArray(contratosDocumentos.reserva_id, reservaIds), ne(contratosDocumentos.status, "invalidado")))
         .orderBy(desc(contratosDocumentos.versao))
@@ -1952,6 +1954,8 @@ router.get("/contratos", async (req: Request, res: Response) => {
       ? linhas.filter((linha) => documentoPorReserva.has(linha.reserva_id) || Boolean(linha.contrato_pdf_url))
       : status === "pendentes"
         ? linhas.filter((linha) => !documentoPorReserva.has(linha.reserva_id) && !linha.contrato_pdf_url)
+        : status === "abandonados"
+          ? linhas.filter((linha) => documentoPorReserva.has(linha.reserva_id) && (linha.status_reserva === "abandonado" || ESTADOS_RESERVA_ABANDONADA.includes(String(linha.checkout_estado || ""))))
         : linhas;
 
     res.json({
@@ -1971,6 +1975,9 @@ router.get("/contratos", async (req: Request, res: Response) => {
             validado_em: documento.validado_em,
             aprovado_admin_em: documento.aprovado_admin_em,
             pdf_sha256: documento.pdf_sha256,
+            modelo_oficial: (documento.snapshot as any)?.modelo_oficial || null,
+            pode_excluir: STATUS_CONTRATO_EXCLUIVEL.includes(documento.status),
+            snapshot: documento.snapshot,
           } : null,
         };
       }),
@@ -1978,6 +1985,103 @@ router.get("/contratos", async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error("[ADMIN] Erro ao listar contratos:", error);
     res.status(500).json({ erro: "Erro ao listar contratos" });
+  }
+});
+
+const STATUS_CONTRATO_EXCLUIVEL = ["rascunho", "preparado", "aguardando_validacao"];
+const ESTADOS_RESERVA_ABANDONADA = ["expirado", "cancelado", "cancelado_cliente", "cancelamento_aprovado"];
+
+async function excluirContratoPendente(contratoId: string, req: Request) {
+  return db.transaction(async (tx) => {
+    const contrato = (await tx.select().from(contratosDocumentos).where(eq(contratosDocumentos.id, contratoId)).for("update").limit(1))[0];
+    if (!contrato) throw new Error("Contrato não encontrado");
+    if (!STATUS_CONTRATO_EXCLUIVEL.includes(contrato.status)) {
+      throw new Error("Contratos validados, aprovados ou assinados não podem ser apagados; use o fluxo de invalidação");
+    }
+
+    const reserva = (await tx.select({
+      id: reservas.id,
+      usuario_id: reservas.usuario_id,
+      status: reservas.status,
+      checkout_estado: reservas.checkout_estado,
+      contrato_pdf_url: reservas.contrato_pdf_url,
+      aceite_timestamp: reservas.aceite_timestamp,
+    }).from(reservas).where(eq(reservas.id, contrato.reserva_id)).for("update").limit(1))[0];
+    if (!reserva) throw new Error("Reserva do contrato não encontrada");
+    if (reserva.status === "cliente_confirmado" || reserva.aceite_timestamp) {
+      throw new Error("A reserva já foi concluída ou aceita; o contrato não pode ser apagado");
+    }
+
+    const pagamentosDaReserva = await tx.select({ status: pagamentos.status, status_reconciliado: pagamentos.status_reconciliado, valor_pago_centavos: pagamentos.valor_pago_centavos })
+      .from(pagamentos).where(eq(pagamentos.reserva_id, reserva.id));
+    if (pagamentosDaReserva.some((pagamento) => pagamento.status === "aprovado" || pagamento.status_reconciliado === "quitado" || Number(pagamento.valor_pago_centavos || 0) > 0)) {
+      throw new Error("A reserva possui pagamento efetivado; o contrato não pode ser apagado");
+    }
+
+    const validacao = (await tx.select({ id: contratoValidacoes.id }).from(contratoValidacoes).where(eq(contratoValidacoes.contrato_id, contrato.id)).limit(1))[0];
+    if (validacao) throw new Error("O contrato possui validação eletrônica; preserve o registro e não o apague");
+
+    const agora = new Date();
+    await tx.insert(auditoriaAdmin).values({
+      id: createId(), ator_id: req.usuario!.id, ator_tipo: req.usuario!.tipo,
+      acao: "contrato_pendente_excluido", entidade: "contrato", entidade_id: contrato.id,
+      antes: { reserva_id: contrato.reserva_id, versao: contrato.versao, status: contrato.status, snapshot_sha256: contrato.snapshot_sha256, pdf_sha256: contrato.pdf_sha256 },
+      depois: { motivo: "contrato_abandonado_ou_nao_concluido", excluido_em: agora },
+      ip: req.ip || null, user_agent: req.get("user-agent") || null, criado_em: agora,
+    });
+    await tx.delete(otpDesafios).where(eq(otpDesafios.contrato_id, contrato.id));
+    await tx.delete(contratoEventos).where(eq(contratoEventos.contrato_id, contrato.id));
+    await tx.delete(contratosDocumentos).where(eq(contratosDocumentos.id, contrato.id));
+
+    const outroContratoAtivo = (await tx.select({ id: contratosDocumentos.id }).from(contratosDocumentos)
+      .where(and(eq(contratosDocumentos.reserva_id, reserva.id), ne(contratosDocumentos.status, "invalidado"))).limit(1))[0];
+    if (!outroContratoAtivo) {
+      await tx.update(reservas).set({
+        status: "checkout_iniciado",
+        checkout_estado: "checkout_iniciado",
+        contrato_pdf_url: null,
+        aceite_timestamp: null,
+        aceite_ip: null,
+        atualizado_em: agora,
+      }).where(eq(reservas.id, reserva.id));
+    }
+    return { id: contrato.id, reserva_id: reserva.id, arquivo: contrato.arquivo };
+  });
+}
+
+router.delete("/contratos/:contratoId", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const resultado = await excluirContratoPendente(req.params.contratoId, req);
+    if (resultado.arquivo) {
+      await fs.unlink(nodePath.resolve(resultado.arquivo)).catch(() => undefined);
+    }
+    return res.json({ mensagem: "Contrato pendente apagado; a reserva voltou para o início do checkout", contrato_id: resultado.id, reserva_id: resultado.reserva_id });
+  } catch (error: any) {
+    console.error("[CONTRATOS] Erro ao apagar contrato pendente:", error);
+    return res.status(error?.message === "Contrato não encontrado" ? 404 : 409).json({ erro: error.message || "Não foi possível apagar o contrato" });
+  }
+});
+
+router.post("/contratos/limpar-abandonados", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const candidatos = await db.select({ id: contratosDocumentos.id }).from(contratosDocumentos)
+      .innerJoin(reservas, eq(contratosDocumentos.reserva_id, reservas.id))
+      .where(and(inArray(contratosDocumentos.status, STATUS_CONTRATO_EXCLUIVEL), or(eq(reservas.status, "abandonado"), inArray(reservas.checkout_estado, ESTADOS_RESERVA_ABANDONADA))));
+    const removidos: string[] = [];
+    const preservados: Array<{ id: string; motivo: string }> = [];
+    for (const candidato of candidatos) {
+      try {
+        const resultado = await excluirContratoPendente(candidato.id, req);
+        removidos.push(resultado.id);
+        if (resultado.arquivo) await fs.unlink(nodePath.resolve(resultado.arquivo)).catch(() => undefined);
+      } catch (error: any) {
+        preservados.push({ id: candidato.id, motivo: error.message || "bloqueado por segurança" });
+      }
+    }
+    return res.json({ mensagem: `${removidos.length} contrato(s) abandonado(s) apagado(s)`, removidos, preservados });
+  } catch (error: any) {
+    console.error("[CONTRATOS] Erro ao limpar contratos abandonados:", error);
+    return res.status(500).json({ erro: "Não foi possível limpar os contratos abandonados" });
   }
 });
 
@@ -2129,20 +2233,28 @@ router.get("/contratos/modelos", async (_req: Request, res: Response) => {
   return res.json({
     modelos: [
       {
-        id: "hospedagem-2026",
-        nome: "Contrato de pacote — hospedagem",
+        id: "hospedagem-transporte-2026",
+        nome: "Contrato de pacote — transporte e hospedagem",
         versao: "2026",
         status: "oficial",
-        fonte: "Contrato HOSPEDAGEM EXCMTV 2026 - papel timbrado.docx",
-        descricao: "Fonte oficial enviada para hospedagem, serviços inclusos, pagamento e regras da excursão.",
+        fonte: "Modelo oficial versionado 2026.1",
+        descricao: "Geração automática quando o pacote inclui transporte rodoviário e hospedagem.",
       },
       {
         id: "transporte-2026",
-        nome: "Contrato de pacote — transporte",
+        nome: "Contrato de pacote — somente transporte",
         versao: "2026",
         status: "oficial",
-        fonte: "TRANSPORTE EXCMTV 2026 - papel timbrado.docx",
-        descricao: "Fonte oficial enviada para transporte e cláusulas operacionais do pacote.",
+        fonte: "Modelo oficial versionado 2026.1",
+        descricao: "Geração automática somente quando o pacote inclui transporte e não inclui hospedagem.",
+      },
+      {
+        id: "hospedagem-2026",
+        nome: "Contrato de pacote — somente hospedagem",
+        versao: "2026",
+        status: "oficial",
+        fonte: "Modelo oficial versionado 2026.1",
+        descricao: "Geração automática somente quando o pacote inclui hospedagem e não inclui transporte rodoviário.",
       },
     ],
     regra: "O sistema gera o documento a partir do snapshot da venda e não altera o conteúdo jurídico sem nova fonte versionada.",
