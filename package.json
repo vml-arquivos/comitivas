@@ -43,7 +43,7 @@
     "helmet": "8.1.0",
     "jsonwebtoken": "^9.0.2",
     "node-cron": "4.6.0",
-    "nodemailer": "9.0.3",
+    "nodemailer": "9.1.1",
     "pdf-lib": "^1.17.1",
     "pg": "^8.11.0",
     "puppeteer-core": "25.3.0"
@@ -61,6 +61,9 @@
     "esbuild": "0.28.1",
     "tsx": "^4.0.0",
     "typescript": "^5.2.0",
-    "vitest": "4.1.10"
+    "vitest": "4.1.11"
+  },
+  "overrides": {
+    "qs": "6.16.0"
   }
 }
