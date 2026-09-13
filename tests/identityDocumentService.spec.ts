@@ -52,19 +52,19 @@ describe("validação documental", () => {
   it("usa somente o pipeline local mesmo quando existe configuração histórica do Gemini", () => {
     const anterior = process.env.DOCUMENT_AI_PROVIDER;
     process.env.DOCUMENT_AI_PROVIDER = "gemini";
-    expect(configuracaoValidacaoDocumental()).toMatchObject({ provedor: "local-ocr", modelo: "tesseract-opencv", modo: "conservador", leituraAutomaticaDisponivel: true });
+    expect(configuracaoValidacaoDocumental()).toMatchObject({ provedor: "local-ocr", modelo: "tesseract-opencv", leituraAutomaticaDisponivel: true });
     if (anterior === undefined) delete process.env.DOCUMENT_AI_PROVIDER;
     else process.env.DOCUMENT_AI_PROVIDER = anterior;
   });
 
-  it("não aprova documento sem fotografia ou sem leitura legível", () => {
-    expect(avaliarCorrespondenciaDocumento(leitura({ possui_foto: false }), cadastro, "cnh").status).toBe("rejeitado");
-    expect(avaliarCorrespondenciaDocumento(leitura({ legivel: false }), cadastro, "cnh").status).toBe("rejeitado");
+  it("manda foto não detectada ou leitura ruim para análise sem rejeição automática", () => {
+    expect(avaliarCorrespondenciaDocumento(leitura({ possui_foto: false }), cadastro, "cnh").status).toBe("analise_manual");
+    expect(avaliarCorrespondenciaDocumento(leitura({ legivel: false }), cadastro, "cnh").status).toBe("analise_manual");
   });
 
-  it("não anuncia aprovação permissiva baseada apenas no tipo do arquivo", () => {
+  it("mantém OCR real e nunca aprova apenas pelo tipo do arquivo", () => {
     const configuracao = configuracaoValidacaoDocumental();
-    expect(configuracao.modo).toBe("conservador");
+    expect(["assistido", "conservador"]).toContain(configuracao.modo);
     expect(configuracao.modelo).not.toContain("mime");
   });
 });

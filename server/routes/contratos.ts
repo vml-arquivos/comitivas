@@ -77,8 +77,16 @@ async function camposCadastroFaltantes(reservaId: string): Promise<string[]> {
   return camposFaltantesCadastroMinimo(registro, { exigirSexoEnderecoEstruturado: true });
 }
 
+function cadastroAprovacaoObrigatoriaContrato(): boolean {
+  return process.env.CONTRACT_REQUIRES_CADASTRO_APPROVAL === "true";
+}
+
+function documentoIdentidadeBloqueiaContrato(): boolean {
+  return process.env.DOCUMENT_VALIDATION_BLOCK_CONTRACT === "true";
+}
+
 async function documentoIdentidadeValidado(reservaId: string): Promise<boolean> {
-  if (process.env.DOCUMENT_IDENTITY_REQUIRED_FOR_CONTRACT !== "true") return true;
+  if (!documentoIdentidadeBloqueiaContrato()) return true;
   const documento = (await db.select({ id: clienteDocumentos.id })
     .from(reservas)
     .innerJoin(clienteDocumentos, eq(reservas.usuario_id, clienteDocumentos.usuario_id))
@@ -94,7 +102,7 @@ async function documentoIdentidadeValidado(reservaId: string): Promise<boolean> 
 
 async function exigirDocumentoIdentidade(reservaId: string, res: Response): Promise<boolean> {
   if (await documentoIdentidadeValidado(reservaId)) return true;
-  res.status(409).json({ erro: "Envie e valide um documento de identificação com foto antes de concluir o contrato." });
+  res.status(409).json({ erro: "A conferência do documento de identificação precisa ser concluída antes do contrato neste ambiente." });
   return false;
 }
 
@@ -156,7 +164,7 @@ router.post("/preparar/:reserva_id", authMiddleware, async (req: Request, res: R
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
     if (!(await podeAcessarReserva(req, reserva))) return res.status(403).json({ erro: "Acesso negado" });
     if (!(await emailConfirmado(reserva.id))) return res.status(409).json({ erro: "Confirme o e-mail do cliente antes de preparar o contrato" });
-    if (!(await cadastroAprovado(reserva.id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes de preparar o contrato" });
+    if (cadastroAprovacaoObrigatoriaContrato() && !(await cadastroAprovado(reserva.id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes de preparar o contrato neste ambiente" });
     const faltantes = await camposCadastroFaltantes(reserva.id);
     if (faltantes.length) return res.status(409).json({ erro: `Complete os dados essenciais antes do contrato: ${faltantes.join(", ")}` });
     if (!(await exigirDocumentoIdentidade(reserva.id, res))) return;
@@ -176,7 +184,7 @@ router.post("/otp/solicitar/:reserva_id", authMiddleware, async (req: Request, r
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
     if (!(await emailConfirmado(req.params.reserva_id))) return res.status(409).json({ erro: "Confirme seu e-mail antes da validação contratual" });
-    if (!(await cadastroAprovado(req.params.reserva_id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes da validação contratual" });
+    if (cadastroAprovacaoObrigatoriaContrato() && !(await cadastroAprovado(req.params.reserva_id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes da validação contratual neste ambiente" });
     if (!(await exigirDocumentoIdentidade(req.params.reserva_id, res))) return;
     const resultado = await OtpService.solicitar({ usuario_id: req.usuario.id, reserva_id: req.params.reserva_id, contrato_id: req.body?.contrato_id, canal: req.body?.canal });
     if (!resultado.enviado) return res.status(503).json({ erro: resultado.motivo || "Canal de validação não configurado", ...resultado });
@@ -191,7 +199,7 @@ router.post("/otp/confirmar/:reserva_id", authMiddleware, async (req: Request, r
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
     if (!(await emailConfirmado(req.params.reserva_id))) return res.status(409).json({ erro: "Confirme seu e-mail antes da validação contratual" });
-    if (!(await cadastroAprovado(req.params.reserva_id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes da validação contratual" });
+    if (cadastroAprovacaoObrigatoriaContrato() && !(await cadastroAprovado(req.params.reserva_id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes da validação contratual neste ambiente" });
     if (!(await exigirDocumentoIdentidade(req.params.reserva_id, res))) return;
     const resultado = await OtpService.confirmar({
       usuario_id: req.usuario.id,
@@ -221,6 +229,7 @@ router.get("/estado/:reserva_id", authMiddleware, async (req: Request, res: Resp
     const cadastro = (await db.select({
       nome: usuarios.nome,
       email: usuarios.email,
+      email_confirmado: usuarios.email_confirmado,
       cpf: usuarios.cpf,
       telefone: usuarios.telefone,
       data_nascimento: usuarios.data_nascimento,
@@ -249,7 +258,32 @@ router.get("/estado/:reserva_id", authMiddleware, async (req: Request, res: Resp
     const documento = (await db.select({ id: contratosDocumentos.id, versao: contratosDocumentos.versao, status: contratosDocumentos.status, snapshot_sha256: contratosDocumentos.snapshot_sha256, pdf_sha256: contratosDocumentos.pdf_sha256, pdf_disponivel: sql<boolean>`${contratosDocumentos.arquivo} IS NOT NULL` }).from(contratosDocumentos).where(eq(contratosDocumentos.reserva_id, reserva.id)).orderBy(desc(contratosDocumentos.versao)).limit(1))[0] || null;
     const pagamento = (await db.select().from(pagamentos).where(eq(pagamentos.reserva_id, reserva.id)).orderBy(desc(pagamentos.criado_em)).limit(1))[0] || null;
     const checkoutEstado = reserva.checkout_estado || (reserva.status === "cliente_confirmado" ? "primeira_parcela_confirmada" : reserva.status === "aguardando_pagamento" ? "aguardando_pagamento" : reserva.status === "contrato_gerado" ? "contrato_validado" : reserva.status);
-    return res.json({ reserva_id: reserva.id, status: reserva.status, checkout_estado: checkoutEstado, contrato: documento, pagamento: pagamento ? { id: pagamento.id, status: pagamento.status, gateway_id: pagamento.gateway_id, valor: pagamento.valor, valor_pago_centavos: pagamento.valor_pago_centavos, resposta: pagamento.gateway_resposta } : null, cadastro: { completo: faltantesCadastro.length === 0, campos_faltantes: faltantesCadastro, dados: cadastro || null }, documento_identidade: { obrigatorio: process.env.DOCUMENT_IDENTITY_REQUIRED_FOR_CONTRACT === "true", enviado: Boolean(documentoIdentidade), validado: documentoIdentidade?.validacao_status === "aprovado", documento: documentoIdentidade } });
+    const documentoBloqueia = documentoIdentidadeBloqueiaContrato();
+    const documentoValidado = documentoIdentidade?.validacao_status === "aprovado";
+    return res.json({
+      reserva_id: reserva.id,
+      status: reserva.status,
+      checkout_estado: checkoutEstado,
+      contrato: documento,
+      pagamento: pagamento ? { id: pagamento.id, status: pagamento.status, gateway_id: pagamento.gateway_id, valor: pagamento.valor, valor_pago_centavos: pagamento.valor_pago_centavos, resposta: pagamento.gateway_resposta } : null,
+      cadastro: {
+        completo: faltantesCadastro.length === 0,
+        campos_faltantes: faltantesCadastro,
+        dados: cadastro || null,
+        email_confirmado: cadastro?.email_confirmado === true,
+        telefone_disponivel: Boolean(cadastro?.telefone),
+        aprovacao_administrativa_exigida_no_contrato: cadastroAprovacaoObrigatoriaContrato(),
+      },
+      documento_identidade: {
+        obrigatorio: process.env.DOCUMENT_IDENTITY_REQUIRED_FOR_CONTRACT === "true",
+        bloqueia_contrato: documentoBloqueia,
+        enviado: Boolean(documentoIdentidade),
+        validado: documentoValidado,
+        pode_continuar: !documentoBloqueia || documentoValidado,
+        analise_assincrona: true,
+        documento: documentoIdentidade,
+      },
+    });
   } catch (error) {
     console.error("[CONTRATOS] Erro ao consultar estado:", error);
     return res.status(500).json({ erro: "Erro ao consultar estado do checkout" });
@@ -298,7 +332,7 @@ router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Re
       return res.status(403).json({ erro: "Acesso negado" });
     }
     if (!(await emailConfirmado(reserva.id))) return res.status(409).json({ erro: "Confirme seu e-mail antes de aceitar o contrato" });
-    if (!(await cadastroAprovado(reserva.id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes de aceitar o contrato" });
+    if (cadastroAprovacaoObrigatoriaContrato() && !(await cadastroAprovado(reserva.id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes de aceitar o contrato neste ambiente" });
     const faltantes = await camposCadastroFaltantes(reserva.id);
     if (faltantes.length) return res.status(409).json({ erro: `Complete os dados essenciais antes do contrato: ${faltantes.join(", ")}` });
     if (!(await exigirDocumentoIdentidade(reserva.id, res))) return;

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../contexts/AuthContext';
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@ui/index';
-import { AlertCircle, CheckCircle2, Download, Eye, FileCheck2, FileText, Landmark, Mail, Pencil, QrCode, ShieldCheck, Smartphone, Tent, Upload, Wind, Snowflake, RefreshCw } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Download, Eye, FileCheck2, FileText, Landmark, Mail, Pencil, QrCode, ShieldCheck, Smartphone, Tent, Upload, Wind, Snowflake, RefreshCw, Camera } from 'lucide-react';
 
 type MetodoPagamento = 'pix' | 'boleto';
 type CanalOtp = 'email' | 'whatsapp';
@@ -42,6 +42,18 @@ function formatarData(valor?: string | null) {
         year: 'numeric',
       }).format(data);
 }
+function rotuloStatusDocumento(status?: string | null) {
+  const rotulos: Record<string, string> = {
+    nao_iniciada: 'Aguardando conferência',
+    processando: 'Conferindo em segundo plano',
+    aprovado: 'Documento conferido',
+    rejeitado: 'Dados divergentes — equipe irá conferir',
+    analise_manual: 'Em conferência pela equipe',
+    erro: 'Conferência pendente',
+  };
+  return rotulos[String(status || '')] || 'Recebido';
+}
+
 function chavePersistente(reservaId?: string) {
   if (!reservaId || typeof window === 'undefined') return '';
   const nome = `comitivas:payment-idempotency:${reservaId}`;
@@ -74,6 +86,7 @@ export default function Checkout() {
   const [consentiuGeo, setConsentiuGeo] = useState(false);
   const [tipoDocumento, setTipoDocumento] = useState('rg');
   const [arquivoDocumento, setArquivoDocumento] = useState<File | null>(null);
+  const [documentoMensagem, setDocumentoMensagem] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
@@ -234,8 +247,9 @@ export default function Checkout() {
     }
     setIsProcessing(true);
     setError('');
+    setDocumentoMensagem('');
     try {
-      await api.post(`/cliente/documentos/identidade?tipo_identidade=${encodeURIComponent(tipoDocumento)}`, arquivoDocumento, {
+      const response = await api.post(`/cliente/documentos/identidade?tipo_identidade=${encodeURIComponent(tipoDocumento)}`, arquivoDocumento, {
         headers: {
           'Content-Type': arquivoDocumento.type || 'application/octet-stream',
           'X-File-Name': encodeURIComponent(arquivoDocumento.name),
@@ -243,6 +257,7 @@ export default function Checkout() {
         },
       });
       setArquivoDocumento(null);
+      setDocumentoMensagem(response.data?.mensagem || 'Documento recebido. A conferência seguirá em segundo plano e você já pode continuar.');
       await carregarDados(true);
     } catch (err: any) {
       setError(err.response?.data?.erro || 'Não foi possível enviar o documento.');
@@ -347,6 +362,9 @@ export default function Checkout() {
   const cadastroCompleto = dadosIncompletos.length === 0;
   const documentoObrigatorio = estado?.documento_identidade?.obrigatorio === true;
   const documentoValidado = estado?.documento_identidade?.validado === true;
+  const documentoBloqueiaContrato = estado?.documento_identidade?.bloqueia_contrato === true;
+  const documentoEnviado = estado?.documento_identidade?.enviado === true;
+  const statusDocumento = estado?.documento_identidade?.documento?.validacao_status;
 
   return (
     <div className="checkout-shell mx-auto max-w-6xl space-y-6 bg-[#fffdf9] pb-12">
@@ -471,7 +489,7 @@ export default function Checkout() {
         </CardContent>
       </Card>
 
-      {!cadastroCompleto ? (
+      {!cadastroCompleto && (
         <Card className="border-amber-200">
           <CardContent className="p-6">
             <div className="flex items-start gap-4">
@@ -486,22 +504,40 @@ export default function Checkout() {
             </div>
           </CardContent>
         </Card>
-      ) : documentoObrigatorio && !documentoValidado && !contratoValidado ? (
+      )}
+
+      {cadastroCompleto && !contratoValidado && (
         <Card className="border-sky-200">
           <CardHeader className="border-b bg-sky-50">
-            <CardTitle className="flex items-center gap-2 text-secondary"><Upload className="text-sky-700" />Valide sua identidade antes do contrato</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-secondary"><Upload className="text-sky-700" />Documento de identificação</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 p-6">
-            <p className="text-sm leading-relaxed text-gray-600">Seu cadastro está completo. Agora envie um documento oficial com foto para conferirmos os dados antes de gerar o contrato e liberar o pagamento.</p>
-            <div className="grid gap-3 sm:grid-cols-[180px_1fr_auto] sm:items-end">
+            <p className="text-sm leading-relaxed text-gray-600">
+              Envie RG, CNH, passaporte ou outro documento oficial. Você pode tirar a foto agora pelo celular ou escolher um arquivo já salvo. A conferência acontece em segundo plano{documentoBloqueiaContrato ? ' e, neste ambiente, precisa terminar antes da assinatura.' : ' e não impede que você continue para o contrato.'}
+            </p>
+            <div className="grid gap-3 sm:grid-cols-[180px_1fr] sm:items-end">
               <label className="text-sm font-semibold text-gray-700">Tipo de documento<select value={tipoDocumento} onChange={(event) => setTipoDocumento(event.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2"><option value="rg">RG</option><option value="cnh">CNH</option><option value="passaporte">Passaporte</option><option value="outro">Outro documento</option></select></label>
-              <label className="text-sm font-semibold text-gray-700">Arquivo (PDF, JPG, PNG ou WEBP)<input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp" onChange={(event) => setArquivoDocumento(event.target.files?.[0] || null)} className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm" /></label>
-              <Button type="button" onClick={enviarDocumento} isLoading={isProcessing} disabled={!arquivoDocumento}><Upload size={16} /> Enviar documento</Button>
+              <div>
+                <span className="text-sm font-semibold text-gray-700">Como deseja enviar</span>
+                <div className="mt-1 grid gap-2 sm:grid-cols-2">
+                  <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-sky-300 bg-white px-4 py-2 text-sm font-bold text-sky-800 hover:bg-sky-50">
+                    <Camera size={17} /> Tirar foto
+                    <input type="file" accept="image/*" capture="environment" onChange={(event) => setArquivoDocumento(event.target.files?.[0] || null)} className="sr-only" />
+                  </label>
+                  <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
+                    <Upload size={17} /> Escolher arquivo
+                    <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp" onChange={(event) => setArquivoDocumento(event.target.files?.[0] || null)} className="sr-only" />
+                  </label>
+                </div>
+              </div>
             </div>
-            {estado?.documento_identidade?.documento && <p className="flex items-center gap-2 text-sm text-amber-700"><RefreshCw size={15} /> Documento atual: {estado.documento_identidade.documento.validacao_status}. Se necessário, envie uma nova imagem legível.</p>}
+            {arquivoDocumento && <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3"><span className="min-w-0 truncate text-sm font-semibold text-slate-700">Selecionado: {arquivoDocumento.name}</span><Button type="button" onClick={enviarDocumento} isLoading={isProcessing}><Upload size={16} /> Enviar documento</Button></div>}
+            {documentoMensagem && <p className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm font-semibold text-green-800">{documentoMensagem}</p>}
+            {documentoEnviado && <p className={`flex items-center gap-2 text-sm ${documentoValidado ? 'text-green-700' : 'text-amber-700'}`}><RefreshCw size={15} /> {rotuloStatusDocumento(statusDocumento)}. {!documentoBloqueiaContrato && !documentoValidado ? 'Você pode continuar a contratação normalmente.' : ''}</p>}
+            {!documentoEnviado && !documentoObrigatorio && <p className="text-xs text-slate-500">O envio pode ser concluído agora ou conferido posteriormente pela equipe; ele não bloqueia esta contratação.</p>}
           </CardContent>
         </Card>
-      ) : null}
+      )}
 
       <Card>
         <CardHeader className="border-b bg-gray-50">
@@ -589,7 +625,7 @@ export default function Checkout() {
         </CardContent>
       </Card>
 
-      {cadastroCompleto && (!documentoObrigatorio || documentoValidado) && !contratoValidado && !contratoHtml ? (
+      {cadastroCompleto && (!documentoBloqueiaContrato || documentoValidado) && !contratoValidado && !contratoHtml ? (
         <Card>
           <CardContent className="p-6">
             <div className="flex items-start gap-4">
@@ -604,7 +640,7 @@ export default function Checkout() {
             </div>
           </CardContent>
         </Card>
-      ) : cadastroCompleto && (!documentoObrigatorio || documentoValidado) && !contratoValidado ? (
+      ) : cadastroCompleto && (!documentoBloqueiaContrato || documentoValidado) && !contratoValidado ? (
         <Card>
           <CardHeader className="border-b bg-gray-50">
             <CardTitle className="flex items-center gap-2">
@@ -659,7 +695,7 @@ export default function Checkout() {
                 </button>
                 <button type="button" onClick={() => setCanalOtp('whatsapp')} className={`flex items-center gap-3 rounded-lg border bg-white p-3 text-left ${canalOtp === 'whatsapp' ? 'border-primary ring-2 ring-primary/20' : ''}`}>
                   <Smartphone size={18} className="text-primary" />
-                  <span className="text-sm font-semibold">WhatsApp cadastrado</span>
+                  <span className="text-sm font-semibold">WhatsApp cadastrado · confirma o celular</span>
                 </button>
               </div>
               {!otpEnviado ? (

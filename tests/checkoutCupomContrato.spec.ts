@@ -55,11 +55,11 @@ describe("checkout, cupom e contrato", () => {
     expect(rota).toContain("Nenhuma regeneração foi realizada");
   });
 
-  it("exige documento validado no backend quando o gate estiver ativo", async () => {
+  it("não bloqueia contrato por análise documental salvo quando o gate estrito estiver explicitamente ativo", async () => {
     const rota = await fonte("../server/routes/contratos.ts");
-    expect(rota).toContain('DOCUMENT_IDENTITY_REQUIRED_FOR_CONTRACT');
+    expect(rota).toContain('DOCUMENT_VALIDATION_BLOCK_CONTRACT');
     expect(rota).toContain('eq(clienteDocumentos.validacao_status, "aprovado")');
-    expect(rota).toContain("Envie e valide um documento de identificação com foto");
+    expect(rota).toContain("documentoIdentidadeBloqueiaContrato");
   });
 
   it("orienta o cliente a completar o cadastro e enviar o documento dentro do checkout", async () => {
@@ -72,17 +72,21 @@ describe("checkout, cupom e contrato", () => {
     expect(checkout).toContain("enviarDocumento");
     expect(checkout).toContain("/cliente/documentos/identidade?tipo_identidade=");
     expect(checkout).toContain("documento_identidade?.validado");
+    expect(checkout).toContain("Tirar foto");
+    expect(checkout).toContain("Escolher arquivo");
+    expect(checkout).toContain("documentoBloqueiaContrato");
     expect(contratos).toContain("campos_faltantes: faltantesCadastro");
     expect(contratos).toContain("documento_identidade:");
     expect(pagamentos).toContain('codigo: "CADASTRO_INCOMPLETO"');
     expect(pagamentos).toContain("camposFaltantesCadastroMinimo");
   });
 
-  it("aprova automaticamente somente após documento válido e cadastro completo", async () => {
+  it("mantém aprovação automática em segundo plano somente após documento válido e cadastro completo", async () => {
     const [rota, service] = await Promise.all([
       fonte("../server/routes/cliente.ts"),
       fonte("../server/services/cadastroAprovacaoService.ts"),
     ]);
+    expect(rota).toContain("void IdentityDocumentService.validar(documento.id)");
     expect(rota).toContain("aprovarCadastroSeElegivel");
     expect(service).toContain("camposFaltantesCadastroMinimo(usuario, { exigirSexoEnderecoEstruturado: true })");
     expect(service).toContain("automatico_documento_validado");

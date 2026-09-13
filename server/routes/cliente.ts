@@ -444,27 +444,46 @@ router.post("/documentos/identidade", uploadDocumentoIdentidade, async (req: Req
       sha256: hash,
       arquivo: arquivoCriado,
       tipo_identidade: tipo,
-      validacao_status: "nao_iniciada",
+      validacao_status: "processando",
       criado_por: req.usuario.id,
       criado_em: new Date(),
       atualizado_em: new Date(),
     }).returning({ id: clienteDocumentos.id }))[0];
     documentoPersistido = true;
 
-    const validacao = await IdentityDocumentService.validar(documento.id);
-    const aprovacao = validacao.status === "aprovado"
-      ? await aprovarCadastroSeElegivel(req.usuario.id, documento.id)
-      : { aprovado: false, atualizado: false };
+    // O upload termina assim que o arquivo foi validado por assinatura, salvo e
+    // registrado. OCR e conferência seguem em segundo plano para não prender o
+    // checkout em câmera lenta, PDF pesado ou indisponibilidade do OCR local.
     await registrarSolicitacao({
       usuarioId: req.usuario.id,
       tipo: "documento_identidade",
-      titulo: "Documento de identificação enviado",
-      descricao: aprovacao.atualizado
-        ? "Documento válido e cadastro aprovado automaticamente."
-        : validacao.status === "aprovado" ? "Dados conferidos com o cadastro." : "Documento encaminhado para conferência.",
-      metadados: { documento_id: documento.id, tipo_identidade: tipo, status: validacao.status, cadastro_aprovado: aprovacao.aprovado },
+      titulo: "Documento de identificação recebido",
+      descricao: "Arquivo recebido. A conferência continuará em segundo plano e não impede a assinatura do contrato.",
+      metadados: { documento_id: documento.id, tipo_identidade: tipo, status: "processando" },
     });
-    return res.status(201).json({ documento: { id: documento.id, tipo_identidade: tipo, ...validacao }, cadastro: aprovacao });
+
+    const usuarioId = req.usuario.id;
+    void IdentityDocumentService.validar(documento.id)
+      .then(async (validacao) => {
+        const aprovacao = validacao.status === "aprovado"
+          ? await aprovarCadastroSeElegivel(usuarioId, documento.id)
+          : { aprovado: false, atualizado: false };
+        if (aprovacao.atualizado) {
+          await registrarSolicitacao({
+            usuarioId,
+            tipo: "cadastro_aprovado",
+            titulo: "Cadastro aprovado após conferência documental",
+            descricao: "Os dados essenciais e o documento foram conferidos automaticamente.",
+            metadados: { documento_id: documento.id, status: validacao.status, cadastro_aprovado: true },
+          });
+        }
+      })
+      .catch((error) => console.error("[CLIENTE] Falha na conferência documental em segundo plano:", error));
+
+    return res.status(201).json({
+      documento: { id: documento.id, tipo_identidade: tipo, status: "processando", analise_assincrona: true },
+      mensagem: "Documento recebido. Você pode continuar a contratação enquanto fazemos a conferência.",
+    });
   } catch (error) {
     if (arquivoCriado && !documentoPersistido) await fs.unlink(arquivoCriado).catch(() => undefined);
     console.error("[CLIENTE] Erro ao enviar documento de identificação");
