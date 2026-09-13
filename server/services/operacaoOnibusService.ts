@@ -324,13 +324,16 @@ export class OperacaoOnibusService {
     const onibus = classificarFilaOnibus(onibusBrutos);
     const assentos = linhas(await db.execute(sql`SELECT a.*, o.nome AS onibus_nome,
       aa.id AS alocacao_id, aa.reserva_id, aa.usuario_id, aa.ponto_embarque_id, aa.alocado_em,
-      u.nome AS cliente_nome, u.telefone AS cliente_telefone, r.status AS reserva_status,
+      COALESCE(rp.nome_completo, u.nome) AS cliente_nome,
+      COALESCE(rp.telefone, u.telefone) AS cliente_telefone,
+      rp.id AS participante_id, r.status AS reserva_status,
       p.nome AS ponto_embarque_nome,
       CASE WHEN h.id IS NOT NULL THEN true ELSE false END AS em_hold
       FROM assentos_onibus a JOIN onibus_operacionais o ON o.id = a.onibus_id
       LEFT JOIN assento_alocacoes aa ON aa.assento_id = a.id AND aa.status = 'ativa'
       LEFT JOIN reservas r ON r.id = aa.reserva_id
       LEFT JOIN usuarios u ON u.id = aa.usuario_id
+      LEFT JOIN reserva_participantes rp ON rp.reserva_id = aa.reserva_id AND rp.assento_id = aa.assento_id
       LEFT JOIN pontos_embarque_operacao p ON p.id = aa.ponto_embarque_id
       LEFT JOIN assento_holds h ON h.assento_id = a.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP
       WHERE o.saida_id = ${saidaId} AND o.ativo = true AND a.numero <= o.capacidade ORDER BY o.venda_ordem, o.criado_em, a.numero`));
@@ -338,8 +341,9 @@ export class OperacaoOnibusService {
     const reservasDisponiveis = linhas(await db.execute(sql`SELECT r.id, r.usuario_id, r.status, r.valor_total, u.nome AS cliente_nome, u.email AS cliente_email, p.nome AS pacote_nome
       FROM reservas r JOIN usuarios u ON u.id = r.usuario_id AND u.tipo = 'cliente'
       LEFT JOIN pacotes p ON p.id = r.pacote_id
-      LEFT JOIN assento_alocacoes aa ON aa.reserva_id = r.id AND aa.status = 'ativa'
-      WHERE r.lote_id = ${saida.lote_id} AND r.status <> 'abandonado' AND aa.id IS NULL
+      WHERE r.lote_id = ${saida.lote_id} AND r.status <> 'abandonado'
+        AND (SELECT COUNT(*) FROM assento_alocacoes aa WHERE aa.reserva_id = r.id AND aa.status = 'ativa')
+          < GREATEST(1, (SELECT COUNT(*) FROM reserva_participantes rp WHERE rp.reserva_id = r.id OR rp.grupo_id = r.grupo_id))
         AND (
           COALESCE((r.recursos_contratados->>'transporte')::boolean, false) = true
           OR (r.recursos_contratados = '{}'::jsonb AND (p.modalidade_hospedagem = 'camping' OR p.forma_contratacao IN ('onibus', 'onibus_hospedagem')))
@@ -375,7 +379,7 @@ export class OperacaoOnibusService {
         FROM assentos_onibus a JOIN onibus_operacionais o ON o.id = a.onibus_id JOIN saidas_operacionais s ON s.id = o.saida_id WHERE a.id = ${assentoId} FOR UPDATE OF a`))[0];
       if (!alvo || !alvo.onibus_ativo || !alvo.saida_ativa) throw new Error("Poltrona não encontrada ou indisponível");
       if (alvo.assento_status !== "disponivel") throw new Error("A poltrona está bloqueada");
-      const reserva = linhas(await tx.execute(sql`SELECT r.id, r.usuario_id, r.lote_id, r.status, r.recursos_contratados,
+      const reserva = linhas(await tx.execute(sql`SELECT r.id, r.usuario_id, r.lote_id, r.grupo_id, r.status, r.recursos_contratados,
         u.tipo, p.forma_contratacao, p.modalidade_hospedagem
         FROM reservas r JOIN usuarios u ON u.id = r.usuario_id LEFT JOIN pacotes p ON p.id = r.pacote_id
         WHERE r.id = ${reservaId} FOR UPDATE OF r`))[0];
@@ -385,9 +389,21 @@ export class OperacaoOnibusService {
         ? recursosRegistrados
         : resolverRecursosContratacao(reserva.forma_contratacao, reserva.modalidade_hospedagem);
       if (!recursos.transporte) throw new Error("Este pacote não inclui transporte");
+      const participante = linhas(await tx.execute(sql`SELECT rp.id
+        FROM reserva_participantes rp
+        WHERE (rp.reserva_id = ${reservaId} OR rp.grupo_id = ${reserva.grupo_id || null})
+          AND NOT EXISTS (
+            SELECT 1 FROM assento_alocacoes aa
+            WHERE aa.reserva_id = ${reservaId} AND aa.assento_id = rp.assento_id AND aa.status = 'ativa'
+          )
+        ORDER BY CASE WHEN rp.vinculo_responsavel = 'responsável' THEN 0 ELSE 1 END, rp.criado_em, rp.id
+        LIMIT 1 FOR UPDATE OF rp`))[0];
+      const totalParticipantes = linhas(await tx.execute(sql`SELECT COUNT(*)::int AS total FROM reserva_participantes rp
+        WHERE rp.reserva_id = ${reservaId} OR rp.grupo_id = ${reserva.grupo_id || null}`))[0];
       const atual = linhas(await tx.execute(sql`SELECT aa.*, a.numero, o.nome AS onibus_nome FROM assento_alocacoes aa JOIN assentos_onibus a ON a.id = aa.assento_id JOIN onibus_operacionais o ON o.id = a.onibus_id WHERE aa.reserva_id = ${reservaId} AND aa.status = 'ativa' FOR UPDATE OF aa`))[0];
       if (atual?.assento_id === assentoId) return atual;
-      if (atual) throw new Error(`A reserva já ocupa a poltrona ${atual.numero} do ${atual.onibus_nome}; use a ação Mover`);
+      if (!participante && Number(totalParticipantes?.total || 0) > 0) throw new Error("Todos os viajantes desta reserva já possuem poltrona; use a ação Mover");
+      if (!participante && atual) throw new Error(`A reserva já ocupa a poltrona ${atual.numero} do ${atual.onibus_nome}; use a ação Mover`);
       const ocupada = linhas(await tx.execute(sql`SELECT id FROM assento_alocacoes WHERE assento_id = ${assentoId} AND status = 'ativa'`))[0];
       const hold = linhas(await tx.execute(sql`SELECT id FROM assento_holds WHERE assento_id = ${assentoId} AND status = 'ativo' AND expira_em > CURRENT_TIMESTAMP`))[0];
       if (ocupada || hold) throw new Error("A poltrona acabou de ser ocupada; escolha outra");
@@ -411,6 +427,7 @@ export class OperacaoOnibusService {
       const id = createId();
       const alocacao = linhas(await tx.execute(sql`INSERT INTO assento_alocacoes (id, assento_id, reserva_id, usuario_id, ponto_embarque_id, status, alocado_por, alocado_em)
         VALUES (${id}, ${assentoId}, ${reservaId}, ${reserva.usuario_id}, ${pontoId}, 'ativa', ${atorId}, CURRENT_TIMESTAMP) RETURNING *`))[0];
+      if (participante?.id) await tx.execute(sql`UPDATE reserva_participantes SET assento_id = ${assentoId}, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${participante.id}`);
       await tx.execute(sql`UPDATE reservas SET saida_operacional_id = ${alvo.saida_id}, ponto_embarque_id = ${pontoId}, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${reservaId}`);
       await tx.execute(sql`INSERT INTO checkins_operacao (id, saida_id, reserva_id, status, atualizado_em) VALUES (${createId()}, ${alvo.saida_id}, ${reservaId}, 'pendente', CURRENT_TIMESTAMP) ON CONFLICT (saida_id, reserva_id) DO NOTHING`);
       await registrar(tx, alvo.saida_id, "alocacao", id, "assento_alocado", atorId, undefined, { reserva_id: reservaId, usuario_id: reserva.usuario_id, onibus_id: alvo.onibus_id, poltrona: alvo.numero, ponto_embarque_id: pontoId });
@@ -420,7 +437,10 @@ export class OperacaoOnibusService {
 
   static async moverAlocacao(alocacaoId: string, novoAssentoId: string, pontoId: string | null | undefined, atorId: string) {
     return db.transaction(async (tx) => {
-      const atual = linhas(await tx.execute(sql`SELECT aa.*, a.numero, o.nome AS onibus_nome, o.saida_id FROM assento_alocacoes aa JOIN assentos_onibus a ON a.id = aa.assento_id JOIN onibus_operacionais o ON o.id = a.onibus_id WHERE aa.id = ${alocacaoId} AND aa.status = 'ativa' FOR UPDATE OF aa`))[0];
+      const atual = linhas(await tx.execute(sql`SELECT aa.*, a.numero, o.nome AS onibus_nome, o.saida_id, rp.id AS participante_id
+        FROM assento_alocacoes aa JOIN assentos_onibus a ON a.id = aa.assento_id JOIN onibus_operacionais o ON o.id = a.onibus_id
+        LEFT JOIN reserva_participantes rp ON rp.reserva_id = aa.reserva_id AND rp.assento_id = aa.assento_id
+        WHERE aa.id = ${alocacaoId} AND aa.status = 'ativa' FOR UPDATE OF aa`))[0];
       if (!atual) throw new Error("Alocação ativa não encontrada");
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`assento:${novoAssentoId}`})), pg_advisory_xact_lock(hashtext(${`reserva-assento:${atual.reserva_id}`}))`);
       const novo = linhas(await tx.execute(sql`SELECT a.*, o.nome AS onibus_nome, o.saida_id, o.ativo FROM assentos_onibus a JOIN onibus_operacionais o ON o.id = a.onibus_id WHERE a.id = ${novoAssentoId} FOR UPDATE OF a`))[0];
@@ -437,6 +457,7 @@ export class OperacaoOnibusService {
       const id = createId();
       const criada = linhas(await tx.execute(sql`INSERT INTO assento_alocacoes (id, assento_id, reserva_id, usuario_id, ponto_embarque_id, status, alocado_por, alocado_em)
         VALUES (${id}, ${novoAssentoId}, ${atual.reserva_id}, ${atual.usuario_id}, ${pontoFinal}, 'ativa', ${atorId}, CURRENT_TIMESTAMP) RETURNING *`))[0];
+      if (atual.participante_id) await tx.execute(sql`UPDATE reserva_participantes SET assento_id = ${novoAssentoId}, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${atual.participante_id}`);
       await tx.execute(sql`UPDATE reservas SET ponto_embarque_id = ${pontoFinal}, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${atual.reserva_id}`);
       await registrar(tx, atual.saida_id, "alocacao", id, "assento_movido", atorId, { onibus: atual.onibus_nome, poltrona: atual.numero }, { onibus: novo.onibus_nome, poltrona: novo.numero, ponto_embarque_id: pontoFinal });
       return criada;
@@ -445,11 +466,17 @@ export class OperacaoOnibusService {
 
   static async liberarAlocacao(alocacaoId: string, motivo: unknown, atorId: string) {
     return db.transaction(async (tx) => {
-      const atual = linhas(await tx.execute(sql`SELECT aa.*, o.saida_id, a.numero, o.nome AS onibus_nome FROM assento_alocacoes aa JOIN assentos_onibus a ON a.id = aa.assento_id JOIN onibus_operacionais o ON o.id = a.onibus_id WHERE aa.id = ${alocacaoId} AND aa.status = 'ativa' FOR UPDATE OF aa`))[0];
+      const atual = linhas(await tx.execute(sql`SELECT aa.*, o.saida_id, a.numero, o.nome AS onibus_nome, rp.id AS participante_id
+        FROM assento_alocacoes aa JOIN assentos_onibus a ON a.id = aa.assento_id JOIN onibus_operacionais o ON o.id = a.onibus_id
+        LEFT JOIN reserva_participantes rp ON rp.reserva_id = aa.reserva_id AND rp.assento_id = aa.assento_id
+        WHERE aa.id = ${alocacaoId} AND aa.status = 'ativa' FOR UPDATE OF aa`))[0];
       if (!atual) throw new Error("Alocação ativa não encontrada");
       const justificativa = texto(motivo, 1000) || "Liberação operacional";
       await tx.execute(sql`UPDATE assento_alocacoes SET status = 'cancelada', encerrado_em = CURRENT_TIMESTAMP, motivo = ${justificativa} WHERE id = ${alocacaoId}`);
-      await tx.execute(sql`UPDATE reservas SET saida_operacional_id = NULL, ponto_embarque_id = NULL, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${atual.reserva_id} AND saida_operacional_id = ${atual.saida_id}`);
+      if (atual.participante_id) await tx.execute(sql`UPDATE reserva_participantes SET assento_id = NULL, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${atual.participante_id}`);
+      await tx.execute(sql`UPDATE reservas SET saida_operacional_id = NULL, ponto_embarque_id = NULL, atualizado_em = CURRENT_TIMESTAMP
+        WHERE id = ${atual.reserva_id} AND saida_operacional_id = ${atual.saida_id}
+          AND NOT EXISTS (SELECT 1 FROM assento_alocacoes aa WHERE aa.reserva_id = ${atual.reserva_id} AND aa.status = 'ativa')`);
       await registrar(tx, atual.saida_id, "alocacao", alocacaoId, "assento_liberado", atorId, atual, { motivo: justificativa });
       return { id: alocacaoId, status: "cancelada" };
     });
@@ -470,10 +497,14 @@ export class OperacaoOnibusService {
 
   static async obterManifesto(saidaId: string) {
     const mapa = await this.obterMapa(saidaId);
-    const passageiros = linhas(await db.execute(sql`SELECT aa.reserva_id, u.nome, u.cpf, u.telefone, u.email, o.nome AS onibus, o.identificacao, a.numero AS poltrona,
+    const passageiros = linhas(await db.execute(sql`SELECT aa.reserva_id,
+      COALESCE(rp.nome_completo, u.nome) AS nome, COALESCE(rp.cpf, u.cpf) AS cpf,
+      COALESCE(rp.telefone, u.telefone) AS telefone, COALESCE(rp.email, u.email) AS email,
+      rp.id AS participante_id, o.nome AS onibus, o.identificacao, a.numero AS poltrona,
       p.nome AS ponto_embarque, p.endereco AS ponto_endereco, p.horario AS ponto_horario, c.status AS checkin_status, c.confirmado_em
       FROM assento_alocacoes aa JOIN assentos_onibus a ON a.id = aa.assento_id JOIN onibus_operacionais o ON o.id = a.onibus_id
       JOIN usuarios u ON u.id = aa.usuario_id LEFT JOIN pontos_embarque_operacao p ON p.id = aa.ponto_embarque_id
+      LEFT JOIN reserva_participantes rp ON rp.reserva_id = aa.reserva_id AND rp.assento_id = aa.assento_id
       LEFT JOIN checkins_operacao c ON c.saida_id = o.saida_id AND c.reserva_id = aa.reserva_id
       WHERE o.saida_id = ${saidaId} AND aa.status = 'ativa' ORDER BY o.nome, a.numero`));
     return { saida: mapa.saida, resumo: mapa.resumo, passageiros };

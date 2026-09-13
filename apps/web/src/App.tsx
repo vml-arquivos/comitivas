@@ -119,14 +119,14 @@ function AppRoutes() {
             <Confirmacao />
           </ProtectedRoute>
         } />
-        <Route path="/minha-conta" element={
+        <Route path="/minha-conta/:secao?" element={
           <ProtectedRoute>
             <MinhaConta />
           </ProtectedRoute>
         } />
         <Route path="/minhas-reservas" element={
           <ProtectedRoute>
-            <Navigate to="/minha-conta" replace />
+            <Navigate to="/minha-conta/viagens" replace />
           </ProtectedRoute>
         } />
         <Route path="/meus-dados" element={

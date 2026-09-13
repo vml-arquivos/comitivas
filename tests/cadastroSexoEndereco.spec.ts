@@ -31,8 +31,8 @@ describe('cadastro e direcionamento automático de hospedagem', () => {
     expect(configurador).not.toContain('Escolha o grupo do quarto');
     expect(configurador).not.toContain('grupoHospedagem');
     expect(configurador).toContain('Sexo da pessoa');
-    expect(pacoteService).toContain('cadastroResponsavel');
-    expect(pacoteService).toContain('Complete seu cadastro informando o sexo');
+    expect(pacoteService).toContain('participantes.some((participante) => !participante.sexo_operacional)');
+    expect(pacoteService).toContain('Informe o sexo de todas as pessoas para direcionar a hospedagem');
   });
 
   it('registra a migration forward-only com o mapeamento necessário', async () => {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Outlet, Link, useNavigate } from 'react-router-dom';
+import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { Download, Instagram, LogOut, Menu, User as UserIcon, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import logoUrl from '../assets/brand/logo.png';
@@ -42,6 +42,7 @@ function AppBottomNav() {
 export function MainLayout() {
   const { user, isLoading, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [menuAberto, setMenuAberto] = useState(false);
   const [modoApp, setModoApp] = useState(false);
 
@@ -207,7 +208,7 @@ export function MainLayout() {
         <div className="mx-auto mt-10 max-w-7xl border-t border-white/10 px-4 pt-6 text-xs text-white/50 sm:px-6 lg:px-8">&copy; {new Date().getFullYear()} Excursão das Comitivas. Todos os direitos reservados.</div>
       </footer>
 
-      <WhatsAppFloatButton />
+      {!location.pathname.startsWith('/minha-conta') && !location.pathname.startsWith('/meus-dados') ? <WhatsAppFloatButton /> : null}
       {modoApp ? (
         <AppBottomNav />
       ) : null}

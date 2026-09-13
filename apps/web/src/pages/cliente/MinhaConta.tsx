@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Helmet } from 'react-helmet-async';
-import { Link } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { AlertCircle, ArrowRight, BedDouble, Calendar, CheckCircle2, CircleDollarSign, Clock3, Download, Eye, FileText, History, LifeBuoy, MapPin, Pencil, Plane, RefreshCcw, ScanLine, ShieldCheck, Ticket, UploadCloud, UserRound, XCircle } from 'lucide-react';
 import { Button, Card, CardContent } from '@ui/index';
 import { api } from '../../contexts/AuthContext';
@@ -9,7 +9,9 @@ const TABS = [
   ['visao', 'Visão geral'],
   ['pacotes', 'Explorar pacotes'],
   ['viagens', 'Minhas viagens'],
+  ['viajantes', 'Viajantes'],
   ['pagamentos', 'Pagamentos'],
+  ['cupons', 'Cupons'],
   ['contratos', 'Contratos'],
   ['documentos', 'Documentos'],
   ['historico', 'Histórico'],
@@ -76,6 +78,7 @@ function TimelineIcon({ tipo }: { tipo: string }) {
 }
 
 export default function MinhaConta() {
+  const { secao } = useParams<{ secao?: string }>();
   const [portal, setPortal] = useState<any>(null);
   const [ofertas, setOfertas] = useState<any[]>([]);
   const [tab, setTab] = useState<TabId>('visao');
@@ -106,6 +109,12 @@ export default function MinhaConta() {
   useEffect(() => {
     void carregar();
   }, []);
+
+  useEffect(() => {
+    const aliases: Record<string, TabId> = { pedidos: 'viagens', reservas: 'viagens', passageiros: 'viajantes' };
+    const destino = aliases[String(secao || '')] || secao;
+    if (destino && TABS.some(([id]) => id === destino)) setTab(destino as TabId);
+  }, [secao]);
 
   const reservaPorId = useMemo(() => new Map((portal?.reservas || []).map((r: any) => [r.id, r])), [portal]);
   const contratosAtivos = useMemo(() => (portal?.contratos || []).filter((c: any) => !c.invalidado_em), [portal]);
@@ -678,6 +687,45 @@ export default function MinhaConta() {
           </div>
         )}
 
+        {tab === 'viajantes' && (
+          <div className="space-y-5 py-6">
+            <div className="rounded-2xl border border-[#182D3B]/10 bg-white p-5 sm:p-6">
+              <p className="text-xs font-bold uppercase tracking-[.16em] text-[#851F32]">Grupo da reserva</p>
+              <h2 className="mt-1 text-2xl font-black text-slate-900">Viajantes e alocações</h2>
+              <p className="mt-2 text-sm text-slate-500">Confira quem está vinculado à compra e os lugares reservados no ônibus e na hospedagem.</p>
+            </div>
+            {(portal.participantes || []).length === 0 ? (
+              <Card><CardContent className="p-8 text-center text-slate-500">Nenhum viajante adicional registrado.</CardContent></Card>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {portal.participantes.map((participante: any) => {
+                  const reserva = participante.reserva_id ? (reservaPorId.get(participante.reserva_id) as any) : null;
+                  return (
+                    <Card key={participante.id}>
+                      <CardContent className="p-5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <h3 className="font-black text-slate-900">{participante.nome_completo}</h3>
+                            <p className="mt-1 text-xs text-slate-500">{participante.vinculo_responsavel || 'Viajante'}{participante.sexo_operacional ? ` · ${participante.sexo_operacional}` : ''}</p>
+                          </div>
+                          <UserRound size={20} className="text-[#851F32]" />
+                        </div>
+                        {reserva && <p className="mt-4 text-sm font-bold text-[#182D3B]">{reserva.evento_nome} · {reserva.pacote_nome || reserva.lote_nome}</p>}
+                        <dl className="mt-4 grid grid-cols-2 gap-2 text-sm">
+                          <div className="rounded-xl bg-slate-50 p-3"><dt className="text-xs text-slate-400">Ônibus</dt><dd className="mt-1 font-bold">{participante.onibus_nome || 'Não incluso'}</dd></div>
+                          <div className="rounded-xl bg-slate-50 p-3"><dt className="text-xs text-slate-400">Poltrona</dt><dd className="mt-1 font-bold">{participante.poltrona || '—'}</dd></div>
+                          <div className="rounded-xl bg-slate-50 p-3"><dt className="text-xs text-slate-400">Quarto</dt><dd className="mt-1 font-bold">{participante.quarto_nome || 'Não incluso'}</dd></div>
+                          <div className="rounded-xl bg-slate-50 p-3"><dt className="text-xs text-slate-400">Vaga</dt><dd className="mt-1 font-bold">{participante.vaga_quarto || '—'}</dd></div>
+                        </dl>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {tab === 'pagamentos' && (
           <div className="space-y-5 py-6">
             {portal.reservas.map((reserva: any) => {
@@ -721,6 +769,28 @@ export default function MinhaConta() {
                 </Card>
               );
             })}
+          </div>
+        )}
+
+        {tab === 'cupons' && (
+          <div className="space-y-4 py-6">
+            {(portal.cupons || []).length === 0 ? (
+              <Card><CardContent className="p-8 text-center text-slate-500">Nenhum cupom foi utilizado nas suas reservas.</CardContent></Card>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {portal.cupons.map((cupom: any) => (
+                  <Card key={cupom.id}>
+                    <CardContent className="p-5">
+                      <Ticket className="text-[#851F32]" />
+                      <p className="mt-4 text-xs font-bold uppercase text-slate-400">Cupom aplicado</p>
+                      <h3 className="mt-1 text-xl font-black text-slate-900">{cupom.codigo}</h3>
+                      <p className="mt-2 text-sm text-slate-600">{cupom.desconto_percentual ? `${Number(cupom.desconto_percentual)}% de desconto` : moeda(cupom.desconto_fixo)}{cupom.campanha ? ` · ${cupom.campanha}` : ''}</p>
+                      <p className="mt-3 text-xs text-slate-400">Validade: {data(cupom.validade)}</p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

@@ -65,18 +65,23 @@ export class HospedagemService {
       FROM quartos_hospedagem q LEFT JOIN pacotes p ON p.id = q.pacote_id
       LEFT JOIN quarto_alocacoes qa ON qa.quarto_id = q.id AND qa.status = 'ativa'
       WHERE q.lote_id = ${loteId} AND q.ativo = true GROUP BY q.id, p.nome ORDER BY q.genero, q.nome`));
-    const alocacoes = linhas(await db.execute(sql`SELECT qa.*, q.nome AS quarto_nome, q.genero, u.nome AS cliente_nome,
-      u.email AS cliente_email, p.nome AS pacote_nome
+    const alocacoes = linhas(await db.execute(sql`SELECT qa.*, q.nome AS quarto_nome, q.genero,
+      COALESCE(rp.nome_completo, u.nome) AS cliente_nome,
+      COALESCE(rp.email, u.email) AS cliente_email, rp.id AS participante_id,
+      p.nome AS pacote_nome
       FROM quarto_alocacoes qa JOIN quartos_hospedagem q ON q.id = qa.quarto_id
       JOIN usuarios u ON u.id = qa.usuario_id JOIN reservas r ON r.id = qa.reserva_id
+      LEFT JOIN reserva_participantes rp ON rp.reserva_id = qa.reserva_id
+        AND rp.quarto_id = qa.quarto_id AND rp.vaga_quarto_id = qa.numero_vaga::text
       LEFT JOIN pacotes p ON p.id = r.pacote_id
       WHERE q.lote_id = ${loteId} AND qa.status = 'ativa' ORDER BY q.genero, q.nome, qa.numero_vaga`));
     const reservas = linhas(await db.execute(sql`SELECT r.id, r.usuario_id, u.nome AS cliente_nome, u.email AS cliente_email,
       r.pacote_id, p.nome AS pacote_nome
       FROM reservas r JOIN usuarios u ON u.id = r.usuario_id AND u.tipo = 'cliente'
       LEFT JOIN pacotes p ON p.id = r.pacote_id
-      LEFT JOIN quarto_alocacoes qa ON qa.reserva_id = r.id AND qa.status = 'ativa'
-      WHERE r.lote_id = ${loteId} AND r.status <> 'abandonado' AND qa.id IS NULL
+      WHERE r.lote_id = ${loteId} AND r.status <> 'abandonado'
+        AND (SELECT COUNT(*) FROM quarto_alocacoes qa WHERE qa.reserva_id = r.id AND qa.status = 'ativa')
+          < GREATEST(1, (SELECT COUNT(*) FROM reserva_participantes rp WHERE rp.reserva_id = r.id OR rp.grupo_id = r.grupo_id))
         AND (
           COALESCE((r.recursos_contratados->>'hospedagem')::boolean, false) = true
           OR (r.recursos_contratados = '{}'::jsonb AND p.modalidade_hospedagem IN ('quarto_ventilador', 'quarto_ar_condicionado')
@@ -193,11 +198,11 @@ export class HospedagemService {
     });
   }
 
-  /** Aloca a primeira vaga compatível sem duplicar uma alocação existente. */
+  /** Garante uma vaga compatível para cada participante sem duplicar alocações existentes. */
   static async alocarAutomaticamente(reservaId: string, atorId: string) {
     return db.transaction(async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`reserva-quarto:${reservaId}`}))`);
-      const reserva = linhas(await tx.execute(sql`SELECT r.id, r.usuario_id, r.lote_id, r.pacote_id,
+      const reserva = linhas(await tx.execute(sql`SELECT r.id, r.usuario_id, r.lote_id, r.pacote_id, r.grupo_id,
         r.grupo_hospedagem, r.recursos_contratados, p.modalidade_hospedagem, p.forma_contratacao
         FROM reservas r LEFT JOIN pacotes p ON p.id = r.pacote_id
         WHERE r.id = ${reservaId} FOR UPDATE OF r`))[0];
@@ -207,29 +212,56 @@ export class HospedagemService {
         ? recursosRegistrados
         : resolverRecursosContratacao(reserva.forma_contratacao, reserva.modalidade_hospedagem);
       if (!recursos.hospedagem) return null;
-      const existente = linhas(await tx.execute(sql`SELECT qa.id, qa.quarto_id, qa.numero_vaga
-        FROM quarto_alocacoes qa WHERE qa.reserva_id = ${reservaId} AND qa.status = 'ativa' LIMIT 1`))[0];
-      if (existente) return existente;
-      const quarto = linhas(await tx.execute(sql`SELECT q.*, COALESCE(ocupadas.total, 0)::int AS ocupadas
-        FROM quartos_hospedagem q
-        LEFT JOIN LATERAL (SELECT COUNT(*)::int AS total FROM quarto_alocacoes qa WHERE qa.quarto_id = q.id AND qa.status = 'ativa') ocupadas ON true
-        WHERE q.lote_id = ${reserva.lote_id} AND q.ativo = true
-          AND (q.pacote_id IS NULL OR q.pacote_id = ${reserva.pacote_id})
-          AND (${reserva.grupo_hospedagem}::text IS NULL OR q.genero = ${reserva.grupo_hospedagem})
-          AND (${recursos.estrutura_quarto}::text IS NULL OR q.estrutura = ${recursos.estrutura_quarto})
-          AND COALESCE(ocupadas.total, 0) < q.capacidade
-        ORDER BY (q.pacote_id = ${reserva.pacote_id}) DESC, COALESCE(ocupadas.total, 0), q.nome
-        LIMIT 1 FOR UPDATE OF q`))[0];
-      if (!quarto) return null;
-      const vaga = linhas(await tx.execute(sql`SELECT serie.numero FROM generate_series(1, ${Number(quarto.capacidade)}) AS serie(numero)
-        WHERE NOT EXISTS (SELECT 1 FROM quarto_alocacoes qa WHERE qa.quarto_id = ${quarto.id} AND qa.numero_vaga = serie.numero AND qa.status = 'ativa')
-        ORDER BY serie.numero LIMIT 1`))[0];
-      if (!vaga) return null;
-      const id = createId();
-      const criada = linhas(await tx.execute(sql`INSERT INTO quarto_alocacoes (id, quarto_id, reserva_id, usuario_id, numero_vaga, status, alocado_por, alocado_em)
-        VALUES (${id}, ${quarto.id}, ${reservaId}, ${reserva.usuario_id}, ${Number(vaga.numero)}, 'ativa', ${atorId}, CURRENT_TIMESTAMP) RETURNING *`))[0];
-      await registrar(tx, "quarto_alocacao", id, "hospede_alocado_automaticamente", atorId, undefined, { ...criada, genero: quarto.genero, quarto: quarto.nome, estrutura: quarto.estrutura, recursos });
-      return criada;
+      const participantes = linhas(await tx.execute(sql`SELECT id, sexo_operacional, quarto_id, vaga_quarto_id
+        FROM reserva_participantes
+        WHERE reserva_id = ${reservaId} OR grupo_id = ${reserva.grupo_id || null}
+        ORDER BY CASE WHEN vinculo_responsavel = 'responsável' THEN 0 ELSE 1 END, criado_em, id`));
+      const pessoas = participantes.length ? participantes : [{ id: null, sexo_operacional: reserva.grupo_hospedagem, quarto_id: null, vaga_quarto_id: null }];
+      const existentes = linhas(await tx.execute(sql`SELECT qa.id, qa.quarto_id, qa.numero_vaga, q.genero, q.estrutura
+        FROM quarto_alocacoes qa JOIN quartos_hospedagem q ON q.id = qa.quarto_id
+        WHERE qa.reserva_id = ${reservaId} AND qa.status = 'ativa'
+        ORDER BY qa.alocado_em, qa.id`));
+      const usadas = new Set<string>();
+      const alocacoes: any[] = [];
+
+      for (const pessoa of pessoas) {
+        const grupo = String(pessoa.sexo_operacional || reserva.grupo_hospedagem || "");
+        if (!['masculino', 'feminino'].includes(grupo)) throw new Error(`Informe o sexo de ${pessoa.id ? 'todos os hóspedes' : 'quem fez a reserva'} antes de alocar o quarto`);
+        const vinculada = existentes.find((item) => !usadas.has(item.id) && (
+          (pessoa.quarto_id && item.quarto_id === pessoa.quarto_id && String(item.numero_vaga) === String(pessoa.vaga_quarto_id))
+          || (!pessoa.quarto_id && item.genero === grupo && (!recursos.estrutura_quarto || item.estrutura === recursos.estrutura_quarto))
+        ));
+        if (vinculada) {
+          usadas.add(vinculada.id);
+          if (pessoa.id) await tx.execute(sql`UPDATE reserva_participantes SET quarto_id = ${vinculada.quarto_id}, vaga_quarto_id = ${String(vinculada.numero_vaga)}, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${pessoa.id}`);
+          alocacoes.push(vinculada);
+          continue;
+        }
+
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`capacidade-hospedagem:${reserva.lote_id}:${recursos.estrutura_quarto}:${grupo}`}))`);
+        const quarto = linhas(await tx.execute(sql`SELECT q.*, COALESCE(ocupadas.total, 0)::int AS ocupadas
+          FROM quartos_hospedagem q
+          LEFT JOIN LATERAL (SELECT COUNT(*)::int AS total FROM quarto_alocacoes qa WHERE qa.quarto_id = q.id AND qa.status = 'ativa') ocupadas ON true
+          WHERE q.lote_id = ${reserva.lote_id} AND q.ativo = true
+            AND (q.pacote_id IS NULL OR q.pacote_id = ${reserva.pacote_id})
+            AND q.genero = ${grupo}
+            AND (${recursos.estrutura_quarto}::text IS NULL OR q.estrutura = ${recursos.estrutura_quarto})
+            AND COALESCE(ocupadas.total, 0) < q.capacidade
+          ORDER BY (q.pacote_id = ${reserva.pacote_id}) DESC, COALESCE(ocupadas.total, 0), q.nome
+          LIMIT 1 FOR UPDATE OF q`))[0];
+        if (!quarto) throw new Error(`Não há vaga de quarto disponível para o grupo ${grupo}`);
+        const vaga = linhas(await tx.execute(sql`SELECT serie.numero FROM generate_series(1, ${Number(quarto.capacidade)}) AS serie(numero)
+          WHERE NOT EXISTS (SELECT 1 FROM quarto_alocacoes qa WHERE qa.quarto_id = ${quarto.id} AND qa.numero_vaga = serie.numero AND qa.status = 'ativa')
+          ORDER BY serie.numero LIMIT 1`))[0];
+        if (!vaga) throw new Error("O quarto selecionado ficou sem vaga disponível");
+        const id = createId();
+        const criada = linhas(await tx.execute(sql`INSERT INTO quarto_alocacoes (id, quarto_id, reserva_id, usuario_id, numero_vaga, status, alocado_por, alocado_em)
+          VALUES (${id}, ${quarto.id}, ${reservaId}, ${reserva.usuario_id}, ${Number(vaga.numero)}, 'ativa', ${atorId}, CURRENT_TIMESTAMP) RETURNING *`))[0];
+        if (pessoa.id) await tx.execute(sql`UPDATE reserva_participantes SET quarto_id = ${quarto.id}, vaga_quarto_id = ${String(vaga.numero)}, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${pessoa.id}`);
+        await registrar(tx, "quarto_alocacao", id, "hospede_alocado_automaticamente", atorId, undefined, { ...criada, participante_id: pessoa.id, genero: quarto.genero, quarto: quarto.nome, estrutura: quarto.estrutura, recursos });
+        alocacoes.push(criada);
+      }
+      return alocacoes;
     });
   }
 
@@ -239,12 +271,13 @@ export class HospedagemService {
       WHERE r.lote_id = ${loteId} AND r.status <> 'abandonado'
         AND (p.forma_contratacao LIKE '%hospedagem%' OR p.forma_contratacao = 'livre')
         AND p.modalidade_hospedagem <> 'camping'
-        AND NOT EXISTS (SELECT 1 FROM quarto_alocacoes qa WHERE qa.reserva_id = r.id AND qa.status = 'ativa')
+        AND (SELECT COUNT(*) FROM quarto_alocacoes qa WHERE qa.reserva_id = r.id AND qa.status = 'ativa')
+          < GREATEST(1, (SELECT COUNT(*) FROM reserva_participantes rp WHERE rp.reserva_id = r.id OR rp.grupo_id = r.grupo_id))
       ORDER BY r.criado_em, r.id`));
     const alocadas: any[] = [];
     for (const reserva of pendentes) {
       const alocacao = await this.alocarAutomaticamente(String(reserva.id), atorId);
-      if (alocacao) alocadas.push(alocacao);
+      if (Array.isArray(alocacao)) alocadas.push(...alocacao);
     }
     return { verificadas: pendentes.length, alocadas };
   }
@@ -254,7 +287,7 @@ export class HospedagemService {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`quarto:${quartoId}`})), pg_advisory_xact_lock(hashtext(${`reserva-quarto:${reservaId}`}))`);
       const quarto = linhas(await tx.execute(sql`SELECT * FROM quartos_hospedagem WHERE id = ${quartoId} AND ativo = true FOR UPDATE`))[0];
       if (!quarto) throw new Error("Quarto não encontrado");
-      const reserva = linhas(await tx.execute(sql`SELECT r.id, r.usuario_id, r.lote_id, r.pacote_id, r.status, r.grupo_hospedagem, r.recursos_contratados,
+      const reserva = linhas(await tx.execute(sql`SELECT r.id, r.usuario_id, r.lote_id, r.pacote_id, r.grupo_id, r.status, r.grupo_hospedagem, r.recursos_contratados,
         u.tipo, p.forma_contratacao, p.modalidade_hospedagem
         FROM reservas r JOIN usuarios u ON u.id = r.usuario_id LEFT JOIN pacotes p ON p.id = r.pacote_id
         WHERE r.id = ${reservaId} FOR UPDATE OF r`))[0];
@@ -264,17 +297,32 @@ export class HospedagemService {
         ? recursosRegistrados
         : resolverRecursosContratacao(reserva.forma_contratacao, reserva.modalidade_hospedagem);
       if (!recursos.hospedagem) throw new Error("Este pacote não inclui hospedagem");
-      if (reserva.grupo_hospedagem && reserva.grupo_hospedagem !== quarto.genero) throw new Error("O quarto não corresponde ao grupo de hospedagem da reserva");
       if (recursos.estrutura_quarto && quarto.estrutura !== recursos.estrutura_quarto) throw new Error("O quarto não corresponde à modalidade contratada");
       if (quarto.pacote_id && quarto.pacote_id !== reserva.pacote_id) throw new Error("Este quarto é exclusivo de outro pacote");
+      const participante = linhas(await tx.execute(sql`SELECT rp.id, rp.sexo_operacional
+        FROM reserva_participantes rp
+        WHERE (rp.reserva_id = ${reservaId} OR rp.grupo_id = ${reserva.grupo_id || null})
+          AND rp.sexo_operacional = ${quarto.genero}
+          AND NOT EXISTS (
+            SELECT 1 FROM quarto_alocacoes qa
+            WHERE qa.reserva_id = ${reservaId} AND qa.quarto_id = rp.quarto_id
+              AND qa.numero_vaga::text = rp.vaga_quarto_id AND qa.status = 'ativa'
+          )
+        ORDER BY CASE WHEN rp.vinculo_responsavel = 'responsável' THEN 0 ELSE 1 END, rp.criado_em, rp.id
+        LIMIT 1 FOR UPDATE OF rp`))[0];
+      const totalParticipantes = linhas(await tx.execute(sql`SELECT COUNT(*)::int AS total FROM reserva_participantes rp
+        WHERE rp.reserva_id = ${reservaId} OR rp.grupo_id = ${reserva.grupo_id || null}`))[0];
       const existente = linhas(await tx.execute(sql`SELECT id FROM quarto_alocacoes WHERE reserva_id = ${reservaId} AND status = 'ativa'`))[0];
-      if (existente) throw new Error("A reserva já possui quarto; use Remanejar");
+      if (!participante && Number(totalParticipantes?.total || 0) > 0) throw new Error("Não há hóspede sem quarto compatível com o destino selecionado");
+      if (!participante && reserva.grupo_hospedagem && reserva.grupo_hospedagem !== quarto.genero) throw new Error("O quarto não corresponde ao grupo de hospedagem da reserva");
+      if (!participante && existente) throw new Error("A reserva já possui quarto; use Remanejar");
       const vaga = linhas(await tx.execute(sql`SELECT serie.numero FROM generate_series(1, ${Number(quarto.capacidade)}) AS serie(numero)
         WHERE NOT EXISTS (SELECT 1 FROM quarto_alocacoes qa WHERE qa.quarto_id = ${quartoId} AND qa.numero_vaga = serie.numero AND qa.status = 'ativa') ORDER BY serie.numero LIMIT 1`))[0];
       if (!vaga) throw new Error("Este quarto está lotado");
       const id = createId();
       const criada = linhas(await tx.execute(sql`INSERT INTO quarto_alocacoes (id, quarto_id, reserva_id, usuario_id, numero_vaga, status, alocado_por, alocado_em)
         VALUES (${id}, ${quartoId}, ${reservaId}, ${reserva.usuario_id}, ${Number(vaga.numero)}, 'ativa', ${atorId}, CURRENT_TIMESTAMP) RETURNING *`))[0];
+      if (participante?.id) await tx.execute(sql`UPDATE reserva_participantes SET quarto_id = ${quartoId}, vaga_quarto_id = ${String(vaga.numero)}, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${participante.id}`);
       await registrar(tx, "quarto_alocacao", id, "hospede_alocado", atorId, undefined, { ...criada, genero: quarto.genero, quarto: quarto.nome });
       return criada;
     });
@@ -282,7 +330,12 @@ export class HospedagemService {
 
   static async mover(alocacaoId: string, quartoId: string, atorId: string) {
     return db.transaction(async (tx) => {
-      const atual = linhas(await tx.execute(sql`SELECT qa.*, q.lote_id, q.nome AS quarto_nome FROM quarto_alocacoes qa JOIN quartos_hospedagem q ON q.id = qa.quarto_id WHERE qa.id = ${alocacaoId} AND qa.status = 'ativa' FOR UPDATE OF qa`))[0];
+      const atual = linhas(await tx.execute(sql`SELECT qa.*, q.lote_id, q.nome AS quarto_nome,
+        rp.id AS participante_id, rp.sexo_operacional AS grupo_participante
+        FROM quarto_alocacoes qa JOIN quartos_hospedagem q ON q.id = qa.quarto_id
+        LEFT JOIN reserva_participantes rp ON rp.reserva_id = qa.reserva_id
+          AND rp.quarto_id = qa.quarto_id AND rp.vaga_quarto_id = qa.numero_vaga::text
+        WHERE qa.id = ${alocacaoId} AND qa.status = 'ativa' FOR UPDATE OF qa`))[0];
       if (!atual) throw new Error("Alocação ativa não encontrada");
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`quarto:${quartoId}`})), pg_advisory_xact_lock(hashtext(${`reserva-quarto:${atual.reserva_id}`}))`);
       const destino = linhas(await tx.execute(sql`SELECT q.*, q.pacote_id AS quarto_pacote_id, r.pacote_id AS reserva_pacote_id,
@@ -295,7 +348,8 @@ export class HospedagemService {
       const recursos = typeof recursosRegistrados?.transporte === "boolean" && typeof recursosRegistrados?.hospedagem === "boolean"
         ? recursosRegistrados
         : resolverRecursosContratacao(destino.forma_contratacao, destino.modalidade_hospedagem);
-      if (destino.grupo_hospedagem && destino.grupo_hospedagem !== destino.genero) throw new Error("O quarto de destino não corresponde ao grupo contratado");
+      const grupoPessoa = atual.grupo_participante || destino.grupo_hospedagem;
+      if (grupoPessoa && grupoPessoa !== destino.genero) throw new Error("O quarto de destino não corresponde ao grupo do hóspede");
       if (recursos.estrutura_quarto && destino.estrutura !== recursos.estrutura_quarto) throw new Error("O quarto de destino não corresponde à modalidade contratada");
       const vaga = linhas(await tx.execute(sql`SELECT serie.numero FROM generate_series(1, ${Number(destino.capacidade)}) AS serie(numero)
         WHERE NOT EXISTS (SELECT 1 FROM quarto_alocacoes qa WHERE qa.quarto_id = ${quartoId} AND qa.numero_vaga = serie.numero AND qa.status = 'ativa') ORDER BY serie.numero LIMIT 1`))[0];
@@ -304,6 +358,9 @@ export class HospedagemService {
       const id = createId();
       const criada = linhas(await tx.execute(sql`INSERT INTO quarto_alocacoes (id, quarto_id, reserva_id, usuario_id, numero_vaga, status, alocado_por, alocado_em)
         VALUES (${id}, ${quartoId}, ${atual.reserva_id}, ${atual.usuario_id}, ${Number(vaga.numero)}, 'ativa', ${atorId}, CURRENT_TIMESTAMP) RETURNING *`))[0];
+      if (atual.participante_id) {
+        await tx.execute(sql`UPDATE reserva_participantes SET quarto_id = ${quartoId}, vaga_quarto_id = ${String(vaga.numero)}, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${atual.participante_id}`);
+      }
       await registrar(tx, "quarto_alocacao", id, "hospede_remanejado", atorId, { quarto: atual.quarto_nome, vaga: atual.numero_vaga }, { quarto: destino.nome, vaga: vaga.numero, genero: destino.genero });
       return criada;
     });
@@ -315,6 +372,8 @@ export class HospedagemService {
       if (!atual) throw new Error("Alocação ativa não encontrada");
       const justificativa = texto(motivo, 1000) || "Liberação operacional";
       await tx.execute(sql`UPDATE quarto_alocacoes SET status = 'cancelada', encerrado_em = CURRENT_TIMESTAMP, motivo = ${justificativa} WHERE id = ${alocacaoId}`);
+      await tx.execute(sql`UPDATE reserva_participantes SET quarto_id = NULL, vaga_quarto_id = NULL, atualizado_em = CURRENT_TIMESTAMP
+        WHERE reserva_id = ${atual.reserva_id} AND quarto_id = ${atual.quarto_id} AND vaga_quarto_id = ${String(atual.numero_vaga)}`);
       await registrar(tx, "quarto_alocacao", alocacaoId, "hospede_liberado", atorId, atual, { motivo: justificativa });
       return { id: alocacaoId, status: "cancelada" };
     });

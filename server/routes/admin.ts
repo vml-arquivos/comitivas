@@ -345,13 +345,16 @@ router.get("/dashboard", requireRole("admin", "vendedor"), async (req: Request, 
     const todosClientes = await db.select({ id: usuarios.id }).from(usuarios).where(eq(usuarios.tipo, "cliente"));
     const idsClientesValidos = new Set(todosClientes.map((cliente) => cliente.id));
     const totalLeads = leadsConsultados.filter((lead) => !lead.usuario_id || idsClientesValidos.has(lead.usuario_id));
-    const clienteIds = isAdminOrDev(req.usuario.tipo)
+    const clienteIdsPorLead = isAdminOrDev(req.usuario.tipo)
       ? todosClientes.map((cliente) => cliente.id)
       : Array.from(new Set(totalLeads.flatMap((lead) => lead.usuario_id ? [lead.usuario_id] : [])));
+    const reservasConsultadas = isAdminOrDev(req.usuario.tipo)
+      ? (clienteIdsPorLead.length > 0 ? await db.select().from(reservas).where(inArray(reservas.usuario_id, clienteIdsPorLead)) : [])
+      : await db.select().from(reservas).where(eq(reservas.vendedor_id, req.usuario.id));
+    const clienteIds = isAdminOrDev(req.usuario.tipo)
+      ? clienteIdsPorLead
+      : Array.from(new Set([...clienteIdsPorLead, ...reservasConsultadas.map((reserva) => reserva.usuario_id)]));
     const totalClientes = isAdminOrDev(req.usuario.tipo) ? todosClientes : clienteIds.map((id) => ({ id }));
-    const reservasConsultadas = clienteIds.length > 0
-      ? await db.select().from(reservas).where(inArray(reservas.usuario_id, clienteIds))
-      : [];
     const lotesConsultados = reservasConsultadas.length ? await db.select({ id: lotes.id, evento_id: lotes.evento_id }).from(lotes).where(inArray(lotes.id, Array.from(new Set(reservasConsultadas.map((reserva) => reserva.lote_id))))) : [];
     const eventoPorLote = new Map(lotesConsultados.map((lote) => [lote.id, lote.evento_id]));
     const totalReservas = eventoId ? reservasConsultadas.filter((reserva) => eventoPorLote.get(reserva.lote_id) === eventoId) : reservasConsultadas;

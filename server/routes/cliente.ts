@@ -27,6 +27,8 @@ import {
   checkinsOperacao,
   quartoAlocacoes,
   quartosHospedagem,
+  reservaParticipantes,
+  cupons,
 } from "../db/schema.js";
 import { EmailService } from "../services/emailService.js";
 import { ReservaSolicitacaoService } from "../services/reservaSolicitacaoService.js";
@@ -124,6 +126,7 @@ router.get("/portal", async (req: Request, res: Response) => {
       id: reservas.id,
       lote_id: reservas.lote_id,
       pacote_id: reservas.pacote_id,
+      cupom_id: reservas.cupom_id,
       status: reservas.status,
       checkout_estado: reservas.checkout_estado,
       valor_total: reservas.valor_total,
@@ -185,6 +188,33 @@ router.get("/portal", async (req: Request, res: Response) => {
       .innerJoin(quartosHospedagem, eq(quartoAlocacoes.quarto_id, quartosHospedagem.id))
       .where(and(inArray(quartoAlocacoes.reserva_id, reservaIds), eq(quartoAlocacoes.status, "ativa"))) : [];
     const hospedagemPorReserva = new Map(hospedagemLista.map((item) => [item.reserva_id, item]));
+    const participantesLista = reservaIds.length ? await db.select({
+      id: reservaParticipantes.id,
+      reserva_id: reservaParticipantes.reserva_id,
+      nome_completo: reservaParticipantes.nome_completo,
+      sexo_operacional: reservaParticipantes.sexo_operacional,
+      vinculo_responsavel: reservaParticipantes.vinculo_responsavel,
+      documento_status: reservaParticipantes.documento_status,
+      poltrona: assentosOnibus.numero,
+      onibus_nome: onibusOperacionais.nome,
+      quarto_nome: quartosHospedagem.nome,
+      vaga_quarto: reservaParticipantes.vaga_quarto_id,
+    }).from(reservaParticipantes)
+      .leftJoin(assentosOnibus, eq(reservaParticipantes.assento_id, assentosOnibus.id))
+      .leftJoin(onibusOperacionais, eq(assentosOnibus.onibus_id, onibusOperacionais.id))
+      .leftJoin(quartosHospedagem, eq(reservaParticipantes.quarto_id, quartosHospedagem.id))
+      .where(inArray(reservaParticipantes.reserva_id, reservaIds))
+      .orderBy(reservaParticipantes.criado_em) : [];
+    const cupomIds = Array.from(new Set(reservasLista.flatMap((reserva) => reserva.cupom_id ? [reserva.cupom_id] : [])));
+    const cuponsLista = cupomIds.length ? await db.select({
+      id: cupons.id,
+      codigo: cupons.codigo,
+      desconto_percentual: cupons.desconto_percentual,
+      desconto_fixo: cupons.desconto_fixo,
+      campanha: cupons.campanha,
+      validade: cupons.validade,
+      ativo: cupons.ativo,
+    }).from(cupons).where(inArray(cupons.id, cupomIds)) : [];
     const pagamentosLista = reservaIds.length ? await db.select({
       id: pagamentos.id,
       reserva_id: pagamentos.reserva_id,
@@ -331,6 +361,8 @@ router.get("/portal", async (req: Request, res: Response) => {
       contratos: contratosLista,
       validacoes: validacoesLista,
       documentos: documentosLista,
+      participantes: participantesLista,
+      cupons: cuponsLista,
       validacao_documental: configuracaoValidacaoDocumental(),
       historico: linhaTempo,
       solicitacoes,

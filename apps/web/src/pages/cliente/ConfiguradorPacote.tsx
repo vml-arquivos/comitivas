@@ -162,6 +162,10 @@ export default function ConfiguradorPacote() {
       setError('Informe o nome completo de cada pessoa adicionada à comitiva.');
       return;
     }
+    if (exigeHospedagem && participantes.some((participante) => !participante.sexo_operacional)) {
+      setError('Informe o sexo de cada pessoa para reservar o quarto correto.');
+      return;
+    }
     if (user) {
       try {
         const perfil = (await api.get('/auth/perfil')).data.usuario;
@@ -295,7 +299,7 @@ export default function ConfiguradorPacote() {
                 <label className="text-xs font-semibold text-slate-600">Data de nascimento<input type="date" value={participante.data_nascimento || ''} onChange={(event) => atualizarParticipante(indice, 'data_nascimento', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
                 <label className="text-xs font-semibold text-slate-600">Telefone (opcional)<input value={participante.telefone || ''} onChange={(event) => atualizarParticipante(indice, 'telefone', event.target.value)} inputMode="tel" className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
                 <label className="text-xs font-semibold text-slate-600">E-mail (opcional)<input type="email" value={participante.email || ''} onChange={(event) => atualizarParticipante(indice, 'email', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
-                {exigeHospedagem && <label className="text-xs font-semibold text-slate-600">Sexo da pessoa<select value={participante.sexo_operacional || ''} onChange={(event) => atualizarParticipante(indice, 'sexo_operacional', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">A definir</option><option value="feminino">Feminino</option><option value="masculino">Masculino</option></select></label>}
+                {exigeHospedagem && <label className="text-xs font-semibold text-slate-600">Sexo da pessoa *<select required value={participante.sexo_operacional || ''} onChange={(event) => atualizarParticipante(indice, 'sexo_operacional', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">Selecione</option><option value="feminino">Feminino</option><option value="masculino">Masculino</option></select></label>}
               </div>
             </div>)}
         </div>}
