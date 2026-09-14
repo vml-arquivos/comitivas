@@ -327,7 +327,17 @@ export default function Checkout() {
       setCodigo('');
       setOtpEnviado(false);
 
-      await carregarDados(true);
+      // A validação por OTP encerra a etapa contratual. Como a forma de
+      // pagamento já foi escolhida e congelada na minuta, iniciamos o controle
+      // financeiro imediatamente e saímos do checkout. Permanecer nesta tela
+      // permitia uma segunda tentativa de OTP sobre um contrato já validado e
+      // gerava a mensagem "Este contrato não está disponível para validação".
+      const avancou = await criarCobrancaEAvancar();
+      if (avancou) return;
+
+      // Se a etapa financeira estiver temporariamente indisponível, o contrato
+      // permanece validado. O helper recarrega o estado para apresentar somente
+      // a retomada do pagamento, sem oferecer um novo OTP.
     } catch (err: any) {
       setError(err.response?.data?.erro || 'Não foi possível concluir a assinatura.');
     } finally {
@@ -335,8 +345,8 @@ export default function Checkout() {
     }
   };
 
-  const criarCobranca = async () => {
-    if (!reservaId) return;
+  const criarCobranca = async (): Promise<any | null> => {
+    if (!reservaId) return null;
     setIsProcessing(true);
     setError('');
     try {
@@ -347,20 +357,45 @@ export default function Checkout() {
       });
       setPagamentoData(response.data);
       setPagamento(response.data);
-      await carregarDados(true);
+      return response.data;
     } catch (err: any) {
-      setError(err.response?.data?.erro || 'Não foi possível criar a cobrança. O contrato continua validado e você pode tentar novamente.');
+      setError(err.response?.data?.erro || 'Contrato validado, mas não foi possível iniciar a etapa financeira agora. Seu contrato continua salvo e você pode tentar novamente.');
+      return null;
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const criarCobrancaEAvancar = async (): Promise<boolean> => {
+    const pagamentoCriado = await criarCobranca();
+    if (!pagamentoCriado || !reservaId) {
+      await carregarDados(true);
+      return false;
+    }
+    navigate(`/confirmacao/${reservaId}`, {
+      replace: true,
+      state: { pagamentoData: pagamentoCriado },
+    });
+    return true;
   };
 
   useEffect(() => {
     if (!reservaId || autoBoletoTentado || !contratoValidado || pagamentoEmAndamento) return;
     if (metodoPagamento !== 'boleto' || reserva?.boleto_modo !== 'manual') return;
     setAutoBoletoTentado(true);
-    void criarCobranca();
+    void criarCobrancaEAvancar();
   }, [reservaId, autoBoletoTentado, contratoValidado, pagamentoEmAndamento, metodoPagamento, reserva?.boleto_modo]);
+
+  // Recuperação de sessões já concluídas: se o cliente voltar ao checkout com
+  // contrato validado e controle financeiro existente, não mostramos novamente
+  // a etapa de assinatura. Levamos diretamente ao acompanhamento da reserva.
+  useEffect(() => {
+    if (!reservaId || isLoading || !contratoValidado || !pagamentoEmAndamento) return;
+    navigate(`/confirmacao/${reservaId}`, {
+      replace: true,
+      state: { pagamentoData: pagamentoData || pagamento },
+    });
+  }, [reservaId, isLoading, contratoValidado, pagamentoEmAndamento, pagamentoData, pagamento, navigate]);
 
   if (isLoading) return <div className="py-12 text-center text-slate-600">Carregando detalhes da reserva...</div>;
   const modalidade = reserva?.modalidade_hospedagem ? MODALIDADES[reserva.modalidade_hospedagem] : null;
@@ -761,7 +796,7 @@ export default function Checkout() {
               </a>
             </div>
             {!pagamentoEmAndamento ? (
-              <Button onClick={criarCobranca} isLoading={isProcessing}>
+              <Button onClick={() => void criarCobrancaEAvancar()} isLoading={isProcessing}>
                 {metodoPagamento === 'boleto' && reserva?.boleto_modo === 'manual' ? 'Preparar boletos' : 'Criar cobrança no Banco Cora'}
               </Button>
             ) : (
