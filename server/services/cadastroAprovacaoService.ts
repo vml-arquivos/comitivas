@@ -6,7 +6,7 @@ import { camposFaltantesCadastroMinimo } from "../security/governance.js";
 
 export type ResultadoAprovacaoCadastro = { aprovado: boolean; atualizado: boolean };
 
-/** Aprova somente com e-mail confirmado, cadastro completo e documento de identidade aprovado. */
+/** Aprova automaticamente com e-mail confirmado, cadastro completo e documento de identidade enviado. A leitura/OCR pode continuar em segundo plano. */
 export async function aprovarCadastroSeElegivel(usuarioId: string, documentoId?: string | null): Promise<ResultadoAprovacaoCadastro> {
   return db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`cadastro-aprovacao:${usuarioId}`}))`);
@@ -38,23 +38,22 @@ export async function aprovarCadastroSeElegivel(usuarioId: string, documentoId?:
     const condicoes = [
       eq(clienteDocumentos.usuario_id, usuarioId),
       eq(clienteDocumentos.categoria, "identidade"),
-      eq(clienteDocumentos.validacao_status, "aprovado"),
       isNull(clienteDocumentos.removido_em),
     ];
     if (documentoId) condicoes.push(eq(clienteDocumentos.id, documentoId));
     const documento = (await tx.select({ id: clienteDocumentos.id, validado_em: clienteDocumentos.validado_em })
       .from(clienteDocumentos)
       .where(and(...condicoes))
-      .orderBy(desc(clienteDocumentos.validado_em), desc(clienteDocumentos.criado_em))
+      .orderBy(desc(clienteDocumentos.criado_em))
       .limit(1))[0];
-    if (!documento?.validado_em) return { aprovado: false, atualizado: false };
+    if (!documento?.id) return { aprovado: false, atualizado: false };
 
     const agora = new Date();
     const antes = { cadastro_status: usuario.cadastro_status, aprovado_em: usuario.aprovado_em, aprovado_por: usuario.aprovado_por };
     const atualizado = (await tx.update(usuarios).set({
       cadastro_status: "aprovado",
       aprovado_em: agora,
-      aprovado_por: "automatico_documento_validado",
+      aprovado_por: "automatico_fluxo_contratacao",
       atualizado_em: agora,
     }).where(and(eq(usuarios.id, usuarioId), inArray(usuarios.cadastro_status, ["pendente", "em_analise"]))).returning({ id: usuarios.id }))[0];
     if (!atualizado) return { aprovado: false, atualizado: false };
@@ -62,15 +61,15 @@ export async function aprovarCadastroSeElegivel(usuarioId: string, documentoId?:
     await tx.insert(clienteHistorico).values({
       id: createId(), usuario_id: usuarioId, tipo: "cadastro_aprovado",
       titulo: "Cadastro aprovado automaticamente",
-      descricao: "Cadastro completo e documento de identificação aprovado.",
-      metadados: { documento_id: documento.id, motivo: "documento_validado_e_cadastro_completo" },
+      descricao: "Cadastro completo, e-mail confirmado e documento de identificação enviado.",
+      metadados: { documento_id: documento.id, motivo: "email_confirmado_cadastro_completo_documento_enviado" },
       criado_por: null, criado_em: agora,
     });
     await tx.insert(auditoriaAdmin).values({
       id: createId(), ator_id: null, ator_tipo: "system",
       acao: "cadastro_aprovado_automaticamente", entidade: "usuario", entidade_id: usuarioId,
       antes,
-      depois: { cadastro_status: "aprovado", aprovado_em: agora, aprovado_por: "automatico_documento_validado", documento_id: documento.id },
+      depois: { cadastro_status: "aprovado", aprovado_em: agora, aprovado_por: "automatico_fluxo_contratacao", documento_id: documento.id },
       criado_em: agora,
     });
     return { aprovado: true, atualizado: true };

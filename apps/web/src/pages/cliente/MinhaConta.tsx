@@ -846,8 +846,8 @@ export default function MinhaConta() {
                   <div>
                     <div className="flex items-center gap-2 text-[#851F32]"><ScanLine size={20} /><span className="text-xs font-bold uppercase tracking-[.15em]">Identificação</span></div>
                     <h2 className="mt-2 text-xl font-semibold text-slate-900">Envie seu documento com foto</h2>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">Aceitamos RG, CNH, passaporte ou outro documento oficial. O sistema compara os dados visíveis com seu cadastro; a aprovação administrativa continua separada.</p>
-                    {portal.validacao_documental?.obrigatoriaContrato && <p className="mt-3 text-sm font-medium text-amber-800">A conferência é necessária antes de concluir o contrato.</p>}
+                    <p className="mt-2 text-sm leading-6 text-slate-600">Aceitamos RG, CNH, passaporte ou outro documento oficial. O sistema compara os dados visíveis com seu cadastro em segundo plano; essa leitura não bloqueia a assinatura nem exige aprovação manual.</p>
+                    {portal.validacao_documental?.obrigatoriaContrato && <p className="mt-3 text-sm font-medium text-amber-800">É necessário enviar o documento antes de concluir o contrato; a conferência pode continuar em segundo plano.</p>}
                   </div>
                   <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4">
                     <div className="grid gap-3 sm:grid-cols-[180px_1fr]">

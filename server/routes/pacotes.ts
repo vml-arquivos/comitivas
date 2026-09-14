@@ -23,7 +23,9 @@ function dataIsoSegura(valor: unknown): string | null {
 }
 
 function validarConfiguracaoComercial(body: any) {
-  const formaContratacao = String(body.forma_contratacao || "hospedagem").trim().toLowerCase();
+  const modalidade = String(body.modalidade_hospedagem || "quarto_ventilador").trim().toLowerCase();
+  const formaPadrao = "onibus_hospedagem";
+  const formaContratacao = String(body.forma_contratacao || formaPadrao).trim().toLowerCase();
   if (!FORMAS_CONTRATACAO.has(formaContratacao)) throw new Error("Forma de contratação inválida");
 
   const onibusConfig = Array.isArray(body.onibus_config) ? body.onibus_config : [];

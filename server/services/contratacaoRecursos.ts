@@ -11,8 +11,9 @@ export type RecursosContratados = {
 
 /**
  * Regra comercial única para checkout, inventário e contrato.
- * Camping é transporte; quartos podem ser vendidos com ou sem transporte.
- * "livre" é mantido para pacotes legados e segue a modalidade cadastrada.
+ * O tipo de contratação é autoritativo: transporte, hospedagem ou ambos.
+ * A modalidade define apenas a estrutura da hospedagem, nunca o escopo do contrato.
+ * "livre" é mantido como legado e equivale a hospedagem até receber configuração explícita.
  */
 export function resolverRecursosContratacao(
   formaBruta: unknown,
@@ -20,10 +21,6 @@ export function resolverRecursosContratacao(
 ): RecursosContratados {
   const forma = String(formaBruta || "hospedagem") as FormaContratacao;
   const modalidade = String(modalidadeBruta || "quarto_ventilador") as ModalidadePacote;
-
-  if (modalidade === "camping") {
-    return { transporte: true, hospedagem: false, estrutura_quarto: null };
-  }
 
   const estrutura_quarto: EstruturaQuarto | null = modalidade === "quarto_ar_condicionado"
     ? "ar_condicionado"

@@ -119,7 +119,7 @@ export const pacotes = pgTable("pacotes", {
   modalidade_hospedagem: varchar("modalidade_hospedagem", { length: 30 }).default("quarto_ventilador"),
   disponibilidade: varchar("disponibilidade", { length: 30 }).default("disponivel"),
   contrato_modelo: varchar("contrato_modelo", { length: 30 }).notNull().default("auto"),
-  forma_contratacao: varchar("forma_contratacao", { length: 30 }).notNull().default("hospedagem"),
+  forma_contratacao: varchar("forma_contratacao", { length: 30 }).notNull().default("onibus_hospedagem"),
   onibus_config: jsonb("onibus_config").notNull().default([]),
   configuracao_pagamento: jsonb("configuracao_pagamento").notNull().default({}),
   data_limite_pagamento: timestamp("data_limite_pagamento"),

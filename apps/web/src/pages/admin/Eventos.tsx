@@ -159,7 +159,7 @@ export default function EventosAdmin() {
     modalidade: 'quarto_ventilador' as Pacote['modalidade_hospedagem'],
     disponibilidade: 'disponivel' as Pacote['disponibilidade'],
     contratoModelo: 'auto' as Pacote['contrato_modelo'],
-    formaContratacao: 'hospedagem' as Pacote['forma_contratacao'],
+    formaContratacao: 'onibus_hospedagem' as Pacote['forma_contratacao'],
     quantidadeOnibus: '1',
     capacidadeOnibus: '44',
     formasPagamento: ['pix', 'boleto'] as string[],
@@ -445,7 +445,7 @@ export default function EventosAdmin() {
         modalidade: 'quarto_ventilador',
         disponibilidade: 'disponivel',
         contratoModelo: 'auto',
-        formaContratacao: 'hospedagem',
+        formaContratacao: 'onibus_hospedagem',
         quantidadeOnibus: '1',
         capacidadeOnibus: '44',
         formasPagamento: ['pix', 'boleto'],
@@ -559,7 +559,7 @@ export default function EventosAdmin() {
       modalidade: pacote.modalidade_hospedagem,
       disponibilidade: pacote.disponibilidade,
       contratoModelo: pacote.contrato_modelo || 'auto',
-      formaContratacao: pacote.forma_contratacao || 'hospedagem',
+      formaContratacao: pacote.forma_contratacao || 'onibus_hospedagem',
       quantidadeOnibus: String(pacote.onibus_config?.length || 1),
       capacidadeOnibus: String(pacote.onibus_config?.[0]?.capacidade || 44),
       formasPagamento: pagamento.formas_permitidas || ['pix', 'boleto'],
@@ -976,7 +976,7 @@ export default function EventosAdmin() {
                                   </select>
                                 </div>
                                 <div>
-                                  <label className="mb-1 block text-sm font-medium text-gray-700">Forma de contratação</label>
+                                  <label className="mb-1 block text-sm font-medium text-gray-700">Tipo de contratação deste pacote</label>
                                   <select
                                     value={pacoteForm.formaContratacao}
                                     onChange={(e) =>
@@ -987,11 +987,12 @@ export default function EventosAdmin() {
                                     }
                                     className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
                                   >
-                                    <option value="hospedagem">Hospedagem</option>
-                                    <option value="onibus">Transporte</option>
                                     <option value="onibus_hospedagem">Transporte + hospedagem</option>
-                                    <option value="livre">Livre / personalizado</option>
+                                    <option value="hospedagem">Somente hospedagem</option>
+                                    <option value="onibus">Somente transporte</option>
+                                    <option value="livre">Legado / livre</option>
                                   </select>
+                                  <p className="mt-1 text-[11px] leading-4 text-gray-500">Para o cliente escolher entre transporte + hospedagem, somente hospedagem ou somente transporte, publique um pacote com preço próprio para cada tipo desejado.</p>
                                 </div>
                                 <div>
                                   <label className="mb-1 block text-sm font-medium text-gray-700">Data limite dos boletos</label>
@@ -1197,9 +1198,10 @@ export default function EventosAdmin() {
                                   <div className="mt-3">
                                     <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-gray-500">Contrato</label>
                                     <select value={pacote.contrato_modelo || 'auto'} onChange={(e) => void atualizarModeloContrato(lote.id, pacote.id, e.target.value as Pacote['contrato_modelo'])} className="w-full rounded-md border border-gray-300 bg-white px-2 py-2 text-xs">
-                                      <option value="auto">Automático</option>
-                                      <option value="hospedagem">Hospedagem</option>
-                                      <option value="transporte">Transporte + hospedagem</option>
+                                      <option value="auto">Automático pelos serviços</option>
+                                      <option value="hospedagem">Somente hospedagem</option>
+                                      <option value="transporte">Somente transporte</option>
+                                      <option value="hospedagem_transporte">Transporte + hospedagem</option>
                                     </select>
                                   </div>
                                 </article>

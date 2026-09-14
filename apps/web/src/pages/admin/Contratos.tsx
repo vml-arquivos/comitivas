@@ -87,9 +87,9 @@ const moeda = new Intl.NumberFormat('pt-BR', {
 const STATUS_CONTRATO: Record<string, string> = {
   preparado: 'Aguardando cliente',
   aguardando_validacao: 'Aguardando cliente',
-  aguardando_aprovacao_admin: 'Aguardando aprovação',
-  validado: 'Aguardando aprovação',
-  aprovado_admin: 'Aprovado',
+  aguardando_aprovacao_admin: 'Validado (legado)',
+  validado: 'Validado automaticamente',
+  aprovado_admin: 'Validado',
   invalidado: 'Invalidado',
 };
 const inputClass = 'admin-field';
@@ -535,7 +535,7 @@ export default function Contratos() {
                         )}
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`rounded-full px-2 py-1 text-xs font-medium ${c.documento?.status === 'aprovado_admin' ? 'bg-green-100 text-green-800' : ['aguardando_aprovacao_admin', 'validado'].includes(c.documento?.status || '') ? 'bg-amber-100 text-amber-800' : c.contrato_gerado ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>{c.documento ? STATUS_CONTRATO[c.documento.status] || 'Contrato registrado' : c.contrato_gerado ? 'Contrato gerado' : 'Sem contrato'}</span>
+                        <span className={`rounded-full px-2 py-1 text-xs font-medium ${['aprovado_admin', 'validado', 'aguardando_aprovacao_admin'].includes(c.documento?.status || '') ? 'bg-green-100 text-green-800' : c.contrato_gerado ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>{c.documento ? STATUS_CONTRATO[c.documento.status] || 'Contrato registrado' : c.contrato_gerado ? 'Contrato gerado' : 'Sem contrato'}</span>
                       </td>
                       <td className="space-x-2 whitespace-nowrap px-6 py-4 text-right">
                         {c.contrato_gerado ? (
@@ -547,11 +547,6 @@ export default function Contratos() {
                               <button onClick={() => void handleDownload(c.reserva_id, c.cliente_nome)} className="p-1 text-gray-500 transition-colors hover:text-primary" title="Baixar PDF">
                                 <Download size={18} />
                               </button>
-                            )}
-                            {['admin', 'dev'].includes(user?.tipo || '') && ['aguardando_aprovacao_admin', 'validado'].includes(c.documento?.status || '') && c.documento?.validado_em && (
-                              <Button type="button" onClick={() => void handleAprovar(c.documento!.id)}>
-                                Aprovar
-                              </Button>
                             )}
                             {['admin', 'dev'].includes(user?.tipo || '') && c.documento?.pode_excluir && (
                               <>

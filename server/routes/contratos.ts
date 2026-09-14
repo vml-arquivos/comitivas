@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import { generateBrandedPdfBuffer } from "../../packages/contract-engine/brandedPdfLayout.js";
 import { OtpService } from "../services/otpService.js";
 import { cadastroAprovadoComEvidencia, camposFaltantesCadastroMinimo } from "../security/governance.js";
+import { aprovarCadastroSeElegivel } from "../services/cadastroAprovacaoService.js";
 
 const router = Router();
 
@@ -81,28 +82,28 @@ function cadastroAprovacaoObrigatoriaContrato(): boolean {
   return process.env.CONTRACT_REQUIRES_CADASTRO_APPROVAL === "true";
 }
 
-function documentoIdentidadeBloqueiaContrato(): boolean {
-  return process.env.DOCUMENT_VALIDATION_BLOCK_CONTRACT === "true";
+function documentoIdentidadeObrigatorioContrato(): boolean {
+  return process.env.DOCUMENT_IDENTITY_REQUIRED_FOR_CONTRACT !== "false";
 }
 
-async function documentoIdentidadeValidado(reservaId: string): Promise<boolean> {
-  if (!documentoIdentidadeBloqueiaContrato()) return true;
+async function documentoIdentidadeEnviado(reservaId: string): Promise<boolean> {
+  if (!documentoIdentidadeObrigatorioContrato()) return true;
   const documento = (await db.select({ id: clienteDocumentos.id })
     .from(reservas)
     .innerJoin(clienteDocumentos, eq(reservas.usuario_id, clienteDocumentos.usuario_id))
     .where(and(
       eq(reservas.id, reservaId),
       eq(clienteDocumentos.categoria, "identidade"),
-      eq(clienteDocumentos.validacao_status, "aprovado"),
       isNull(clienteDocumentos.removido_em),
     ))
+    .orderBy(desc(clienteDocumentos.criado_em))
     .limit(1))[0];
   return Boolean(documento);
 }
 
-async function exigirDocumentoIdentidade(reservaId: string, res: Response): Promise<boolean> {
-  if (await documentoIdentidadeValidado(reservaId)) return true;
-  res.status(409).json({ erro: "A conferência do documento de identificação precisa ser concluída antes do contrato neste ambiente." });
+async function exigirDocumentoIdentidadeEnviado(reservaId: string, res: Response): Promise<boolean> {
+  if (await documentoIdentidadeEnviado(reservaId)) return true;
+  res.status(409).json({ erro: "Envie um documento de identificação com foto antes de validar o contrato. A leitura será concluída em segundo plano e não bloqueará a contratação." });
   return false;
 }
 
@@ -167,7 +168,7 @@ router.post("/preparar/:reserva_id", authMiddleware, async (req: Request, res: R
     if (cadastroAprovacaoObrigatoriaContrato() && !(await cadastroAprovado(reserva.id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes de preparar o contrato neste ambiente" });
     const faltantes = await camposCadastroFaltantes(reserva.id);
     if (faltantes.length) return res.status(409).json({ erro: `Complete os dados essenciais antes do contrato: ${faltantes.join(", ")}` });
-    if (!(await exigirDocumentoIdentidade(reserva.id, res))) return;
+    if (!(await exigirDocumentoIdentidadeEnviado(reserva.id, res))) return;
     const documento = await ContratoService.prepararContrato(req.params.reserva_id);
     return res.json({ documento });
   } catch (error: any) {
@@ -185,7 +186,7 @@ router.post("/otp/solicitar/:reserva_id", authMiddleware, async (req: Request, r
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
     if (!(await emailConfirmado(req.params.reserva_id))) return res.status(409).json({ erro: "Confirme seu e-mail antes da validação contratual" });
     if (cadastroAprovacaoObrigatoriaContrato() && !(await cadastroAprovado(req.params.reserva_id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes da validação contratual neste ambiente" });
-    if (!(await exigirDocumentoIdentidade(req.params.reserva_id, res))) return;
+    if (!(await exigirDocumentoIdentidadeEnviado(req.params.reserva_id, res))) return;
     const resultado = await OtpService.solicitar({ usuario_id: req.usuario.id, reserva_id: req.params.reserva_id, contrato_id: req.body?.contrato_id, canal: req.body?.canal });
     if (!resultado.enviado) return res.status(503).json({ erro: resultado.motivo || "Canal de validação não configurado", ...resultado });
     return res.json(resultado);
@@ -200,7 +201,7 @@ router.post("/otp/confirmar/:reserva_id", authMiddleware, async (req: Request, r
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
     if (!(await emailConfirmado(req.params.reserva_id))) return res.status(409).json({ erro: "Confirme seu e-mail antes da validação contratual" });
     if (cadastroAprovacaoObrigatoriaContrato() && !(await cadastroAprovado(req.params.reserva_id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes da validação contratual neste ambiente" });
-    if (!(await exigirDocumentoIdentidade(req.params.reserva_id, res))) return;
+    if (!(await exigirDocumentoIdentidadeEnviado(req.params.reserva_id, res))) return;
     const resultado = await OtpService.confirmar({
       usuario_id: req.usuario.id,
       reserva_id: req.params.reserva_id,
@@ -213,7 +214,8 @@ router.post("/otp/confirmar/:reserva_id", authMiddleware, async (req: Request, r
       timezone: req.body?.timezone,
       geolocalizacao: req.body?.geolocalizacao,
     });
-    return res.json({ mensagem: "Contrato validado com sucesso", ...resultado });
+    const aprovacaoCadastro = await aprovarCadastroSeElegivel(req.usuario.id);
+    return res.json({ mensagem: "Contrato validado e contratação aprovada automaticamente", aprovacao_cadastro: aprovacaoCadastro, ...resultado });
   } catch (error: any) {
     console.error("[CONTRATOS] Erro ao confirmar OTP:", error);
     return res.status(400).json({ erro: error.message || "Não foi possível validar o contrato" });
@@ -275,7 +277,7 @@ router.get("/estado/:reserva_id", authMiddleware, async (req: Request, res: Resp
         aprovacao_administrativa_exigida_no_contrato: cadastroAprovacaoObrigatoriaContrato(),
       },
       documento_identidade: {
-        obrigatorio: process.env.DOCUMENT_IDENTITY_REQUIRED_FOR_CONTRACT === "true",
+        obrigatorio: process.env.DOCUMENT_IDENTITY_REQUIRED_FOR_CONTRACT !== "false",
         bloqueia_contrato: documentoBloqueia,
         enviado: Boolean(documentoIdentidade),
         validado: documentoValidado,
@@ -335,7 +337,7 @@ router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Re
     if (cadastroAprovacaoObrigatoriaContrato() && !(await cadastroAprovado(reserva.id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes de aceitar o contrato neste ambiente" });
     const faltantes = await camposCadastroFaltantes(reserva.id);
     if (faltantes.length) return res.status(409).json({ erro: `Complete os dados essenciais antes do contrato: ${faltantes.join(", ")}` });
-    if (!(await exigirDocumentoIdentidade(reserva.id, res))) return;
+    if (!(await exigirDocumentoIdentidadeEnviado(reserva.id, res))) return;
 
     // Verificar status
     if (reserva.status !== "pacote_montado" && reserva.status !== "checkout_iniciado") {

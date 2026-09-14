@@ -89,6 +89,7 @@ export default function Checkout() {
   const [documentoMensagem, setDocumentoMensagem] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [autoBoletoTentado, setAutoBoletoTentado] = useState(false);
   const [error, setError] = useState('');
 
   const carregarDados = async (silencioso = false) => {
@@ -325,6 +326,7 @@ export default function Checkout() {
       });
       setCodigo('');
       setOtpEnviado(false);
+
       await carregarDados(true);
     } catch (err: any) {
       setError(err.response?.data?.erro || 'Não foi possível concluir a assinatura.');
@@ -353,8 +355,25 @@ export default function Checkout() {
     }
   };
 
+  useEffect(() => {
+    if (!reservaId || autoBoletoTentado || !contratoValidado || pagamentoEmAndamento) return;
+    if (metodoPagamento !== 'boleto' || reserva?.boleto_modo !== 'manual') return;
+    setAutoBoletoTentado(true);
+    void criarCobranca();
+  }, [reservaId, autoBoletoTentado, contratoValidado, pagamentoEmAndamento, metodoPagamento, reserva?.boleto_modo]);
+
   if (isLoading) return <div className="py-12 text-center text-slate-600">Carregando detalhes da reserva...</div>;
   const modalidade = reserva?.modalidade_hospedagem ? MODALIDADES[reserva.modalidade_hospedagem] : null;
+  const recursosReserva = reserva?.recursos_contratados && typeof reserva.recursos_contratados === 'object' ? reserva.recursos_contratados : null;
+  const temTransporte = typeof recursosReserva?.transporte === 'boolean'
+    ? recursosReserva.transporte
+    : ['onibus', 'onibus_hospedagem'].includes(String(reserva?.forma_contratacao || ''));
+  const temHospedagem = typeof recursosReserva?.hospedagem === 'boolean'
+    ? recursosReserva.hospedagem
+    : !['onibus'].includes(String(reserva?.forma_contratacao || ''));
+  const tipoContratacaoLabel = temTransporte && temHospedagem
+    ? 'Transporte + hospedagem'
+    : temTransporte ? 'Somente transporte' : 'Somente hospedagem';
   const contratante = reserva?.contratante;
   const dadosIncompletos: string[] = Array.isArray(estado?.cadastro?.campos_faltantes)
     ? estado.cadastro.campos_faltantes
@@ -400,7 +419,12 @@ export default function Checkout() {
           </CardTitle>
         </CardHeader>
         <CardContent className="p-6">
-          {modalidade ? (
+          <div className="mb-4 rounded-xl border border-[#073F50]/15 bg-[#073F50]/5 p-4">
+            <p className="text-xs font-bold uppercase tracking-wide text-[#073F50]">Tipo de contratação</p>
+            <p className="mt-1 text-lg font-black text-secondary">{tipoContratacaoLabel}</p>
+            <p className="mt-1 text-sm text-gray-600">Este é o escopo que será usado no contrato e na operação da sua reserva.</p>
+          </div>
+          {temHospedagem && modalidade ? (
             <div className="flex items-center gap-4 rounded-xl border border-red-100 bg-red-50/50 p-4">
               <modalidade.Icone size={34} className="shrink-0 text-primary" />
               <div>
@@ -409,6 +433,8 @@ export default function Checkout() {
                 <p className="text-sm text-gray-600">{reserva?.pacote_nome || modalidade.descricao}</p>
               </div>
             </div>
+          ) : temTransporte ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-primary">Pacote de transporte</p><p className="mt-1 text-lg font-bold text-secondary">{reserva?.pacote_nome || 'Transporte rodoviário'}</p></div>
           ) : (
             <p className="text-sm text-amber-800">A modalidade desta reserva não foi localizada.</p>
           )}
@@ -721,11 +747,11 @@ export default function Checkout() {
           <CardHeader className="border-b bg-gray-50">
             <CardTitle className="flex items-center gap-2">
               <ShieldCheck className="text-green-600" />
-              Contrato validado · próxima etapa: {metodoPagamento === 'boleto' && reserva?.boleto_modo === 'manual' ? 'aprovação administrativa' : 'pagamento'}
+              Contrato validado · próxima etapa: {metodoPagamento === 'boleto' && reserva?.boleto_modo === 'manual' ? 'preparação dos boletos' : 'pagamento'}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 p-6">
-            <p className="text-sm leading-relaxed text-slate-600">{metodoPagamento === 'boleto' && reserva?.boleto_modo === 'manual' ? 'A assinatura foi registrada com protocolo e certificado. Agora a equipe confere seu cadastro e as evidências do contrato. Após a aprovação, os boletos serão anexados ao seu cadastro e enviados pela administração por e-mail e WhatsApp.' : 'A assinatura foi registrada com protocolo e certificado. A cobrança é uma etapa separada; se o gateway estiver temporariamente indisponível, seu contrato continua salvo e você pode tentar novamente.'}</p>
+            <p className="text-sm leading-relaxed text-slate-600">{metodoPagamento === 'boleto' && reserva?.boleto_modo === 'manual' ? 'A assinatura foi registrada com protocolo e certificado e a contratação foi aprovada automaticamente. Os boletos serão preparados pela operação e enviados ao e-mail cadastrado assim que estiverem disponíveis.' : 'A assinatura foi registrada com protocolo e certificado. A cobrança é uma etapa separada; se o gateway estiver temporariamente indisponível, seu contrato continua salvo e você pode tentar novamente.'}</p>
             <div className="flex flex-wrap gap-3">
               <a href={`/api/contratos/download/${encodeURIComponent(reservaId || '')}?inline=1`} target="_blank" rel="noreferrer" className="inline-flex items-center rounded-lg border border-gray-300 px-4 py-2 text-sm font-bold text-gray-700 hover:border-primary hover:text-primary">
                 Visualizar PDF final
@@ -736,14 +762,14 @@ export default function Checkout() {
             </div>
             {!pagamentoEmAndamento ? (
               <Button onClick={criarCobranca} isLoading={isProcessing}>
-                {metodoPagamento === 'boleto' && reserva?.boleto_modo === 'manual' ? 'Enviar para análise e emissão dos boletos' : 'Criar cobrança no Banco Cora'}
+                {metodoPagamento === 'boleto' && reserva?.boleto_modo === 'manual' ? 'Preparar boletos' : 'Criar cobrança no Banco Cora'}
               </Button>
             ) : (
               <>
                 <div className="rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-900">
-                  {pagamentoData?.modo === 'manual' || estado?.checkout_estado === 'aguardando_aprovacao_boleto' ? (
+                  {pagamentoData?.modo === 'manual' || ['boletos_em_preparacao', 'boletos_enviados'].includes(String(estado?.checkout_estado)) ? (
                     <>
-                      Contrato validado. Sua reserva está em <strong>análise administrativa para boleto</strong>. Depois da aprovação, a equipe preparará e enviará as parcelas.
+                      Contratação aprovada. Seus boletos estão <strong>em preparação</strong> e serão enviados ao e-mail cadastrado quando forem disponibilizados.
                     </>
                   ) : (
                     <>

@@ -211,8 +211,8 @@ const statusContrato: Record<string, string> = {
   preparado: 'Preparado',
   aguardando_validacao: 'Aguardando cliente',
   validado: 'Validado pelo cliente',
-  aguardando_aprovacao_admin: 'Aguardando conferência',
-  aprovado_admin: 'Aprovado pela administração',
+  aguardando_aprovacao_admin: 'Validado (legado)',
+  aprovado_admin: 'Validado',
   invalidado: 'Invalidado',
 };
 
@@ -504,7 +504,7 @@ export default function ClienteFicha() {
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-3xl font-black tracking-tight text-[#073F50] sm:text-4xl">{usuario.nome}</h1>
               <span className={`admin-status ${usuario.ativo ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-200 text-gray-700'}`}>{usuario.ativo ? 'Cliente ativo' : 'Cliente inativo'}</span>
-              <span className={`admin-status ${aprovacaoCompleta ? 'bg-emerald-100 text-emerald-800' : usuario.cadastro_status === 'rejeitado' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}`}>{aprovacaoCompleta ? 'Cadastro aprovado' : usuario.cadastro_status === 'aprovado' ? 'Aprovação sem registro' : usuario.cadastro_status === 'rejeitado' ? 'Cadastro rejeitado' : 'Aguardando aprovação'}</span>
+              <span className={`admin-status ${aprovacaoCompleta ? 'bg-emerald-100 text-emerald-800' : usuario.cadastro_status === 'rejeitado' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}`}>{aprovacaoCompleta ? 'Cadastro aprovado' : usuario.cadastro_status === 'aprovado' ? 'Cadastro validado' : usuario.cadastro_status === 'rejeitado' ? 'Cadastro com divergência' : 'Validação em andamento'}</span>
             </div>
             <p className="mt-1 text-sm text-gray-500">
               Ficha 360º · cliente desde {formatarData(usuario.criado_em)} · última atualização {formatarDataHora(usuario.atualizado_em)}
@@ -544,22 +544,6 @@ export default function ClienteFicha() {
             <FileDown size={16} />
             Relatório CSV
           </Button>
-          {!aprovacaoCompleta && (
-            <Button className="gap-2" onClick={() => void atualizarAprovacao('aprovado')}>
-              <ShieldCheck size={16} />
-              Aprovar cadastro
-            </Button>
-          )}
-          {aprovacaoCompleta && (
-            <Button variant="outline" className="gap-2" onClick={() => void atualizarAprovacao('pendente')}>
-              Retornar para análise
-            </Button>
-          )}
-          {usuario.cadastro_status !== 'rejeitado' && (
-            <Button variant="outline" className="gap-2 !text-red-700" onClick={() => void atualizarAprovacao('rejeitado')}>
-              Rejeitar cadastro
-            </Button>
-          )}
           <Button variant="outline" className="gap-2" onClick={() => void alternarStatus()}>
             {usuario.ativo ? 'Desativar' : 'Ativar'}
           </Button>
@@ -818,7 +802,7 @@ export default function ClienteFicha() {
                                 <div className="text-xs text-gray-500">
                                   {formatarDataHora(validacao.confirmado_em)} · {validacao.canal}
                                 </div>
-                                <div className={`mt-1 text-xs font-semibold ${contrato.aprovado_admin_em ? 'text-emerald-700' : 'text-amber-700'}`}>{contrato.aprovado_admin_em ? `Conferido pela administração em ${formatarDataHora(contrato.aprovado_admin_em)}` : 'Aguardando conferência administrativa'}</div>
+                                <div className={`mt-1 text-xs font-semibold ${contrato.aprovado_admin_em ? 'text-emerald-700' : 'text-amber-700'}`}>{contrato.validado_em ? `Assinatura eletrônica validada em ${formatarDataHora(contrato.validado_em)}` : 'Aguardando assinatura eletrônica'}</div>
                               </>
                             ) : (
                               <span className="text-gray-400">Sem validação</span>

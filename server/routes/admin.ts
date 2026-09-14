@@ -449,7 +449,7 @@ router.get("/dashboard", requireRole("admin", "vendedor"), async (req: Request, 
     });
     const aprovacaoInconsistente = isAdminOrDev(req.usuario.tipo) ? Number(((await db.execute(sql`SELECT COUNT(*)::int AS total FROM usuarios WHERE tipo = 'cliente' AND cadastro_status = 'aprovado' AND (aprovado_em IS NULL OR aprovado_por IS NULL OR ativo = false)`)).rows[0] as any)?.total || 0) : 0;
     const aguardandoCliente = contratosGerados.filter((contrato) => ["rascunho", "preparado", "aguardando_validacao"].includes(contrato.status)).length;
-    const aguardandoAdmin = contratosGerados.filter((contrato) => ["validado", "aguardando_aprovacao_admin"].includes(contrato.status)).length;
+    const aguardandoAdmin = 0;
 
     res.json({
       resumo: {
@@ -469,7 +469,7 @@ router.get("/dashboard", requireRole("admin", "vendedor"), async (req: Request, 
           : 0,
       },
       financeiro: { contratado_centavos: contratadoCentavos, recebido_centavos: recebidoCentavos, a_receber_centavos: Math.max(0, contratadoCentavos - recebidoCentavos), vencido_centavos: valorVencidoCentavos, parcelas_vencidas: vencidas.length },
-      contratos: { total: contratosGerados.length, aguardando_cliente: aguardandoCliente, aguardando_admin: aguardandoAdmin, aprovados: contratosGerados.filter((contrato) => contrato.status === "aprovado_admin").length },
+      contratos: { total: contratosGerados.length, aguardando_cliente: aguardandoCliente, aguardando_admin: 0, aprovados: contratosGerados.filter((contrato) => ["validado", "aprovado_admin", "aguardando_aprovacao_admin"].includes(contrato.status)).length },
       serie_vendas: serieVendas,
       funil: [
         { label: "Contatos", valor: totalLeads.length },
@@ -2863,7 +2863,21 @@ router.post("/boletos/:reservaId/parcelas/:parcelaId/arquivo", requireRole("admi
     }
     await registrarHistoricoCliente(reserva.usuario_id, "boleto_anexado", `Boleto da parcela ${parcela.sequencia} anexado`, `Vencimento ${parcela.vencimento} · R$ ${parcela.valor}`, req.usuario.id, { reserva_id: reserva.id, parcela_id: parcela.id, documento_id: documento.id });
     await AuditService.registrar(req, "boleto_anexado", "pagamento_parcela", parcela.id, undefined, { documento_id: documento.id, sha256: hash });
-    return res.status(201).json({ documento: { id: documento.id, nome: documento.nome, sha256: documento.sha256 } });
+
+    // Assim que a operação anexa o PDF, o sistema tenta enviá-lo automaticamente
+    // ao e-mail confirmado do cliente. Falha de SMTP não desfaz o anexo; o botão
+    // de reenvio permanece disponível como contingência operacional.
+    const cliente = (await db.select({ id: usuarios.id, nome: usuarios.nome, email: usuarios.email }).from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0];
+    let emailEnviado = false;
+    if (cliente?.email) {
+      emailEnviado = await EmailService.enviarBoletoManual({ reserva_id: reserva.id, parcela: parcela.sequencia, vencimento: String(parcela.vencimento), valor: String(parcela.valor), arquivo: documento.arquivo, nomeArquivo: documento.nome_original, destinatario: cliente.email, clienteNome: cliente.nome });
+      if (emailEnviado) {
+        await db.update(pagamentoParcelas).set({ enviado_email_em: new Date(), atualizado_em: new Date() }).where(eq(pagamentoParcelas.id, parcela.id));
+        await atualizarEstadoEnvioBoletos(reserva.id);
+        await registrarHistoricoCliente(cliente.id, "boleto_enviado_email", `Boleto da parcela ${parcela.sequencia} enviado automaticamente por e-mail`, cliente.email, req.usuario.id, { reserva_id: reserva.id, parcela_id: parcela.id });
+      }
+    }
+    return res.status(201).json({ documento: { id: documento.id, nome: documento.nome, sha256: documento.sha256 }, email_enviado: emailEnviado });
   } catch (error: any) { return res.status(400).json({ erro: error.message || "Não foi possível anexar o boleto" }); }
 });
 

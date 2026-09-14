@@ -160,10 +160,9 @@ router.post("/criar", authMiddleware, async (req: Request, res: Response) => {
     if (!cliente?.email_confirmado) return res.status(409).json({ erro: "Cobrança bloqueada: confirme o e-mail do cliente" });
     const camposFaltantes = camposFaltantesCadastroMinimo(cliente, { exigirSexoEnderecoEstruturado: true });
     if (camposFaltantes.length) return res.status(409).json({ codigo: "CADASTRO_INCOMPLETO", erro: "Complete seu cadastro antes de continuar para o pagamento.", campos_faltantes: camposFaltantes });
-    if (!cadastroAprovadoComEvidencia(cliente)) return res.status(409).json({ erro: "Cobrança bloqueada: cadastro do cliente ainda não possui aprovação administrativa completa" });
-    const contrato = (await db.select({ status: contratosDocumentos.status, validado_em: contratosDocumentos.validado_em, aprovado_admin_em: contratosDocumentos.aprovado_admin_em }).from(contratosDocumentos).where(eq(contratosDocumentos.reserva_id, reserva.id)).orderBy(desc(contratosDocumentos.versao)).limit(1))[0];
+    if (!cadastroAprovadoComEvidencia(cliente)) return res.status(409).json({ erro: "Cobrança bloqueada: o cadastro automático ainda não foi concluído" });
+    const contrato = (await db.select({ status: contratosDocumentos.status, validado_em: contratosDocumentos.validado_em }).from(contratosDocumentos).where(eq(contratosDocumentos.reserva_id, reserva.id)).orderBy(desc(contratosDocumentos.versao)).limit(1))[0];
     if (!contrato?.validado_em) return res.status(409).json({ erro: "Cobrança bloqueada: contrato ainda não foi validado pelo cliente" });
-    if (!contrato.aprovado_admin_em || contrato.status !== "aprovado_admin") return res.status(409).json({ erro: "Cobrança bloqueada: contrato ainda não foi aprovado administrativamente" });
     if (!["contrato_gerado", "cliente_confirmado"].includes(String(reserva.status)) && !["contrato_validado", "contrato_aprovado_admin", "cobranca_pendente", "aguardando_pagamento", "pagamento_parcial", "primeira_parcela_confirmada"].includes(String(reserva.checkout_estado))) return res.status(400).json({ erro: "A reserva ainda não está liberada para cobrança" });
     if (reserva.forma_pagamento && reserva.forma_pagamento !== metodo) return res.status(400).json({ erro: "O método diverge da condição aceita no contrato" });
 
@@ -184,24 +183,69 @@ router.post("/criar", authMiddleware, async (req: Request, res: Response) => {
     }
 
     // Boleto manual: o cliente já concluiu a assinatura eletrônica, mas nenhuma
-    // cobrança é criada no gateway. O financeiro só é liberado por Admin/DEV
-    // depois da aprovação cadastral e da conferência das evidências do contrato.
+    // cobrança é criada no gateway. Após a assinatura eletrônica e a aprovação automática do cadastro,
+    // o controle segue para preparação operacional dos boletos, sem aprovação manual.
     if (metodo === "boleto" && configuracoes.boleto_modo === "manual") {
-      await db.update(reservas).set({
-        checkout_estado: "aguardando_aprovacao_boleto",
-        status: "contrato_gerado",
-        atualizado_em: new Date(),
-      }).where(eq(reservas.id, reserva_id));
+      const agora = new Date();
+      const controle = await db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`boleto-manual:${reserva.id}`}))`);
+        let pagamento = (await tx.select().from(pagamentos).where(and(eq(pagamentos.reserva_id, reserva.id), eq(pagamentos.metodo, "boleto"))).orderBy(desc(pagamentos.criado_em)).limit(1))[0];
+        if (!pagamento) {
+          pagamento = (await tx.insert(pagamentos).values({
+            id: createId(),
+            reserva_id: reserva.id,
+            status: "pendente",
+            valor: reserva.valor_total,
+            metodo: "boleto",
+            gateway_id: null,
+            gateway_resposta: { modo: "manual", origem: "assinatura_automatica" },
+            idempotency_key: `boleto-manual:${reserva.id}`,
+            valor_centavos: Number(reserva.valor_total_centavos || Math.round(Number(reserva.valor_total) * 100)),
+            valor_pago_centavos: 0,
+            status_reconciliado: "pendente",
+            criado_em: agora,
+            atualizado_em: agora,
+          }).returning())[0];
+        }
+        if (!pagamento) throw new Error("Não foi possível preparar o controle financeiro do boleto");
+
+        let parcelasAtuais = await tx.select().from(pagamentoParcelas).where(eq(pagamentoParcelas.pagamento_id, pagamento.id)).orderBy(pagamentoParcelas.sequencia);
+        if (!parcelasAtuais.length) {
+          const cronograma = Array.isArray(reserva.cronograma_pagamento) ? reserva.cronograma_pagamento as Array<any> : [];
+          const qtd = Math.max(1, Number(reserva.quantidade_parcelas || cronograma.length || 1));
+          const totalCentavos = Number(reserva.valor_total_centavos || Math.round(Number(reserva.valor_total) * 100));
+          const baseParcela = Math.floor(totalCentavos / qtd);
+          const resto = totalCentavos - baseParcela * qtd;
+          const inicio = new Date();
+          parcelasAtuais = await tx.insert(pagamentoParcelas).values(Array.from({ length: qtd }, (_, index) => {
+            const item = cronograma[index] || {};
+            const vencimento = item.vencimento || new Date(inicio.getFullYear(), inicio.getMonth() + index + 1, Math.min(28, inicio.getDate())).toISOString().slice(0, 10);
+            const valorCentavos = Number(item.valor_centavos || (baseParcela + (index === qtd - 1 ? resto : 0)));
+            return { id: createId(), pagamento_id: pagamento!.id, reserva_id: reserva.id, sequencia: index + 1, valor: (valorCentavos / 100).toFixed(2), vencimento, valor_centavos: valorCentavos, valor_pago_centavos: 0, status: "pendente", criado_em: agora, atualizado_em: agora };
+          })).returning();
+        }
+
+        await tx.update(reservas).set({
+          checkout_estado: "boletos_em_preparacao",
+          status: "contrato_gerado",
+          boleto_liberado_em: sql`COALESCE(${reservas.boleto_liberado_em}, ${agora})`,
+          atualizado_em: agora,
+        }).where(eq(reservas.id, reserva_id));
+        return { pagamento, parcelas: parcelasAtuais };
+      });
+
       return res.json({
         modo: "manual",
         boleto_modo: "manual",
-        status: "aguardando_aprovacao",
+        status: "boletos_em_preparacao",
         metodo: "boleto",
         quantidade_parcelas: parcelas,
         valor: reserva.valor_total,
         valor_parcela: reserva.valor_parcela || reserva.valor_total,
-        checkout_estado: "aguardando_aprovacao_boleto",
-        mensagem: "Contrato validado. O cadastro será conferido pela equipe; após a aprovação, os boletos serão preparados e enviados manualmente por e-mail e WhatsApp.",
+        checkout_estado: "boletos_em_preparacao",
+        pagamento_id: controle.pagamento.id,
+        parcelas: controle.parcelas,
+        mensagem: "Contratação aprovada automaticamente. Os boletos estão em preparação e serão enviados ao e-mail cadastrado assim que forem anexados pela operação.",
       });
     }
 

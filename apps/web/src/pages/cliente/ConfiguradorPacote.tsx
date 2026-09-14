@@ -15,6 +15,8 @@ import {
   salvarReferenciaVendedor,
 } from '../../utils/checkoutIntent';
 
+type FormaContratacaoPublica = 'onibus_hospedagem' | 'hospedagem' | 'onibus';
+
 interface PacotePublicado {
   id: string;
   nome: string;
@@ -31,6 +33,19 @@ const modalidadeMeta: Record<PacotePublicado['modalidade_hospedagem'], { label: 
   quarto_ar_condicionado: { label: 'Quarto com ar-condicionado', icon: Snowflake, destaque: 'A experiência com máximo conforto' },
 };
 
+const formaContratacaoMeta: Record<FormaContratacaoPublica, { label: string; descricao: string }> = {
+  onibus_hospedagem: { label: 'Transporte + hospedagem', descricao: 'Contrato completo com hospedagem e transporte rodoviário.' },
+  hospedagem: { label: 'Somente hospedagem', descricao: 'Contrato apenas da hospedagem e serviços vinculados ao pacote.' },
+  onibus: { label: 'Somente transporte', descricao: 'Contrato apenas do transporte rodoviário de ida e volta.' },
+};
+
+function formaPublica(valor: PacotePublicado['forma_contratacao']): FormaContratacaoPublica {
+  // "livre" é legado: até existir preço próprio por escopo, permanece como hospedagem
+  // para não inventar valor nem transformar silenciosamente o que foi publicado.
+  return valor === 'onibus_hospedagem' || valor === 'onibus' ? valor : 'hospedagem';
+}
+
+
 function formatarMoeda(valor: string | number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor) || 0);
 }
@@ -43,6 +58,7 @@ export default function ConfiguradorPacote() {
   const pacoteSolicitado = searchParams.get('pacote');
   const [pacotes, setPacotes] = useState<PacotePublicado[]>([]);
   const [pacoteId, setPacoteId] = useState<string>('');
+  const [formaContratacao, setFormaContratacao] = useState<FormaContratacaoPublica | ''>('');
   const [participantes, setParticipantes] = useState<ParticipanteCheckout[]>([]);
   const [calculo, setCalculo] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -77,14 +93,19 @@ export default function ConfiguradorPacote() {
 
         if (pacoteDaUrl) {
           setPacoteId(pacoteDaUrl.id);
+          setFormaContratacao(formaPublica(pacoteDaUrl.forma_contratacao));
           if (intencaoSalva && intencaoSalva.loteId === loteId && intencaoSalva.pacoteId === pacoteDaUrl.id) {
             setParticipantes(intencaoSalva.participantes || []);
           }
         } else if (pacoteSalvoValido && pacoteSalvoId) {
+          const pacoteSalvo = listaPacotes.find((pacote: PacotePublicado) => pacote.id === pacoteSalvoId);
           setPacoteId(pacoteSalvoId);
+          setFormaContratacao(intencaoSalva?.formaContratacao || (pacoteSalvo ? formaPublica(pacoteSalvo.forma_contratacao) : ''));
           setParticipantes(intencaoSalva?.participantes || []);
-        } else if (listaPacotes.length === 1 && listaPacotes[0].disponibilidade !== 'esgotado') {
-          setPacoteId(listaPacotes[0].id);
+        } else {
+          const formasAtivas = Array.from(new Set<FormaContratacaoPublica>(listaPacotes.filter((pacote: PacotePublicado) => pacote.disponibilidade !== 'esgotado').map((pacote: PacotePublicado) => formaPublica(pacote.forma_contratacao))));
+          if (formasAtivas.length === 1) setFormaContratacao(formasAtivas[0]);
+          if (listaPacotes.length === 1 && listaPacotes[0].disponibilidade !== 'esgotado') setPacoteId(listaPacotes[0].id);
         }
       } catch (err: any) {
         setError(err.response?.data?.erro || 'Não foi possível carregar as opções do pacote. Tente novamente.');
@@ -97,20 +118,20 @@ export default function ConfiguradorPacote() {
   }, [loteId, pacoteSolicitado]);
 
   const pacoteSelecionado = useMemo(() => pacotes.find((pacote) => pacote.id === pacoteId), [pacotes, pacoteId]);
-  const exigeHospedagem = Boolean(
-    pacoteSelecionado
-    && pacoteSelecionado.modalidade_hospedagem !== 'camping'
-    && ['hospedagem', 'onibus_hospedagem', 'livre'].includes(pacoteSelecionado.forma_contratacao),
-  );
+  const formasDisponiveis: FormaContratacaoPublica[] = ['onibus_hospedagem', 'hospedagem', 'onibus'];
+  const pacotesDoTipo = useMemo(() => formaContratacao
+    ? pacotes.filter((pacote) => formaPublica(pacote.forma_contratacao) === formaContratacao)
+    : [], [pacotes, formaContratacao]);
+  const exigeHospedagem = formaContratacao === 'hospedagem' || formaContratacao === 'onibus_hospedagem';
   useEffect(() => {
-    if (isLoading || !loteId || (pacotes.length > 0 && !pacoteId)) {
+    if (isLoading || !loteId || !formaContratacao || (pacotes.length > 0 && !pacoteId)) {
       setCalculo(null);
       return;
     }
     const timer = setTimeout(async () => {
       setIsCalculating(true);
       try {
-        const response = await api.post('/pacotes/calcular', { lote_id: loteId, pacote_id: pacoteId || undefined, itens: [] });
+        const response = await api.post('/pacotes/calcular', { lote_id: loteId, pacote_id: pacoteId || undefined, forma_contratacao: formaContratacao, itens: [] });
         setCalculo(response.data);
       } catch (err: any) {
         setError(err.response?.data?.erro || 'Erro ao calcular o valor do pacote.');
@@ -120,10 +141,22 @@ export default function ConfiguradorPacote() {
       }
     }, 250);
     return () => clearTimeout(timer);
-  }, [loteId, pacoteId, pacotes.length, isLoading]);
+  }, [loteId, pacoteId, formaContratacao, pacotes.length, isLoading]);
+
+  const selecionarFormaContratacao = (forma: FormaContratacaoPublica) => {
+    setFormaContratacao(forma);
+    const candidatos = pacotes.filter((pacote) => formaPublica(pacote.forma_contratacao) === forma && pacote.disponibilidade !== 'esgotado');
+    if (!pacoteSelecionado || formaPublica(pacoteSelecionado.forma_contratacao) !== forma) {
+      setPacoteId(candidatos.length === 1 ? candidatos[0].id : '');
+    }
+    setCalculo(null);
+    setError('');
+  };
 
   const selecionarPacote = (id: string) => {
+    const selecionado = pacotes.find((pacote) => pacote.id === id);
     setPacoteId(id);
+    if (selecionado) setFormaContratacao(formaPublica(selecionado.forma_contratacao));
     const leadId = lerLeadId();
     const leadIntentToken = lerLeadIntentToken();
     if (leadId && leadIntentToken && loteId) {
@@ -150,8 +183,12 @@ export default function ConfiguradorPacote() {
 
   const handleReservar = async () => {
     if (authLoading) return;
+    if (!formaContratacao) {
+      setError('Escolha o tipo de contratação para continuar.');
+      return;
+    }
     if (pacotes.length > 0 && !pacoteId) {
-      setError('Escolha sua modalidade de hospedagem para continuar.');
+      setError(formaContratacao === 'onibus' ? 'Escolha seu pacote de transporte para continuar.' : 'Escolha sua modalidade de hospedagem para continuar.');
       return;
     }
     if (pacoteSelecionado?.disponibilidade === 'esgotado') {
@@ -193,6 +230,7 @@ export default function ConfiguradorPacote() {
     const intent = {
       loteId: loteId!,
       pacoteId,
+      formaContratacao,
       participantes,
       criadoEm: new Date().toISOString(),
     };
@@ -223,6 +261,7 @@ export default function ConfiguradorPacote() {
       const response = await api.post('/pacotes/reservar', {
         lote_id: loteId,
         pacote_id: pacoteId || undefined,
+        forma_contratacao: formaContratacao,
         itens: [],
         participantes,
         lead_id: leadId || undefined,
@@ -243,29 +282,48 @@ export default function ConfiguradorPacote() {
     <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-4 py-7 pb-28 sm:px-6 sm:py-12 lg:grid-cols-3 lg:gap-8 lg:px-8 lg:pb-14">
       <Helmet>
         <title>Monte seu pacote | Excursão das Comitivas</title>
-        <meta name="description" content="Escolha a modalidade de hospedagem e confira as condições da sua reserva para Barretos." />
+        <meta name="description" content="Escolha o tipo de contratação, o pacote e confira as condições da sua reserva para Barretos." />
         <meta name="robots" content="noindex,follow" />
       </Helmet>
       <div className="space-y-6 lg:col-span-2">
         <div className="flex flex-col gap-4 rounded-2xl border border-[#182D3B]/10 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
           <button type="button" onClick={() => navigate('/eventos')} className="inline-flex items-center gap-2 text-sm font-extrabold text-[#851F32] hover:underline"><ArrowLeft size={16}/>Voltar e comparar pacotes</button>
           <div className="flex items-center gap-2 overflow-x-auto text-[11px] font-black uppercase tracking-[.1em] text-slate-400">
-            <span className="rounded-full bg-[#851F32] px-3 py-1.5 text-white">1 · Pacote</span><ArrowRight size={13}/><span>2 · Pessoas</span><ArrowRight size={13}/><span>3 · Checkout</span>
+            <span className="rounded-full bg-[#851F32] px-3 py-1.5 text-white">1 · Contrato</span><ArrowRight size={13}/><span>2 · Pacote</span><ArrowRight size={13}/><span>3 · Pessoas</span><ArrowRight size={13}/><span>4 · Checkout</span>
           </div>
         </div>
         <section className="rounded-[1.6rem] bg-[#182D3B] p-5 text-white shadow-[0_18px_50px_rgba(24,45,59,0.18)] sm:rounded-[2rem] sm:p-7">
           <div className="flex items-center gap-3 text-[#E3AAB4]"><Sparkles size={18} /><span className="text-xs font-bold uppercase tracking-[0.18em]">Sua experiência, suas escolhas</span></div>
           <h1 className="font-editorial mt-3 text-2xl font-bold tracking-[-0.025em] sm:text-4xl">Monte seu pacote de viagem</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-7 text-white/75">Escolha seu pacote e, se quiser, identifique as pessoas que viajarão com você.</p>
+          <p className="mt-3 max-w-2xl text-sm leading-7 text-white/75">Primeiro escolha o que será contratado; depois selecione a modalidade e identifique quem viajará com você.</p>
         </section>
 
         {error && <div className="rounded-lg bg-red-50 p-4 text-red-700">{error}</div>}
 
         {pacotes.length > 0 && (
+          <section className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="mb-4"><h2 className="text-xl font-bold text-slate-900">1. O que você quer contratar?</h2><p className="text-sm text-gray-500">Esta escolha define o escopo do contrato. As três opções ficam visíveis; as indisponíveis não podem ser selecionadas.</p></div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {formasDisponiveis.map((forma) => {
+                const meta = formaContratacaoMeta[forma];
+                const selecionado = formaContratacao === forma;
+                const indisponivel = !pacotes.some((pacote) => formaPublica(pacote.forma_contratacao) === forma && pacote.disponibilidade !== 'esgotado');
+                return <button key={forma} type="button" aria-pressed={selecionado} disabled={indisponivel} onClick={() => selecionarFormaContratacao(forma)} className={`relative rounded-2xl border p-4 text-left transition-all disabled:cursor-not-allowed disabled:opacity-50 ${selecionado ? 'border-primary bg-primary/5 shadow-md ring-2 ring-primary/20' : 'border-gray-200 bg-white hover:border-primary/40'}`}>
+                  {selecionado && <span className="absolute right-3 top-3 rounded-full bg-primary p-1 text-white"><Check size={14} /></span>}
+                  <p className="pr-8 text-sm font-black text-slate-900">{meta.label}</p>
+                  <p className="mt-2 text-xs leading-5 text-gray-500">{meta.descricao}</p>
+                  {indisponivel && <span className="mt-3 inline-block rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold uppercase text-slate-500">Indisponível nesta excursão</span>}
+                </button>;
+              })}
+            </div>
+          </section>
+        )}
+
+        {formaContratacao && pacotesDoTipo.length > 0 && (
           <section>
-            <div className="mb-3"><h2 className="text-xl font-bold text-slate-900">Escolha sua hospedagem</h2><p className="text-sm text-gray-500">A modalidade selecionada será registrada na sua reserva e no contrato.</p></div>
+            <div className="mb-3"><h2 className="text-xl font-bold text-slate-900">2. {formaContratacao === 'onibus' ? 'Escolha seu pacote de transporte' : 'Escolha sua hospedagem'}</h2><p className="text-sm text-gray-500">Mostramos somente as opções cadastradas para <strong>{formaContratacaoMeta[formaContratacao].label.toLowerCase()}</strong>. O preço exibido é o preço real desse pacote.</p></div>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {pacotes.map((pacote) => {
+              {pacotesDoTipo.map((pacote) => {
                 const meta = modalidadeMeta[pacote.modalidade_hospedagem];
                 const Icon = meta?.icon || TentTree;
                 const selecionado = pacote.id === pacoteId;
@@ -274,20 +332,20 @@ export default function ConfiguradorPacote() {
                   {selecionado && <span className="absolute left-3 top-3 rounded-full bg-primary p-1 text-white"><Check size={14} /></span>}
                   {pacote.disponibilidade !== 'disponivel' && <span className={`absolute right-3 top-3 rounded-full px-2 py-1 text-[10px] font-black uppercase ${esgotado ? 'bg-slate-800 text-white' : 'bg-amber-100 text-amber-800'}`}>{esgotado ? 'Esgotado' : 'Últimas vagas'}</span>}
                   <div className="mb-4 inline-flex rounded-xl bg-slate-100 p-3 text-primary"><Icon size={24} /></div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-primary">{meta?.label}</p>
+                  <p className="text-xs font-bold uppercase tracking-wide text-primary">{formaContratacao === 'onibus' ? 'Transporte' : meta?.label}</p>
                   <h3 className="mt-1 font-bold text-slate-900">{pacote.nome}</h3>
-                  <p className="mt-2 min-h-10 text-sm text-gray-500">{pacote.descricao || meta?.destaque}</p>
+                  <p className="mt-2 min-h-10 text-sm text-gray-500">{pacote.descricao || (formaContratacao === 'onibus' ? 'Transporte rodoviário da excursão.' : meta?.destaque)}</p>
                   <p className="mt-4 text-xl font-bold text-slate-900">{formatarMoeda(pacote.valor_total)}</p>
                 </button>;
               })}
             </div>
-            {pacoteSelecionado && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"><strong>{pacoteSelecionado.nome}</strong> selecionado.</div>}
+            {pacoteSelecionado && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"><strong>{formaContratacaoMeta[formaContratacao].label}</strong> · {pacoteSelecionado.nome} selecionado.</div>}
           </section>
         )}
 
         <section className="rounded-2xl border border-slate-200 bg-white p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div><h2 className="text-xl font-bold text-slate-900">Vai viajar com mais alguém?</h2><p className="text-sm text-gray-500">Adicione as pessoas da sua comitiva. Os dados serão identificados no contrato.</p></div>
+            <div><h2 className="text-xl font-bold text-slate-900">3. Vai viajar com mais alguém?</h2><p className="text-sm text-gray-500">Adicione as pessoas da sua comitiva. Os dados serão identificados no contrato.</p></div>
             <Button type="button" variant="outline" onClick={adicionarParticipante}><UserPlus size={16} className="mr-2" />Adicionar pessoa</Button>
           </div>
           {participantes.length > 0 && <div className="mt-4 space-y-3">
@@ -308,10 +366,11 @@ export default function ConfiguradorPacote() {
 
       <aside className="lg:col-span-1">
         <Card className="sticky top-[104px] overflow-hidden border-[#182D3B]/10 shadow-[0_18px_45px_rgba(24,45,59,0.10)]"><CardHeader className="border-b bg-[#182D3B] text-white"><CardTitle>Resumo da reserva</CardTitle></CardHeader><CardContent className="space-y-4 p-6">
+          <div className="flex justify-between gap-4 text-sm"><span className="text-gray-600">Contrato</span><span className="max-w-44 text-right font-semibold text-slate-900">{formaContratacao ? formaContratacaoMeta[formaContratacao].label : 'Escolha o tipo'}</span></div>
           <div className="flex justify-between text-sm"><span className="text-gray-600">Pacote</span><span className="max-w-40 text-right font-medium">{pacoteSelecionado?.nome || (pacotes.length ? 'Escolha uma opção' : 'Pacote base')}</span></div>
           <div className="flex justify-between text-sm"><span className="text-gray-600">Valor-base</span><span className="font-medium">{formatarMoeda(calculo?.valor_base || 0)}</span></div>
           <div className="border-t pt-4"><div className="flex items-center justify-between"><span className="text-lg font-bold">Total</span><span className="text-2xl font-bold text-primary">{isCalculating ? '...' : formatarMoeda(calculo?.valor_total || 0)}</span></div></div>
-          <Button className="mt-3 w-full" size="lg" onClick={handleReservar} isLoading={isReserving} disabled={isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado'}>{user ? 'Continuar para checkout' : 'Continuar'}</Button>
+          <Button className="mt-3 w-full" size="lg" onClick={handleReservar} isLoading={isReserving} disabled={isCalculating || !formaContratacao || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado'}>{user ? 'Continuar para checkout' : 'Continuar'}</Button>
           <div className="flex gap-2 rounded-md bg-blue-50 p-3 text-xs text-blue-700"><Info size={16} className="shrink-0" /><p>Na próxima etapa você entra ou cria sua conta. Sua escolha ficará salva para continuar sem recomeçar.</p></div>
         </CardContent></Card>
       </aside>
@@ -319,10 +378,10 @@ export default function ConfiguradorPacote() {
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[#182D3B]/10 bg-white/95 p-3 shadow-[0_-12px_34px_rgba(24,45,59,.12)] backdrop-blur lg:hidden">
         <div className="mx-auto flex max-w-2xl items-center gap-3">
           <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-bold text-slate-500">{pacoteSelecionado?.nome || 'Escolha um pacote'}</p>
+            <p className="truncate text-xs font-bold text-slate-500">{formaContratacao ? `${formaContratacaoMeta[formaContratacao].label} · ${pacoteSelecionado?.nome || 'escolha o pacote'}` : 'Escolha o tipo de contratação'}</p>
             <p className="text-lg font-black text-[#182D3B]">{isCalculating ? 'Calculando…' : formatarMoeda(calculo?.valor_total || pacoteSelecionado?.valor_total || 0)}</p>
           </div>
-          <Button onClick={handleReservar} isLoading={isReserving} disabled={isCalculating || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado'}>{user ? 'Continuar' : 'Continuar'} <ArrowRight size={16}/></Button>
+          <Button onClick={handleReservar} isLoading={isReserving} disabled={isCalculating || !formaContratacao || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado'}>{user ? 'Continuar' : 'Continuar'} <ArrowRight size={16}/></Button>
         </div>
       </div>
     </div>

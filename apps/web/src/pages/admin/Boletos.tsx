@@ -114,7 +114,6 @@ export default function Boletos() {
                 <div className="flex flex-wrap gap-2 text-xs">
                   <span className={`admin-status ${item.cadastro_aprovado ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>Cadastro: {item.cadastro_aprovado ? 'aprovado' : 'pendente'}</span>
                   <span className={`admin-status ${item.contrato_validado ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>Assinatura: {item.contrato_validado ? 'validada' : 'pendente'}</span>
-                  <span className={`admin-status ${item.contrato_aprovado_admin ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>Conferência Admin: {item.contrato_aprovado_admin ? 'aprovada' : 'pendente'}</span>
                   <span className="rounded-full bg-slate-100 px-3 py-1 font-bold text-slate-700">{moeda(item.valor_total)}</span>
                 </div>
               </div>
@@ -123,16 +122,6 @@ export default function Boletos() {
                 <Link to={`/admin/clientes/${item.usuario_id}`}>
                   <Button variant="outline">Abrir Ficha 360</Button>
                 </Link>
-                {!item.cadastro_aprovado && (
-                  <Button disabled={ocupado === `ap-${item.usuario_id}`} onClick={() => void acao(`ap-${item.usuario_id}`, () => api.patch(`/admin/clientes/${item.usuario_id}/aprovacao`, { status: 'aprovado' }), 'Cliente aprovado.')}>
-                    Aprovar cadastro
-                  </Button>
-                )}
-                {item.contrato_validado && !item.contrato_aprovado_admin && (
-                  <Button variant="outline" onClick={() => void acao(`cv-${item.reserva_id}`, () => api.post(`/admin/boletos/${item.reserva_id}/validar-contrato`), 'Contrato conferido e aprovado para o financeiro.')}>
-                    Conferir contrato
-                  </Button>
-                )}
                 {!item.boleto_liberado_em && (
                   <Button disabled={Boolean(item.bloqueio_motivo) || ocupado === `lib-${item.reserva_id}`} onClick={() => void acao(`lib-${item.reserva_id}`, () => api.post(`/admin/boletos/${item.reserva_id}/liberar`))}>
                     Liberar boletos

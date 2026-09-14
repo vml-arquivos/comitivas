@@ -15,6 +15,7 @@ export interface ParticipanteCheckout {
 export interface CheckoutIntent {
   loteId: string;
   pacoteId: string;
+  formaContratacao?: 'onibus' | 'hospedagem' | 'onibus_hospedagem';
   itensSelecionados?: Record<string, number>;
   grupoHospedagem?: 'masculino' | 'feminino';
   participantes?: ParticipanteCheckout[];

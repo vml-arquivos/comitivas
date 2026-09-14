@@ -68,7 +68,7 @@ export function configuracaoValidacaoDocumental() {
   const provedor = "local-ocr";
   const modo = process.env.DOCUMENT_VALIDATION_MODE === "conservador" ? "conservador" : "assistido";
   return {
-    obrigatoriaContrato: process.env.DOCUMENT_IDENTITY_REQUIRED_FOR_CONTRACT === "true",
+    obrigatoriaContrato: process.env.DOCUMENT_IDENTITY_REQUIRED_FOR_CONTRACT !== "false",
     bloqueiaContrato: process.env.DOCUMENT_VALIDATION_BLOCK_CONTRACT === "true",
     leituraAutomaticaDisponivel: true,
     provedor,

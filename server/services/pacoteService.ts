@@ -8,10 +8,27 @@ import { InventoryService } from "./inventoryService.js";
 
 export interface ItemSelecionado { id: string; nome: string; tipo: string; valor: number; quantidade: number; }
 export interface ParticipantePacote { nome_completo: string; cpf?: string; data_nascimento?: string; telefone?: string; email?: string; sexo_operacional?: GrupoHospedagem; }
-export interface ConfiguracaoPacote { lote_id: string; pacote_id?: string; itens: ItemSelecionado[]; cupom_codigo?: string; usuario_id?: string; vendedor_id?: string; grupo_hospedagem?: GrupoHospedagem; participantes?: ParticipantePacote[]; }
+export interface ConfiguracaoPacote { lote_id: string; pacote_id?: string; forma_contratacao?: 'onibus' | 'hospedagem' | 'onibus_hospedagem'; itens: ItemSelecionado[]; cupom_codigo?: string; usuario_id?: string; vendedor_id?: string; grupo_hospedagem?: GrupoHospedagem; participantes?: ParticipantePacote[]; }
 export interface ResultadoCalculo { valor_base: number; itens_selecionados: ItemSelecionado[]; subtotal: number; desconto_cupom: number; valor_total: number; pacote_id?: string; pacote_nome?: string; modalidade_hospedagem?: string; cupom_id?: string; mensagem?: string; }
 
 export interface OrigemReserva { lead_id?: string; vendedor_id?: string; codigo_origem?: string; }
+
+
+function formaContratacaoPublica(valor: unknown): 'onibus' | 'hospedagem' | 'onibus_hospedagem' {
+  const forma = String(valor || '').trim().toLowerCase();
+  if (forma === 'onibus' || forma === 'onibus_hospedagem') return forma;
+  // Pacotes "livre" são legado. Enquanto não houver preço separado por escopo,
+  // tratamos como hospedagem para não inventar valor ou serviço no checkout.
+  return 'hospedagem';
+}
+
+function validarFormaContratacaoSelecionada(config: ConfiguracaoPacote, pacote: typeof pacotes.$inferSelect | undefined) {
+  if (!pacote || !config.forma_contratacao) return;
+  const solicitada = String(config.forma_contratacao);
+  if (!['onibus', 'hospedagem', 'onibus_hospedagem'].includes(solicitada)) throw new Error('Tipo de contratação inválido');
+  const publicada = formaContratacaoPublica(pacote.forma_contratacao);
+  if (solicitada !== publicada) throw new Error('O tipo de contratação escolhido não corresponde ao pacote selecionado');
+}
 
 function dinheiro(valor: Decimal): number { return valor.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber(); }
 
@@ -369,6 +386,7 @@ export class PacoteService {
       pacoteSelecionado = (await db.select().from(pacotes).where(and(eq(pacotes.id, config.pacote_id), eq(pacotes.lote_id, config.lote_id), eq(pacotes.ativo, true))).limit(1))[0];
       if (!pacoteSelecionado) throw new Error("Pacote selecionado não encontrado, incompatível com o lote ou inativo");
       if (pacoteSelecionado.disponibilidade === "esgotado") throw new Error("Esta modalidade está esgotada");
+      validarFormaContratacaoSelecionada(config, pacoteSelecionado);
       valorBase = new Decimal(pacoteSelecionado.valor_total.toString());
     }
 
