@@ -83,6 +83,14 @@ function validarConfiguracaoComercial(body: any) {
   };
 }
 
+
+function modeloContratoPorForma(forma: string) {
+  if (forma === "onibus") return "transporte";
+  if (forma === "hospedagem") return "hospedagem";
+  if (forma === "onibus_hospedagem") return "hospedagem_transporte";
+  return "auto";
+}
+
 function regrasDoPacote(pacote: any) {
   const configuracao = pacote?.configuracao_pagamento && typeof pacote.configuracao_pagamento === "object" ? pacote.configuracao_pagamento : {};
   const limite = Number(configuracao.boleto_parcelas_maximo);
@@ -516,6 +524,7 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
 
     const pacotesComDisponibilidade = await Promise.all(lista.map(async (pacote) => {
       const capacidade = await PacoteService.obterDisponibilidadeFisica(pacote);
+      const regras = regrasDoPacote(pacote);
       return {
         id: pacote.id,
         nome: pacote.nome,
@@ -523,6 +532,9 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
         valor_total: pacote.valor_total,
         modalidade_hospedagem: pacote.modalidade_hospedagem,
         forma_contratacao: pacote.forma_contratacao,
+        configuracao_necessaria: !["onibus", "hospedagem", "onibus_hospedagem"].includes(String(pacote.forma_contratacao)),
+        formas_pagamento: regras.formasPermitidas,
+        boleto_parcelas_maximo: regras.boletoParcelasMaximo || null,
         disponibilidade_configurada: pacote.disponibilidade,
         disponibilidade: capacidade.disponibilidade,
       };
@@ -623,7 +635,7 @@ router.post("/", authMiddleware, requireRole("admin"), async (req: Request, res:
       itens_selecionados: itens_selecionados || [],
       modalidade_hospedagem,
       disponibilidade: disponibilidade || "disponivel",
-      contrato_modelo: contrato_modelo || "auto",
+      contrato_modelo: modeloContratoPorForma(comercial.forma_contratacao),
       forma_contratacao: comercial.forma_contratacao,
       onibus_config: comercial.onibus_config,
       configuracao_pagamento: comercial.configuracao_pagamento,
@@ -657,7 +669,15 @@ router.put("/:pacote_id", authMiddleware, requireRole("admin"), async (req: Requ
     if (contrato_modelo && !modelosContratoValidos.includes(contrato_modelo)) {
       return res.status(400).json({ erro: "Modelo de contrato inválido" });
     }
-    const comercial = validarConfiguracaoComercial(req.body);
+    const atual = (await db.select().from(pacotes).where(eq(pacotes.id, req.params.pacote_id)).limit(1))[0];
+    if (!atual) return res.status(404).json({ erro: "Pacote não encontrado" });
+    const finalComercial = validarConfiguracaoComercial({
+      modalidade_hospedagem: modalidade_hospedagem ?? atual.modalidade_hospedagem,
+      forma_contratacao: req.body.forma_contratacao ?? atual.forma_contratacao,
+      onibus_config: req.body.onibus_config ?? atual.onibus_config,
+      configuracao_pagamento: req.body.configuracao_pagamento ?? atual.configuracao_pagamento,
+      data_limite_pagamento: req.body.data_limite_pagamento !== undefined ? req.body.data_limite_pagamento : atual.data_limite_pagamento,
+    });
 
     const atualizado = await db.update(pacotes).set({
       nome: nome || undefined,
@@ -666,11 +686,11 @@ router.put("/:pacote_id", authMiddleware, requireRole("admin"), async (req: Requ
       itens_selecionados: itens_selecionados !== undefined ? itens_selecionados : undefined,
       modalidade_hospedagem: modalidade_hospedagem || undefined,
       disponibilidade: disponibilidade || undefined,
-      contrato_modelo: contrato_modelo || undefined,
-      forma_contratacao: req.body.forma_contratacao !== undefined ? comercial.forma_contratacao : undefined,
-      onibus_config: req.body.onibus_config !== undefined ? comercial.onibus_config : undefined,
-      configuracao_pagamento: req.body.configuracao_pagamento !== undefined ? comercial.configuracao_pagamento : undefined,
-      data_limite_pagamento: req.body.data_limite_pagamento !== undefined ? comercial.data_limite_pagamento : undefined,
+      contrato_modelo: modeloContratoPorForma(finalComercial.forma_contratacao),
+      forma_contratacao: finalComercial.forma_contratacao,
+      onibus_config: finalComercial.onibus_config,
+      configuracao_pagamento: finalComercial.configuracao_pagamento,
+      data_limite_pagamento: finalComercial.data_limite_pagamento,
       ativo: ativo !== undefined ? Boolean(ativo) : undefined,
       atualizado_em: new Date(),
     }).where(eq(pacotes.id, req.params.pacote_id)).returning();

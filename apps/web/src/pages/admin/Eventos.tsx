@@ -82,6 +82,20 @@ const modalidades: Record<Pacote['modalidade_hospedagem'], { titulo: string; des
   },
 };
 
+const tipoContratacaoLabel: Record<Pacote['forma_contratacao'], string> = {
+  onibus_hospedagem: 'Transporte + hospedagem',
+  hospedagem: 'Somente hospedagem',
+  onibus: 'Somente transporte',
+  livre: 'Configuração legada pendente',
+};
+
+function modeloContratoPorForma(forma: Pacote['forma_contratacao']): Pacote['contrato_modelo'] {
+  if (forma === 'onibus') return 'transporte';
+  if (forma === 'hospedagem') return 'hospedagem';
+  if (forma === 'onibus_hospedagem') return 'hospedagem_transporte';
+  return 'auto';
+}
+
 const moeda = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
   currency: 'BRL',
@@ -413,7 +427,7 @@ export default function EventosAdmin() {
           : [],
         modalidade_hospedagem: pacoteForm.modalidade,
         disponibilidade: pacoteForm.disponibilidade,
-        contrato_modelo: pacoteForm.contratoModelo,
+        contrato_modelo: modeloContratoPorForma(pacoteForm.formaContratacao),
         forma_contratacao: pacoteForm.formaContratacao,
         onibus_config: pacoteForm.formaContratacao.includes('onibus')
           ? Array.from({ length: Math.max(1, Number(pacoteForm.quantidadeOnibus) || 1) }, (_, indice) => ({
@@ -479,7 +493,7 @@ export default function EventosAdmin() {
       const existentes = pacotesPorLote[loteId] || [];
       for (const modalidade of Object.keys(kitForm) as Pacote['modalidade_hospedagem'][]) {
         const dados = kitForm[modalidade];
-        const existente = existentes.find((pacote) => pacote.modalidade_hospedagem === modalidade);
+        const existente = existentes.find((pacote) => pacote.modalidade_hospedagem === modalidade && pacote.forma_contratacao === 'onibus_hospedagem');
         const payload = {
           lote_id: loteId,
           nome: modalidades[modalidade].titulo,
@@ -488,7 +502,10 @@ export default function EventosAdmin() {
           itens_selecionados: [],
           modalidade_hospedagem: modalidade,
           disponibilidade: dados.disponibilidade,
-          contrato_modelo: existente?.contrato_modelo || 'auto',
+          contrato_modelo: 'hospedagem_transporte',
+          forma_contratacao: 'onibus_hospedagem',
+          onibus_config: existente?.onibus_config?.length ? existente.onibus_config : [{ id: 'onibus-1', nome: 'Ônibus 1', capacidade: 44 }],
+          configuracao_pagamento: existente?.configuracao_pagamento || { formas_permitidas: ['pix', 'boleto'], boleto_parcelas_maximo: 11, credito_parcelas_maximo: 10, credito_taxa_percentual: 0, credito_juros_mensal_percentual: 0, prazo_seguranca_dias: 0, multa_atraso_percentual: 2, juros_mora_mensal_percentual: 1 },
           ativo: true,
         };
         if (existente) {
@@ -505,16 +522,6 @@ export default function EventosAdmin() {
     }
   };
 
-  const atualizarModeloContrato = async (loteId: string, pacoteId: string, contratoModelo: Pacote['contrato_modelo']) => {
-    try {
-      await api.put(`/pacotes/${pacoteId}`, {
-        contrato_modelo: contratoModelo,
-      });
-      await carregarPacotes(loteId);
-    } catch (err: any) {
-      setError(err.response?.data?.erro || 'Erro ao atualizar o modelo de contrato.');
-    }
-  };
 
   const editarEvento = (evento: Evento) => {
     setErroForm(null);
@@ -558,7 +565,7 @@ export default function EventosAdmin() {
       valorTotal: String(pacote.valor_total),
       modalidade: pacote.modalidade_hospedagem,
       disponibilidade: pacote.disponibilidade,
-      contratoModelo: pacote.contrato_modelo || 'auto',
+      contratoModelo: modeloContratoPorForma(pacote.forma_contratacao || 'onibus_hospedagem'),
       formaContratacao: pacote.forma_contratacao || 'onibus_hospedagem',
       quantidadeOnibus: String(pacote.onibus_config?.length || 1),
       capacidadeOnibus: String(pacote.onibus_config?.[0]?.capacidade || 44),
@@ -958,24 +965,6 @@ export default function EventosAdmin() {
                                   </select>
                                 </div>
                                 <div>
-                                  <label className="mb-1 block text-sm font-medium text-gray-700">Modelo do contrato</label>
-                                  <select
-                                    value={pacoteForm.contratoModelo}
-                                    onChange={(e) =>
-                                      setPacoteForm({
-                                        ...pacoteForm,
-                                        contratoModelo: e.target.value as Pacote['contrato_modelo'],
-                                      })
-                                    }
-                                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                                  >
-                                    <option value="auto">Automático conforme serviços</option>
-                                    <option value="hospedagem">Somente hospedagem</option>
-                                    <option value="transporte">Somente transporte</option>
-                                    <option value="hospedagem_transporte">Transporte + hospedagem</option>
-                                  </select>
-                                </div>
-                                <div>
                                   <label className="mb-1 block text-sm font-medium text-gray-700">Tipo de contratação deste pacote</label>
                                   <select
                                     value={pacoteForm.formaContratacao}
@@ -983,6 +972,7 @@ export default function EventosAdmin() {
                                       setPacoteForm({
                                         ...pacoteForm,
                                         formaContratacao: e.target.value as Pacote['forma_contratacao'],
+                                        contratoModelo: modeloContratoPorForma(e.target.value as Pacote['forma_contratacao']),
                                       })
                                     }
                                     className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
@@ -990,7 +980,6 @@ export default function EventosAdmin() {
                                     <option value="onibus_hospedagem">Transporte + hospedagem</option>
                                     <option value="hospedagem">Somente hospedagem</option>
                                     <option value="onibus">Somente transporte</option>
-                                    <option value="livre">Legado / livre</option>
                                   </select>
                                   <p className="mt-1 text-[11px] leading-4 text-gray-500">Para o cliente escolher entre transporte + hospedagem, somente hospedagem ou somente transporte, publique um pacote com preço próprio para cada tipo desejado.</p>
                                 </div>
@@ -1195,14 +1184,10 @@ export default function EventosAdmin() {
                                   </div>
                                   <p className="mt-2 text-sm text-gray-500">{pacote.descricao}</p>
                                   <p className="mt-3 text-lg font-bold text-slate-900">{moeda.format(Number(pacote.valor_total))}</p>
-                                  <div className="mt-3">
-                                    <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-gray-500">Contrato</label>
-                                    <select value={pacote.contrato_modelo || 'auto'} onChange={(e) => void atualizarModeloContrato(lote.id, pacote.id, e.target.value as Pacote['contrato_modelo'])} className="w-full rounded-md border border-gray-300 bg-white px-2 py-2 text-xs">
-                                      <option value="auto">Automático pelos serviços</option>
-                                      <option value="hospedagem">Somente hospedagem</option>
-                                      <option value="transporte">Somente transporte</option>
-                                      <option value="hospedagem_transporte">Transporte + hospedagem</option>
-                                    </select>
+                                  <div className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs">
+                                    <span className="font-bold text-slate-600">Tipo de contratação: </span>
+                                    <span className={pacote.forma_contratacao === 'livre' ? 'font-bold text-amber-700' : 'font-semibold text-slate-800'}>{tipoContratacaoLabel[pacote.forma_contratacao || 'livre']}</span>
+                                    <p className="mt-1 text-[11px] text-slate-500">O modelo do contrato é definido automaticamente por este tipo para evitar divergência.</p>
                                   </div>
                                 </article>
                               ))}

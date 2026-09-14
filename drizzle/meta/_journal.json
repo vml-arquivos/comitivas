@@ -155,6 +155,13 @@
       "when": 1789340400000,
       "tag": "0021_fluxo_automatico_contratacao",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "5",
+      "when": 1789347600000,
+      "tag": "0022_corrige_escopo_comercial_pacotes",
+      "breakpoints": true
     }
   ]
 }

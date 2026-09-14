@@ -25,6 +25,9 @@ interface PacotePublicado {
   modalidade_hospedagem: 'camping' | 'quarto_ventilador' | 'quarto_ar_condicionado';
   forma_contratacao: 'onibus' | 'hospedagem' | 'onibus_hospedagem' | 'livre';
   disponibilidade: 'disponivel' | 'ultimas_vagas' | 'esgotado';
+  formas_pagamento?: string[];
+  boleto_parcelas_maximo?: number | null;
+  configuracao_necessaria?: boolean;
 }
 
 const modalidadeMeta: Record<PacotePublicado['modalidade_hospedagem'], { label: string; icon: typeof TentTree; destaque: string }> = {
@@ -39,12 +42,25 @@ const formaContratacaoMeta: Record<FormaContratacaoPublica, { label: string; des
   onibus: { label: 'Somente transporte', descricao: 'Contrato apenas do transporte rodoviário de ida e volta.' },
 };
 
-function formaPublica(valor: PacotePublicado['forma_contratacao']): FormaContratacaoPublica {
-  // "livre" é legado: até existir preço próprio por escopo, permanece como hospedagem
-  // para não inventar valor nem transformar silenciosamente o que foi publicado.
-  return valor === 'onibus_hospedagem' || valor === 'onibus' ? valor : 'hospedagem';
+function formaPublica(valor: PacotePublicado['forma_contratacao']): FormaContratacaoPublica | null {
+  if (valor === 'onibus_hospedagem' || valor === 'hospedagem' || valor === 'onibus') return valor;
+  // "livre" é legado e ambíguo. Nunca é convertido silenciosamente em hospedagem:
+  // o Admin precisa definir o escopo e o preço antes de a oferta voltar ao checkout.
+  return null;
 }
 
+function rotuloPagamento(pacote?: PacotePublicado) {
+  if (!pacote) return 'Definido após escolher o pacote';
+  const formas = Array.isArray(pacote.formas_pagamento) ? pacote.formas_pagamento : [];
+  const partes: string[] = [];
+  if (formas.includes('pix')) partes.push('PIX');
+  if (formas.includes('boleto')) {
+    const parcelas = Number(pacote.boleto_parcelas_maximo || 0);
+    partes.push(parcelas > 1 ? `Boleto em até ${parcelas}x` : 'Boleto');
+  }
+  if (formas.includes('credito')) partes.push('Cartão conforme disponibilidade');
+  return partes.length ? partes.join(' · ') : 'Condição apresentada no checkout';
+}
 
 function formatarMoeda(valor: string | number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor) || 0);
@@ -83,29 +99,30 @@ export default function ConfiguradorPacote() {
         const listaPacotes = pacotesResponse.data.pacotes || [];
         setPacotes(listaPacotes);
         const intencaoSalva = lerIntencaoCheckout();
-        const pacoteDaUrl = pacoteSolicitado
-          ? listaPacotes.find((pacote: PacotePublicado) => pacote.id === pacoteSolicitado && pacote.disponibilidade !== 'esgotado')
-          : undefined;
+        const retomando = searchParams.get('retomar') === '1';
         const pacoteSalvoId = intencaoSalva && intencaoSalva.loteId === loteId ? intencaoSalva.pacoteId : undefined;
-        const pacoteSalvoValido = pacoteSalvoId
-          ? listaPacotes.some((pacote: PacotePublicado) => pacote.id === pacoteSalvoId && pacote.disponibilidade !== 'esgotado')
-          : false;
+        const pacoteSalvo = pacoteSalvoId
+          ? listaPacotes.find((pacote: PacotePublicado) => pacote.id === pacoteSalvoId && pacote.disponibilidade !== 'esgotado')
+          : undefined;
+        const formaSalva = intencaoSalva?.formaContratacao as FormaContratacaoPublica | undefined;
+        const intencaoValida = Boolean(
+          retomando
+          && pacoteSalvo
+          && formaSalva
+          && formaPublica(pacoteSalvo.forma_contratacao) === formaSalva,
+        );
 
-        if (pacoteDaUrl) {
-          setPacoteId(pacoteDaUrl.id);
-          setFormaContratacao(formaPublica(pacoteDaUrl.forma_contratacao));
-          if (intencaoSalva && intencaoSalva.loteId === loteId && intencaoSalva.pacoteId === pacoteDaUrl.id) {
-            setParticipantes(intencaoSalva.participantes || []);
-          }
-        } else if (pacoteSalvoValido && pacoteSalvoId) {
-          const pacoteSalvo = listaPacotes.find((pacote: PacotePublicado) => pacote.id === pacoteSalvoId);
-          setPacoteId(pacoteSalvoId);
-          setFormaContratacao(intencaoSalva?.formaContratacao || (pacoteSalvo ? formaPublica(pacoteSalvo.forma_contratacao) : ''));
+        // A URL pode apontar para um pacote/modalidade de interesse, mas nunca decide
+        // automaticamente o escopo jurídico/comercial. Só restauramos uma escolha
+        // quando o próprio cliente já a fez antes do login e está retomando o checkout.
+        if (intencaoValida && pacoteSalvo && formaSalva) {
+          setPacoteId(pacoteSalvo.id);
+          setFormaContratacao(formaSalva);
           setParticipantes(intencaoSalva?.participantes || []);
         } else {
-          const formasAtivas = Array.from(new Set<FormaContratacaoPublica>(listaPacotes.filter((pacote: PacotePublicado) => pacote.disponibilidade !== 'esgotado').map((pacote: PacotePublicado) => formaPublica(pacote.forma_contratacao))));
-          if (formasAtivas.length === 1) setFormaContratacao(formasAtivas[0]);
-          if (listaPacotes.length === 1 && listaPacotes[0].disponibilidade !== 'esgotado') setPacoteId(listaPacotes[0].id);
+          setPacoteId('');
+          setFormaContratacao('');
+          setParticipantes([]);
         }
       } catch (err: any) {
         setError(err.response?.data?.erro || 'Não foi possível carregar as opções do pacote. Tente novamente.');
@@ -118,10 +135,19 @@ export default function ConfiguradorPacote() {
   }, [loteId, pacoteSolicitado]);
 
   const pacoteSelecionado = useMemo(() => pacotes.find((pacote) => pacote.id === pacoteId), [pacotes, pacoteId]);
+  const pacoteSugerido = useMemo(() => pacoteSolicitado ? pacotes.find((pacote) => pacote.id === pacoteSolicitado) : undefined, [pacotes, pacoteSolicitado]);
   const formasDisponiveis: FormaContratacaoPublica[] = ['onibus_hospedagem', 'hospedagem', 'onibus'];
-  const pacotesDoTipo = useMemo(() => formaContratacao
-    ? pacotes.filter((pacote) => formaPublica(pacote.forma_contratacao) === formaContratacao)
-    : [], [pacotes, formaContratacao]);
+  const pacotesDoTipo = useMemo(() => {
+    if (!formaContratacao) return [];
+    const filtrados = pacotes.filter((pacote) => formaPublica(pacote.forma_contratacao) === formaContratacao);
+    // Um link de vitrine serve apenas como preferência visual. Depois de o cliente
+    // escolher o tipo de contratação, a mesma modalidade aparece primeiro se existir.
+    return [...filtrados].sort((a, b) => {
+      const modalidadePreferida = pacoteSugerido?.modalidade_hospedagem;
+      if (!modalidadePreferida) return 0;
+      return Number(b.modalidade_hospedagem === modalidadePreferida) - Number(a.modalidade_hospedagem === modalidadePreferida);
+    });
+  }, [pacotes, formaContratacao, pacoteSugerido]);
   const exigeHospedagem = formaContratacao === 'hospedagem' || formaContratacao === 'onibus_hospedagem';
   useEffect(() => {
     if (isLoading || !loteId || !formaContratacao || (pacotes.length > 0 && !pacoteId)) {
@@ -144,19 +170,19 @@ export default function ConfiguradorPacote() {
   }, [loteId, pacoteId, formaContratacao, pacotes.length, isLoading]);
 
   const selecionarFormaContratacao = (forma: FormaContratacaoPublica) => {
+    if (formaContratacao !== forma) setPacoteId('');
     setFormaContratacao(forma);
-    const candidatos = pacotes.filter((pacote) => formaPublica(pacote.forma_contratacao) === forma && pacote.disponibilidade !== 'esgotado');
-    if (!pacoteSelecionado || formaPublica(pacoteSelecionado.forma_contratacao) !== forma) {
-      setPacoteId(candidatos.length === 1 ? candidatos[0].id : '');
-    }
     setCalculo(null);
     setError('');
   };
 
   const selecionarPacote = (id: string) => {
     const selecionado = pacotes.find((pacote) => pacote.id === id);
+    if (!formaContratacao || !selecionado || formaPublica(selecionado.forma_contratacao) !== formaContratacao) {
+      setError('Escolha primeiro o tipo de contratação e depois um pacote compatível.');
+      return;
+    }
     setPacoteId(id);
-    if (selecionado) setFormaContratacao(formaPublica(selecionado.forma_contratacao));
     const leadId = lerLeadId();
     const leadIntentToken = lerLeadIntentToken();
     if (leadId && leadIntentToken && loteId) {
@@ -319,6 +345,17 @@ export default function ConfiguradorPacote() {
           </section>
         )}
 
+        {pacoteSugerido && !formaContratacao && (
+          <div className="flex gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+            <Info size={18} className="mt-0.5 shrink-0" />
+            <p>Você abriu <strong>{pacoteSugerido.nome}</strong>. Confirme primeiro o tipo de contratação; depois escolha a modalidade e o preço correspondente. Nenhum contrato será definido automaticamente pelo link.</p>
+          </div>
+        )}
+
+        {formaContratacao && pacotesDoTipo.length === 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Ainda não existe uma oferta com preço publicado para <strong>{formaContratacaoMeta[formaContratacao].label}</strong> nesta excursão. Escolha outro tipo ou aguarde a publicação comercial.</div>
+        )}
+
         {formaContratacao && pacotesDoTipo.length > 0 && (
           <section>
             <div className="mb-3"><h2 className="text-xl font-bold text-slate-900">2. {formaContratacao === 'onibus' ? 'Escolha seu pacote de transporte' : 'Escolha sua hospedagem'}</h2><p className="text-sm text-gray-500">Mostramos somente as opções cadastradas para <strong>{formaContratacaoMeta[formaContratacao].label.toLowerCase()}</strong>. O preço exibido é o preço real desse pacote.</p></div>
@@ -336,6 +373,7 @@ export default function ConfiguradorPacote() {
                   <h3 className="mt-1 font-bold text-slate-900">{pacote.nome}</h3>
                   <p className="mt-2 min-h-10 text-sm text-gray-500">{pacote.descricao || (formaContratacao === 'onibus' ? 'Transporte rodoviário da excursão.' : meta?.destaque)}</p>
                   <p className="mt-4 text-xl font-bold text-slate-900">{formatarMoeda(pacote.valor_total)}</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-500">{rotuloPagamento(pacote)}</p>
                 </button>;
               })}
             </div>
@@ -369,6 +407,7 @@ export default function ConfiguradorPacote() {
           <div className="flex justify-between gap-4 text-sm"><span className="text-gray-600">Contrato</span><span className="max-w-44 text-right font-semibold text-slate-900">{formaContratacao ? formaContratacaoMeta[formaContratacao].label : 'Escolha o tipo'}</span></div>
           <div className="flex justify-between text-sm"><span className="text-gray-600">Pacote</span><span className="max-w-40 text-right font-medium">{pacoteSelecionado?.nome || (pacotes.length ? 'Escolha uma opção' : 'Pacote base')}</span></div>
           <div className="flex justify-between text-sm"><span className="text-gray-600">Valor-base</span><span className="font-medium">{formatarMoeda(calculo?.valor_base || 0)}</span></div>
+          <div className="flex justify-between gap-4 text-sm"><span className="text-gray-600">Pagamento</span><span className="max-w-48 text-right font-medium text-slate-800">{rotuloPagamento(pacoteSelecionado)}</span></div>
           <div className="border-t pt-4"><div className="flex items-center justify-between"><span className="text-lg font-bold">Total</span><span className="text-2xl font-bold text-primary">{isCalculating ? '...' : formatarMoeda(calculo?.valor_total || 0)}</span></div></div>
           <Button className="mt-3 w-full" size="lg" onClick={handleReservar} isLoading={isReserving} disabled={isCalculating || !formaContratacao || (pacotes.length > 0 && !pacoteId) || pacoteSelecionado?.disponibilidade === 'esgotado'}>{user ? 'Continuar para checkout' : 'Continuar'}</Button>
           <div className="flex gap-2 rounded-md bg-blue-50 p-3 text-xs text-blue-700"><Info size={16} className="shrink-0" /><p>Na próxima etapa você entra ou cria sua conta. Sua escolha ficará salva para continuar sem recomeçar.</p></div>

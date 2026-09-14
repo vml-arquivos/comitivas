@@ -14,12 +14,10 @@ export interface ResultadoCalculo { valor_base: number; itens_selecionados: Item
 export interface OrigemReserva { lead_id?: string; vendedor_id?: string; codigo_origem?: string; }
 
 
-function formaContratacaoPublica(valor: unknown): 'onibus' | 'hospedagem' | 'onibus_hospedagem' {
+function formaContratacaoPublica(valor: unknown): 'onibus' | 'hospedagem' | 'onibus_hospedagem' | null {
   const forma = String(valor || '').trim().toLowerCase();
-  if (forma === 'onibus' || forma === 'onibus_hospedagem') return forma;
-  // Pacotes "livre" são legado. Enquanto não houver preço separado por escopo,
-  // tratamos como hospedagem para não inventar valor ou serviço no checkout.
-  return 'hospedagem';
+  if (forma === 'onibus' || forma === 'hospedagem' || forma === 'onibus_hospedagem') return forma;
+  return null;
 }
 
 function validarFormaContratacaoSelecionada(config: ConfiguracaoPacote, pacote: typeof pacotes.$inferSelect | undefined) {
@@ -27,6 +25,7 @@ function validarFormaContratacaoSelecionada(config: ConfiguracaoPacote, pacote: 
   const solicitada = String(config.forma_contratacao);
   if (!['onibus', 'hospedagem', 'onibus_hospedagem'].includes(solicitada)) throw new Error('Tipo de contratação inválido');
   const publicada = formaContratacaoPublica(pacote.forma_contratacao);
+  if (!publicada) throw new Error('Este pacote precisa ter o tipo de contratação configurado no Admin antes de ser vendido');
   if (solicitada !== publicada) throw new Error('O tipo de contratação escolhido não corresponde ao pacote selecionado');
 }
 
