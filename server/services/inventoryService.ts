@@ -56,6 +56,12 @@ export class InventoryService {
       WHERE reserva_id = ${reservaId} AND status = 'ativa'`);
     await tx.execute(sql`UPDATE assento_holds SET status = 'liberado', liberado_em = COALESCE(liberado_em, ${agora})
       WHERE reserva_id = ${reservaId} AND status = 'ativo'`);
+    // Ao liberar o carrinho, remova também os ponteiros dos participantes.
+    // Manter IDs de poltrona/quarto depois de cancelar a alocação física fazia
+    // telas e retomadas parecerem ocupadas quando a vaga já havia sido devolvida.
+    await tx.execute(sql`UPDATE reserva_participantes
+      SET assento_id = NULL, quarto_id = NULL, vaga_quarto_id = NULL, atualizado_em = ${agora}
+      WHERE reserva_id = ${reservaId}`);
     await tx.execute(sql`UPDATE reservas SET saida_operacional_id = NULL, ponto_embarque_id = NULL, atualizado_em = ${agora}
       WHERE id = ${reservaId}`);
   }

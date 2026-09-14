@@ -12,6 +12,7 @@ import { generateBrandedPdfBuffer } from "../../packages/contract-engine/branded
 import { OtpService } from "../services/otpService.js";
 import { cadastroAprovadoComEvidencia, camposFaltantesCadastroMinimo } from "../security/governance.js";
 import { aprovarCadastroSeElegivel } from "../services/cadastroAprovacaoService.js";
+import { ContratacaoIntegridadeService } from "../services/contratacaoIntegridadeService.js";
 
 const router = Router();
 
@@ -84,6 +85,10 @@ function cadastroAprovacaoObrigatoriaContrato(): boolean {
 
 function documentoIdentidadeObrigatorioContrato(): boolean {
   return process.env.DOCUMENT_IDENTITY_REQUIRED_FOR_CONTRACT !== "false";
+}
+
+function documentoIdentidadeBloqueiaContrato(): boolean {
+  return process.env.DOCUMENT_VALIDATION_BLOCK_CONTRACT === "true";
 }
 
 async function documentoIdentidadeEnviado(reservaId: string): Promise<boolean> {
@@ -169,6 +174,7 @@ router.post("/preparar/:reserva_id", authMiddleware, async (req: Request, res: R
     const faltantes = await camposCadastroFaltantes(reserva.id);
     if (faltantes.length) return res.status(409).json({ erro: `Complete os dados essenciais antes do contrato: ${faltantes.join(", ")}` });
     if (!(await exigirDocumentoIdentidadeEnviado(reserva.id, res))) return;
+    await ContratacaoIntegridadeService.garantirReserva(reserva.id, { renovarHold: true, origem: "preparar_contrato" });
     const documento = await ContratoService.prepararContrato(req.params.reserva_id);
     return res.json({ documento });
   } catch (error: any) {
@@ -187,6 +193,7 @@ router.post("/otp/solicitar/:reserva_id", authMiddleware, async (req: Request, r
     if (!(await emailConfirmado(req.params.reserva_id))) return res.status(409).json({ erro: "Confirme seu e-mail antes da validação contratual" });
     if (cadastroAprovacaoObrigatoriaContrato() && !(await cadastroAprovado(req.params.reserva_id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes da validação contratual neste ambiente" });
     if (!(await exigirDocumentoIdentidadeEnviado(req.params.reserva_id, res))) return;
+    await ContratacaoIntegridadeService.garantirReserva(req.params.reserva_id, { renovarHold: true, origem: "solicitar_otp" });
     const resultado = await OtpService.solicitar({ usuario_id: req.usuario.id, reserva_id: req.params.reserva_id, contrato_id: req.body?.contrato_id, canal: req.body?.canal });
     if (!resultado.enviado) return res.status(503).json({ erro: resultado.motivo || "Canal de validação não configurado", ...resultado });
     return res.json(resultado);
@@ -202,6 +209,7 @@ router.post("/otp/confirmar/:reserva_id", authMiddleware, async (req: Request, r
     if (!(await emailConfirmado(req.params.reserva_id))) return res.status(409).json({ erro: "Confirme seu e-mail antes da validação contratual" });
     if (cadastroAprovacaoObrigatoriaContrato() && !(await cadastroAprovado(req.params.reserva_id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes da validação contratual neste ambiente" });
     if (!(await exigirDocumentoIdentidadeEnviado(req.params.reserva_id, res))) return;
+    await ContratacaoIntegridadeService.garantirReserva(req.params.reserva_id, { renovarHold: true, origem: "confirmar_otp" });
     const resultado = await OtpService.confirmar({
       usuario_id: req.usuario.id,
       reserva_id: req.params.reserva_id,
@@ -338,6 +346,7 @@ router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Re
     const faltantes = await camposCadastroFaltantes(reserva.id);
     if (faltantes.length) return res.status(409).json({ erro: `Complete os dados essenciais antes do contrato: ${faltantes.join(", ")}` });
     if (!(await exigirDocumentoIdentidadeEnviado(reserva.id, res))) return;
+    await ContratacaoIntegridadeService.garantirReserva(reserva.id, { renovarHold: true, origem: "aceitar_contrato" });
 
     // Verificar status
     if (reserva.status !== "pacote_montado" && reserva.status !== "checkout_iniciado") {

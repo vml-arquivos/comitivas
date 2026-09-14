@@ -70,7 +70,7 @@ async function bloquearDuplicidadePorCpf(tx: any, loteId: string, usuarioId: str
            )
          )
          AND COALESCE(r.status::text, '') <> 'abandonado'
-         AND COALESCE(r.checkout_estado, '') NOT IN ('expirado', 'cancelado', 'cancelado_cliente', 'cancelamento_aprovado')
+         AND COALESCE(r.checkout_estado, '') NOT IN ('expirado', 'cancelado', 'cancelado_cliente', 'troca_pacote_cliente', 'reiniciado_cliente', 'cancelamento_aprovado')
        LIMIT 1
     `)).rows[0] as { id: string } | undefined;
     if (existente) {
@@ -193,6 +193,27 @@ async function alocarRecursosNaTransacao(
   return { recursos, assento_alocacao_id: assentoAlocacaoId, quarto_alocacao_id: quartoAlocacaoId };
 }
 
+function recursosPersistidosOuPublicados(reserva: any, pacote: PacoteOperacional | undefined): RecursosContratados {
+  const derivados = pacote
+    ? resolverRecursosContratacao(pacote.forma_contratacao, pacote.modalidade_hospedagem)
+    : { transporte: false, hospedagem: false, estrutura_quarto: null };
+  const salvos = reserva?.recursos_contratados && typeof reserva.recursos_contratados === "object" ? reserva.recursos_contratados : {};
+  if (typeof salvos.transporte === "boolean" && typeof salvos.hospedagem === "boolean") {
+    return {
+      transporte: salvos.transporte,
+      hospedagem: salvos.hospedagem,
+      estrutura_quarto: salvos.hospedagem
+        ? (salvos.estrutura_quarto === "ventilador" || salvos.estrutura_quarto === "ar_condicionado" ? salvos.estrutura_quarto : derivados.estrutura_quarto)
+        : null,
+    };
+  }
+  return derivados;
+}
+
+function recursosDivergem(a: RecursosContratados, b: RecursosContratados): boolean {
+  return a.transporte !== b.transporte || a.hospedagem !== b.hospedagem || (a.estrutura_quarto || null) !== (b.estrutura_quarto || null);
+}
+
 export class PacoteService {
   /**
    * Retoma o único carrinho não concluído do cliente para o lote informado.
@@ -200,7 +221,7 @@ export class PacoteService {
    * um hold expirado é renovado com nova reserva de inventário, sem duplicar a
    * reserva, o contrato ou a comissão.
    */
-  static async retomarCarrinho(usuario_id: string, lote_id: string) {
+  static async retomarCarrinho(usuario_id: string, lote_id: string, esperado?: Pick<ConfiguracaoPacote, "pacote_id" | "forma_contratacao">) {
     return db.transaction(async (tx) => {
       const existente = (await tx.execute(sql`
         SELECT *
@@ -217,9 +238,38 @@ export class PacoteService {
       const pacote = existente.pacote_id
         ? (await tx.execute(sql`SELECT id, lote_id, forma_contratacao, modalidade_hospedagem FROM pacotes WHERE id = ${existente.pacote_id} FOR SHARE`)).rows[0] as PacoteOperacional | undefined
         : undefined;
-      const recursos = pacote
+      const recursosPublicados = pacote
         ? resolverRecursosContratacao(pacote.forma_contratacao, pacote.modalidade_hospedagem)
         : { transporte: false, hospedagem: false, estrutura_quarto: null };
+      const recursos = recursosPersistidosOuPublicados(existente, pacote);
+
+      if (esperado) {
+        const pacoteDiferente = String(esperado.pacote_id || "") !== String(existente.pacote_id || "");
+        const formaEsperada = esperado.forma_contratacao ? String(esperado.forma_contratacao) : null;
+        const formaPublicada = pacote ? formaContratacaoPublica(pacote.forma_contratacao) : null;
+        const formaDiferente = Boolean(formaEsperada && formaEsperada !== formaPublicada);
+        const snapshotDivergenteDoCatalogo = Boolean(pacote && recursosDivergem(recursos, recursosPublicados));
+        if (pacoteDiferente || formaDiferente || snapshotDivergenteDoCatalogo) {
+          const contratoValidado = (await tx.execute(sql`
+            SELECT 1 FROM contratos_documentos
+             WHERE reserva_id = ${existente.id} AND validado_em IS NOT NULL AND status <> 'invalidado'
+             LIMIT 1
+          `)).rows.length > 0;
+          const pagamentosAtivos = Number(((await tx.execute(sql`
+            SELECT COUNT(*)::int AS total FROM pagamentos
+             WHERE reserva_id = ${existente.id}
+               AND status NOT IN ('cancelado', 'recusado', 'reembolsado')
+               AND (COALESCE(valor_pago_centavos, 0) > 0 OR status_reconciliado IN ('pendente', 'parcial', 'quitado'))
+          `)).rows[0] as { total: number } | undefined)?.total || 0) > 0;
+          if (contratoValidado || pagamentosAtivos) {
+            throw new Error("Já existe uma contratação avançada para este evento. Abra Minhas reservas para continuar ou solicite a troca do pacote.");
+          }
+          await InventoryService.liberarReservaNaTransacao(tx, existente.id, "Troca de pacote no checkout", true);
+          await tx.update(reservas).set({ status: "abandonado", checkout_estado: "troca_pacote_cliente", inventario_hold_id: null, atualizado_em: new Date() }).where(eq(reservas.id, existente.id));
+          return null;
+        }
+      }
+
       const participantesExistentes = (await tx.execute(sql`
         SELECT id, sexo_operacional
           FROM reserva_participantes

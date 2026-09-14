@@ -9,6 +9,7 @@ import { authMiddleware, requireRole } from "./middleware/authMiddleware.js";
 import { followupScheduler } from "./services/followupScheduler.js";
 import { AuthService } from "./services/authService.js";
 import { PaymentGatewayAdapter } from "./services/paymentGatewayAdapter.js";
+import { ContratacaoIntegridadeService } from "./services/contratacaoIntegridadeService.js";
 import authRoutes from "./routes/auth.js";
 import publicoRoutes from "./routes/publico.js";
 import eventosRoutes from "./routes/eventos.js";
@@ -221,6 +222,20 @@ async function start() {
     if (!dbConnected) {
       console.error("Falha ao conectar ao banco de dados");
       process.exit(1);
+    }
+
+    // Repara reservas já assinadas que tenham ficado com contrato e inventário
+    // físico divergentes em versões anteriores. Falhas pontuais são registradas
+    // sem impedir o serviço de subir; novas contratações são bloqueadas pelos
+    // gates de integridade antes de contrato/OTP/pagamento.
+    try {
+      const reconciliacao = await ContratacaoIntegridadeService.reconciliarContratosValidados(500);
+      if (reconciliacao.analisadas > 0) {
+        console.log(`[INTEGRIDADE] Reservas validadas analisadas=${reconciliacao.analisadas} corrigidas=${reconciliacao.corrigidas} falhas=${reconciliacao.falhas.length}`);
+        for (const falha of reconciliacao.falhas.slice(0, 20)) console.error(`[INTEGRIDADE] Reserva ${falha.reserva_id}: ${falha.erro}`);
+      }
+    } catch (error: any) {
+      console.error("[INTEGRIDADE] Falha na reconciliação inicial:", error?.message || error);
     }
 
     // Iniciar scheduler de follow-up automatico

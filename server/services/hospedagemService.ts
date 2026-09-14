@@ -370,6 +370,19 @@ export class HospedagemService {
     return db.transaction(async (tx) => {
       const atual = linhas(await tx.execute(sql`SELECT qa.*, q.nome AS quarto_nome FROM quarto_alocacoes qa JOIN quartos_hospedagem q ON q.id = qa.quarto_id WHERE qa.id = ${alocacaoId} AND qa.status = 'ativa' FOR UPDATE OF qa`))[0];
       if (!atual) throw new Error("Alocação ativa não encontrada");
+      const contratoProtegido = linhas(await tx.execute(sql`
+        SELECT 1
+          FROM contratos_documentos cd
+          JOIN reservas r ON r.id = cd.reserva_id
+         WHERE cd.reserva_id = ${atual.reserva_id}
+           AND cd.validado_em IS NOT NULL AND cd.status <> 'invalidado'
+           AND (
+             r.recursos_contratados->>'hospedagem' = 'true'
+             OR cd.snapshot->>'modelo_oficial' IN ('hospedagem', 'hospedagem_transporte')
+           )
+         LIMIT 1
+      `))[0];
+      if (contratoProtegido) throw new Error("Esta hospedagem pertence a um contrato validado. Use Mover para remanejar ou conclua o cancelamento/troca da contratação.");
       const justificativa = texto(motivo, 1000) || "Liberação operacional";
       await tx.execute(sql`UPDATE quarto_alocacoes SET status = 'cancelada', encerrado_em = CURRENT_TIMESTAMP, motivo = ${justificativa} WHERE id = ${alocacaoId}`);
       await tx.execute(sql`UPDATE reserva_participantes SET quarto_id = NULL, vaga_quarto_id = NULL, atualizado_em = CURRENT_TIMESTAMP

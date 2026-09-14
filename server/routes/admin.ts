@@ -10,7 +10,7 @@ import { AuditService } from "../services/auditService.js";
 import { CoraPaymentProvider } from "../services/coraPaymentProvider.js";
 import { PacoteService, ConfiguracaoPacote } from "../services/pacoteService.js";
 import { ClienteExclusaoService, ErroExclusaoCliente } from "../services/clienteExclusaoService.js";
-import { OperacaoOnibusService } from "../services/operacaoOnibusService.js";
+import { ContratacaoIntegridadeService } from "../services/contratacaoIntegridadeService.js";
 import { IdentityDocumentService, TipoIdentidade } from "../services/identityDocumentService.js";
 import { DadosLimpezaService } from "../services/dadosLimpezaService.js";
 import { db } from "../db/index.js";
@@ -757,8 +757,26 @@ router.post("/vendas/reservar", async (req: Request, res: Response) => {
     }
     const config: ConfiguracaoPacote = { ...req.body, usuario_id: usuarioId, vendedor_id: origemFinal.vendedor_id };
     const resultado = await PacoteService.reservarPacote(usuarioId, String(req.body?.lote_id || ""), config, req.ip || req.socket.remoteAddress || "desconhecido", origemFinal);
-    const alocacaoOperacional = await OperacaoOnibusService.alocarPrimeiroDisponivel(String(req.body?.lote_id || ""), resultado.reserva.id, req.usuario.id);
-    return res.status(201).json({ mensagem: "Venda interna registrada e vaga reservada", reserva_id: resultado.reserva.id, status: resultado.reserva.status, calculo: resultado.calculo, aguardando_cliente: true, operacao: alocacaoOperacional ? { poltrona_atribuida: true, alocacao_id: alocacaoOperacional.id } : { poltrona_atribuida: false, motivo: "Atribuição pendente no mapa operacional" } });
+    // PacoteService já faz a alocação física. Rodar uma segunda alocação aqui
+    // podia tentar ocupar poltrona adicional ou falhar depois de a reserva já ter
+    // sido persistida. A mesma barreira de integridade do checkout público valida
+    // transporte/hospedagem e corrige apenas o que realmente estiver faltando.
+    const integridade = await ContratacaoIntegridadeService.garantirReserva(resultado.reserva.id, { renovarHold: true, origem: "venda_interna" });
+    return res.status(201).json({
+      mensagem: "Venda interna registrada e recursos operacionais reservados",
+      reserva_id: resultado.reserva.id,
+      status: resultado.reserva.status,
+      calculo: resultado.calculo,
+      aguardando_cliente: true,
+      operacao: {
+        transporte: integridade.recursos.transporte,
+        hospedagem: integridade.recursos.hospedagem,
+        quantidade_pessoas: integridade.quantidade_pessoas,
+        assentos_ativos: integridade.assentos_ativos,
+        quartos_ativos: integridade.quartos_ativos,
+        poltrona_atribuida: !integridade.recursos.transporte || integridade.assentos_ativos >= integridade.quantidade_pessoas,
+      },
+    });
   } catch (error: any) {
     console.error("[ADMIN/VENDAS] Erro ao reservar:", error);
     return res.status(400).json({ erro: error.message || "Não foi possível registrar a venda" });

@@ -471,6 +471,20 @@ export class OperacaoOnibusService {
         LEFT JOIN reserva_participantes rp ON rp.reserva_id = aa.reserva_id AND rp.assento_id = aa.assento_id
         WHERE aa.id = ${alocacaoId} AND aa.status = 'ativa' FOR UPDATE OF aa`))[0];
       if (!atual) throw new Error("Alocação ativa não encontrada");
+      const contratoProtegido = linhas(await tx.execute(sql`
+        SELECT 1
+          FROM contratos_documentos cd
+          JOIN reservas r ON r.id = cd.reserva_id
+         WHERE cd.reserva_id = ${atual.reserva_id}
+           AND cd.validado_em IS NOT NULL AND cd.status <> 'invalidado'
+           AND (
+             r.recursos_contratados->>'transporte' = 'true'
+             OR cd.snapshot->'transporte'->>'rodoviario_incluido' = 'true'
+             OR cd.snapshot->>'modelo_oficial' IN ('transporte', 'hospedagem_transporte')
+           )
+         LIMIT 1
+      `))[0];
+      if (contratoProtegido) throw new Error("Esta poltrona pertence a um contrato validado com transporte. Use Mover para remanejar ou conclua o cancelamento/troca da contratação.");
       const justificativa = texto(motivo, 1000) || "Liberação operacional";
       await tx.execute(sql`UPDATE assento_alocacoes SET status = 'cancelada', encerrado_em = CURRENT_TIMESTAMP, motivo = ${justificativa} WHERE id = ${alocacaoId}`);
       if (atual.participante_id) await tx.execute(sql`UPDATE reserva_participantes SET assento_id = NULL, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${atual.participante_id}`);

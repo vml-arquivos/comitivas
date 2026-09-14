@@ -10,6 +10,7 @@ import { eventos, lotes, pacotes, itens_addon, reservas, usuarios, leads_origem,
 import { eq, and, desc, inArray, isNull, or, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { CatalogoExclusaoService } from "../services/catalogoExclusaoService.js";
+import { ContratacaoIntegridadeService } from "../services/contratacaoIntegridadeService.js";
 
 const router = Router();
 
@@ -186,7 +187,7 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
       if (leadDaConta[0]) origem = { lead_id: leadDaConta[0].id, vendedor_id: leadDaConta[0].vendedor_id || undefined, codigo_origem: leadDaConta[0].codigo_origem || undefined };
     }
 
-    const carrinhoExistente = await PacoteService.retomarCarrinho(req.usuario.id, config.lote_id);
+    const carrinhoExistente = await PacoteService.retomarCarrinho(req.usuario.id, config.lote_id, { pacote_id: config.pacote_id, forma_contratacao: config.forma_contratacao });
     const resultado = carrinhoExistente || await PacoteService.reservarPacote(
         req.usuario.id,
         config.lote_id,
@@ -194,6 +195,8 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
         ip,
         origem,
       );
+    const integridade = await ContratacaoIntegridadeService.garantirReserva(resultado.reserva.id, { renovarHold: true, origem: "reservar_pacote" });
+
     // Cadastro direto não possui lead_id no navegador. Atualiza o card ligado
     // à conta para que pacote e etapa também apareçam no CRM.
     if (leadAtualizado.length === 0) {
@@ -217,9 +220,11 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
       status: resultado.reserva.status,
       calculo: resultado.calculo,
       operacao: {
-        transporte: resultado.operacao.recursos.transporte,
-        hospedagem: resultado.operacao.recursos.hospedagem,
-        poltrona_atribuida: Boolean(resultado.operacao.assento_alocacao_id),
+        transporte: integridade.recursos.transporte,
+        hospedagem: integridade.recursos.hospedagem,
+        poltrona_atribuida: !integridade.recursos.transporte || integridade.assentos_ativos >= integridade.quantidade_pessoas,
+        assentos_ativos: integridade.assentos_ativos,
+        quartos_ativos: integridade.quartos_ativos,
         assento_alocacao_id: resultado.operacao.assento_alocacao_id,
         quarto_alocacao_id: resultado.operacao.quarto_alocacao_id,
       },
@@ -475,7 +480,8 @@ router.post("/reservas/:reserva_id/retomar", authMiddleware, async (req: Request
     if (reserva.usuario_id !== req.usuario.id && !isAdminOrDev(req.usuario.tipo)) return res.status(403).json({ erro: "Acesso negado" });
     const resultado = await PacoteService.retomarCarrinho(reserva.usuario_id, reserva.lote_id);
     if (!resultado || resultado.reserva.id !== reserva.id) return res.status(409).json({ erro: "Este carrinho não está disponível para retomada" });
-    return res.json({ reserva_id: resultado.reserva.id, retomado: Boolean(resultado.retomada), checkout_estado: resultado.reserva.checkout_estado, mensagem: resultado.retomada ? "Carrinho renovado. Continue de onde parou." : "Carrinho pronto para continuar." });
+    const integridade = await ContratacaoIntegridadeService.garantirReserva(resultado.reserva.id, { renovarHold: true, origem: "retomar_carrinho" });
+    return res.json({ reserva_id: resultado.reserva.id, retomado: Boolean(resultado.retomada), checkout_estado: resultado.reserva.checkout_estado, operacao: integridade, mensagem: resultado.retomada ? "Carrinho renovado e vagas operacionais confirmadas. Continue de onde parou." : "Carrinho e vagas operacionais prontos para continuar." });
   } catch (error: any) {
     console.error("[PACOTES] Erro ao retomar carrinho:", error);
     const mensagem = error?.message || "Não foi possível retomar o carrinho";

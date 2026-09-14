@@ -5,6 +5,7 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { contratoEventos, contratoValidacoes, contratosDocumentos, notificacoesOutbox, otpDesafios, reservas, usuarios } from "../db/schema.js";
 import { ContratoService } from "./contratoService.js";
+import { ContratacaoIntegridadeService } from "./contratacaoIntegridadeService.js";
 import { maskDestination, providerFor, NotificationChannel } from "./notificationProvider.js";
 
 const OTP_EXPIRATION_MS = 10 * 60 * 1000;
@@ -157,6 +158,11 @@ export class OtpService {
         if (base.reserva.usuario_id !== input.usuario_id) throw new Error("Acesso negado");
         const documento = (await tx.select().from(contratosDocumentos).where(eq(contratosDocumentos.id, String(desafio.contrato_id))).limit(1))[0];
         if (!documento || documento.reserva_id !== input.reserva_id || !["aguardando_validacao", "preparado"].includes(documento.status)) throw new Error("Contrato inválido ou já validado");
+
+        // A assinatura eletrônica somente é concluída se o inventário físico já
+        // estiver íntegro e o hold puder ser convertido definitivamente. Isso
+        // impede contrato com transporte/hospedagem sem a vaga operacional real.
+        await ContratacaoIntegridadeService.converterHoldNaTransacao(tx, input.reserva_id);
 
         const agora = new Date();
         const protocoloValidacao = protocolo();

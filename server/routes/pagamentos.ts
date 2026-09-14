@@ -13,6 +13,7 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { cadastroAprovadoComEvidencia, camposFaltantesCadastroMinimo } from "../security/governance.js";
 import { NotificationOutboxService } from "../services/notificationOutboxService.js";
+import { ContratacaoIntegridadeService } from "../services/contratacaoIntegridadeService.js";
 
 const router = Router();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -165,6 +166,11 @@ router.post("/criar", authMiddleware, async (req: Request, res: Response) => {
     if (!contrato?.validado_em) return res.status(409).json({ erro: "Cobrança bloqueada: contrato ainda não foi validado pelo cliente" });
     if (!["contrato_gerado", "cliente_confirmado"].includes(String(reserva.status)) && !["contrato_validado", "contrato_aprovado_admin", "cobranca_pendente", "aguardando_pagamento", "pagamento_parcial", "primeira_parcela_confirmada"].includes(String(reserva.checkout_estado))) return res.status(400).json({ erro: "A reserva ainda não está liberada para cobrança" });
     if (reserva.forma_pagamento && reserva.forma_pagamento !== metodo) return res.status(400).json({ erro: "O método diverge da condição aceita no contrato" });
+
+    // O financeiro nunca avança se os recursos físicos do contrato estiverem
+    // divergentes. Para contratos legados já assinados, a rotina reconcilia a
+    // vaga real e converte o hold antes de criar qualquer cobrança/controle.
+    await ContratacaoIntegridadeService.garantirReserva(reserva.id, { renovarHold: true, converterHold: true, origem: "criar_pagamento" });
 
     const parcelas = metodo === "boleto" ? Math.max(1, Number(reserva.quantidade_parcelas || 1)) : 1;
     const configuracoes = await ConfiguracaoService.obterConfiguracoesPagamento();

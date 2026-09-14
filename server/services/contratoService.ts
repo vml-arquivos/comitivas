@@ -459,6 +459,26 @@ export class ContratoService {
     const recursos: RecursosContratados = typeof recursosSalvos.transporte === "boolean" && typeof recursosSalvos.hospedagem === "boolean"
       ? { transporte: recursosSalvos.transporte, hospedagem: recursosSalvos.hospedagem, estrutura_quarto: recursosSalvos.estrutura_quarto || null }
       : recursosDerivados;
+
+    // Invariante de produção: o conteúdo contratual nunca pode prometer um
+    // recurso físico que não esteja efetivamente reservado para todas as
+    // pessoas da compra. A reconciliação acontece antes deste ponto; esta
+    // conferência é a barreira final contra contrato e operação divergentes.
+    const quantidadeOperacional = Math.max(1, participantes.length);
+    const contagensOperacionais = (await db.execute(sql`
+      SELECT
+        (SELECT COUNT(*)::int FROM assento_alocacoes aa WHERE aa.reserva_id = ${reserva.id} AND aa.status = 'ativa') AS assentos,
+        (SELECT COUNT(*)::int FROM quarto_alocacoes qa WHERE qa.reserva_id = ${reserva.id} AND qa.status = 'ativa') AS quartos
+    `)).rows[0] as { assentos: number; quartos: number } | undefined;
+    const assentosAtivos = Number(contagensOperacionais?.assentos || 0);
+    const quartosAtivos = Number(contagensOperacionais?.quartos || 0);
+    if (recursos.transporte && assentosAtivos !== quantidadeOperacional) {
+      throw new Error(`Integridade operacional: o contrato inclui transporte para ${quantidadeOperacional} pessoa(s), mas existem ${assentosAtivos} poltrona(s) ativa(s)`);
+    }
+    if (recursos.hospedagem && recursos.estrutura_quarto && quartosAtivos !== quantidadeOperacional) {
+      throw new Error(`Integridade operacional: o contrato inclui hospedagem para ${quantidadeOperacional} pessoa(s), mas existem ${quartosAtivos} vaga(s) de quarto ativa(s)`);
+    }
+
     // Os serviços contratados são autoritativos no backend; o formulário não
     // pode adicionar transporte ou hospedagem que o pacote não inclua.
     const rodoviario = recursos.transporte;
