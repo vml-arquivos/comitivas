@@ -111,7 +111,7 @@ export class ContratacaoIntegridadeService {
       SELECT id
         FROM reserva_participantes
        WHERE reserva_id = ${reservaId}
-          OR (${reserva.grupo_id} IS NOT NULL AND grupo_id = ${reserva.grupo_id})
+          OR grupo_id = ${reserva.grupo_id || null}
        FOR SHARE
     `)).rows as Array<{ id: string }>;
     const quantidadePessoas = Math.max(1, participantes.length);
@@ -193,7 +193,7 @@ export class ContratacaoIntegridadeService {
         SELECT id AS participante_id, sexo_operacional, assento_id, quarto_id, vaga_quarto_id
           FROM reserva_participantes
          WHERE reserva_id = ${reserva.id}
-            OR (${reserva.grupo_id} IS NOT NULL AND grupo_id = ${reserva.grupo_id})
+            OR grupo_id = ${reserva.grupo_id || null}
          ORDER BY CASE WHEN vinculo_responsavel = 'responsável' THEN 0 ELSE 1 END, criado_em, id
          FOR UPDATE
       `)).rows as Array<{ participante_id: string; sexo_operacional: string | null; assento_id: string | null; quarto_id: string | null; vaga_quarto_id: string | null }>;

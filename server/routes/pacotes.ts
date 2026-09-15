@@ -17,6 +17,14 @@ const router = Router();
 const FORMAS_CONTRATACAO = new Set(["onibus", "hospedagem", "onibus_hospedagem", "livre"]);
 const FORMAS_PAGAMENTO_PACOTE = new Set(["pix", "boleto", "credito", "debito"]);
 
+function mensagemErroPublica(error: unknown, fallback: string): string {
+  const bruto = error instanceof Error ? error.message : String(error || "");
+  if (!bruto || /failed query:|params:|syntax error|does not exist|violates .* constraint|duplicate key|connection terminated|econn|timeout/i.test(bruto)) {
+    return fallback;
+  }
+  return bruto;
+}
+
 function dataIsoSegura(valor: unknown): string | null {
   if (!valor) return null;
   const data = valor instanceof Date ? valor : new Date(String(valor));
@@ -139,7 +147,7 @@ router.post("/calcular", async (req: Request, res: Response) => {
     res.json(resultado);
   } catch (error: any) {
     console.error("[PACOTES] Erro ao calcular:", error);
-    res.status(400).json({ erro: error?.message || "Não foi possível calcular o valor do pacote" });
+    res.status(400).json({ erro: mensagemErroPublica(error, "Não foi possível calcular o valor do pacote") });
   }
 });
 
@@ -233,7 +241,7 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
     });
   } catch (error: any) {
     console.error("[PACOTES] Erro ao reservar:", error);
-    const mensagem = error?.message || "Erro ao criar reserva";
+    const mensagem = mensagemErroPublica(error, "Não foi possível criar a reserva");
     if (mensagem === "DUPLICIDADE_RESERVA_ATIVA") {
       return res.status(409).json({ erro: "Já existe uma contratação para este viajante neste período. Continue pela reserva existente.", reserva_id: error?.reservaId || null });
     }
@@ -486,7 +494,7 @@ router.post("/reservas/:reserva_id/retomar", authMiddleware, async (req: Request
     return res.json({ reserva_id: resultado.reserva.id, retomado: Boolean(resultado.retomada), checkout_estado: resultado.reserva.checkout_estado, operacao: integridade, mensagem: resultado.retomada ? "Carrinho renovado e vagas operacionais confirmadas. Continue de onde parou." : "Carrinho e vagas operacionais prontos para continuar." });
   } catch (error: any) {
     console.error("[PACOTES] Erro ao retomar carrinho:", error);
-    const mensagem = error?.message || "Não foi possível retomar o carrinho";
+    const mensagem = mensagemErroPublica(error, "Não foi possível retomar o carrinho");
     return res.status(409).json({ erro: mensagem });
   }
 });

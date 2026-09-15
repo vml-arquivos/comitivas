@@ -68,6 +68,15 @@ describe("integridade operacional da contratação", () => {
     expect(admin).not.toContain("OperacaoOnibusService.alocarPrimeiroDisponivel");
   });
 
+  it("não usa parâmetro sem tipo em IS NOT NULL ao buscar participantes", () => {
+    const integridade = ler("server/services/contratacaoIntegridadeService.ts");
+    const pacotes = ler("server/routes/pacotes.ts");
+    expect(integridade).toContain("OR grupo_id = ${reserva.grupo_id || null}");
+    expect(integridade).not.toContain("${reserva.grupo_id} IS NOT NULL");
+    expect(pacotes).toContain("function mensagemErroPublica");
+    expect(pacotes).toContain("failed query:|params:|syntax error");
+  });
+
   it("limpa ponteiros de assento e quarto quando o hold é liberado", () => {
     const inventario = ler("server/services/inventoryService.ts");
     expect(inventario).toContain("SET assento_id = NULL, quarto_id = NULL, vaga_quarto_id = NULL");
