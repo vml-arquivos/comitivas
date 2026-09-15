@@ -63,9 +63,9 @@ router.post("/", authMiddleware, requireRole("admin"), async (req: Request, res:
       valor_base,
     } = req.body;
 
-    if (!evento_id || !nome || !vagas_totais || !data_inicio || !data_fim || valor_base === undefined) {
+    if (!evento_id || !nome || !vagas_totais || !data_inicio || !data_fim) {
       return res.status(400).json({
-        erro: "evento_id, nome, vagas_totais, data_inicio, data_fim e valor_base são obrigatórios",
+        erro: "evento_id, nome, vagas_totais, data_inicio e data_fim são obrigatórios",
       });
     }
     const inicio = new Date(data_inicio);
@@ -110,7 +110,8 @@ router.post("/", authMiddleware, requireRole("admin"), async (req: Request, res:
         data_retorno: retorno,
         local_embarque: local_embarque || null,
         local_hospedagem: local_hospedagem || null,
-        valor_base: valor_base.toString(),
+        // Campo legado mantido para compatibilidade com reservas antigas; o preço comercial fica no pacote.
+        valor_base: valor_base === undefined || valor_base === null || valor_base === "" ? "0" : valor_base.toString(),
         ativo: true,
         criado_em: new Date(),
         atualizado_em: new Date(),

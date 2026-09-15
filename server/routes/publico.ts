@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { db } from "../db/index.js";
-import { eventos, lotes, pacotes, fotos_evento, avaliacoes, reservas, leads_origem, usuarios, videosEvento } from "../db/schema.js";
+import { eventos, lotes, pacotes, fotos_evento, fotosPacote, avaliacoes, reservas, leads_origem, usuarios, videosEvento } from "../db/schema.js";
 import { eq, and, gt, lt, desc, sql, isNull } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { AuthService } from "../services/authService.js";
@@ -76,6 +76,10 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
       .orderBy(eventos.data_inicio);
 
     const ofertas = await Promise.all(eventosAtivos.map(async (evento) => {
+      const fotosEvento = await db.select({ id: fotos_evento.id, url_foto: fotos_evento.url_foto, legenda: fotos_evento.legenda, alt_text: fotos_evento.alt_text, ordem: fotos_evento.ordem, capa: fotos_evento.capa })
+        .from(fotos_evento)
+        .where(eq(fotos_evento.evento_id, evento.id))
+        .orderBy(fotos_evento.ordem);
       const lotesAtivos = await db
         .select({
           id: lotes.id,
@@ -91,7 +95,7 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
         .orderBy(lotes.data_inicio);
 
       const lotesComModalidades = await Promise.all(lotesAtivos.map(async (lote) => {
-        const modalidades = await db
+        const modalidadesBase = await db
           .select({
             id: pacotes.id,
             nome: pacotes.nome,
@@ -103,6 +107,13 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
           })
           .from(pacotes)
           .where(and(eq(pacotes.lote_id, lote.id), eq(pacotes.ativo, true)));
+        const modalidades = await Promise.all(modalidadesBase.map(async (modalidade) => ({
+          ...modalidade,
+          fotos: await db.select({ id: fotosPacote.id, url_foto: fotosPacote.url_foto, legenda: fotosPacote.legenda, alt_text: fotosPacote.alt_text, ordem: fotosPacote.ordem, capa: fotosPacote.capa })
+            .from(fotosPacote)
+            .where(eq(fotosPacote.pacote_id, modalidade.id))
+            .orderBy(fotosPacote.ordem),
+        })));
 
         return {
           ...lote,
@@ -112,7 +123,7 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
         };
       }));
 
-      return { ...evento, lotes: lotesComModalidades };
+      return { ...evento, fotos: fotosEvento, lotes: lotesComModalidades };
     }));
 
     res.json({ eventos: ofertas });

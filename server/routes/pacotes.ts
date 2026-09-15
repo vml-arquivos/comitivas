@@ -1,4 +1,4 @@
-import { Router, Request, Response } from "express";
+import { Router, Request, Response, NextFunction, raw } from "express";
 import { authMiddleware, requireRole, isAdminOrDev } from "../middleware/authMiddleware.js";
 import { PacoteService, ConfiguracaoPacote } from "../services/pacoteService.js";
 import { ContratoService } from "../services/contratoService.js";
@@ -6,16 +6,43 @@ import { ConfiguracaoService } from "../services/configuracaoService.js";
 import { GatewayConfigService } from "../services/gatewayConfigService.js";
 import { AuthService } from "../services/authService.js";
 import { db } from "../db/index.js";
-import { eventos, lotes, pacotes, itens_addon, reservas, usuarios, leads_origem, pagamentos, pagamentoParcelas, cupons, cuponsUtilizacoes, precosLedger, reservaParticipantes } from "../db/schema.js";
+import { eventos, lotes, pacotes, fotosPacote, itens_addon, reservas, usuarios, leads_origem, pagamentos, pagamentoParcelas, cupons, cuponsUtilizacoes, precosLedger, reservaParticipantes } from "../db/schema.js";
 import { eq, and, desc, inArray, isNull, or, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { CatalogoExclusaoService } from "../services/catalogoExclusaoService.js";
 import { ContratacaoIntegridadeService } from "../services/contratacaoIntegridadeService.js";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 const router = Router();
 
 const FORMAS_CONTRATACAO = new Set(["onibus", "hospedagem", "onibus_hospedagem", "livre"]);
 const FORMAS_PAGAMENTO_PACOTE = new Set(["pix", "boleto", "credito", "debito"]);
+const parserFotoPacote = raw({ type: "application/octet-stream", limit: "10mb" });
+
+function uploadFotoPacote(req: Request, res: Response, next: NextFunction) {
+  parserFotoPacote(req, res, (error?: any) => {
+    if (error?.type === "entity.too.large") return res.status(413).json({ erro: "A foto excede o limite de 10 MB" });
+    if (error) return next(error);
+    return next();
+  });
+}
+
+function detectarFotoPacote(buffer: Buffer, extensao: string): string | null {
+  const jpeg = buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  const png = buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const webp = buffer.length >= 12 && buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP";
+  if ([".jpg", ".jpeg"].includes(extensao) && jpeg) return "image/jpeg";
+  if (extensao === ".png" && png) return "image/png";
+  if (extensao === ".webp" && webp) return "image/webp";
+  return null;
+}
+
+function caminhoFotoPacote(pacoteId: string, fotoId: string, mime: string): string {
+  const extensao = mime === "image/png" ? ".png" : mime === "image/webp" ? ".webp" : ".jpg";
+  const base = path.resolve(process.env.STORAGE_PATH || "./uploads");
+  return path.resolve(base, "pacotes", pacoteId, `${fotoId}${extensao}`);
+}
 
 function mensagemErroPublica(error: unknown, fallback: string): string {
   const bruto = error instanceof Error ? error.message : String(error || "");
@@ -541,6 +568,8 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
     const pacotesComDisponibilidade = await Promise.all(lista.map(async (pacote) => {
       const capacidade = await PacoteService.obterDisponibilidadeFisica(pacote);
       const regras = regrasDoPacote(pacote);
+      const fotos = await db.select({ id: fotosPacote.id, url_foto: fotosPacote.url_foto, legenda: fotosPacote.legenda, alt_text: fotosPacote.alt_text, ordem: fotosPacote.ordem, capa: fotosPacote.capa })
+        .from(fotosPacote).where(eq(fotosPacote.pacote_id, pacote.id)).orderBy(fotosPacote.ordem);
       return {
         id: pacote.id,
         nome: pacote.nome,
@@ -553,6 +582,7 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
         boleto_parcelas_maximo: regras.boletoParcelasMaximo || null,
         disponibilidade_configurada: pacote.disponibilidade,
         disponibilidade: capacidade.disponibilidade,
+        fotos,
       };
     }));
     res.json({ lote_id: req.params.lote_id, pacotes: pacotesComDisponibilidade });
@@ -612,6 +642,94 @@ router.post("/reservas/:reserva_id/aplicar-cupom", authMiddleware, async (req: R
   } catch (error: any) {
     console.error("[PACOTES] Erro ao aplicar cupom:", error?.message || "falha não detalhada");
     return res.status(400).json({ erro: error?.message || "Não foi possível aplicar o cupom" });
+  }
+});
+
+// Galeria do pacote: metadados e upload ficam separados da galeria da excursão.
+router.get("/:pacote_id/fotos", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const fotos = await db.select().from(fotosPacote)
+      .where(eq(fotosPacote.pacote_id, req.params.pacote_id))
+      .orderBy(fotosPacote.ordem);
+    return res.json({ fotos });
+  } catch (error) {
+    console.error("[PACOTES] Erro ao listar fotos:", error);
+    return res.status(500).json({ erro: "Erro ao listar fotos do pacote" });
+  }
+});
+
+router.post("/:pacote_id/fotos", authMiddleware, requireRole("admin"), uploadFotoPacote, async (req: Request, res: Response) => {
+  let arquivoGravado: string | null = null;
+  try {
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) return res.status(400).json({ erro: "Selecione uma foto para enviar" });
+    const pacote = (await db.select({ id: pacotes.id }).from(pacotes).where(eq(pacotes.id, req.params.pacote_id)).limit(1))[0];
+    if (!pacote) return res.status(404).json({ erro: "Pacote não encontrado" });
+    const nomeOriginal = decodeURIComponent(String(req.get("x-file-name") || "foto"));
+    const extensao = path.extname(nomeOriginal).toLowerCase();
+    if (![".jpg", ".jpeg", ".png", ".webp"].includes(extensao)) return res.status(415).json({ erro: "Formato não permitido. Envie JPG, PNG ou WEBP" });
+    const mime = detectarFotoPacote(req.body, extensao);
+    if (!mime) return res.status(415).json({ erro: "O conteúdo do arquivo não corresponde a uma imagem permitida" });
+    const mimeInformado = String(req.get("x-file-mime") || "").toLowerCase();
+    if (mimeInformado && mimeInformado !== mime) return res.status(415).json({ erro: "Tipo da foto inconsistente com o arquivo enviado" });
+    const existentes = await db.select({ id: fotosPacote.id, ordem: fotosPacote.ordem })
+      .from(fotosPacote).where(eq(fotosPacote.pacote_id, req.params.pacote_id));
+    if (existentes.length >= 5) return res.status(409).json({ erro: "Cada pacote pode ter até cinco fotos. Remova uma foto para substituir." });
+    const fotoId = createId();
+    const legenda = decodeURIComponent(String(req.get("x-file-caption") || "")).trim().slice(0, 500);
+    const textoAlternativo = decodeURIComponent(String(req.get("x-file-alt") || "")).trim().slice(0, 500);
+    const urlFoto = `/api/pacotes/${encodeURIComponent(req.params.pacote_id)}/fotos/${encodeURIComponent(fotoId)}/arquivo`;
+    const arquivo = caminhoFotoPacote(req.params.pacote_id, fotoId, mime);
+    const base = path.resolve(process.env.STORAGE_PATH || "./uploads");
+    if (!arquivo.startsWith(`${base}${path.sep}`)) return res.status(400).json({ erro: "Caminho de armazenamento inválido" });
+    await fs.mkdir(path.dirname(arquivo), { recursive: true });
+    await fs.writeFile(arquivo, req.body, { flag: "wx" });
+    arquivoGravado = arquivo;
+    const proximaOrdem = existentes.reduce((maior, foto) => Math.max(maior, Number(foto.ordem || 0)), -1) + 1;
+    const criada = (await db.insert(fotosPacote).values({
+      id: fotoId,
+      pacote_id: req.params.pacote_id,
+      url_foto: urlFoto,
+      legenda: legenda || null,
+      alt_text: textoAlternativo || legenda || `Foto do pacote ${req.params.pacote_id}`,
+      formato: mime,
+      ordem: proximaOrdem,
+      capa: existentes.length === 0,
+    }).returning())[0];
+    return res.status(201).json({ mensagem: "Foto enviada com sucesso", foto: criada });
+  } catch (error) {
+    if (arquivoGravado) await fs.unlink(arquivoGravado).catch(() => undefined);
+    console.error("[PACOTES] Erro ao enviar foto:", error);
+    return res.status(500).json({ erro: "Erro ao enviar foto do pacote" });
+  }
+});
+
+router.get("/:pacote_id/fotos/:foto_id/arquivo", async (req: Request, res: Response) => {
+  try {
+    const foto = (await db.select({ id: fotosPacote.id, formato: fotosPacote.formato })
+      .from(fotosPacote).innerJoin(pacotes, eq(pacotes.id, fotosPacote.pacote_id))
+      .where(and(eq(fotosPacote.id, req.params.foto_id), eq(fotosPacote.pacote_id, req.params.pacote_id), eq(pacotes.ativo, true))).limit(1))[0];
+    if (!foto?.formato?.startsWith("image/")) return res.status(404).json({ erro: "Foto não encontrada" });
+    const arquivo = caminhoFotoPacote(req.params.pacote_id, foto.id, foto.formato);
+    await fs.access(arquivo);
+    res.setHeader("Content-Type", foto.formato);
+    res.setHeader("Cache-Control", "public, max-age=86400, immutable");
+    return res.sendFile(arquivo);
+  } catch {
+    return res.status(404).json({ erro: "Foto não encontrada" });
+  }
+});
+
+router.delete("/:pacote_id/fotos/:foto_id", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const existente = (await db.select({ id: fotosPacote.id, formato: fotosPacote.formato })
+      .from(fotosPacote).where(and(eq(fotosPacote.id, req.params.foto_id), eq(fotosPacote.pacote_id, req.params.pacote_id))).limit(1))[0];
+    if (!existente) return res.status(404).json({ erro: "Foto não encontrada" });
+    await db.delete(fotosPacote).where(eq(fotosPacote.id, existente.id));
+    if (existente.formato?.startsWith("image/")) await fs.unlink(caminhoFotoPacote(req.params.pacote_id, existente.id, existente.formato)).catch(() => undefined);
+    return res.json({ mensagem: "Foto removida do pacote" });
+  } catch (error) {
+    console.error("[PACOTES] Erro ao remover foto:", error);
+    return res.status(500).json({ erro: "Erro ao remover foto do pacote" });
   }
 });
 
@@ -728,6 +846,11 @@ router.delete("/:pacote_id", authMiddleware, requireRole("admin"), async (req: R
       id: req.usuario!.id,
       tipo: req.usuario!.tipo,
     });
+    if (resultado.modo === "excluido") {
+      const base = path.resolve(process.env.STORAGE_PATH || "./uploads");
+      const pasta = path.resolve(base, "pacotes", req.params.pacote_id);
+      if (pasta.startsWith(`${base}${path.sep}`)) await fs.rm(pasta, { recursive: true, force: true }).catch(() => undefined);
+    }
     return res.json(resultado);
   } catch (error: any) {
     console.error("[PACOTES] Falha ao excluir ou arquivar pacote:", error);

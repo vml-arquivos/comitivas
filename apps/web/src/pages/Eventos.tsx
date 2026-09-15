@@ -13,6 +13,15 @@ type Modalidade = {
   disponibilidade?: 'disponivel' | 'ultimas_vagas' | 'esgotado' | string | null;
   valor_total: string | number;
   itens_inclusos?: unknown;
+  fotos?: Foto[];
+};
+
+type Foto = {
+  id: string;
+  url_foto: string;
+  legenda?: string | null;
+  alt_text?: string | null;
+  capa?: boolean;
 };
 
 type Lote = {
@@ -34,6 +43,7 @@ type Evento = {
   data_inicio: string;
   data_fim: string;
   lotes: Lote[];
+  fotos?: Foto[];
 };
 
 function slugify(valor: string) {
@@ -187,7 +197,7 @@ export default function Eventos() {
             <article key={evento.id} className="overflow-hidden rounded-[2rem] border border-[#182D3B]/10 bg-white shadow-[0_18px_50px_rgba(24,45,59,0.08)]">
               <div className="grid lg:grid-cols-[0.36fr_0.64fr]">
                 <div className="relative min-h-[300px] overflow-hidden bg-[#182D3B] lg:min-h-full">
-                  <img src="/images/hero-parque-peao.jpg" alt="" aria-hidden="true" className="absolute inset-0 h-full w-full object-cover opacity-65" loading="lazy" width="760" height="980" />
+                  <img src={evento.fotos?.find((foto) => foto.capa)?.url_foto || evento.fotos?.[0]?.url_foto || '/images/hero-parque-peao.jpg'} alt={evento.fotos?.[0]?.alt_text || ''} aria-hidden={!evento.fotos?.length} className="absolute inset-0 h-full w-full object-cover opacity-65" loading="lazy" width="760" height="980" />
                   <div className="absolute inset-0 bg-gradient-to-t from-[#182D3B] via-[#182D3B]/45 to-transparent" />
                   <div className="absolute inset-x-0 bottom-0 p-7 text-white">
                     <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-white/70">Excursão publicada</p>
@@ -227,7 +237,7 @@ export default function Eventos() {
                               return (
                                 <article key={modalidade.id} className={`flex min-h-full flex-col rounded-[1.5rem] border p-5 transition ${esgotado ? 'border-[#182D3B]/10 bg-[#F8F5EF]/55' : 'border-[#182D3B]/10 bg-white hover:-translate-y-0.5 hover:border-[#851F32]/25 hover:shadow-[0_14px_32px_rgba(24,45,59,0.08)]'}`}>
                                   <div className="flex items-start justify-between gap-3">
-                                    <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[#F4EAEC] text-[#851F32]"><BedDouble size={20} /></span>
+                                    {modalidade.fotos?.[0] ? <img src={modalidade.fotos[0].url_foto} alt={modalidade.fotos[0].alt_text || modalidade.fotos[0].legenda || modalidade.nome} className="h-14 w-14 rounded-xl object-cover" loading="lazy" /> : <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[#F4EAEC] text-[#851F32]"><BedDouble size={20} /></span>}
                                     <span className={`rounded-full px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wide ${status.classe}`}>{status.label}</span>
                                   </div>
                                   <h4 className="font-editorial mt-5 text-xl font-bold leading-tight text-[#182D3B]">{modalidade.nome}</h4>

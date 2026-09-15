@@ -42,11 +42,11 @@ describe("seleção explícita do tipo de contratação", () => {
 
   it("permite ao admin publicar preço separado para cada tipo de contrato", async () => {
     const admin = await fonte("../apps/web/src/pages/admin/Eventos.tsx");
-    expect(admin).toContain("Tipo de contratação deste pacote");
-    expect(admin).toContain("publique um pacote com preço próprio para cada tipo desejado");
+    expect(admin).toContain("O que está incluído");
+    expect(admin).toContain("Cada pacote tem seu próprio preço, modalidade, contratação e galeria");
     expect(admin).toContain('value="onibus_hospedagem"');
     expect(admin).not.toContain('value="livre">Legado / livre');
-    expect(admin).toContain('O modelo do contrato é definido automaticamente por este tipo');
+    expect(admin).toContain("modeloContrato(pacoteForm.formaContratacao)");
   });
 });
 

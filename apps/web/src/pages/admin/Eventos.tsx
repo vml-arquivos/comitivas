@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../../contexts/AuthContext';
 import { Card, CardContent, Button, Input } from '@ui/index';
-import { Plus, X, ChevronDown, ChevronUp, Trash2, PackagePlus, MapPin, CalendarDays, ImagePlus, Pencil } from 'lucide-react';
+import { CalendarDays, ChevronDown, ChevronUp, ImagePlus, MapPin, PackagePlus, Pencil, Plus, Trash2, X } from 'lucide-react';
 
 interface Evento {
   id: string;
@@ -17,6 +17,7 @@ interface Lote {
   id: string;
   evento_id: string;
   nome: string;
+  descricao?: string | null;
   vagas_totais: number;
   vagas_disponíveis: number;
   data_inicio: string;
@@ -25,27 +26,33 @@ interface Lote {
   data_retorno?: string | null;
   local_embarque?: string | null;
   local_hospedagem?: string | null;
-  valor_base: string;
-  ativo: boolean;
 }
+
+type Foto = {
+  id: string;
+  url_foto: string;
+  legenda?: string | null;
+  alt_text?: string | null;
+  ordem?: number | null;
+  capa?: boolean;
+};
+
+type Modalidade = 'camping' | 'quarto_ventilador' | 'quarto_ar_condicionado';
+type Disponibilidade = 'disponivel' | 'ultimas_vagas' | 'esgotado';
+type FormaContratacao = 'onibus' | 'hospedagem' | 'onibus_hospedagem' | 'livre';
 
 interface Pacote {
   id: string;
   lote_id: string;
   nome: string;
-  descricao: string;
+  descricao?: string | null;
   valor_total: string;
   itens_selecionados?: unknown[];
-  modalidade_hospedagem: 'camping' | 'quarto_ventilador' | 'quarto_ar_condicionado';
-  disponibilidade: 'disponivel' | 'ultimas_vagas' | 'esgotado';
-  contrato_modelo: 'auto' | 'hospedagem' | 'transporte' | 'hospedagem_transporte';
-  forma_contratacao: 'onibus' | 'hospedagem' | 'onibus_hospedagem' | 'livre';
-  onibus_config?: Array<{
-    id: string;
-    nome: string;
-    capacidade: number;
-    ocupadas?: number[];
-  }>;
+  modalidade_hospedagem: Modalidade;
+  disponibilidade: Disponibilidade;
+  contrato_modelo: string;
+  forma_contratacao: FormaContratacao;
+  onibus_config?: Array<{ id: string; nome: string; capacidade: number }>;
   configuracao_pagamento?: {
     formas_permitidas?: string[];
     boleto_parcelas_maximo?: number;
@@ -58,48 +65,23 @@ interface Pacote {
   };
   data_limite_pagamento?: string | null;
   ativo: boolean;
+  fotos?: Foto[];
 }
 
-interface FotoEvento {
-  id: string;
-  url_foto: string;
-  legenda?: string | null;
-  ordem: number;
-}
-
-const modalidades: Record<Pacote['modalidade_hospedagem'], { titulo: string; descricao: string }> = {
-  camping: {
-    titulo: 'Camping',
-    descricao: 'Vivência coletiva na estrutura de camping da excursão.',
-  },
-  quarto_ventilador: {
-    titulo: 'Quarto com ventilador',
-    descricao: 'Hospedagem em quarto com ventilador.',
-  },
-  quarto_ar_condicionado: {
-    titulo: 'Quarto com ar-condicionado',
-    descricao: 'Hospedagem em quarto com ar-condicionado.',
-  },
+const modalidades: Record<Modalidade, { titulo: string; descricao: string }> = {
+  camping: { titulo: 'Camping', descricao: 'Vivência coletiva na estrutura de camping da excursão.' },
+  quarto_ventilador: { titulo: 'Quarto com ventilador', descricao: 'Hospedagem em quarto com ventilador.' },
+  quarto_ar_condicionado: { titulo: 'Quarto com ar-condicionado', descricao: 'Hospedagem em quarto com ar-condicionado.' },
 };
 
-const tipoContratacaoLabel: Record<Pacote['forma_contratacao'], string> = {
+const formaLabels: Record<FormaContratacao, string> = {
   onibus_hospedagem: 'Transporte + hospedagem',
   hospedagem: 'Somente hospedagem',
   onibus: 'Somente transporte',
-  livre: 'Configuração legada pendente',
+  livre: 'Configuração legada',
 };
 
-function modeloContratoPorForma(forma: Pacote['forma_contratacao']): Pacote['contrato_modelo'] {
-  if (forma === 'onibus') return 'transporte';
-  if (forma === 'hospedagem') return 'hospedagem';
-  if (forma === 'onibus_hospedagem') return 'hospedagem_transporte';
-  return 'auto';
-}
-
-const moeda = new Intl.NumberFormat('pt-BR', {
-  style: 'currency',
-  currency: 'BRL',
-});
+const moeda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
 function dataSaoPauloIso(valor: string, fimDoDia = false) {
   return new Date(`${valor}T${fimDoDia ? '23:59:00' : '00:00:00'}-03:00`).toISOString();
@@ -111,17 +93,12 @@ function dataHoraSaoPauloIso(valor: string) {
 
 function partesData(valor: string) {
   return Object.fromEntries(new Intl.DateTimeFormat('pt-BR', {
-    timeZone: 'America/Sao_Paulo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
+    timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
   }).formatToParts(new Date(valor)).map((parte) => [parte.type, parte.value]));
 }
 
-function paraDataInput(valor: string) {
+function paraDataInput(valor?: string | null) {
+  if (!valor) return '';
   const parte = partesData(valor);
   return `${parte.year}-${parte.month}-${parte.day}`;
 }
@@ -132,1139 +109,316 @@ function paraDataHoraInput(valor?: string | null) {
   return `${parte.year}-${parte.month}-${parte.day}T${parte.hour}:${parte.minute}`;
 }
 
+function disponibilidadeLabel(valor: Disponibilidade) {
+  return valor === 'esgotado' ? 'Esgotado' : valor === 'ultimas_vagas' ? 'Últimas vagas' : 'Disponível';
+}
+
+function modeloContrato(forma: FormaContratacao) {
+  if (forma === 'onibus') return 'transporte';
+  if (forma === 'hospedagem') return 'hospedagem';
+  if (forma === 'onibus_hospedagem') return 'hospedagem_transporte';
+  return 'auto';
+}
+
+const vazioEvento = { nome: '', descricao: '', dataInicio: '', dataFim: '', local: '' };
+const vazioLote = {
+  nome: '', descricao: '', vagas: '', dataInicio: '', dataFim: '', dataEmbarque: '', dataRetorno: '',
+  localEmbarque: '', localHospedagem: '',
+};
+const vazioPacote = {
+  nome: '', descricao: '', valorTotal: '', modalidade: 'quarto_ventilador' as Modalidade, disponibilidade: 'disponivel' as Disponibilidade,
+  formaContratacao: 'onibus_hospedagem' as FormaContratacao, quantidadeOnibus: '1', capacidadeOnibus: '44',
+  formasPagamento: ['pix', 'boleto'], boletoParcelas: '11', creditoParcelas: '10', creditoTaxa: '0', creditoJurosMensal: '0',
+  prazoSegurancaDias: '0', multaAtraso: '2', jurosMoraMensal: '1', dataLimitePagamento: '',
+};
+
 export default function EventosAdmin() {
   const [eventos, setEventos] = useState<Evento[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [mensagem, setMensagem] = useState<string | null>(null);
-  const [mostrarFormEvento, setMostrarFormEvento] = useState(false);
-  const [expandido, setExpandido] = useState<string | null>(null);
   const [lotesPorEvento, setLotesPorEvento] = useState<Record<string, Lote[]>>({});
   const [pacotesPorLote, setPacotesPorLote] = useState<Record<string, Pacote[]>>({});
-  const [fotosPorEvento, setFotosPorEvento] = useState<Record<string, FotoEvento[]>>({});
-  const [mostrarFormLote, setMostrarFormLote] = useState<string | null>(null);
-  const [mostrarFormPacote, setMostrarFormPacote] = useState<string | null>(null);
+  const [fotosPorEvento, setFotosPorEvento] = useState<Record<string, Foto[]>>({});
+  const [fotosPorPacote, setFotosPorPacote] = useState<Record<string, Foto[]>>({});
+  const [expandido, setExpandido] = useState<string | null>(null);
+  const [loteAberto, setLoteAberto] = useState<string | null>(null);
+  const [pacotesAbertos, setPacotesAbertos] = useState<string | null>(null);
+  const [galeriaPacoteAberta, setGaleriaPacoteAberta] = useState<string | null>(null);
+  const [mostrarFormEvento, setMostrarFormEvento] = useState(false);
   const [eventoEditando, setEventoEditando] = useState<string | null>(null);
   const [loteEditando, setLoteEditando] = useState<string | null>(null);
   const [pacoteEditando, setPacoteEditando] = useState<string | null>(null);
-
-  const [eventoForm, setEventoForm] = useState({
-    nome: '',
-    descricao: '',
-    dataInicio: '',
-    dataFim: '',
-    local: '',
-  });
-  const [loteForm, setLoteForm] = useState({
-    nome: '',
-    vagas: '',
-    dataInicio: '',
-    dataFim: '',
-    dataEmbarque: '',
-    dataRetorno: '',
-    localEmbarque: 'Brasília/DF, com embarque adicional em Goiânia/GO',
-    localHospedagem: 'Chácara Recanto Novo Encantado ou Santa Thereza — Barretos/SP',
-    valorBase: '',
-  });
-  const [pacoteForm, setPacoteForm] = useState({
-    nome: '',
-    descricao: '',
-    valorTotal: '',
-    modalidade: 'quarto_ventilador' as Pacote['modalidade_hospedagem'],
-    disponibilidade: 'disponivel' as Pacote['disponibilidade'],
-    contratoModelo: 'auto' as Pacote['contrato_modelo'],
-    formaContratacao: 'onibus_hospedagem' as Pacote['forma_contratacao'],
-    quantidadeOnibus: '1',
-    capacidadeOnibus: '44',
-    formasPagamento: ['pix', 'boleto'] as string[],
-    boletoParcelas: '11',
-    creditoParcelas: '10',
-    creditoTaxa: '0',
-    creditoJurosMensal: '0',
-    prazoSegurancaDias: '0',
-    multaAtraso: '2',
-    jurosMoraMensal: '1',
-    dataLimitePagamento: '',
-  });
-  const [kitForm, setKitForm] = useState({
-    camping: {
-      valor: '1900',
-      disponibilidade: 'disponivel' as Pacote['disponibilidade'],
-    },
-    quarto_ventilador: {
-      valor: '2200',
-      disponibilidade: 'disponivel' as Pacote['disponibilidade'],
-    },
-    quarto_ar_condicionado: {
-      valor: '2600',
-      disponibilidade: 'disponivel' as Pacote['disponibilidade'],
-    },
-  });
-  const [fotoForm, setFotoForm] = useState<{
-    arquivo: File | null;
-    legenda: string;
-  }>({ arquivo: null, legenda: '' });
-  const [fotoInputKey, setFotoInputKey] = useState(0);
+  const [eventoForm, setEventoForm] = useState(vazioEvento);
+  const [loteForm, setLoteForm] = useState(vazioLote);
+  const [pacoteForm, setPacoteForm] = useState(vazioPacote);
+  const [fotoEvento, setFotoEvento] = useState<{ arquivo: File | null; legenda: string }>({ arquivo: null, legenda: '' });
+  const [fotoPacote, setFotoPacote] = useState<{ pacoteId: string; arquivo: File | null; legenda: string }>({ pacoteId: '', arquivo: null, legenda: '' });
+  const [fotoEventoKey, setFotoEventoKey] = useState(0);
+  const [fotoPacoteKey, setFotoPacoteKey] = useState(0);
+  const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
-  const [erroForm, setErroForm] = useState<string | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const [mensagem, setMensagem] = useState<string | null>(null);
 
-  const fetchEventos = async () => {
+  const erroDaApi = (err: any, fallback: string) => err?.response?.data?.erro || fallback;
+  const limparFeedback = () => { setErro(null); setMensagem(null); };
+
+  const carregarEventos = async () => {
     try {
-      setError(null);
-      const response = await api.get('/eventos');
-      setEventos(response.data.eventos || []);
+      setErro(null);
+      const resposta = await api.get('/eventos');
+      setEventos(resposta.data.eventos || []);
     } catch (err: any) {
-      setError(err.response?.data?.erro || 'Erro ao carregar eventos.');
+      setErro(erroDaApi(err, 'Não foi possível carregar as excursões.'));
     } finally {
-      setIsLoading(false);
+      setCarregando(false);
     }
   };
 
-  useEffect(() => {
-    fetchEventos();
-  }, []);
+  useEffect(() => { void carregarEventos(); }, []);
 
   const carregarLotes = async (eventoId: string) => {
-    const response = await api.get(`/lotes/evento/${eventoId}`);
-    setLotesPorEvento((prev) => ({
-      ...prev,
-      [eventoId]: response.data.lotes || [],
-    }));
+    const resposta = await api.get(`/lotes/evento/${eventoId}`);
+    setLotesPorEvento((atual) => ({ ...atual, [eventoId]: resposta.data.lotes || [] }));
   };
 
   const carregarPacotes = async (loteId: string) => {
-    const response = await api.get(`/pacotes/lotes/${loteId}/pacotes`);
-    setPacotesPorLote((prev) => ({
-      ...prev,
-      [loteId]: response.data.pacotes || [],
-    }));
+    const resposta = await api.get(`/pacotes/lotes/${loteId}/pacotes`);
+    const lista = (resposta.data.pacotes || []) as Pacote[];
+    setPacotesPorLote((atual) => ({ ...atual, [loteId]: lista }));
+    setFotosPorPacote((atual) => Object.fromEntries([
+      ...Object.entries(atual),
+      ...lista.filter((pacote) => Array.isArray(pacote.fotos)).map((pacote) => [pacote.id, pacote.fotos || []]),
+    ]));
   };
 
-  const carregarFotos = async (eventoId: string) => {
-    const response = await api.get(`/eventos/${eventoId}/fotos`);
-    setFotosPorEvento((prev) => ({
-      ...prev,
-      [eventoId]: response.data.fotos || [],
-    }));
+  const carregarFotosEvento = async (eventoId: string) => {
+    const resposta = await api.get(`/eventos/${eventoId}/fotos`);
+    setFotosPorEvento((atual) => ({ ...atual, [eventoId]: resposta.data.fotos || [] }));
   };
 
-  const toggleExpandir = async (eventoId: string) => {
-    if (expandido === eventoId) {
-      setExpandido(null);
-      return;
-    }
+  const carregarFotosPacote = async (pacoteId: string) => {
+    const resposta = await api.get(`/pacotes/${pacoteId}/fotos`);
+    setFotosPorPacote((atual) => ({ ...atual, [pacoteId]: resposta.data.fotos || [] }));
+  };
+
+  const alternarEvento = async (eventoId: string) => {
+    limparFeedback();
+    if (expandido === eventoId) { setExpandido(null); return; }
     setExpandido(eventoId);
-    try {
-      await Promise.all([carregarLotes(eventoId), carregarFotos(eventoId)]);
-    } catch (err: any) {
-      setError(err.response?.data?.erro || 'Erro ao carregar lotes do evento.');
-    }
+    try { await Promise.all([carregarLotes(eventoId), carregarFotosEvento(eventoId)]); }
+    catch (err: any) { setErro(erroDaApi(err, 'Não foi possível carregar os detalhes da excursão.')); }
   };
 
-  const handleAdicionarFoto = async (e: React.FormEvent, eventoId: string) => {
+  const salvarEvento = async (e: FormEvent) => {
     e.preventDefault();
-    setErroForm(null);
-    if (!fotoForm.arquivo) {
-      setErroForm('Selecione uma foto do seu dispositivo.');
-      return;
+    limparFeedback();
+    if (!eventoForm.nome.trim() || !eventoForm.local.trim() || !eventoForm.dataInicio || !eventoForm.dataFim) {
+      setErro('Informe nome, destino e as duas datas da excursão.'); return;
     }
+    if (eventoForm.dataInicio > eventoForm.dataFim) { setErro('A data de saída deve ser anterior à data de retorno.'); return; }
     setSalvando(true);
     try {
-      await api.post(`/eventos/${eventoId}/fotos`, fotoForm.arquivo, {
-        headers: {
-          'Content-Type': 'application/octet-stream',
-          'X-File-Name': encodeURIComponent(fotoForm.arquivo.name),
-          'X-File-Mime': fotoForm.arquivo.type,
-          'X-File-Caption': encodeURIComponent(fotoForm.legenda.trim()),
-        },
-      });
-      await carregarFotos(eventoId);
-      setFotoForm({ arquivo: null, legenda: '' });
-      setFotoInputKey((atual) => atual + 1);
-    } catch (err: any) {
-      setErroForm(err.response?.data?.erro || 'Erro ao vincular foto.');
-    } finally {
-      setSalvando(false);
-    }
+      const payload = { nome: eventoForm.nome.trim(), descricao: eventoForm.descricao.trim(), local: eventoForm.local.trim(), data_inicio: dataSaoPauloIso(eventoForm.dataInicio), data_fim: dataSaoPauloIso(eventoForm.dataFim, true) };
+      const resposta = eventoEditando ? await api.put(`/eventos/${eventoEditando}`, payload) : await api.post('/eventos', payload);
+      if (eventoEditando) setEventos((atual) => atual.map((item) => item.id === eventoEditando ? resposta.data.evento : item));
+      else setEventos((atual) => [resposta.data.evento, ...atual]);
+      setMensagem(eventoEditando ? 'Excursão atualizada.' : 'Excursão criada. Agora adicione um lote e os pacotes.');
+      setEventoForm(vazioEvento); setEventoEditando(null); setMostrarFormEvento(false);
+    } catch (err: any) { setErro(erroDaApi(err, 'Não foi possível salvar a excursão.')); }
+    finally { setSalvando(false); }
   };
 
-  const removerFoto = async (eventoId: string, fotoId: string) => {
-    if (!window.confirm('Remover esta foto do álbum do evento?')) return;
-    try {
-      await api.delete(`/eventos/${eventoId}/fotos/${fotoId}`);
-      await carregarFotos(eventoId);
-    } catch (err: any) {
-      setError(err.response?.data?.erro || 'Erro ao remover foto.');
-    }
-  };
-
-  const handleSalvarEvento = async (e: React.FormEvent) => {
+  const salvarLote = async (e: FormEvent, eventoId: string) => {
     e.preventDefault();
-    setErroForm(null);
-    if (!eventoForm.nome || !eventoForm.local || !eventoForm.dataInicio || !eventoForm.dataFim) {
-      setErroForm('Nome, local e período são obrigatórios.');
-      return;
+    limparFeedback();
+    if (!loteForm.nome.trim() || !loteForm.vagas || !loteForm.dataInicio || !loteForm.dataFim) {
+      setErro('Informe o nome da faixa, a quantidade de vagas e o período.'); return;
     }
+    if (loteForm.dataInicio > loteForm.dataFim) { setErro('O início do lote deve ser anterior ao fim.'); return; }
     setSalvando(true);
     try {
+      const existente = loteEditando ? (lotesPorEvento[eventoId] || []).find((item) => item.id === loteEditando) : null;
+      const vagas = Number(loteForm.vagas);
+      const ocupadas = existente ? Math.max(0, Number(existente.vagas_totais) - Number(existente.vagas_disponíveis)) : 0;
+      if (!Number.isInteger(vagas) || vagas < 1 || vagas < ocupadas) { setErro(`A capacidade deve ser inteira e não pode ser menor que ${ocupadas} vaga(s) já ocupada(s).`); return; }
       const payload = {
-        nome: eventoForm.nome,
-        descricao: eventoForm.descricao,
-        local: eventoForm.local,
-        data_inicio: dataSaoPauloIso(eventoForm.dataInicio),
-        data_fim: dataSaoPauloIso(eventoForm.dataFim, true),
-      };
-      const response = eventoEditando
-        ? await api.put(`/eventos/${eventoEditando}`, payload)
-        : await api.post('/eventos', payload);
-      if (eventoEditando) {
-        setEventos((prev) => prev.map((evento) => evento.id === eventoEditando ? response.data.evento : evento));
-        setMensagem('Excursão atualizada com sucesso.');
-      } else {
-        setEventos((prev) => [response.data.evento, ...prev]);
-        setMensagem('Excursão criada com sucesso.');
-      }
-      setEventoForm({
-        nome: '',
-        descricao: '',
-        dataInicio: '',
-        dataFim: '',
-        local: '',
-      });
-      setEventoEditando(null);
-      setMostrarFormEvento(false);
-    } catch (err: any) {
-      setErroForm(err.response?.data?.erro || 'Erro ao salvar excursão.');
-    } finally {
-      setSalvando(false);
-    }
-  };
-
-  const handleSalvarLote = async (e: React.FormEvent, eventoId: string) => {
-    e.preventDefault();
-    setErroForm(null);
-    if (!loteForm.nome || !loteForm.vagas || !loteForm.dataInicio || !loteForm.dataFim || !loteForm.valorBase) {
-      setErroForm('Preencha todos os campos do lote.');
-      return;
-    }
-    setSalvando(true);
-    try {
-      const existente = loteEditando
-        ? (lotesPorEvento[eventoId] || []).find((lote) => lote.id === loteEditando)
-        : null;
-      const novasVagas = Number(loteForm.vagas);
-      const ocupadas = existente ? Math.max(0, existente.vagas_totais - existente['vagas_disponíveis']) : 0;
-      if (novasVagas < ocupadas) {
-        setErroForm(`Este período já possui ${ocupadas} vaga(s) ocupada(s). Informe ao menos essa capacidade.`);
-        return;
-      }
-      const payload = {
-        evento_id: eventoId,
-        nome: loteForm.nome,
-        vagas_totais: novasVagas,
-        vagas_disponiveis: novasVagas - ocupadas,
-        data_inicio: dataSaoPauloIso(loteForm.dataInicio),
-        data_fim: dataSaoPauloIso(loteForm.dataFim, true),
+        evento_id: eventoId, nome: loteForm.nome.trim(), descricao: loteForm.descricao.trim(), vagas_totais: vagas,
+        vagas_disponiveis: vagas - ocupadas, data_inicio: dataSaoPauloIso(loteForm.dataInicio), data_fim: dataSaoPauloIso(loteForm.dataFim, true),
         data_embarque: loteForm.dataEmbarque ? dataHoraSaoPauloIso(loteForm.dataEmbarque) : undefined,
         data_retorno: loteForm.dataRetorno ? dataHoraSaoPauloIso(loteForm.dataRetorno) : undefined,
-        local_embarque: loteForm.localEmbarque,
-        local_hospedagem: loteForm.localHospedagem,
-        valor_base: Number(loteForm.valorBase),
+        local_embarque: loteForm.localEmbarque.trim() || undefined, local_hospedagem: loteForm.localHospedagem.trim() || undefined,
+        ...(existente ? {} : { valor_base: 0 }),
       };
-      if (loteEditando) await api.put(`/lotes/${loteEditando}`, payload);
-      else await api.post('/lotes', payload);
+      if (loteEditando) await api.put(`/lotes/${loteEditando}`, payload); else await api.post('/lotes', payload);
       await carregarLotes(eventoId);
-      setMensagem(loteEditando ? 'Período atualizado com sucesso.' : 'Período criado com sucesso.');
-      setLoteForm({
-        nome: '',
-        vagas: '',
-        dataInicio: '',
-        dataFim: '',
-        dataEmbarque: '',
-        dataRetorno: '',
-        localEmbarque: 'Brasília/DF, com embarque adicional em Goiânia/GO',
-        localHospedagem: 'Chácara Recanto Novo Encantado ou Santa Thereza — Barretos/SP',
-        valorBase: '',
-      });
-      setLoteEditando(null);
-      setMostrarFormLote(null);
-    } catch (err: any) {
-      setErroForm(err.response?.data?.erro || 'Erro ao salvar período.');
-    } finally {
-      setSalvando(false);
-    }
+      setMensagem(loteEditando ? 'Faixa atualizada.' : 'Faixa criada. Agora cadastre os pacotes e os preços.');
+      setLoteForm(vazioLote); setLoteEditando(null); setLoteAberto(null);
+    } catch (err: any) { setErro(erroDaApi(err, 'Não foi possível salvar a faixa.')); }
+    finally { setSalvando(false); }
   };
 
-  const abrirFormPacote = async (loteId: string) => {
-    setErroForm(null);
+  const abrirPacotes = async (loteId: string) => {
+    limparFeedback();
+    setPacotesAbertos(loteId);
     setPacoteEditando(null);
-    setMostrarFormPacote(mostrarFormPacote === loteId ? null : loteId);
-    if (!pacotesPorLote[loteId]) {
-      try {
-        await carregarPacotes(loteId);
-      } catch (err: any) {
-        setErroForm(err.response?.data?.erro || 'Erro ao carregar pacotes.');
-      }
-    }
+    setPacoteForm(vazioPacote);
+    try { await carregarPacotes(loteId); }
+    catch (err: any) { setErro(erroDaApi(err, 'Não foi possível carregar os pacotes.')); }
   };
 
-  const handleCriarPacote = async (e: React.FormEvent, loteId: string) => {
+  const salvarPacote = async (e: FormEvent, loteId: string) => {
     e.preventDefault();
-    setErroForm(null);
-    if (!pacoteForm.nome || !pacoteForm.valorTotal || !pacoteForm.modalidade) {
-      setErroForm('Nome, valor e modalidade são obrigatórios.');
-      return;
+    limparFeedback();
+    if (!pacoteForm.nome.trim() || !pacoteForm.valorTotal || Number(pacoteForm.valorTotal) <= 0) {
+      setErro('Informe o nome e o preço do pacote.'); return;
     }
+    if (pacoteForm.formasPagamento.length === 0) { setErro('Selecione ao menos uma forma de pagamento.'); return; }
     setSalvando(true);
     try {
+      const anterior = pacoteEditando ? (pacotesPorLote[loteId] || []).find((item) => item.id === pacoteEditando) : null;
       const payload = {
-        lote_id: loteId,
-        nome: pacoteForm.nome,
-        descricao: pacoteForm.descricao || modalidades[pacoteForm.modalidade].descricao,
-        valor_total: Number(pacoteForm.valorTotal),
-        itens_selecionados: pacoteEditando
-          ? (pacotesPorLote[loteId] || []).find((pacote) => pacote.id === pacoteEditando)?.itens_selecionados || []
-          : [],
-        modalidade_hospedagem: pacoteForm.modalidade,
-        disponibilidade: pacoteForm.disponibilidade,
-        contrato_modelo: modeloContratoPorForma(pacoteForm.formaContratacao),
-        forma_contratacao: pacoteForm.formaContratacao,
-        onibus_config: pacoteForm.formaContratacao.includes('onibus')
-          ? Array.from({ length: Math.max(1, Number(pacoteForm.quantidadeOnibus) || 1) }, (_, indice) => ({
-              id: `onibus-${indice + 1}`,
-              nome: `Ônibus ${indice + 1}`,
-              capacidade: Math.max(1, Number(pacoteForm.capacidadeOnibus) || 1),
-            }))
-          : [],
+        lote_id: loteId, nome: pacoteForm.nome.trim(), descricao: pacoteForm.descricao.trim() || modalidades[pacoteForm.modalidade].descricao,
+        valor_total: Number(pacoteForm.valorTotal), itens_selecionados: anterior?.itens_selecionados || [], modalidade_hospedagem: pacoteForm.modalidade,
+        disponibilidade: pacoteForm.disponibilidade, contrato_modelo: modeloContrato(pacoteForm.formaContratacao), forma_contratacao: pacoteForm.formaContratacao,
+        onibus_config: pacoteForm.formaContratacao.includes('onibus') ? Array.from({ length: Math.max(1, Number(pacoteForm.quantidadeOnibus) || 1) }, (_, indice) => ({ id: `onibus-${indice + 1}`, nome: `Ônibus ${indice + 1}`, capacidade: Math.max(1, Number(pacoteForm.capacidadeOnibus) || 1) })) : [],
         configuracao_pagamento: {
-          formas_permitidas: pacoteForm.formasPagamento,
-          boleto_parcelas_maximo: Math.max(1, Number(pacoteForm.boletoParcelas) || 1),
-          credito_parcelas_maximo: Math.max(1, Number(pacoteForm.creditoParcelas) || 1),
-          credito_taxa_percentual: Math.max(0, Number(pacoteForm.creditoTaxa) || 0),
-          credito_juros_mensal_percentual: Math.max(0, Number(pacoteForm.creditoJurosMensal) || 0),
-          prazo_seguranca_dias: Math.max(0, Number(pacoteForm.prazoSegurancaDias) || 0),
-          multa_atraso_percentual: Math.max(0, Number(pacoteForm.multaAtraso) || 0),
-          juros_mora_mensal_percentual: Math.max(0, Number(pacoteForm.jurosMoraMensal) || 0),
+          formas_permitidas: pacoteForm.formasPagamento, boleto_parcelas_maximo: Math.max(1, Number(pacoteForm.boletoParcelas) || 1), credito_parcelas_maximo: Math.max(1, Number(pacoteForm.creditoParcelas) || 1),
+          credito_taxa_percentual: Math.max(0, Number(pacoteForm.creditoTaxa) || 0), credito_juros_mensal_percentual: Math.max(0, Number(pacoteForm.creditoJurosMensal) || 0), prazo_seguranca_dias: Math.max(0, Number(pacoteForm.prazoSegurancaDias) || 0),
+          multa_atraso_percentual: Math.max(0, Number(pacoteForm.multaAtraso) || 0), juros_mora_mensal_percentual: Math.max(0, Number(pacoteForm.jurosMoraMensal) || 0),
         },
         data_limite_pagamento: pacoteForm.dataLimitePagamento ? dataSaoPauloIso(pacoteForm.dataLimitePagamento, true) : undefined,
       };
-      if (pacoteEditando) await api.put(`/pacotes/${pacoteEditando}`, payload);
-      else await api.post('/pacotes', payload);
+      const resposta = pacoteEditando ? await api.put(`/pacotes/${pacoteEditando}`, payload) : await api.post('/pacotes', payload);
+      const pacoteSalvo = resposta.data.pacote as Pacote;
       await carregarPacotes(loteId);
-      setMensagem(pacoteEditando ? 'Pacote atualizado com sucesso.' : 'Pacote criado com sucesso.');
-      setPacoteForm({
-        nome: '',
-        descricao: '',
-        valorTotal: '',
-        modalidade: 'quarto_ventilador',
-        disponibilidade: 'disponivel',
-        contratoModelo: 'auto',
-        formaContratacao: 'onibus_hospedagem',
-        quantidadeOnibus: '1',
-        capacidadeOnibus: '44',
-        formasPagamento: ['pix', 'boleto'],
-        boletoParcelas: '11',
-        creditoParcelas: '10',
-        creditoTaxa: '0',
-        creditoJurosMensal: '0',
-        prazoSegurancaDias: '0',
-        multaAtraso: '2',
-        jurosMoraMensal: '1',
-        dataLimitePagamento: '',
-      });
-      setPacoteEditando(null);
-      setMostrarFormPacote(null);
-    } catch (err: any) {
-      setErroForm(err.response?.data?.erro || 'Erro ao salvar pacote.');
-    } finally {
-      setSalvando(false);
-    }
+      setMensagem(pacoteEditando ? 'Pacote atualizado.' : 'Pacote criado. Você pode criar novo pacote ou adicionar fotos agora.');
+      setPacoteForm(vazioPacote); setPacoteEditando(null);
+      if (pacoteSalvo?.id) await carregarFotosPacote(pacoteSalvo.id).catch(() => undefined);
+    } catch (err: any) { setErro(erroDaApi(err, 'Não foi possível salvar o pacote.')); }
+    finally { setSalvando(false); }
   };
-
-  const handleSincronizarModalidades = async (loteId: string) => {
-    setErroForm(null);
-    if (Object.values(kitForm).some((item) => !item.valor || Number(item.valor) <= 0)) {
-      setErroForm('Informe os três valores antes de sincronizar as modalidades.');
-      return;
-    }
-
-    setSalvando(true);
-    try {
-      const existentes = pacotesPorLote[loteId] || [];
-      for (const modalidade of Object.keys(kitForm) as Pacote['modalidade_hospedagem'][]) {
-        const dados = kitForm[modalidade];
-        const existente = existentes.find((pacote) => pacote.modalidade_hospedagem === modalidade && pacote.forma_contratacao === 'onibus_hospedagem');
-        const payload = {
-          lote_id: loteId,
-          nome: modalidades[modalidade].titulo,
-          descricao: modalidades[modalidade].descricao,
-          valor_total: Number(dados.valor),
-          itens_selecionados: [],
-          modalidade_hospedagem: modalidade,
-          disponibilidade: dados.disponibilidade,
-          contrato_modelo: 'hospedagem_transporte',
-          forma_contratacao: 'onibus_hospedagem',
-          onibus_config: existente?.onibus_config?.length ? existente.onibus_config : [{ id: 'onibus-1', nome: 'Ônibus 1', capacidade: 44 }],
-          configuracao_pagamento: existente?.configuracao_pagamento || { formas_permitidas: ['pix', 'boleto'], boleto_parcelas_maximo: 11, credito_parcelas_maximo: 10, credito_taxa_percentual: 0, credito_juros_mensal_percentual: 0, prazo_seguranca_dias: 0, multa_atraso_percentual: 2, juros_mora_mensal_percentual: 1 },
-          ativo: true,
-        };
-        if (existente) {
-          await api.put(`/pacotes/${existente.id}`, payload);
-        } else {
-          await api.post('/pacotes', payload);
-        }
-      }
-      await carregarPacotes(loteId);
-    } catch (err: any) {
-      setErroForm(err.response?.data?.erro || 'Erro ao sincronizar as três modalidades.');
-    } finally {
-      setSalvando(false);
-    }
-  };
-
 
   const editarEvento = (evento: Evento) => {
-    setErroForm(null);
-    setMensagem(null);
-    setEventoEditando(evento.id);
-    setEventoForm({
-      nome: evento.nome,
-      descricao: evento.descricao || '',
-      dataInicio: paraDataInput(evento.data_inicio),
-      dataFim: paraDataInput(evento.data_fim),
-      local: evento.local,
-    });
-    setMostrarFormEvento(true);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    limparFeedback(); setEventoEditando(evento.id); setEventoForm({ nome: evento.nome, descricao: evento.descricao || '', dataInicio: paraDataInput(evento.data_inicio), dataFim: paraDataInput(evento.data_fim), local: evento.local }); setMostrarFormEvento(true); window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const editarLote = (eventoId: string, lote: Lote) => {
-    setErroForm(null);
-    setLoteEditando(lote.id);
-    setLoteForm({
-      nome: lote.nome,
-      vagas: String(lote.vagas_totais),
-      dataInicio: paraDataInput(lote.data_inicio),
-      dataFim: paraDataInput(lote.data_fim),
-      dataEmbarque: paraDataHoraInput(lote.data_embarque),
-      dataRetorno: paraDataHoraInput(lote.data_retorno),
-      localEmbarque: lote.local_embarque || '',
-      localHospedagem: lote.local_hospedagem || '',
-      valorBase: String(lote.valor_base),
-    });
-    setMostrarFormLote(eventoId);
+    limparFeedback(); setLoteEditando(lote.id); setLoteAberto(eventoId); setLoteForm({ nome: lote.nome, descricao: lote.descricao || '', vagas: String(lote.vagas_totais), dataInicio: paraDataInput(lote.data_inicio), dataFim: paraDataInput(lote.data_fim), dataEmbarque: paraDataHoraInput(lote.data_embarque), dataRetorno: paraDataHoraInput(lote.data_retorno), localEmbarque: lote.local_embarque || '', localHospedagem: lote.local_hospedagem || '' });
   };
 
   const editarPacote = (loteId: string, pacote: Pacote) => {
     const pagamento = pacote.configuracao_pagamento || {};
-    setErroForm(null);
-    setPacoteEditando(pacote.id);
-    setPacoteForm({
-      nome: pacote.nome,
-      descricao: pacote.descricao || '',
-      valorTotal: String(pacote.valor_total),
-      modalidade: pacote.modalidade_hospedagem,
-      disponibilidade: pacote.disponibilidade,
-      contratoModelo: modeloContratoPorForma(pacote.forma_contratacao || 'onibus_hospedagem'),
-      formaContratacao: pacote.forma_contratacao || 'onibus_hospedagem',
-      quantidadeOnibus: String(pacote.onibus_config?.length || 1),
-      capacidadeOnibus: String(pacote.onibus_config?.[0]?.capacidade || 44),
-      formasPagamento: pagamento.formas_permitidas || ['pix', 'boleto'],
-      boletoParcelas: String(pagamento.boleto_parcelas_maximo || 1),
-      creditoParcelas: String(pagamento.credito_parcelas_maximo || 10),
-      creditoTaxa: String(pagamento.credito_taxa_percentual || 0),
-      creditoJurosMensal: String(pagamento.credito_juros_mensal_percentual || 0),
-      prazoSegurancaDias: String(pagamento.prazo_seguranca_dias || 0),
-      multaAtraso: String(pagamento.multa_atraso_percentual || 0),
-      jurosMoraMensal: String(pagamento.juros_mora_mensal_percentual || 0),
-      dataLimitePagamento: pacote.data_limite_pagamento ? paraDataInput(pacote.data_limite_pagamento) : '',
+    limparFeedback(); setPacotesAbertos(loteId); setPacoteEditando(pacote.id); setGaleriaPacoteAberta(null); setPacoteForm({
+      nome: pacote.nome, descricao: pacote.descricao || '', valorTotal: String(pacote.valor_total), modalidade: pacote.modalidade_hospedagem, disponibilidade: pacote.disponibilidade,
+      formaContratacao: pacote.forma_contratacao || 'onibus_hospedagem', quantidadeOnibus: String(pacote.onibus_config?.length || 1), capacidadeOnibus: String(pacote.onibus_config?.[0]?.capacidade || 44),
+      formasPagamento: pagamento.formas_permitidas || ['pix', 'boleto'], boletoParcelas: String(pagamento.boleto_parcelas_maximo || 1), creditoParcelas: String(pagamento.credito_parcelas_maximo || 10), creditoTaxa: String(pagamento.credito_taxa_percentual || 0), creditoJurosMensal: String(pagamento.credito_juros_mensal_percentual || 0), prazoSegurancaDias: String(pagamento.prazo_seguranca_dias || 0), multaAtraso: String(pagamento.multa_atraso_percentual || 0), jurosMoraMensal: String(pagamento.juros_mora_mensal_percentual || 0), dataLimitePagamento: pacote.data_limite_pagamento ? paraDataInput(pacote.data_limite_pagamento) : '',
     });
-    setMostrarFormPacote(loteId);
+  };
+
+  const excluirEvento = async (eventoId: string) => {
+    if (!window.confirm('Excluir esta excursão? Se houver histórico, ela será arquivada para preservar reservas e contratos.')) return;
+    try { limparFeedback(); const resposta = await api.delete(`/eventos/${eventoId}`); setMensagem(resposta.data.mensagem || 'Excursão removida.'); setEventos((atual) => atual.filter((item) => item.id !== eventoId)); }
+    catch (err: any) { setErro(erroDaApi(err, 'Não foi possível excluir a excursão.')); }
+  };
+
+  const excluirLote = async (eventoId: string, loteId: string) => {
+    if (!window.confirm('Excluir esta faixa de vagas? Se houver histórico, ela será arquivada.')) return;
+    try { limparFeedback(); const resposta = await api.delete(`/lotes/${loteId}`); setMensagem(resposta.data.mensagem || 'Faixa removida.'); await carregarLotes(eventoId); }
+    catch (err: any) { setErro(erroDaApi(err, 'Não foi possível excluir a faixa.')); }
   };
 
   const excluirPacote = async (loteId: string, pacoteId: string) => {
     if (!window.confirm('Excluir este pacote? Se houver vendas, ele será arquivado para preservar o histórico.')) return;
-    try {
-      setError(null);
-      const response = await api.delete(`/pacotes/${pacoteId}`);
-      setMensagem(response.data.mensagem || 'Pacote removido com sucesso.');
-      await carregarPacotes(loteId);
-    } catch (err: any) {
-      setError(err.response?.data?.erro || 'Erro ao excluir pacote.');
-    }
+    try { limparFeedback(); const resposta = await api.delete(`/pacotes/${pacoteId}`); setMensagem(resposta.data.mensagem || 'Pacote removido.'); await carregarPacotes(loteId); }
+    catch (err: any) { setErro(erroDaApi(err, 'Não foi possível excluir o pacote.')); }
   };
 
-  const excluirEvento = async (eventoId: string) => {
-    if (!window.confirm('Excluir esta excursão? Se houver registros, ela será arquivada para preservar o histórico.')) return;
+  const enviarFotoEvento = async (e: FormEvent, eventoId: string) => {
+    e.preventDefault();
+    if (!fotoEvento.arquivo) { setErro('Selecione uma imagem da excursão.'); return; }
+    setSalvando(true); limparFeedback();
     try {
-      setError(null);
-      const response = await api.delete(`/eventos/${eventoId}`);
-      setMensagem(response.data.mensagem || 'Excursão removida com sucesso.');
-      setEventos((prev) => prev.filter((evento) => evento.id !== eventoId));
-    } catch (err: any) {
-      setError(err.response?.data?.erro || 'Erro ao excluir excursão.');
-    }
+      await api.post(`/eventos/${eventoId}/fotos`, fotoEvento.arquivo, { headers: { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(fotoEvento.arquivo.name), 'X-File-Mime': fotoEvento.arquivo.type, 'X-File-Caption': encodeURIComponent(fotoEvento.legenda.trim()), 'X-File-Alt': encodeURIComponent(fotoEvento.legenda.trim()) } });
+      await carregarFotosEvento(eventoId); setFotoEvento({ arquivo: null, legenda: '' }); setFotoEventoKey((atual) => atual + 1); setMensagem('Imagem da excursão adicionada.');
+    } catch (err: any) { setErro(erroDaApi(err, 'Não foi possível enviar a imagem da excursão.')); }
+    finally { setSalvando(false); }
   };
 
-  const excluirLote = async (eventoId: string, loteId: string) => {
-    if (!window.confirm('Excluir este período? Se houver registros, ele será arquivado para preservar o histórico.')) return;
+  const enviarFotoPacote = async (e: FormEvent, pacoteId: string) => {
+    e.preventDefault();
+    if (!fotoPacote.arquivo || fotoPacote.pacoteId !== pacoteId) { setErro('Selecione uma imagem do pacote.'); return; }
+    setSalvando(true); limparFeedback();
     try {
-      setError(null);
-      const response = await api.delete(`/lotes/${loteId}`);
-      setMensagem(response.data.mensagem || 'Período removido com sucesso.');
-      await carregarLotes(eventoId);
-    } catch (err: any) {
-      setError(err.response?.data?.erro || 'Erro ao excluir período.');
-    }
+      await api.post(`/pacotes/${pacoteId}/fotos`, fotoPacote.arquivo, { headers: { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(fotoPacote.arquivo.name), 'X-File-Mime': fotoPacote.arquivo.type, 'X-File-Caption': encodeURIComponent(fotoPacote.legenda.trim()), 'X-File-Alt': encodeURIComponent(fotoPacote.legenda.trim()) } });
+      await carregarFotosPacote(pacoteId); setFotoPacote({ pacoteId: '', arquivo: null, legenda: '' }); setFotoPacoteKey((atual) => atual + 1); setMensagem('Imagem do pacote adicionada.');
+    } catch (err: any) { setErro(erroDaApi(err, 'Não foi possível enviar a imagem do pacote.')); }
+    finally { setSalvando(false); }
   };
 
-  return (
-    <div className="admin-page">
-      <section className="admin-page-header">
-        <div className="flex w-full flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="admin-eyebrow">Central de publicação</p>
-            <h1 className="admin-title">Viagens e pacotes</h1>
-            <p className="admin-subtitle">Organize a excursão, os períodos, pacotes, preços, fotos e disponibilidade.</p>
-          </div>
-          <Button
-            onClick={() => {
-              setErroForm(null);
-              setEventoEditando(null);
-              setEventoForm({ nome: '', descricao: '', dataInicio: '', dataFim: '', local: '' });
-              setMostrarFormEvento((v) => !v);
-            }}
-          >
-            {mostrarFormEvento ? <X size={16} className="mr-2" /> : <Plus size={16} className="mr-2" />}
-            {mostrarFormEvento ? 'Cancelar' : 'Nova excursão'}
-          </Button>
+  const removerFotoEvento = async (eventoId: string, fotoId: string) => {
+    if (!window.confirm('Remover esta imagem da excursão?')) return;
+    try { await api.delete(`/eventos/${eventoId}/fotos/${fotoId}`); await carregarFotosEvento(eventoId); setMensagem('Imagem removida.'); }
+    catch (err: any) { setErro(erroDaApi(err, 'Não foi possível remover a imagem.')); }
+  };
+
+  const removerFotoPacote = async (pacoteId: string, fotoId: string) => {
+    if (!window.confirm('Remover esta imagem do pacote?')) return;
+    try { await api.delete(`/pacotes/${pacoteId}/fotos/${fotoId}`); await carregarFotosPacote(pacoteId); setMensagem('Imagem removida.'); }
+    catch (err: any) { setErro(erroDaApi(err, 'Não foi possível remover a imagem.')); }
+  };
+
+  const renderGaleriaEvento = (eventoId: string) => {
+    const fotos = fotosPorEvento[eventoId] || [];
+    return (
+      <section className="mt-7 rounded-2xl border border-slate-200 bg-white p-5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div><h3 className="flex items-center gap-2 font-bold text-slate-900"><ImagePlus size={18} className="text-[#C94F38]" /> Imagens da excursão</h3><p className="mt-1 text-xs text-slate-500">Adicione até cinco imagens principais para a vitrine: destino, grupo e experiência.</p></div>
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{fotos.length}/5 imagens</span>
         </div>
+        <form onSubmit={(e) => void enviarFotoEvento(e, eventoId)} className="mt-4 grid gap-3 rounded-xl bg-slate-50 p-4 md:grid-cols-[1.2fr_1fr_auto] md:items-end">
+          <div><label htmlFor={`foto-evento-${eventoId}`} className="mb-1 block text-sm font-medium text-slate-700">Imagem</label><input key={fotoEventoKey} id={`foto-evento-${eventoId}`} type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => setFotoEvento({ ...fotoEvento, arquivo: e.target.files?.[0] || null })} className="block h-10 w-full rounded-md border border-slate-300 bg-white text-sm file:mr-3 file:h-full file:border-0 file:bg-slate-100 file:px-3" /></div>
+          <Input label="Legenda / texto alternativo" value={fotoEvento.legenda} onChange={(e) => setFotoEvento({ ...fotoEvento, legenda: e.target.value })} placeholder="Ex.: Parque do Peão" />
+          <Button type="submit" disabled={salvando}>{salvando ? 'Enviando...' : 'Adicionar imagem'}</Button>
+        </form>
+        {fotos.length > 0 && <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">{fotos.map((foto) => <figure key={foto.id} className="relative overflow-hidden rounded-xl border border-slate-200 bg-slate-50"><img src={foto.url_foto} alt={foto.alt_text || foto.legenda || 'Imagem da excursão'} className="h-28 w-full object-cover" /><figcaption className="truncate px-2 py-1 text-[11px] text-slate-500">{foto.legenda || 'Sem legenda'}</figcaption><button type="button" onClick={() => void removerFotoEvento(eventoId, foto.id)} className="absolute right-1 top-1 rounded-full bg-white/95 p-1.5 text-slate-500 shadow hover:text-red-600" aria-label="Remover imagem"><Trash2 size={13} /></button></figure>)}</div>}
       </section>
+    );
+  };
 
-      {error && <div className="rounded-lg bg-red-50 p-4 text-red-700">{error}</div>}
-      {mensagem && <div className="rounded-lg bg-emerald-50 p-4 text-emerald-800">{mensagem}</div>}
+  const renderGaleriaPacote = (pacote: Pacote) => {
+    const fotos = fotosPorPacote[pacote.id] || [];
+    return <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+      <div className="flex items-center justify-between gap-2"><p className="text-xs font-bold uppercase tracking-wide text-slate-600">Imagens do pacote</p><span className="text-xs font-semibold text-slate-500">{fotos.length}/5</span></div>
+      <form onSubmit={(e) => void enviarFotoPacote(e, pacote.id)} className="mt-3 grid gap-2 md:grid-cols-[1.2fr_1fr_auto] md:items-end"><div><label htmlFor={`foto-pacote-${pacote.id}`} className="mb-1 block text-xs font-semibold text-slate-600">Imagem</label><input key={fotoPacoteKey} id={`foto-pacote-${pacote.id}`} type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => setFotoPacote({ pacoteId: pacote.id, arquivo: e.target.files?.[0] || null, legenda: fotoPacote.legenda })} className="block h-9 w-full rounded-md border border-slate-300 bg-white text-xs file:mr-2 file:h-full file:border-0 file:bg-slate-100 file:px-2" /></div><Input label="Legenda" value={fotoPacote.pacoteId === pacote.id ? fotoPacote.legenda : ''} onChange={(e) => setFotoPacote({ ...fotoPacote, pacoteId: pacote.id, legenda: e.target.value })} placeholder="Ex.: Quarto" /><Button type="submit" variant="outline" disabled={salvando || fotos.length >= 5}>{salvando ? 'Enviando...' : fotos.length >= 5 ? 'Limite atingido' : 'Adicionar'}</Button></form>
+      {fotos.length > 0 && <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-5">{fotos.map((foto) => <figure key={foto.id} className="relative overflow-hidden rounded-lg border border-slate-200 bg-white"><img src={foto.url_foto} alt={foto.alt_text || foto.legenda || 'Imagem do pacote'} className="h-20 w-full object-cover" /><button type="button" onClick={() => void removerFotoPacote(pacote.id, foto.id)} className="absolute right-1 top-1 rounded-full bg-white/95 p-1 text-slate-500 shadow hover:text-red-600" aria-label="Remover imagem"><Trash2 size={12} /></button></figure>)}</div>}
+    </div>;
+  };
 
-      {mostrarFormEvento && (
-        <Card className="border-primary/20 shadow-lg">
-          <CardContent className="p-6">
-            <form onSubmit={handleSalvarEvento} className="space-y-4">
-              <h2 className="text-lg font-bold">{eventoEditando ? 'Editar excursão' : 'Publicar nova excursão'}</h2>
-              {erroForm && <div className="rounded bg-red-50 p-3 text-sm text-red-700">{erroForm}</div>}
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <Input label="Nome da excursão" value={eventoForm.nome} onChange={(e) => setEventoForm({ ...eventoForm, nome: e.target.value })} placeholder="Ex.: Excursão das Comitivas — Barretos 2026" />
-                <Input label="Destino / local" value={eventoForm.local} onChange={(e) => setEventoForm({ ...eventoForm, local: e.target.value })} placeholder="Barretos — SP" />
-                <Input label="Início" type="date" value={eventoForm.dataInicio} onChange={(e) => setEventoForm({ ...eventoForm, dataInicio: e.target.value })} />
-                <Input label="Fim" type="date" value={eventoForm.dataFim} onChange={(e) => setEventoForm({ ...eventoForm, dataFim: e.target.value })} />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Descrição de venda</label>
-                <textarea value={eventoForm.descricao} onChange={(e) => setEventoForm({ ...eventoForm, descricao: e.target.value })} rows={4} className="w-full rounded-md border border-gray-300 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary" placeholder="Apresente a experiência, os benefícios e a história da excursão." />
-              </div>
-              <Button type="submit" disabled={salvando}>
-                {salvando ? 'Salvando...' : eventoEditando ? 'Salvar alterações' : 'Publicar excursão'}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      )}
+  return <div className="admin-page">
+    <section className="admin-page-header"><div className="flex w-full flex-col gap-4 md:flex-row md:items-end md:justify-between"><div><p className="admin-eyebrow">Catálogo</p><h1 className="admin-title">Excursões e pacotes</h1><p className="admin-subtitle">Crie a excursão, adicione faixas de vagas quando precisar e coloque preço somente nos pacotes.</p></div><Button onClick={() => { limparFeedback(); setEventoEditando(null); setEventoForm(vazioEvento); setMostrarFormEvento((atual) => !atual); }}>{mostrarFormEvento ? <X size={16} className="mr-2" /> : <Plus size={16} className="mr-2" />}{mostrarFormEvento ? 'Fechar' : 'Nova excursão'}</Button></div></section>
+    {erro && <div className="rounded-lg bg-red-50 p-4 text-sm text-red-700">{erro}</div>}
+    {mensagem && <div className="rounded-lg bg-emerald-50 p-4 text-sm text-emerald-800">{mensagem}</div>}
 
-      {isLoading && <p className="text-gray-500">Carregando excursões...</p>}
-      {!isLoading && eventos.length === 0 && <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500">Nenhuma excursão publicada. Crie a primeira oferta premium acima.</div>}
+    {mostrarFormEvento && <Card className="border-[#C94F38]/20 shadow-sm"><CardContent className="p-6"><form onSubmit={(e) => void salvarEvento(e)} className="space-y-4"><div><h2 className="text-lg font-bold text-slate-900">{eventoEditando ? 'Editar excursão' : 'Nova excursão'}</h2><p className="mt-1 text-sm text-slate-500">Cadastre apenas a experiência: nome, destino e período. A excursão não tem preço.</p></div><div className="grid gap-4 md:grid-cols-2"><Input label="Nome da excursão" value={eventoForm.nome} onChange={(e) => setEventoForm({ ...eventoForm, nome: e.target.value })} placeholder="Ex.: Barretos 2027" /><Input label="Destino / local" value={eventoForm.local} onChange={(e) => setEventoForm({ ...eventoForm, local: e.target.value })} placeholder="Barretos — SP" /><Input label="Data de saída" type="date" value={eventoForm.dataInicio} onChange={(e) => setEventoForm({ ...eventoForm, dataInicio: e.target.value })} /><Input label="Data de retorno" type="date" value={eventoForm.dataFim} onChange={(e) => setEventoForm({ ...eventoForm, dataFim: e.target.value })} /></div><div><label className="mb-1 block text-sm font-medium text-slate-700">Descrição da experiência <span className="font-normal text-slate-400">(opcional)</span></label><textarea value={eventoForm.descricao} onChange={(e) => setEventoForm({ ...eventoForm, descricao: e.target.value })} rows={3} className="w-full rounded-md border border-slate-300 p-3 text-sm" placeholder="Apresente a excursão para a vitrine." /></div><Button type="submit" disabled={salvando}>{salvando ? 'Salvando...' : eventoEditando ? 'Salvar excursão' : 'Criar excursão'}</Button></form></CardContent></Card>}
 
-      <div className="space-y-4">
-        {eventos.map((evento) => (
-          <Card key={evento.id} className="admin-card overflow-hidden">
-            <CardContent className="p-0">
-              <div className="flex flex-col gap-4 p-6 md:flex-row md:items-center md:justify-between">
-                <button onClick={() => toggleExpandir(evento.id)} className="flex min-w-0 flex-1 items-center gap-4 text-left">
-                  <div className="rounded-xl bg-[#fff0eb] p-3 text-[#DF6248]">
-                    <CalendarDays size={22} />
-                  </div>
-                  <div className="min-w-0">
-                    <h2 className="truncate text-lg font-bold text-gray-900">{evento.nome}</h2>
-                    <p className="mt-1 flex items-center gap-1 text-sm text-gray-500">
-                      <MapPin size={14} /> {evento.local} · {new Date(evento.data_inicio).toLocaleDateString('pt-BR')} a {new Date(evento.data_fim).toLocaleDateString('pt-BR')}
-                    </p>
-                  </div>
-                  {expandido === evento.id ? <ChevronUp className="ml-auto" size={20} /> : <ChevronDown className="ml-auto" size={20} />}
-                </button>
-                <div className="flex items-center gap-3">
-                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${evento.ativo ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'}`}>{evento.ativo ? 'Publicado' : 'Rascunho'}</span>
-                  <button onClick={() => editarEvento(evento)} className="rounded p-2 text-gray-400 hover:bg-slate-100 hover:text-slate-800" title="Editar excursão">
-                    <Pencil size={17} />
-                  </button>
-                  <button onClick={() => excluirEvento(evento.id)} className="rounded p-2 text-gray-400 hover:bg-red-50 hover:text-red-600" title="Excluir evento">
-                    <Trash2 size={17} />
-                  </button>
-                </div>
-              </div>
-
-              {expandido === evento.id && (
-                <div className="border-t border-gray-100 bg-slate-50 p-6">
-                  {evento.descricao && <p className="mb-5 text-sm leading-6 text-gray-600">{evento.descricao}</p>}
-                  <div className="mb-4 flex items-center justify-between">
-                    <div>
-                      <h3 className="font-bold text-gray-900">Lotes e modalidades</h3>
-                      <p className="text-xs text-gray-500">Cada pacote publicado aparece para seleção no fluxo de reservas.</p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setErroForm(null);
-                        setLoteEditando(null);
-                        setMostrarFormLote(mostrarFormLote === evento.id ? null : evento.id);
-                      }}
-                    >
-                      {mostrarFormLote === evento.id ? <X size={15} className="mr-2" /> : <Plus size={15} className="mr-2" />}
-                      {mostrarFormLote === evento.id ? 'Cancelar' : 'Novo lote'}
-                    </Button>
-                  </div>
-
-                  {mostrarFormLote === evento.id && (
-                    <form onSubmit={(e) => handleSalvarLote(e, evento.id)} className="mb-5 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                      {erroForm && <div className="mb-3 rounded bg-red-50 p-2 text-sm text-red-700">{erroForm}</div>}
-                      <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
-                        <Input label="Nome" value={loteForm.nome} onChange={(e) => setLoteForm({ ...loteForm, nome: e.target.value })} placeholder="1º lote" />
-                        <Input label="Vagas" type="number" value={loteForm.vagas} onChange={(e) => setLoteForm({ ...loteForm, vagas: e.target.value })} />
-                        <Input
-                          label="Início"
-                          type="date"
-                          value={loteForm.dataInicio}
-                          onChange={(e) =>
-                            setLoteForm({
-                              ...loteForm,
-                              dataInicio: e.target.value,
-                            })
-                          }
-                        />
-                        <Input
-                          label="Fim"
-                          type="date"
-                          value={loteForm.dataFim}
-                          onChange={(e) =>
-                            setLoteForm({
-                              ...loteForm,
-                              dataFim: e.target.value,
-                            })
-                          }
-                        />
-                        <Input
-                          label="Valor-base"
-                          type="number"
-                          step="0.01"
-                          value={loteForm.valorBase}
-                          onChange={(e) =>
-                            setLoteForm({
-                              ...loteForm,
-                              valorBase: e.target.value,
-                            })
-                          }
-                        />
-                      </div>
-                      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                        <Input
-                          label="Embarque da ida"
-                          type="datetime-local"
-                          value={loteForm.dataEmbarque}
-                          onChange={(e) =>
-                            setLoteForm({
-                              ...loteForm,
-                              dataEmbarque: e.target.value,
-                            })
-                          }
-                        />
-                        <Input
-                          label="Saída de Barretos"
-                          type="datetime-local"
-                          value={loteForm.dataRetorno}
-                          onChange={(e) =>
-                            setLoteForm({
-                              ...loteForm,
-                              dataRetorno: e.target.value,
-                            })
-                          }
-                        />
-                        <Input
-                          label="Local e rota de embarque"
-                          value={loteForm.localEmbarque}
-                          onChange={(e) =>
-                            setLoteForm({
-                              ...loteForm,
-                              localEmbarque: e.target.value,
-                            })
-                          }
-                        />
-                        <Input
-                          label="Local de hospedagem"
-                          value={loteForm.localHospedagem}
-                          onChange={(e) =>
-                            setLoteForm({
-                              ...loteForm,
-                              localHospedagem: e.target.value,
-                            })
-                          }
-                        />
-                      </div>
-                      <Button type="submit" disabled={salvando} className="mt-4">
-                        {salvando ? 'Salvando...' : loteEditando ? 'Salvar alterações' : 'Criar lote'}
-                      </Button>
-                    </form>
-                  )}
-
-                  <div className="space-y-4">
-                    {(lotesPorEvento[evento.id] || []).map((lote) => (
-                      <div key={lote.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <h4 className="font-bold text-gray-900">{lote.nome}</h4>
-                              <span className="text-xs text-gray-500">
-                                {lote['vagas_disponíveis']}/{lote.vagas_totais} vagas
-                              </span>
-                            </div>
-                            <p className="mt-1 text-sm text-gray-500">
-                              Valor-base: {moeda.format(Number(lote.valor_base))} · {new Date(lote.data_inicio).toLocaleDateString('pt-BR')} a {new Date(lote.data_fim).toLocaleDateString('pt-BR')}
-                            </p>
-                            {(lote.data_embarque || lote.data_retorno) && (
-                              <p className="mt-1 text-xs text-gray-500">
-                                Ida: {lote.data_embarque ? new Date(lote.data_embarque).toLocaleString('pt-BR') : 'a definir'} · Retorno: {lote.data_retorno ? new Date(lote.data_retorno).toLocaleString('pt-BR') : 'a definir'}
-                              </p>
-                            )}
-                            {lote.local_embarque && <p className="mt-1 text-xs text-gray-500">Embarque: {lote.local_embarque}</p>}
-                          </div>
-                          <div className="flex gap-2">
-                            <button onClick={() => editarLote(evento.id, lote)} className="rounded p-2 text-gray-400 hover:bg-slate-100 hover:text-slate-800" title="Editar período">
-                              <Pencil size={17} />
-                            </button>
-                            <Button variant="outline" onClick={() => abrirFormPacote(lote.id)}>
-                              <PackagePlus size={15} className="mr-2" />
-                              {mostrarFormPacote === lote.id ? 'Fechar pacotes' : 'Gerir pacotes'}
-                            </Button>
-                            <button onClick={() => excluirLote(evento.id, lote.id)} className="rounded p-2 text-gray-400 hover:bg-red-50 hover:text-red-600" title="Excluir lote">
-                              <Trash2 size={17} />
-                            </button>
-                          </div>
-                        </div>
-
-                        {mostrarFormPacote === lote.id && (
-                          <div className="mt-4 border-t border-gray-100 pt-4">
-                            <div className="mb-4 rounded-xl border border-primary/20 bg-primary/5 p-4">
-                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                <div>
-                                  <h4 className="font-bold text-secondary">Sincronizar as 3 modalidades</h4>
-                                  <p className="text-xs text-slate-600">Cria ou atualiza Camping, Ventilador e Ar-condicionado sobre o mesmo lote.</p>
-                                </div>
-                                <Button type="button" onClick={() => handleSincronizarModalidades(lote.id)} disabled={salvando}>
-                                  {salvando ? 'Sincronizando...' : 'Criar/atualizar as 3'}
-                                </Button>
-                              </div>
-                              <div className="mt-4 grid gap-3 lg:grid-cols-3">
-                                {(Object.keys(kitForm) as Pacote['modalidade_hospedagem'][]).map((modalidade) => (
-                                  <div key={modalidade} className="rounded-lg border border-white bg-white p-3 shadow-sm">
-                                    <p className="mb-2 text-xs font-bold uppercase tracking-wide text-primary">{modalidades[modalidade].titulo}</p>
-                                    <div className="grid grid-cols-2 gap-2">
-                                      <Input
-                                        label="Valor interno"
-                                        type="number"
-                                        step="0.01"
-                                        value={kitForm[modalidade].valor}
-                                        onChange={(e) =>
-                                          setKitForm({
-                                            ...kitForm,
-                                            [modalidade]: {
-                                              ...kitForm[modalidade],
-                                              valor: e.target.value,
-                                            },
-                                          })
-                                        }
-                                      />
-                                      <div>
-                                        <label className="mb-1 block text-sm font-medium text-gray-700">Disponibilidade</label>
-                                        <select
-                                          value={kitForm[modalidade].disponibilidade}
-                                          onChange={(e) =>
-                                            setKitForm({
-                                              ...kitForm,
-                                              [modalidade]: {
-                                                ...kitForm[modalidade],
-                                                disponibilidade: e.target.value as Pacote['disponibilidade'],
-                                              },
-                                            })
-                                          }
-                                          className="w-full rounded-md border border-gray-300 px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                                        >
-                                          <option value="disponivel">Disponível</option>
-                                          <option value="ultimas_vagas">Últimas vagas</option>
-                                          <option value="esgotado">Esgotado</option>
-                                        </select>
-                                      </div>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-
-                            <form onSubmit={(e) => handleCriarPacote(e, lote.id)} className="rounded-lg bg-slate-50 p-4">
-                              {erroForm && <div className="mb-3 rounded bg-red-50 p-2 text-sm text-red-700">{erroForm}</div>}
-                              <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
-                                <Input
-                                  label="Nome do pacote"
-                                  value={pacoteForm.nome}
-                                  onChange={(e) =>
-                                    setPacoteForm({
-                                      ...pacoteForm,
-                                      nome: e.target.value,
-                                    })
-                                  }
-                                  placeholder="Ex.: Conforto Ventilador"
-                                />
-                                <Input
-                                  label="Valor final (R$)"
-                                  type="number"
-                                  step="0.01"
-                                  value={pacoteForm.valorTotal}
-                                  onChange={(e) =>
-                                    setPacoteForm({
-                                      ...pacoteForm,
-                                      valorTotal: e.target.value,
-                                    })
-                                  }
-                                />
-                                <div>
-                                  <label className="mb-1 block text-sm font-medium text-gray-700">Modalidade</label>
-                                  <select
-                                    value={pacoteForm.modalidade}
-                                    onChange={(e) =>
-                                      setPacoteForm({
-                                        ...pacoteForm,
-                                        modalidade: e.target.value as Pacote['modalidade_hospedagem'],
-                                      })
-                                    }
-                                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                                  >
-                                    <option value="camping">Camping</option>
-                                    <option value="quarto_ventilador">Quarto com ventilador</option>
-                                    <option value="quarto_ar_condicionado">Quarto com ar-condicionado</option>
-                                  </select>
-                                </div>
-                                <div>
-                                  <label className="mb-1 block text-sm font-medium text-gray-700">Disponibilidade</label>
-                                  <select
-                                    value={pacoteForm.disponibilidade}
-                                    onChange={(e) =>
-                                      setPacoteForm({
-                                        ...pacoteForm,
-                                        disponibilidade: e.target.value as Pacote['disponibilidade'],
-                                      })
-                                    }
-                                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                                  >
-                                    <option value="disponivel">Disponível</option>
-                                    <option value="ultimas_vagas">Últimas vagas</option>
-                                    <option value="esgotado">Esgotado</option>
-                                  </select>
-                                </div>
-                                <div>
-                                  <label className="mb-1 block text-sm font-medium text-gray-700">Tipo de contratação deste pacote</label>
-                                  <select
-                                    value={pacoteForm.formaContratacao}
-                                    onChange={(e) =>
-                                      setPacoteForm({
-                                        ...pacoteForm,
-                                        formaContratacao: e.target.value as Pacote['forma_contratacao'],
-                                        contratoModelo: modeloContratoPorForma(e.target.value as Pacote['forma_contratacao']),
-                                      })
-                                    }
-                                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-                                  >
-                                    <option value="onibus_hospedagem">Transporte + hospedagem</option>
-                                    <option value="hospedagem">Somente hospedagem</option>
-                                    <option value="onibus">Somente transporte</option>
-                                  </select>
-                                  <p className="mt-1 text-[11px] leading-4 text-gray-500">Para o cliente escolher entre transporte + hospedagem, somente hospedagem ou somente transporte, publique um pacote com preço próprio para cada tipo desejado.</p>
-                                </div>
-                                <div>
-                                  <label className="mb-1 block text-sm font-medium text-gray-700">Data limite dos boletos</label>
-                                  <input
-                                    type="date"
-                                    value={pacoteForm.dataLimitePagamento}
-                                    onChange={(e) =>
-                                      setPacoteForm({
-                                        ...pacoteForm,
-                                        dataLimitePagamento: e.target.value,
-                                      })
-                                    }
-                                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="mb-1 block text-sm font-medium text-gray-700">Máx. parcelas boleto</label>
-                                  <Input
-                                    type="number"
-                                    min={1}
-                                    max={36}
-                                    value={pacoteForm.boletoParcelas}
-                                    onChange={(e) =>
-                                      setPacoteForm({
-                                        ...pacoteForm,
-                                        boletoParcelas: e.target.value,
-                                      })
-                                    }
-                                  />
-                                </div>
-                                <div>
-                                  <label className="mb-1 block text-sm font-medium text-gray-700">Máx. parcelas cartão</label>
-                                  <Input
-                                    type="number"
-                                    min={1}
-                                    max={24}
-                                    value={pacoteForm.creditoParcelas}
-                                    onChange={(e) =>
-                                      setPacoteForm({
-                                        ...pacoteForm,
-                                        creditoParcelas: e.target.value,
-                                      })
-                                    }
-                                  />
-                                </div>
-                                <Input
-                                  label="Taxa do cartão (%)"
-                                  type="number"
-                                  min={0}
-                                  max={100}
-                                  step="0.01"
-                                  value={pacoteForm.creditoTaxa}
-                                  onChange={(e) =>
-                                    setPacoteForm({
-                                      ...pacoteForm,
-                                      creditoTaxa: e.target.value,
-                                    })
-                                  }
-                                />
-                                <Input
-                                  label="Juros cartão ao mês (%)"
-                                  type="number"
-                                  min={0}
-                                  max={20}
-                                  step="0.01"
-                                  value={pacoteForm.creditoJurosMensal}
-                                  onChange={(e) =>
-                                    setPacoteForm({
-                                      ...pacoteForm,
-                                      creditoJurosMensal: e.target.value,
-                                    })
-                                  }
-                                />
-                                <Input
-                                  label="Segurança antes da viagem (dias)"
-                                  type="number"
-                                  min={0}
-                                  max={365}
-                                  value={pacoteForm.prazoSegurancaDias}
-                                  onChange={(e) =>
-                                    setPacoteForm({
-                                      ...pacoteForm,
-                                      prazoSegurancaDias: e.target.value,
-                                    })
-                                  }
-                                />
-                                <Input
-                                  label="Multa por atraso (%)"
-                                  type="number"
-                                  min={0}
-                                  max={100}
-                                  step="0.01"
-                                  value={pacoteForm.multaAtraso}
-                                  onChange={(e) =>
-                                    setPacoteForm({
-                                      ...pacoteForm,
-                                      multaAtraso: e.target.value,
-                                    })
-                                  }
-                                />
-                                <Input
-                                  label="Juros de mora ao mês (%)"
-                                  type="number"
-                                  min={0}
-                                  max={20}
-                                  step="0.01"
-                                  value={pacoteForm.jurosMoraMensal}
-                                  onChange={(e) =>
-                                    setPacoteForm({
-                                      ...pacoteForm,
-                                      jurosMoraMensal: e.target.value,
-                                    })
-                                  }
-                                />
-                                <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600 md:col-span-3">
-                                  <span className="font-semibold text-gray-700">Pagamento:</span>
-                                  {['pix', 'boleto', 'credito', 'debito'].map((forma) => (
-                                    <label key={forma} className="flex items-center gap-1">
-                                      <input
-                                        type="checkbox"
-                                        checked={pacoteForm.formasPagamento.includes(forma)}
-                                        onChange={(e) =>
-                                          setPacoteForm({
-                                            ...pacoteForm,
-                                            formasPagamento: e.target.checked ? [...pacoteForm.formasPagamento, forma] : pacoteForm.formasPagamento.filter((item) => item !== forma),
-                                          })
-                                        }
-                                      />
-                                      {forma === 'pix' ? 'PIX' : forma === 'boleto' ? 'Boleto' : forma === 'credito' ? 'Cartão de crédito' : 'Cartão de débito'}
-                                    </label>
-                                  ))}
-                                </div>
-                                {pacoteForm.formaContratacao.includes('onibus') && (
-                                  <div className="grid gap-3 rounded-xl border border-[#DF6248]/20 bg-[#fff8f4] p-3 md:col-span-5 md:grid-cols-2">
-                                    <Input
-                                      label="Quantidade de transportes"
-                                      type="number"
-                                      min={1}
-                                      max={50}
-                                      value={pacoteForm.quantidadeOnibus}
-                                      onChange={(e) =>
-                                        setPacoteForm({
-                                          ...pacoteForm,
-                                          quantidadeOnibus: e.target.value,
-                                        })
-                                      }
-                                    />
-                                    <Input
-                                      label="Lugares por transporte"
-                                      type="number"
-                                      min={1}
-                                      max={100}
-                                      value={pacoteForm.capacidadeOnibus}
-                                      onChange={(e) =>
-                                        setPacoteForm({
-                                          ...pacoteForm,
-                                          capacidadeOnibus: e.target.value,
-                                        })
-                                      }
-                                    />
-                                    <p className="text-xs text-[#9b442f] md:col-span-2">O sistema criará os lugares de cada transporte e controlará a capacidade do pacote.</p>
-                                  </div>
-                                )}
-                                <div className="flex items-end">
-                                  <Button type="submit" disabled={salvando || pacoteForm.formasPagamento.length === 0} className="w-full">
-                                    {salvando ? 'Salvando...' : pacoteEditando ? 'Salvar alterações' : 'Publicar pacote'}
-                                  </Button>
-                                </div>
-                              </div>
-                              <textarea
-                                value={pacoteForm.descricao}
-                                onChange={(e) =>
-                                  setPacoteForm({
-                                    ...pacoteForm,
-                                    descricao: e.target.value,
-                                  })
-                                }
-                                rows={2}
-                                className="mt-3 w-full rounded-md border border-gray-300 p-2 text-sm"
-                                placeholder="Descrição comercial desta modalidade (opcional)."
-                              />
-                            </form>
-                            <div className="mt-4 grid gap-3 md:grid-cols-3">
-                              {(pacotesPorLote[lote.id] || []).map((pacote) => (
-                                <article key={pacote.id} className="rounded-lg border border-gray-200 bg-white p-4">
-                                  <div className="flex items-start justify-between gap-2">
-                                    <div>
-                                      <p className="font-semibold text-gray-900">{pacote.nome}</p>
-                                      <p className="text-xs font-medium text-primary">{modalidades[pacote.modalidade_hospedagem]?.titulo || pacote.modalidade_hospedagem}</p>
-                                      <span className={`mt-2 inline-block rounded-full px-2 py-1 text-[10px] font-bold uppercase ${pacote.disponibilidade === 'esgotado' ? 'bg-slate-800 text-white' : pacote.disponibilidade === 'ultimas_vagas' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{pacote.disponibilidade === 'esgotado' ? 'Esgotado' : pacote.disponibilidade === 'ultimas_vagas' ? 'Últimas vagas' : 'Disponível'}</span>
-                                    </div>
-                                    <div className="flex gap-2">
-                                      <button onClick={() => editarPacote(lote.id, pacote)} className="text-gray-400 hover:text-slate-800" title="Editar pacote">
-                                        <Pencil size={16} />
-                                      </button>
-                                      <button onClick={() => excluirPacote(lote.id, pacote.id)} className="text-gray-400 hover:text-red-600" title="Excluir pacote">
-                                        <Trash2 size={16} />
-                                      </button>
-                                    </div>
-                                  </div>
-                                  <p className="mt-2 text-sm text-gray-500">{pacote.descricao}</p>
-                                  <p className="mt-3 text-lg font-bold text-slate-900">{moeda.format(Number(pacote.valor_total))}</p>
-                                  <div className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs">
-                                    <span className="font-bold text-slate-600">Tipo de contratação: </span>
-                                    <span className={pacote.forma_contratacao === 'livre' ? 'font-bold text-amber-700' : 'font-semibold text-slate-800'}>{tipoContratacaoLabel[pacote.forma_contratacao || 'livre']}</span>
-                                    <p className="mt-1 text-[11px] text-slate-500">O modelo do contrato é definido automaticamente por este tipo para evitar divergência.</p>
-                                  </div>
-                                </article>
-                              ))}
-                              {(pacotesPorLote[lote.id] || []).length === 0 && <p className="col-span-full py-4 text-center text-sm text-gray-500">Nenhum pacote publicado neste lote. Crie as modalidades Camping, Ventilador e Ar-condicionado.</p>}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                    {(lotesPorEvento[evento.id] || []).length === 0 && <p className="rounded-lg border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500">Nenhum lote cadastrado nesta excursão.</p>}
-                  </div>
-
-                  <section className="mt-8 border-t border-gray-200 pt-6">
-                    <div className="mb-4">
-                      <h3 className="flex items-center gap-2 font-bold text-gray-900">
-                        <ImagePlus size={18} className="text-primary" /> Galeria deste evento
-                      </h3>
-                      <p className="mt-1 text-xs text-gray-500">Escolha uma foto do dispositivo. O sistema fará o envio e publicará a imagem na História e na Galeria.</p>
-                    </div>
-                    <form onSubmit={(e) => handleAdicionarFoto(e, evento.id)} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                      {erroForm && <div className="mb-3 rounded bg-red-50 p-2 text-sm text-red-700">{erroForm}</div>}
-                      <div className="grid gap-3 md:grid-cols-[1.2fr_1fr_auto] md:items-end">
-                        <div>
-                          <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor={`foto-${evento.id}`}>
-                            Foto
-                          </label>
-                          <input
-                            key={fotoInputKey}
-                            id={`foto-${evento.id}`}
-                            type="file"
-                            accept="image/jpeg,image/png,image/webp"
-                            onChange={(e) =>
-                              setFotoForm({
-                                ...fotoForm,
-                                arquivo: e.target.files?.[0] || null,
-                              })
-                            }
-                            className="block h-10 w-full rounded-md border border-gray-300 bg-white text-sm file:mr-3 file:h-full file:border-0 file:bg-gray-100 file:px-4 file:font-semibold"
-                          />
-                        </div>
-                        <Input
-                          label="Legenda acessível"
-                          value={fotoForm.legenda}
-                          onChange={(e) =>
-                            setFotoForm({
-                              ...fotoForm,
-                              legenda: e.target.value,
-                            })
-                          }
-                          placeholder="Ex.: Arena de Barretos, edição 2025"
-                        />
-                        <Button type="submit" disabled={salvando}>
-                          {salvando ? 'Enviando...' : 'Anexar foto'}
-                        </Button>
-                      </div>
-                    </form>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                      {(fotosPorEvento[evento.id] || []).map((foto) => (
-                        <article key={foto.id} className="group overflow-hidden rounded-xl border border-gray-200 bg-white">
-                          <div className="relative aspect-video bg-slate-100">
-                            <img src={foto.url_foto} alt={foto.legenda || `Foto de ${evento.nome}`} className="h-full w-full object-cover" loading="lazy" />
-                            <button type="button" onClick={() => removerFoto(evento.id, foto.id)} className="absolute right-2 top-2 rounded-full bg-black/60 p-2 text-white opacity-0 transition hover:bg-red-600 group-hover:opacity-100 focus:opacity-100" title="Remover foto">
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                          <p className="line-clamp-2 p-3 text-xs text-gray-600">{foto.legenda || 'Sem legenda cadastrada'}</p>
-                        </article>
-                      ))}
-                      {(fotosPorEvento[evento.id] || []).length === 0 && <p className="col-span-full rounded-lg border border-dashed border-gray-300 p-5 text-center text-sm text-gray-500">Nenhuma foto vinculada a este evento.</p>}
-                    </div>
-                  </section>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    </div>
-  );
+    {carregando && <p className="text-sm text-slate-500">Carregando excursões...</p>}
+    {!carregando && eventos.length === 0 && <div className="rounded-xl border border-dashed border-slate-300 p-10 text-center text-sm text-slate-500">Nenhuma excursão cadastrada.</div>}
+    <div className="space-y-4">{eventos.map((evento) => {
+      const lotes = lotesPorEvento[evento.id] || [];
+      return <Card key={evento.id} className="overflow-hidden"><CardContent className="p-0"><div className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between"><button type="button" onClick={() => void alternarEvento(evento.id)} className="flex min-w-0 flex-1 items-center gap-4 text-left"><div className="rounded-xl bg-[#fff0eb] p-3 text-[#C94F38]"><CalendarDays size={22} /></div><div className="min-w-0"><h2 className="truncate text-lg font-bold text-slate-900">{evento.nome}</h2><p className="mt-1 flex items-center gap-1 text-sm text-slate-500"><MapPin size={14} />{evento.local} · {new Date(evento.data_inicio).toLocaleDateString('pt-BR')} a {new Date(evento.data_fim).toLocaleDateString('pt-BR')}</p></div>{expandido === evento.id ? <ChevronUp className="ml-auto" size={20} /> : <ChevronDown className="ml-auto" size={20} />}</button><div className="flex items-center gap-2"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${evento.ativo ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{evento.ativo ? 'Publicado' : 'Arquivado'}</span><button type="button" onClick={() => editarEvento(evento)} className="rounded p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-800" title="Editar excursão"><Pencil size={17} /></button><button type="button" onClick={() => void excluirEvento(evento.id)} className="rounded p-2 text-slate-400 hover:bg-red-50 hover:text-red-600" title="Excluir excursão"><Trash2 size={17} /></button></div></div>
+        {expandido === evento.id && <div className="border-t border-slate-100 bg-slate-50 p-5">{evento.descricao && <p className="mb-5 max-w-3xl text-sm leading-6 text-slate-600">{evento.descricao}</p>}
+          <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="font-bold text-slate-900">Faixas de vagas e preços</h3><p className="mt-1 text-xs text-slate-500">Opcional: use uma faixa para o primeiro lote, segundo lote ou qualquer condição diferente de vagas. O preço é cadastrado dentro do pacote.</p></div><Button variant="outline" onClick={() => { limparFeedback(); setLoteEditando(null); setLoteForm(vazioLote); setLoteAberto(loteAberto === evento.id ? null : evento.id); }}>{loteAberto === evento.id ? <X size={15} className="mr-2" /> : <Plus size={15} className="mr-2" />}{loteAberto === evento.id ? 'Fechar' : 'Adicionar faixa'}</Button></div>
+          {loteAberto === evento.id && <form onSubmit={(e) => void salvarLote(e, evento.id)} className="my-5 rounded-xl border border-slate-200 bg-white p-4"><div className="mb-3"><h4 className="font-bold text-slate-900">{loteEditando ? 'Editar faixa' : 'Nova faixa de vagas'}</h4><p className="mt-1 text-xs text-slate-500">Ex.: 1º lote, 2º lote ou grupo extra. Não informe preço aqui.</p></div><div className="grid gap-3 md:grid-cols-4"><Input label="Nome da faixa" value={loteForm.nome} onChange={(e) => setLoteForm({ ...loteForm, nome: e.target.value })} placeholder="1º lote" /><Input label="Vagas" type="number" min={1} value={loteForm.vagas} onChange={(e) => setLoteForm({ ...loteForm, vagas: e.target.value })} /><Input label="Início" type="date" value={loteForm.dataInicio} onChange={(e) => setLoteForm({ ...loteForm, dataInicio: e.target.value })} /><Input label="Fim" type="date" value={loteForm.dataFim} onChange={(e) => setLoteForm({ ...loteForm, dataFim: e.target.value })} /></div><div className="mt-3 grid gap-3 md:grid-cols-2"><Input label="Embarque (opcional)" type="datetime-local" value={loteForm.dataEmbarque} onChange={(e) => setLoteForm({ ...loteForm, dataEmbarque: e.target.value })} /><Input label="Retorno (opcional)" type="datetime-local" value={loteForm.dataRetorno} onChange={(e) => setLoteForm({ ...loteForm, dataRetorno: e.target.value })} /><Input label="Local de embarque (opcional)" value={loteForm.localEmbarque} onChange={(e) => setLoteForm({ ...loteForm, localEmbarque: e.target.value })} /><Input label="Local de hospedagem (opcional)" value={loteForm.localHospedagem} onChange={(e) => setLoteForm({ ...loteForm, localHospedagem: e.target.value })} /></div><Input label="Descrição (opcional)" value={loteForm.descricao} onChange={(e) => setLoteForm({ ...loteForm, descricao: e.target.value })} placeholder="Condição comercial ou observação da faixa" /><div className="mt-4 flex gap-2"><Button type="submit" disabled={salvando}>{salvando ? 'Salvando...' : loteEditando ? 'Salvar faixa' : 'Criar faixa'}</Button><Button type="button" variant="outline" onClick={() => { setLoteAberto(null); setLoteEditando(null); }}>Cancelar</Button></div></form>}
+          <div className="mt-5 space-y-3">{lotes.map((lote) => <div key={lote.id} className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><div className="flex items-center gap-2"><h4 className="font-bold text-slate-900">{lote.nome}</h4><span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">{lote.vagas_disponíveis}/{lote.vagas_totais} vagas</span></div><p className="mt-1 text-sm text-slate-500">{new Date(lote.data_inicio).toLocaleDateString('pt-BR')} a {new Date(lote.data_fim).toLocaleDateString('pt-BR')}</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => editarLote(evento.id, lote)} className="rounded p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-800" title="Editar faixa"><Pencil size={16} /></button><Button variant="outline" onClick={() => void abrirPacotes(lote.id)}><PackagePlus size={15} className="mr-2" />{pacotesAbertos === lote.id ? 'Fechar pacotes' : 'Gerir pacotes'}</Button><button type="button" onClick={() => void excluirLote(evento.id, lote.id)} className="rounded p-2 text-slate-400 hover:bg-red-50 hover:text-red-600" title="Excluir faixa"><Trash2 size={16} /></button></div></div>
+            {pacotesAbertos === lote.id && <div className="mt-4 border-t border-slate-100 pt-4"><div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><h4 className="font-bold text-slate-900">Pacotes desta faixa</h4><p className="mt-1 text-xs text-slate-500">Cada pacote tem seu próprio preço, modalidade, contratação e galeria.</p></div><Button variant="outline" onClick={() => { setPacoteEditando(null); setPacoteForm(vazioPacote); }}><Plus size={15} className="mr-2" />Criar novo pacote</Button></div>
+              <form onSubmit={(e) => void salvarPacote(e, lote.id)} className="rounded-xl border border-[#C94F38]/20 bg-[#fffaf7] p-4"><div className="mb-3"><h5 className="font-bold text-slate-900">{pacoteEditando ? 'Editar pacote' : 'Novo pacote'}</h5><p className="mt-1 text-xs text-slate-500">Campos essenciais ficam aqui. Regras de pagamento e operação estão em configurações avançadas.</p></div><div className="grid gap-3 md:grid-cols-4"><Input label="Nome do pacote" value={pacoteForm.nome} onChange={(e) => setPacoteForm({ ...pacoteForm, nome: e.target.value })} placeholder="Quarto com ar-condicionado" /><Input label="Preço por pessoa (R$)" type="number" min={0.01} step="0.01" value={pacoteForm.valorTotal} onChange={(e) => setPacoteForm({ ...pacoteForm, valorTotal: e.target.value })} placeholder="2600" /><div><label className="mb-1 block text-sm font-medium text-slate-700">Modalidade</label><select value={pacoteForm.modalidade} onChange={(e) => setPacoteForm({ ...pacoteForm, modalidade: e.target.value as Modalidade })} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"><option value="camping">Camping</option><option value="quarto_ventilador">Quarto com ventilador</option><option value="quarto_ar_condicionado">Quarto com ar-condicionado</option></select></div><div><label className="mb-1 block text-sm font-medium text-slate-700">Disponibilidade</label><select value={pacoteForm.disponibilidade} onChange={(e) => setPacoteForm({ ...pacoteForm, disponibilidade: e.target.value as Disponibilidade })} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"><option value="disponivel">Disponível</option><option value="ultimas_vagas">Últimas vagas</option><option value="esgotado">Esgotado</option></select></div></div><div className="mt-3 grid gap-3 md:grid-cols-2"><div><label className="mb-1 block text-sm font-medium text-slate-700">O que está incluído</label><select value={pacoteForm.formaContratacao} onChange={(e) => setPacoteForm({ ...pacoteForm, formaContratacao: e.target.value as FormaContratacao })} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"><option value="onibus_hospedagem">Transporte + hospedagem</option><option value="hospedagem">Somente hospedagem</option><option value="onibus">Somente transporte</option></select></div><Input label="Descrição (opcional)" value={pacoteForm.descricao} onChange={(e) => setPacoteForm({ ...pacoteForm, descricao: e.target.value })} placeholder="Descreva o que o cliente encontrará." /></div><details className="mt-4 rounded-xl border border-slate-200 bg-white p-3"><summary className="cursor-pointer text-sm font-bold text-slate-800">Configurações avançadas</summary><div className="mt-4 grid gap-3 md:grid-cols-4"><div className="md:col-span-4 flex flex-wrap gap-3 text-xs text-slate-600"><strong>Pagamento:</strong>{['pix', 'boleto', 'credito', 'debito'].map((forma) => <label key={forma} className="flex items-center gap-1"><input type="checkbox" checked={pacoteForm.formasPagamento.includes(forma)} onChange={(e) => setPacoteForm({ ...pacoteForm, formasPagamento: e.target.checked ? [...pacoteForm.formasPagamento, forma] : pacoteForm.formasPagamento.filter((item) => item !== forma) })} />{forma === 'pix' ? 'PIX' : forma === 'boleto' ? 'Boleto' : forma === 'credito' ? 'Cartão de crédito' : 'Cartão de débito'}</label>)}</div><Input label="Limite dos boletos" type="date" value={pacoteForm.dataLimitePagamento} onChange={(e) => setPacoteForm({ ...pacoteForm, dataLimitePagamento: e.target.value })} /><Input label="Máx. parcelas boleto" type="number" min={1} max={36} value={pacoteForm.boletoParcelas} onChange={(e) => setPacoteForm({ ...pacoteForm, boletoParcelas: e.target.value })} /><Input label="Máx. parcelas cartão" type="number" min={1} max={24} value={pacoteForm.creditoParcelas} onChange={(e) => setPacoteForm({ ...pacoteForm, creditoParcelas: e.target.value })} /><Input label="Taxa do cartão (%)" type="number" min={0} max={100} step="0.01" value={pacoteForm.creditoTaxa} onChange={(e) => setPacoteForm({ ...pacoteForm, creditoTaxa: e.target.value })} /><Input label="Juros cartão / mês (%)" type="number" min={0} max={20} step="0.01" value={pacoteForm.creditoJurosMensal} onChange={(e) => setPacoteForm({ ...pacoteForm, creditoJurosMensal: e.target.value })} /><Input label="Segurança antes da viagem (dias)" type="number" min={0} max={365} value={pacoteForm.prazoSegurancaDias} onChange={(e) => setPacoteForm({ ...pacoteForm, prazoSegurancaDias: e.target.value })} /><Input label="Multa por atraso (%)" type="number" min={0} max={100} step="0.01" value={pacoteForm.multaAtraso} onChange={(e) => setPacoteForm({ ...pacoteForm, multaAtraso: e.target.value })} /><Input label="Juros de mora / mês (%)" type="number" min={0} max={20} step="0.01" value={pacoteForm.jurosMoraMensal} onChange={(e) => setPacoteForm({ ...pacoteForm, jurosMoraMensal: e.target.value })} />{pacoteForm.formaContratacao.includes('onibus') && <><Input label="Quantidade de ônibus" type="number" min={1} max={50} value={pacoteForm.quantidadeOnibus} onChange={(e) => setPacoteForm({ ...pacoteForm, quantidadeOnibus: e.target.value })} /><Input label="Lugares por ônibus" type="number" min={1} max={100} value={pacoteForm.capacidadeOnibus} onChange={(e) => setPacoteForm({ ...pacoteForm, capacidadeOnibus: e.target.value })} /></>}</div></details><div className="mt-4 flex flex-wrap gap-2"><Button type="submit" disabled={salvando}>{salvando ? 'Salvando...' : pacoteEditando ? 'Salvar pacote' : 'Criar pacote'}</Button>{pacoteEditando && <Button type="button" variant="outline" onClick={() => { setPacoteEditando(null); setPacoteForm(vazioPacote); }}>Cancelar edição</Button>}</div></form>
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{(pacotesPorLote[lote.id] || []).map((pacote) => <article key={pacote.id} className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex gap-3">{(fotosPorPacote[pacote.id] || [])[0] && <img src={(fotosPorPacote[pacote.id] || [])[0].url_foto} alt="" className="h-16 w-16 shrink-0 rounded-lg object-cover" />}<div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><div><p className="font-bold text-slate-900">{pacote.nome}</p><p className="text-xs font-medium text-[#C94F38]">{modalidades[pacote.modalidade_hospedagem]?.titulo || pacote.modalidade_hospedagem}</p></div><div className="flex gap-1"><button type="button" onClick={() => editarPacote(lote.id, pacote)} className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-800" title="Editar pacote"><Pencil size={15} /></button><button type="button" onClick={() => void excluirPacote(lote.id, pacote.id)} className="rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600" title="Excluir pacote"><Trash2 size={15} /></button></div></div><span className={`mt-2 inline-block rounded-full px-2 py-1 text-[10px] font-bold uppercase ${pacote.disponibilidade === 'esgotado' ? 'bg-slate-800 text-white' : pacote.disponibilidade === 'ultimas_vagas' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{disponibilidadeLabel(pacote.disponibilidade)}</span></div></div><p className="mt-3 text-xl font-black text-slate-900">{moeda.format(Number(pacote.valor_total))}</p><p className="mt-1 text-xs text-slate-500">{formaLabels[pacote.forma_contratacao || 'livre']}</p><button type="button" onClick={() => { setGaleriaPacoteAberta(galeriaPacoteAberta === pacote.id ? null : pacote.id); if (galeriaPacoteAberta !== pacote.id) void carregarFotosPacote(pacote.id); }} className="mt-3 text-xs font-bold text-[#851F32]">{galeriaPacoteAberta === pacote.id ? 'Fechar imagens' : `Imagens (${(fotosPorPacote[pacote.id] || []).length}/5)`}</button>{galeriaPacoteAberta === pacote.id && renderGaleriaPacote(pacote)}</article>)}</div>
+            </div>}
+          </div>)}
+          </div>
+          {lotes.length === 0 && <div className="mt-5 rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">Nenhuma faixa criada. Adicione uma faixa para publicar pacotes e preços.</div>}
+          {renderGaleriaEvento(evento.id)}
+        </div>}
+      </CardContent></Card>;
+    })}</div>
+  </div>;
 }

@@ -949,6 +949,21 @@ export const fotos_evento = pgTable("fotos_evento", {
   eventoIdx: index("fotos_evento_idx").on(table.evento_id),
 }));
 
+export const fotosPacote = pgTable("fotos_pacote", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  pacote_id: varchar("pacote_id", { length: 255 }).notNull().references(() => pacotes.id),
+  url_foto: varchar("url_foto", { length: 500 }).notNull(),
+  legenda: varchar("legenda", { length: 500 }),
+  alt_text: varchar("alt_text", { length: 500 }),
+  ordem: integer("ordem").default(0),
+  destaque: boolean("destaque").default(false).notNull(),
+  capa: boolean("capa").default(false).notNull(),
+  formato: varchar("formato", { length: 30 }),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+}, (table) => ({
+  pacoteIdx: index("fotos_pacote_idx").on(table.pacote_id),
+}));
+
 export const avaliacoes = pgTable("avaliacoes", {
   id: text("id").primaryKey().$defaultFn(() => createId()),
   evento_id: varchar("evento_id", { length: 255 }).notNull().references(() => eventos.id),

@@ -162,6 +162,13 @@
       "when": 1789347600000,
       "tag": "0022_corrige_escopo_comercial_pacotes",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "5",
+      "when": 1789347601000,
+      "tag": "0023_galeria_fotos_pacotes",
+      "breakpoints": true
     }
   ]
 }
