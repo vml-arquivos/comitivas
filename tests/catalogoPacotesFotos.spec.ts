@@ -18,12 +18,15 @@ describe("catálogo simples de excursões, lotes e pacotes", () => {
     expect(pacotes).toContain("valor_total");
   });
 
-  it("preserva a criação de faixas opcionais para primeiro e segundo lote", () => {
+  it("preserva a configuração de lotes opcionais para primeiro e segundo lote", () => {
     const tela = ler("apps/web/src/pages/admin/Eventos.tsx");
-    expect(tela).toContain("Adicionar faixa");
+    expect(tela).toContain("Configurar lotes");
     expect(tela).toContain("1º lote");
     expect(tela).toContain("2º lote");
     expect(tela).toContain("Criar novo pacote");
+    expect(tela).toContain("Configurar lote");
+    expect(tela).toContain("scrollIntoView");
+    expect(tela).toContain("order-2");
   });
 
   it("tem galeria separada para excursão e pacote, com limite de cinco no pacote", () => {
