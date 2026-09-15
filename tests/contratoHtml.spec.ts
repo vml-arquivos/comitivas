@@ -29,6 +29,7 @@ vi.mock("../server/db/index.js", () => ({
       chain.returning = async () => [];
       return chain;
     },
+    execute: async () => ({ rows: [{ assentos: 1, quartos: 1 }] }),
   },
 }));
 

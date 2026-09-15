@@ -101,7 +101,7 @@ export default function GatewayPagamento() {
             <div className="rounded-xl bg-gray-50 p-4"><p className="text-xs text-gray-500">Certificado</p><p className="font-bold">{status?.certificado_configurado ? 'OK' : '—'}</p></div>
             <div className="rounded-xl bg-gray-50 p-4"><p className="text-xs text-gray-500">Último teste</p><p className="font-bold">{status?.ultimo_teste_status || '—'}</p></div>
           </div>
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><ShieldAlert size={18} className="mr-2 inline" />Em produção, configure <code>CORA_CLIENT_ID</code>, certificados mTLS, chave privada e segredo do webhook como secrets/runtime no Coolify. Esta tela não recebe nem armazena esses valores.</div>
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><ShieldAlert size={18} className="mr-2 inline" />Em produção, configure <code>CORA_CLIENT_ID</code>, certificado mTLS e chave privada como secrets/runtime no Coolify. O webhook usa a URL HTTPS pública e os headers de evento da Cora; esta tela não recebe nem armazena material criptográfico.</div>
           <form onSubmit={salvar} className="space-y-5">
             <div className="grid gap-4 md:grid-cols-2">
               <div><label className="mb-1 block text-sm font-medium">Ambiente</label><select className="h-10 w-full rounded-md border border-gray-300 px-3 text-sm" value={form.ambiente} onChange={(e) => setForm({ ...form, ambiente: e.target.value as GatewayForm['ambiente'] })}><option value="stage">Stage / Homologação</option><option value="production">Produção</option></select></div>

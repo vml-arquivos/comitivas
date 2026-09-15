@@ -147,7 +147,7 @@ function regrasDoPacote(pacote: typeof pacotes.$inferSelect | undefined) {
     ? pacote.configuracao_pagamento as Record<string, unknown>
     : {};
   const formasPermitidas = Array.isArray(configuracao.formas_permitidas)
-    ? configuracao.formas_permitidas.map(String).filter((forma) => ["pix", "boleto", "credito"].includes(forma))
+    ? configuracao.formas_permitidas.map(String).filter((forma) => ["pix", "boleto", "credito", "debito"].includes(forma))
     : ["pix", "boleto"];
   const limiteConfigurado = Number(configuracao.boleto_parcelas_maximo);
   const limiteCredito = Number(configuracao.credito_parcelas_maximo);
@@ -362,7 +362,7 @@ router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Re
       return res.status(400).json({ erro: "Selecione a forma de pagamento antes de aceitar o contrato" });
     }
     if (!["pix", "boleto"].includes(String(metodoPagamento))) {
-      return res.status(400).json({ erro: "O checkout Cora oferece somente PIX e boleto" });
+      return res.status(400).json({ erro: "O gateway conectado oferece somente PIX e boleto. Cartões ficam preparados para um adquirente compatível." });
     }
 
     let condicaoPagamento;

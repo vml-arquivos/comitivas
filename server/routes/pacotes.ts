@@ -15,7 +15,7 @@ import { ContratacaoIntegridadeService } from "../services/contratacaoIntegridad
 const router = Router();
 
 const FORMAS_CONTRATACAO = new Set(["onibus", "hospedagem", "onibus_hospedagem", "livre"]);
-const FORMAS_PAGAMENTO_PACOTE = new Set(["pix", "boleto", "credito"]);
+const FORMAS_PAGAMENTO_PACOTE = new Set(["pix", "boleto", "credito", "debito"]);
 
 function dataIsoSegura(valor: unknown): string | null {
   if (!valor) return null;
@@ -451,11 +451,13 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
       parcelas_boleto_maximas: parcelasBoletoMaximas,
       parcelas_credito_maximas: parcelasCreditoMaximas,
       formas_pagamento_permitidas: regrasPacote.formasPermitidas,
-      formas_pagamento_checkout: regrasPacote.formasPermitidas.filter((forma: string) => forma !== "credito"),
+      formas_pagamento_checkout: regrasPacote.formasPermitidas.filter((forma: string) => !["credito", "debito"].includes(forma)),
       credito_taxa_percentual: regrasPacote.creditoTaxaPercentual,
       credito_juros_mensal_percentual: regrasPacote.creditoJurosMensalPercentual,
       cartao_disponivel: false,
       cartao_indisponivel_motivo: regrasPacote.formasPermitidas.includes("credito") ? "O provedor bancário atual não processa cartão no checkout." : null,
+      cartao_debito_disponivel: false,
+      cartao_debito_indisponivel_motivo: regrasPacote.formasPermitidas.includes("debito") ? "A Cora não documenta cobrança por cartão de débito. Escolha PIX ou boleto." : null,
       data_limite_efetiva: dataIsoSegura(dataLimitePagamento),
       pix_desconto_percentual: configPagamento.pix_desconto_percentual,
       credito_parcelas_maximo: configPagamento.credito_parcelas_maximo,

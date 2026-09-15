@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../contexts/AuthContext';
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@ui/index';
-import { AlertCircle, CheckCircle2, Download, Eye, FileCheck2, FileText, Landmark, Mail, Pencil, QrCode, ShieldCheck, Smartphone, Tent, Upload, Wind, Snowflake, RefreshCw, Camera } from 'lucide-react';
+import { AlertCircle, CheckCircle2, CreditCard, Download, Eye, FileCheck2, FileText, Landmark, Mail, Pencil, QrCode, ShieldCheck, Smartphone, Tent, Upload, Wind, Snowflake, RefreshCw, Camera } from 'lucide-react';
 
 type MetodoPagamento = 'pix' | 'boleto';
 type CanalOtp = 'email' | 'whatsapp';
@@ -150,6 +150,8 @@ export default function Checkout() {
   const percentualDescontoPix = Number(reserva?.pix_desconto_percentual) || 5;
   const pixDisponivel = formasCheckout.includes('pix') && (Boolean(reserva?.gateway_automatico_disponivel) || reserva?.forma_pagamento === 'pix');
   const boletoDisponivel = formasCheckout.includes('boleto') && Number(reserva?.parcelas_boleto_maximas) > 0;
+  const creditoDisponivel = Boolean(reserva?.cartao_disponivel);
+  const debitoDisponivel = Boolean(reserva?.cartao_debito_disponivel);
   const contratoValidado = documento?.status === 'validado' || ['contrato_validado', 'aguardando_aprovacao_boleto', 'boletos_em_preparacao', 'boletos_enviados', 'aguardando_pagamento', 'pagamento_parcial', 'primeira_parcela_confirmada', 'quitado'].includes(String(estado?.checkout_estado));
   const pagamentoEmAndamento = Boolean(pagamento || pagamentoData || ['aguardando_aprovacao_boleto', 'boletos_em_preparacao', 'boletos_enviados', 'aguardando_pagamento', 'pagamento_parcial', 'primeira_parcela_confirmada', 'quitado'].includes(String(estado?.checkout_estado)));
   useEffect(() => {
@@ -613,7 +615,7 @@ export default function Checkout() {
             </div>
             {cupomMensagem && <p className="mt-2 text-xs font-semibold text-slate-600">{cupomMensagem}</p>}
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <button type="button" disabled={!pixDisponivel || Boolean(reserva?.forma_pagamento) || contratoValidado} onClick={() => setMetodoPagamento('pix')} className={`rounded-xl border p-5 text-left transition ${!pixDisponivel ? 'cursor-not-allowed border-gray-200 bg-gray-50 opacity-60' : metodoPagamento === 'pix' ? 'border-primary bg-red-50 ring-2 ring-primary/20' : 'border-gray-200'}`}>
               <QrCode className="text-primary" />
               <strong className="mt-3 block">PIX à vista</strong>
@@ -624,8 +626,18 @@ export default function Checkout() {
               <strong className="mt-3 block">Boleto bancário</strong>
               <span className="mt-1 block text-sm text-gray-600">{!boletoDisponivel ? 'Prazo de pagamento encerrado' : parcelasBoletoMaximas <= 1 ? 'À vista' : `Até ${parcelasBoletoMaximas}x sem juros`}</span>
             </button>
+            <div aria-disabled="true" className="cursor-not-allowed rounded-xl border border-gray-200 bg-gray-50 p-5 text-left opacity-70">
+              <CreditCard className="text-gray-500" />
+              <strong className="mt-3 block">Cartão de crédito</strong>
+              <span className="mt-1 block text-sm text-gray-500">{creditoDisponivel ? 'Disponível' : reserva?.cartao_indisponivel_motivo || 'Aguardando adquirente de cartões'}</span>
+            </div>
+            <div aria-disabled="true" className="cursor-not-allowed rounded-xl border border-gray-200 bg-gray-50 p-5 text-left opacity-70">
+              <CreditCard className="text-gray-500" />
+              <strong className="mt-3 block">Cartão de débito</strong>
+              <span className="mt-1 block text-sm text-gray-500">{debitoDisponivel ? 'Disponível' : reserva?.cartao_debito_indisponivel_motivo || 'Aguardando adquirente de cartões'}</span>
+            </div>
           </div>
-          {reserva?.cartao_indisponivel_motivo && <p className="text-xs text-gray-500">Cartão: {reserva.cartao_indisponivel_motivo}</p>}
+          {!creditoDisponivel && !debitoDisponivel && <p className="text-xs text-gray-500">PIX e boleto são os meios atualmente conectados ao gateway. Cartões permanecem preparados para ativação quando houver um adquirente compatível e credenciais válidas.</p>}
           {metodoPagamento === 'boleto' && boletoDisponivel && (
             <label className="flex items-center justify-between gap-4 rounded-xl bg-gray-50 p-4 text-sm">
               <span>

@@ -1098,7 +1098,7 @@ export default function EventosAdmin() {
                                 />
                                 <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600 md:col-span-3">
                                   <span className="font-semibold text-gray-700">Pagamento:</span>
-                                  {['pix', 'boleto', 'credito'].map((forma) => (
+                                  {['pix', 'boleto', 'credito', 'debito'].map((forma) => (
                                     <label key={forma} className="flex items-center gap-1">
                                       <input
                                         type="checkbox"
@@ -1110,7 +1110,7 @@ export default function EventosAdmin() {
                                           })
                                         }
                                       />
-                                      {forma === 'pix' ? 'PIX' : forma === 'boleto' ? 'Boleto' : 'Cartão'}
+                                      {forma === 'pix' ? 'PIX' : forma === 'boleto' ? 'Boleto' : forma === 'credito' ? 'Cartão de crédito' : 'Cartão de débito'}
                                     </label>
                                   ))}
                                 </div>

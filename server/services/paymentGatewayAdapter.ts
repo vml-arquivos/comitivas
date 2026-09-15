@@ -26,7 +26,7 @@ export interface PagamentoGatewayResponse {
   pix_copia_e_cola?: string;
   url_pagamento?: string;
   document_url?: string;
-  parcelas?: Array<{ id: string; valor: number; status: string; vencimento?: string; url_pagamento?: string; pix_copia_e_cola?: string }>;
+  parcelas?: Array<{ id: string; valor: number; status: string; vencimento?: string; url_pagamento?: string; document_url?: string; pix_copia_e_cola?: string }>;
   [key: string]: any;
 }
 
@@ -37,6 +37,9 @@ function statusCoraParaLocal(status: unknown): "pendente" | "processando" | "apr
     case "CANCELED":
     case "CANCELLED": return "cancelado";
     case "DRAFT": return "processando";
+    case "OPEN":
+    case "INITIATED":
+    case "IN_PAYMENT": return "processando";
     default: return "pendente";
   }
 }
@@ -150,7 +153,8 @@ export class PaymentGatewayAdapter {
         valor: parcela.valor,
         status: parcela.status,
         vencimento: parcela.vencimento,
-        url_pagamento: parcela.boletoUrl,
+        url_pagamento: parcela.boletoUrl || parcela.documentUrl,
+        document_url: parcela.documentUrl || parcela.boletoUrl,
         pix_copia_e_cola: parcela.pixCopiaECola,
       })),
     };
@@ -185,7 +189,7 @@ export class PaymentGatewayAdapter {
         vencimento: parcela.vencimento || new Date(vencimento.getTime() + index * 30 * 86_400_000).toISOString().slice(0, 10),
         cora_id: parcela.id,
         status: statusCoraParaLocal(parcela.status),
-        boleto_url: parcela.boletoUrl,
+        boleto_url: parcela.boletoUrl || parcela.documentUrl,
         pix_copia_e_cola: parcela.pixCopiaECola,
         codigo_barras: parcela.barcode,
         linha_digitavel: parcela.digitable,

@@ -58,7 +58,8 @@ describe("checkout, cupom e contrato", () => {
   it("não bloqueia contrato por análise documental salvo quando o gate estrito estiver explicitamente ativo", async () => {
     const rota = await fonte("../server/routes/contratos.ts");
     expect(rota).toContain('DOCUMENT_VALIDATION_BLOCK_CONTRACT');
-    expect(rota).toContain('eq(clienteDocumentos.validacao_status, "aprovado")');
+    expect(rota).toContain("documentoIdentidadeEnviado");
+    expect(rota).not.toContain('eq(clienteDocumentos.validacao_status, "aprovado")');
     expect(rota).toContain("documentoIdentidadeBloqueiaContrato");
   });
 
@@ -81,6 +82,18 @@ describe("checkout, cupom e contrato", () => {
     expect(pagamentos).toContain("camposFaltantesCadastroMinimo");
   });
 
+  it("diferencia cartões preparados dos meios Cora efetivamente processáveis", async () => {
+    const [checkout, rota] = await Promise.all([
+      fonte("../apps/web/src/pages/cliente/Checkout.tsx"),
+      fonte("../server/routes/pacotes.ts"),
+    ]);
+    expect(checkout).toContain("Cartão de crédito");
+    expect(checkout).toContain("Cartão de débito");
+    expect(checkout).toContain("Aguardando adquirente de cartões");
+    expect(rota).toContain("cartao_debito_disponivel: false");
+    expect(rota).toContain('filter((forma: string) => !["credito", "debito"].includes(forma))');
+  });
+
   it("mantém aprovação automática em segundo plano somente após documento válido e cadastro completo", async () => {
     const [rota, service] = await Promise.all([
       fonte("../server/routes/cliente.ts"),
@@ -89,7 +102,8 @@ describe("checkout, cupom e contrato", () => {
     expect(rota).toContain("void IdentityDocumentService.validar(documento.id)");
     expect(rota).toContain("aprovarCadastroSeElegivel");
     expect(service).toContain("camposFaltantesCadastroMinimo(usuario, { exigirSexoEnderecoEstruturado: true })");
-    expect(service).toContain("automatico_documento_validado");
+    expect(service).toContain("automatico_fluxo_contratacao");
+    expect(service).toContain("documento de identidade enviado");
     expect(service).toContain("cadastro_aprovado_automaticamente");
     expect(service).toContain("pg_advisory_xact_lock");
   });
@@ -121,7 +135,7 @@ describe("checkout, cupom e contrato", () => {
     expect(auth).toContain("aprovarCadastroSeElegivel(req.usuario.id)");
     expect(auth).toContain("aprovacao_automatica");
     expect(service).toContain("documentoId?: string | null");
-    expect(service).toContain("orderBy(desc(clienteDocumentos.validado_em)");
+    expect(service).toContain("orderBy(desc(clienteDocumentos.criado_em)");
     expect(service).toContain("pg_advisory_xact_lock");
   });
 

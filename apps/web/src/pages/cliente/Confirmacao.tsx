@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { useLocation, useParams, Link } from 'react-router-dom';
 import { Button, Card, CardContent } from '@ui/index';
-import { CheckCircle, Download, Clock, FileCheck2, Landmark, RefreshCw, Ticket } from 'lucide-react';
+import { CheckCircle, Download, ExternalLink, Clock, FileCheck2, Landmark, RefreshCw, Ticket } from 'lucide-react';
 import { api } from '../../contexts/AuthContext';
 
-type EstadoPagamento = { status?: string; status_reconciliado?: string; checkout_estado?: string; boleto_modo?: string; parcelas?: any[] };
+type EstadoPagamento = { status?: string; status_reconciliado?: string; checkout_estado?: string; boleto_modo?: string; qr_code?: string; pix_copia_e_cola?: string; url_pagamento?: string; document_url?: string; parcelas?: any[] };
 
 const ESTADOS: Record<string, { titulo: string; descricao: string; ok?: boolean }> = {
   aguardando_aprovacao_boleto: { titulo: 'Contrato validado · boletos em preparação', descricao: 'Estado legado reconciliado: sua assinatura foi confirmada e o fluxo segue automaticamente para a preparação dos boletos.' },
@@ -60,6 +60,8 @@ export default function Confirmacao() {
   const confirmado = Boolean(atual.ok || estado.status_reconciliado === 'quitado');
   const manual = estado.boleto_modo === 'manual' || pagamentoData?.modo === 'manual' || ['aguardando_aprovacao_boleto', 'boletos_em_preparacao', 'boletos_enviados'].includes(chave);
   const parcelas = Array.isArray(estado.parcelas) ? estado.parcelas : [];
+  const pixCopiaECola = pagamentoData?.pix_copia_e_cola || estado.pix_copia_e_cola || pagamentoData?.qr_code || estado.qr_code;
+  const documentoPagamento = pagamentoData?.url_pagamento || pagamentoData?.document_url || estado.url_pagamento || estado.document_url;
 
   return <div className="mx-auto max-w-2xl py-12">
     <Helmet><title>Status da reserva | Excursão das Comitivas</title><meta name="robots" content="noindex,nofollow" /></Helmet>
@@ -71,10 +73,10 @@ export default function Confirmacao() {
         <p className="mt-2 text-xs text-white/65">Reserva #{reservaId?.substring(0, 8)}</p>
       </div>
       <CardContent className="space-y-7 p-8">
-        {!confirmado && pagamentoData?.metodo === 'pix' && pagamentoData.qr_code && <div className="space-y-4"><p className="text-gray-600">Use o código PIX Copia e Cola abaixo no aplicativo do seu banco:</p><div className="rounded-xl bg-gray-100 p-4 text-left"><code className="block select-all break-all text-xs text-gray-700">{pagamentoData.qr_code}</code></div></div>}
-        {!confirmado && pagamentoData?.url_pagamento && <a href={pagamentoData.url_pagamento} target="_blank" rel="noreferrer"><Button size="lg">Acessar gateway de pagamento</Button></a>}
+        {!confirmado && pagamentoData?.metodo === 'pix' && pixCopiaECola && <div className="space-y-4"><p className="text-gray-600">Use o código PIX Copia e Cola abaixo no aplicativo do seu banco:</p><div className="rounded-xl bg-gray-100 p-4 text-left"><code className="block select-all break-all text-xs text-gray-700">{pixCopiaECola}</code></div></div>}
+        {!confirmado && documentoPagamento && <a href={documentoPagamento} target="_blank" rel="noreferrer"><Button size="lg">Abrir boleto ou cobrança</Button></a>}
         {manual && <div className="rounded-xl border border-[#182D3B]/15 bg-[#F8F5EF] p-5 text-left"><h2 className="font-bold text-secondary">Boleto bancário em preparação</h2><p className="mt-2 text-sm leading-6 text-gray-600">Seu cadastro e contrato já foram validados automaticamente. A operação prepara os PDFs das parcelas e o sistema os disponibiliza e envia ao e-mail cadastrado conforme forem anexados.</p></div>}
-        {parcelas.length > 0 && <div className="text-left"><h2 className="mb-3 font-bold text-secondary">Cronograma financeiro</h2><div className="space-y-2">{parcelas.map((p: any) => <div key={p.id || p.sequencia} className="flex items-center justify-between rounded-xl border border-gray-200 p-3 text-sm"><div><strong>Parcela {p.sequencia}</strong><p className="text-xs text-gray-500">Vencimento {p.vencimento || 'a confirmar'} · {p.boleto_disponivel ? 'boleto preparado' : 'aguardando boleto'}</p></div><span className={`rounded-full px-2 py-1 text-xs font-bold ${p.status === 'aprovado' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>{p.status || 'pendente'}</span></div>)}</div></div>}
+        {parcelas.length > 0 && <div className="text-left"><h2 className="mb-3 font-bold text-secondary">Cronograma financeiro</h2><div className="space-y-2">{parcelas.map((p: any) => <div key={p.id || p.sequencia} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 p-3 text-sm"><div><strong>Parcela {p.sequencia}</strong><p className="text-xs text-gray-500">Vencimento {p.vencimento || 'a confirmar'} · {p.boleto_url || p.boleto_disponivel ? 'boleto preparado' : 'aguardando boleto'}</p>{p.linha_digitavel && <code className="mt-1 block break-all text-[11px] text-gray-500">Linha digitável: {p.linha_digitavel}</code>}</div><div className="flex items-center gap-2"><span className={`rounded-full px-2 py-1 text-xs font-bold ${p.status === 'aprovado' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>{p.status || 'pendente'}</span>{p.boleto_url && <a href={p.boleto_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2 py-1 text-xs font-bold text-slate-700 hover:border-primary hover:text-primary"><ExternalLink size={13} />Abrir boleto</a>}</div></div>)}</div></div>}
         {confirmado && <div className="flex items-start gap-3 rounded-lg bg-emerald-50 p-4 text-left text-emerald-800"><FileCheck2 className="mt-1 shrink-0" size={24} /><div><h4 className="font-bold">Tudo certo com sua reserva!</h4><p className="mt-1 text-sm">O financeiro foi confirmado. Seus documentos liberados também ficam em “Minhas reservas”.</p></div></div>}
         {erroDocumento && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{erroDocumento}</p>}
         <div className="flex flex-col justify-center gap-3 border-t pt-6 sm:flex-row"><Button variant="outline" onClick={() => void baixarDocumento('contrato')} isLoading={baixando === 'contrato'}><Download size={18} className="mr-2" />Baixar contrato</Button>{confirmado && <Button variant="outline" onClick={() => void baixarDocumento('voucher')} isLoading={baixando === 'voucher'}><Ticket size={18} className="mr-2" />Baixar voucher</Button>}<Button variant="outline" disabled={consultando} onClick={() => void verificarStatus()}><RefreshCw size={16} className="mr-2" />Atualizar</Button><Link to="/minhas-reservas"><Button>Minhas reservas</Button></Link></div>

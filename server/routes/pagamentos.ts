@@ -1,10 +1,9 @@
 import { Router, Request, Response } from "express";
-import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import { authMiddleware, isAdminOrDev } from "../middleware/authMiddleware.js";
 import { PaymentGatewayAdapter } from "../services/paymentGatewayAdapter.js";
 import { ConfiguracaoService } from "../services/configuracaoService.js";
-import { GatewayConfigService } from "../services/gatewayConfigService.js";
 import { InventoryService } from "../services/inventoryService.js";
 import { ContratoService } from "../services/contratoService.js";
 import { db } from "../db/index.js";
@@ -89,17 +88,6 @@ async function enfileirarPagamentoQuitado(reservaId: string) {
     anexos: await anexoContratoSeDisponivel(registro.reserva.contrato_pdf_url, reservaId),
     remetente: "finance",
   });
-}
-
-function webhookAssinado(req: Request): boolean {
-  const segredo = process.env.CORA_WEBHOOK_HMAC_SECRET?.trim();
-  if (!segredo) return process.env.NODE_ENV !== "production";
-  const informado = (header(req, "x-cora-signature") || header(req, "x-webhook-signature") || header(req, "x-signature") || "").replace(/^sha256=/i, "").trim();
-  if (!informado) return false;
-  const esperado = createHmac("sha256", segredo).update((req as any).rawBody || Buffer.from(JSON.stringify(req.body || {})), "utf8").digest("hex");
-  const recebido = Buffer.from(informado, "hex");
-  const calculado = Buffer.from(esperado, "hex");
-  return recebido.length === calculado.length && timingSafeEqual(recebido, calculado);
 }
 
 async function reservarOuConverterHold(tx: any, reservaId: string, reserva: any, agora: Date): Promise<void> {
@@ -363,6 +351,10 @@ router.get("/status/:reserva_id", authMiddleware, async (req: Request, res: Resp
       vencimento: pagamentoParcelas.vencimento,
       status: pagamentoParcelas.status,
       valor_pago_centavos: pagamentoParcelas.valor_pago_centavos,
+      boleto_url: pagamentoParcelas.boleto_url,
+      pix_copia_e_cola: pagamentoParcelas.pix_copia_e_cola,
+      codigo_barras: pagamentoParcelas.codigo_barras,
+      linha_digitavel: pagamentoParcelas.linha_digitavel,
       boleto_disponivel: sql<boolean>`${pagamentoParcelas.boleto_documento_id} IS NOT NULL`,
       enviado_email_em: pagamentoParcelas.enviado_email_em,
       enviado_whatsapp_em: pagamentoParcelas.enviado_whatsapp_em,
@@ -399,10 +391,10 @@ router.post("/webhook/cora", async (req: Request, res: Response) => {
   const recursoId = header(req, "webhook-resource-id") || String(payload.resource_id || payload.resourceId || payload.invoice_id || payload.id || payload.resource?.id || "");
 
   try {
-    // Se as credenciais foram cadastradas pelo painel DEV, materializa o
-    // segredo de webhook em memória antes de validar a assinatura.
-    await GatewayConfigService.aplicarRuntime().catch(() => false);
-    if (!webhookAssinado(req)) return res.status(401).json({ erro: "Assinatura do webhook inválida" });
+    // A Cora documenta os headers webhook-event-id, webhook-event-type e
+    // webhook-resource-id, mas não documenta assinatura HMAC. O evento é
+    // deduplicado pelo ID e o estado financeiro é confirmado pela API Cora
+    // autenticada antes de qualquer alteração local.
     await db.insert(webhookEventos).values({ id: createId(), evento_id: eventoId, tipo: eventoTipo, recurso_id: recursoId || null, payload, tentativas: 0 }).onConflictDoNothing();
     const claim = await db.update(webhookEventos).set({ tentativas: sql`tentativas + 1` }).where(and(eq(webhookEventos.evento_id, eventoId), isNull(webhookEventos.processado_em))).returning({ id: webhookEventos.id });
     if (!claim[0]) return res.json({ ok: true, duplicado: true });

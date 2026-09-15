@@ -59,6 +59,7 @@ function rotuloPagamento(pacote?: PacotePublicado) {
     partes.push(parcelas > 1 ? `Boleto em até ${parcelas}x` : 'Boleto');
   }
   if (formas.includes('credito')) partes.push('Cartão conforme disponibilidade');
+  if (formas.includes('debito')) partes.push('Débito conforme disponibilidade');
   return partes.length ? partes.join(' · ') : 'Condição apresentada no checkout';
 }
 

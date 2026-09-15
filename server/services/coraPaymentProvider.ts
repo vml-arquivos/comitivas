@@ -43,6 +43,7 @@ export interface CoraCobranca {
     status: string;
     vencimento?: string;
     boletoUrl?: string;
+    documentUrl?: string;
     pixCopiaECola?: string;
     barcode?: string;
     digitable?: string;
@@ -252,6 +253,7 @@ export class CoraPaymentProvider {
           status: String(item?.status || "OPEN"),
           vencimento: stringValue(item?.payment_terms?.due_date),
           boletoUrl: stringValue(item?.bank_slip?.url),
+          documentUrl: stringValue(item?.document_url),
           pixCopiaECola: stringValue(item?.pix?.emv),
           barcode: stringValue(item?.bank_slip?.barcode),
           digitable: stringValue(item?.bank_slip?.digitable),

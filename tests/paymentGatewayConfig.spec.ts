@@ -63,4 +63,24 @@ describe("PaymentGatewayAdapter.validarConfiguracaoSegura", () => {
     expect(config).toContain("Segredos Cora são somente runtime");
     expect(config).toContain("if (this.runtimeOnly()) return false;");
   });
+
+  it("processa o webhook Cora pelos headers oficiais e reconcilia o estado pela API", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const rota = await readFile(new URL("../server/routes/pagamentos.ts", import.meta.url), "utf8");
+    expect(rota).toContain('header(req, "webhook-event-id")');
+    expect(rota).toContain('header(req, "webhook-event-type")');
+    expect(rota).toContain('header(req, "webhook-resource-id")');
+    expect(rota).toContain("PaymentGatewayAdapter.consultarPagamento(recursoId)");
+    expect(rota).not.toContain("webhookAssinado(req)");
+  });
+
+  it("preserva o PDF oficial retornado em document_url para parcelas do carnê", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const [provider, adapter] = await Promise.all([
+      readFile(new URL("../server/services/coraPaymentProvider.ts", import.meta.url), "utf8"),
+      readFile(new URL("../server/services/paymentGatewayAdapter.ts", import.meta.url), "utf8"),
+    ]);
+    expect(provider).toContain("documentUrl: stringValue(item?.document_url)");
+    expect(adapter).toContain("parcela.boletoUrl || parcela.documentUrl");
+  });
 });

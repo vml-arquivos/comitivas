@@ -29,7 +29,10 @@ export class GatewayConfigService {
     const clientId = process.env.CORA_CLIENT_ID?.trim() || "";
     const certPath = process.env.CORA_CERT_PATH?.trim() || "";
     const keyPath = process.env.CORA_PRIVATE_KEY_PATH?.trim() || "";
-    const webhook = process.env.CORA_WEBHOOK_HMAC_SECRET?.trim() || "";
+    // A documentação oficial da Cora identifica o webhook pelos headers
+    // webhook-event-id/type/resource-id; ela não documenta HMAC compartilhado.
+    // Portanto, a capacidade de webhook é a URL pública configurada.
+    const webhook = process.env.CORA_WEBHOOK_PUBLIC_URL?.trim() || "";
     let certificados = false;
     if (certPath && keyPath) {
       try {
@@ -60,7 +63,7 @@ export class GatewayConfigService {
       client_id_mascarado: clientId ? SecretVaultService.masked(clientId) : runtime.client ? "configurado no Coolify" : null,
       certificado_configurado: this.runtimeOnly() ? runtime.certificados : Boolean(linha.certificate_enc) || runtime.certificados,
       chave_privada_configurada: this.runtimeOnly() ? runtime.certificados : Boolean(linha.private_key_enc) || runtime.certificados,
-      webhook_configurado: this.runtimeOnly() ? runtime.webhook : Boolean(linha.webhook_secret_enc) || runtime.webhook,
+      webhook_configurado: this.runtimeOnly() ? runtime.webhook : Boolean(linha.webhook_public_url) || runtime.webhook,
       token_url: linha.token_url,
       api_base: linha.api_base,
       installments_api_base: linha.installments_api_base,
@@ -86,13 +89,13 @@ export class GatewayConfigService {
     const clientConfigurado = this.runtimeOnly() ? runtime.client : Boolean(dados.client_id?.trim() || atual?.client_id_enc);
     const certificadoConfigurado = this.runtimeOnly() ? runtime.certificados : Boolean(dados.certificate_pem?.trim() || atual?.certificate_enc);
     const chaveConfigurada = this.runtimeOnly() ? runtime.certificados : Boolean(dados.private_key_pem?.trim() || atual?.private_key_enc);
-    const webhookConfigurado = this.runtimeOnly() ? runtime.webhook : Boolean(dados.webhook_secret?.trim() || atual?.webhook_secret_enc || process.env.CORA_WEBHOOK_HMAC_SECRET?.trim());
     const webhookPublico = String(dados.webhook_public_url ?? atual?.webhook_public_url ?? process.env.CORA_WEBHOOK_PUBLIC_URL ?? "").trim();
+    const webhookConfigurado = Boolean(webhookPublico.startsWith("https://"));
     if (ativoFinal && (!clientConfigurado || !certificadoConfigurado || !chaveConfigurada)) {
       throw new Error("Para ativar a Cora, informe Client ID, certificado mTLS e private key");
     }
     if (ativoFinal && ambiente === "production" && (!webhookConfigurado || !webhookPublico.startsWith("https://"))) {
-      throw new Error("Em produção, configure o segredo do webhook e uma URL pública HTTPS antes de ativar a Cora");
+      throw new Error("Em produção, configure uma URL pública HTTPS para o webhook antes de ativar a Cora");
     }
     await db.insert(gatewayCredenciais).values({ id: "cora", provedor: "cora", ambiente, ativo: false }).onConflictDoNothing();
     await db.update(gatewayCredenciais).set({
