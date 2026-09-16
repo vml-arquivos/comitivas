@@ -1,4 +1,5 @@
 export type FormaContratacao = "onibus" | "hospedagem" | "onibus_hospedagem" | "livre";
+export type FormaContratacaoValida = "onibus" | "hospedagem" | "onibus_hospedagem";
 export type ModalidadePacote = "camping" | "quarto_ventilador" | "quarto_ar_condicionado";
 export type GrupoHospedagem = "masculino" | "feminino";
 export type EstruturaQuarto = "ventilador" | "ar_condicionado";
@@ -8,6 +9,22 @@ export type RecursosContratados = {
   hospedagem: boolean;
   estrutura_quarto: EstruturaQuarto | null;
 };
+
+export const FORMAS_CONTRATACAO_VALIDAS: readonly FormaContratacaoValida[] = ["onibus_hospedagem", "hospedagem", "onibus"];
+
+/** Resolve a configuração nova sem quebrar pacotes criados antes da coluna JSONB. */
+export function normalizarFormasContratacao(
+  formasBrutas: unknown,
+  formaLegada: unknown,
+  modalidadeBruta: unknown,
+): FormaContratacaoValida[] {
+  const modalidade = String(modalidadeBruta || "").trim().toLowerCase();
+  if (modalidade === "camping") return ["onibus"];
+  const candidatas = Array.isArray(formasBrutas) ? formasBrutas : [formasBrutas ?? formaLegada];
+  return Array.from(new Set(candidatas
+    .map((forma) => String(forma || "").trim().toLowerCase())
+    .filter((forma): forma is FormaContratacaoValida => FORMAS_CONTRATACAO_VALIDAS.includes(forma as FormaContratacaoValida))));
+}
 
 /**
  * Regra comercial única para checkout, inventário e contrato.

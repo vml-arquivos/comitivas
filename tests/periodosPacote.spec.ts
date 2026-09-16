@@ -74,7 +74,8 @@ describe("períodos múltiplos dentro do pacote", () => {
     expect(vendas).toContain("periodo_id: periodoId || undefined");
     expect(vendas).toContain("Período da viagem");
     expect(vendas).toContain("selecionarPeriodo");
-    expect(vendas).toContain("params: { periodo_id: id }");
+    expect(vendas).toContain("periodo_id: id");
+    expect(vendas).toContain("forma_contratacao: formaContratacao");
   });
 
   it("mantém o mapa de ônibus compatível com PostgreSQL e entrega o catálogo completo ao comercial", () => {
@@ -86,5 +87,23 @@ describe("períodos múltiplos dentro do pacote", () => {
     expect(pacotes).toContain("lote_id: pacote.lote_id");
     expect(vendas).toContain("Promise.allSettled");
     expect(vendas).toContain("Selecione um dos pacotes publicados");
+  });
+
+  it("permite escolher o escopo de contratação por pacote sem romper o legado", () => {
+    const schema = ler("server/db/schema.ts");
+    const migration = ler("drizzle/0028_formas_contratacao_pacotes.sql");
+    const recursos = ler("server/services/contratacaoRecursos.ts");
+    const rotas = ler("server/routes/pacotes.ts");
+    const configurador = ler("apps/web/src/pages/cliente/ConfiguradorPacote.tsx");
+    const vendas = ler("apps/web/src/pages/admin/Vendas.tsx");
+    expect(schema).toContain('formas_contratacao: jsonb("formas_contratacao")');
+    expect(migration).toContain("ADD COLUMN IF NOT EXISTS formas_contratacao JSONB");
+    expect(migration).toContain("modalidade_hospedagem = 'camping'");
+    expect(recursos).toContain("normalizarFormasContratacao");
+    expect(rotas).toContain("formas_contratacao: comercial.formas_contratacao");
+    expect(configurador).toContain("formasPublicas");
+    expect(configurador).toContain("disponibilidade_por_forma");
+    expect(vendas).toContain("Tipo de contratação");
+    expect(vendas).toContain("formasDoPacote");
   });
 });

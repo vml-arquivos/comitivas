@@ -197,6 +197,13 @@
       "when": 1789500003000,
       "tag": "0027_periodo_por_onibus",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "5",
+      "when": 1789500004000,
+      "tag": "0028_formas_contratacao_pacotes",
+      "breakpoints": true
     }
   ]
 }

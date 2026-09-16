@@ -24,6 +24,8 @@ interface PacotePublicado {
   valor_total: string;
   modalidade_hospedagem: 'camping' | 'quarto_ventilador' | 'quarto_ar_condicionado';
   forma_contratacao: 'onibus' | 'hospedagem' | 'onibus_hospedagem' | 'livre';
+  formas_contratacao?: FormaContratacaoPublica[];
+  disponibilidade_por_forma?: Partial<Record<FormaContratacaoPublica, { disponibilidade?: string; vagas_disponiveis?: number }>>;
   disponibilidade: 'disponivel' | 'ultimas_vagas' | 'esgotado';
   formas_pagamento?: string[];
   boleto_parcelas_maximo?: number | null;
@@ -58,11 +60,11 @@ const formaContratacaoMeta: Record<FormaContratacaoPublica, { label: string; des
   onibus: { label: 'Somente transporte', descricao: 'Contrato apenas do transporte rodoviário de ida e volta.' },
 };
 
-function formaPublica(valor: PacotePublicado['forma_contratacao']): FormaContratacaoPublica | null {
-  if (valor === 'onibus_hospedagem' || valor === 'hospedagem' || valor === 'onibus') return valor;
-  // "livre" é legado e ambíguo. Nunca é convertido silenciosamente em hospedagem:
-  // o Admin precisa definir o escopo e o preço antes de a oferta voltar ao checkout.
-  return null;
+function formasPublicas(pacote: PacotePublicado): FormaContratacaoPublica[] {
+  if (pacote.modalidade_hospedagem === 'camping') return ['onibus'];
+  if (Array.isArray(pacote.formas_contratacao)) return pacote.formas_contratacao.filter((forma): forma is FormaContratacaoPublica => forma in formaContratacaoMeta);
+  if (pacote.forma_contratacao in formaContratacaoMeta) return [pacote.forma_contratacao as FormaContratacaoPublica];
+  return [];
 }
 
 function rotuloPagamento(pacote?: PacotePublicado) {
@@ -132,7 +134,7 @@ export default function ConfiguradorPacote() {
           retomando
           && pacoteSalvo
           && formaSalva
-          && formaPublica(pacoteSalvo.forma_contratacao) === formaSalva,
+          && formasPublicas(pacoteSalvo).includes(formaSalva),
         );
 
         // A URL pode apontar para um pacote/modalidade de interesse, mas nunca decide
@@ -159,12 +161,21 @@ export default function ConfiguradorPacote() {
     carregarConfigurador();
   }, [loteId, pacoteSolicitado, periodoSolicitado]);
 
+  useEffect(() => {
+    if (isLoading || !loteId || !formaContratacao) return;
+    let cancelado = false;
+    api.get(`/pacotes/lotes/${loteId}/pacotes`, { params: { forma_contratacao: formaContratacao, periodo_id: periodoId || undefined } })
+      .then((response) => { if (!cancelado) setPacotes(response.data.pacotes || []); })
+      .catch(() => undefined);
+    return () => { cancelado = true; };
+  }, [loteId, formaContratacao, periodoId, isLoading]);
+
   const pacoteSelecionado = useMemo(() => pacotes.find((pacote) => pacote.id === pacoteId), [pacotes, pacoteId]);
   const pacoteSugerido = useMemo(() => pacoteSolicitado ? pacotes.find((pacote) => pacote.id === pacoteSolicitado) : undefined, [pacotes, pacoteSolicitado]);
   const formasDisponiveis: FormaContratacaoPublica[] = ['onibus_hospedagem', 'hospedagem', 'onibus'];
   const pacotesDoTipo = useMemo(() => {
     if (!formaContratacao) return [];
-    const filtrados = pacotes.filter((pacote) => formaPublica(pacote.forma_contratacao) === formaContratacao);
+    const filtrados = pacotes.filter((pacote) => formasPublicas(pacote).includes(formaContratacao));
     // Um link de vitrine serve apenas como preferência visual. Depois de o cliente
     // escolher o tipo de contratação, a mesma modalidade aparece primeiro se existir.
     return [...filtrados].sort((a, b) => {
@@ -206,8 +217,12 @@ export default function ConfiguradorPacote() {
 
   const selecionarPacote = (id: string) => {
     const selecionado = pacotes.find((pacote) => pacote.id === id);
-    if (!formaContratacao || !selecionado || formaPublica(selecionado.forma_contratacao) !== formaContratacao) {
+    if (!formaContratacao || !selecionado || !formasPublicas(selecionado).includes(formaContratacao)) {
       setError('Escolha primeiro o tipo de contratação e depois um pacote compatível.');
+      return;
+    }
+    if (selecionado.disponibilidade === 'esgotado' || selecionado.disponibilidade_por_forma?.[formaContratacao]?.disponibilidade === 'esgotado') {
+      setError('Esta forma de contratação está esgotada para o pacote selecionado.');
       return;
     }
     setPacoteId(id);
@@ -376,7 +391,7 @@ export default function ConfiguradorPacote() {
               {formasDisponiveis.map((forma) => {
                 const meta = formaContratacaoMeta[forma];
                 const selecionado = formaContratacao === forma;
-                const indisponivel = !pacotes.some((pacote) => formaPublica(pacote.forma_contratacao) === forma && pacote.disponibilidade !== 'esgotado');
+                const indisponivel = !pacotes.some((pacote) => formasPublicas(pacote).includes(forma) && pacote.disponibilidade_por_forma?.[forma]?.disponibilidade !== 'esgotado' && pacote.disponibilidade !== 'esgotado');
                 return <button key={forma} type="button" aria-pressed={selecionado} disabled={indisponivel} onClick={() => selecionarFormaContratacao(forma)} className={`relative rounded-2xl border p-4 text-left transition-all disabled:cursor-not-allowed disabled:opacity-50 ${selecionado ? 'border-primary bg-primary/5 shadow-md ring-2 ring-primary/20' : 'border-gray-200 bg-white hover:border-primary/40'}`}>
                   {selecionado && <span className="absolute right-3 top-3 rounded-full bg-primary p-1 text-white"><Check size={14} /></span>}
                   <p className="pr-8 text-sm font-black text-slate-900">{meta.label}</p>
@@ -407,7 +422,7 @@ export default function ConfiguradorPacote() {
                 const meta = modalidadeMeta[pacote.modalidade_hospedagem];
                 const Icon = meta?.icon || TentTree;
                 const selecionado = pacote.id === pacoteId;
-                const esgotado = pacote.disponibilidade === 'esgotado';
+                const esgotado = pacote.disponibilidade === 'esgotado' || pacote.disponibilidade_por_forma?.[formaContratacao]?.disponibilidade === 'esgotado';
                 return <button key={pacote.id} type="button" aria-pressed={selecionado} disabled={esgotado} onClick={() => selecionarPacote(pacote.id)} className={`relative rounded-2xl border p-4 text-left transition-all sm:p-5 disabled:cursor-not-allowed disabled:opacity-60 ${selecionado ? 'border-primary bg-primary/5 shadow-lg ring-2 ring-primary/20' : 'border-gray-200 bg-white hover:border-primary/40 hover:shadow-md'}`}>
                   {selecionado && <span className="absolute left-3 top-3 rounded-full bg-primary p-1 text-white"><Check size={14} /></span>}
                   {pacote.disponibilidade !== 'disponivel' && <span className={`absolute right-3 top-3 rounded-full px-2 py-1 text-[10px] font-black uppercase ${esgotado ? 'bg-slate-800 text-white' : 'bg-amber-100 text-amber-800'}`}>{esgotado ? 'Esgotado' : 'Últimas vagas'}</span>}

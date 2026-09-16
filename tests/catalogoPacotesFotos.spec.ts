@@ -91,7 +91,8 @@ describe("catálogo simples de excursões, lotes e pacotes", () => {
   it("trata camping como modalidade somente transporte", () => {
     const rotas = ler("server/routes/pacotes.ts");
     const recursos = ler("server/services/contratacaoRecursos.ts");
-    expect(rotas).toContain('modalidade === "camping" ? "onibus"');
+    expect(rotas).toContain('modalidade === "camping"');
+    expect(rotas).toContain('["onibus"]');
     expect(recursos).toContain('modalidade === "camping"');
     expect(recursos).toContain("transporte: true, hospedagem: false");
   });

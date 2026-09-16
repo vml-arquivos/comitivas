@@ -11,12 +11,13 @@ import { eq, and, desc, inArray, isNull, or, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { CatalogoExclusaoService } from "../services/catalogoExclusaoService.js";
 import { ContratacaoIntegridadeService } from "../services/contratacaoIntegridadeService.js";
+import { FORMAS_CONTRATACAO_VALIDAS, normalizarFormasContratacao } from "../services/contratacaoRecursos.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 
 const router = Router();
 
-const FORMAS_CONTRATACAO = new Set(["onibus", "hospedagem", "onibus_hospedagem", "livre"]);
+const FORMAS_CONTRATACAO = new Set(FORMAS_CONTRATACAO_VALIDAS);
 const FORMAS_PAGAMENTO_PACOTE = new Set(["pix", "boleto", "credito", "debito"]);
 const parserFotoPacote = raw({ type: "application/octet-stream", limit: "10mb" });
 
@@ -83,11 +84,15 @@ function validarConfiguracaoComercial(body: any) {
   const modalidade = String(body.modalidade_hospedagem || "quarto_ventilador").trim().toLowerCase();
   const formaPadrao = "onibus_hospedagem";
   const formaSolicitada = String(body.forma_contratacao || formaPadrao).trim().toLowerCase();
-  const formaContratacao = modalidade === "camping" ? "onibus" : formaSolicitada;
-  if (!FORMAS_CONTRATACAO.has(formaContratacao)) throw new Error("Forma de contratação inválida");
+  const formasInformadas = Array.isArray(body.formas_contratacao) ? body.formas_contratacao : [formaSolicitada];
+  const formasContratacao: string[] = modalidade === "camping"
+    ? ["onibus"]
+    : Array.from(new Set(formasInformadas.map((forma: unknown) => String(forma || "").trim().toLowerCase()).filter((forma: string) => FORMAS_CONTRATACAO.has(forma as typeof FORMAS_CONTRATACAO_VALIDAS[number]))));
+  if (formasContratacao.length === 0) throw new Error("Habilite ao menos uma forma de contratação");
+  const formaContratacao = formasContratacao.includes(formaSolicitada) ? formaSolicitada : formasContratacao[0];
 
   const onibusConfig = Array.isArray(body.onibus_config) ? body.onibus_config : [];
-  if (formaContratacao.includes("onibus") && onibusConfig.length === 0) {
+  if (formasContratacao.some((forma) => forma.includes("onibus")) && onibusConfig.length === 0) {
     throw new Error("Configure ao menos um ônibus para esta forma de contratação");
   }
   const onibusNormalizados = onibusConfig.map((item: any, indice: number) => {
@@ -126,6 +131,7 @@ function validarConfiguracaoComercial(body: any) {
 
   return {
     forma_contratacao: formaContratacao,
+    formas_contratacao: formasContratacao,
     onibus_config: onibusNormalizados,
     configuracao_pagamento: {
       formas_permitidas: formasPermitidas,
@@ -437,6 +443,7 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
           descricao: pacotes.descricao,
           modalidade_hospedagem: pacotes.modalidade_hospedagem,
           forma_contratacao: pacotes.forma_contratacao,
+          formas_contratacao: pacotes.formas_contratacao,
           onibus_config: pacotes.onibus_config,
           configuracao_pagamento: pacotes.configuracao_pagamento,
           data_limite_pagamento: pacotes.data_limite_pagamento,
@@ -504,7 +511,8 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
       pacote_nome: pacoteSelecionado[0]?.nome || null,
       pacote_descricao: pacoteSelecionado[0]?.descricao || null,
       modalidade_hospedagem: pacoteSelecionado[0]?.modalidade_hospedagem || null,
-      forma_contratacao: pacoteSelecionado[0]?.modalidade_hospedagem === "camping" ? "onibus" : pacoteSelecionado[0]?.forma_contratacao || "hospedagem",
+      forma_contratacao: (reserva[0].recursos_contratados as any)?.forma_contratacao || (pacoteSelecionado[0]?.modalidade_hospedagem === "camping" ? "onibus" : pacoteSelecionado[0]?.forma_contratacao || "hospedagem"),
+      formas_contratacao: pacoteSelecionado[0]?.formas_contratacao || [],
       onibus_config: pacoteSelecionado[0]?.onibus_config || [],
       configuracao_pagamento: pacoteSelecionado[0]?.configuracao_pagamento || {},
       data_limite_pagamento: pacoteSelecionado[0]?.data_limite_pagamento || null,
@@ -602,13 +610,22 @@ router.post("/reservas/:reserva_id/simular-pagamento", authMiddleware, async (re
 router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
   try {
     const periodoId = String(req.query.periodo_id || "").trim() || null;
+    const formaSolicitada = String(req.query.forma_contratacao || "").trim().toLowerCase() || null;
     const lista = await db
       .select()
       .from(pacotes)
       .where(and(eq(pacotes.lote_id, req.params.lote_id), eq(pacotes.ativo, true)));
 
     const pacotesComDisponibilidade = await Promise.all(lista.map(async (pacote) => {
-      const capacidade = await PacoteService.obterDisponibilidadeFisica(pacote, periodoId);
+      const formasContratacao = normalizarFormasContratacao(pacote.formas_contratacao, pacote.forma_contratacao, pacote.modalidade_hospedagem);
+      const formasParaCalculo = formaSolicitada && formasContratacao.includes(formaSolicitada as typeof FORMAS_CONTRATACAO_VALIDAS[number])
+        ? [formaSolicitada]
+        : formasContratacao;
+      const capacidades = await Promise.all(formasParaCalculo.map(async (forma) => [forma, await PacoteService.obterDisponibilidadeFisica(pacote, periodoId, forma)] as const));
+      const capacidadeEscolhida = formaSolicitada && capacidades.find(([forma]) => forma === formaSolicitada)?.[1];
+      const capacidadeFallback = capacidades[0]?.[1] || await PacoteService.obterDisponibilidadeFisica(pacote, periodoId);
+      const capacidade = capacidadeEscolhida || capacidades.reduce((melhor, [, atual]) => atual.vagas_disponiveis > melhor.vagas_disponiveis ? atual : melhor, capacidadeFallback);
+      const disponibilidadePorForma = Object.fromEntries(capacidades.map(([forma, resultado]) => [forma, { disponibilidade: resultado.disponibilidade, vagas_disponiveis: resultado.vagas_disponiveis, vagas_transporte: resultado.vagas_transporte, vagas_hospedagem: resultado.vagas_hospedagem }]));
       const regras = regrasDoPacote(pacote);
       const fotos = await db.select({ id: fotosPacote.id, url_foto: fotosPacote.url_foto, legenda: fotosPacote.legenda, alt_text: fotosPacote.alt_text, ordem: fotosPacote.ordem, capa: fotosPacote.capa })
         .from(fotosPacote).where(eq(fotosPacote.pacote_id, pacote.id)).orderBy(fotosPacote.ordem);
@@ -621,7 +638,10 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
         .where(and(eq(pacotePeriodos.pacote_id, pacote.id), eq(pacotePeriodos.ativo, true)))
         .orderBy(pacotePeriodos.ordem, pacotePeriodos.data_inicio);
       const periodos = await Promise.all(periodosBase.map(async (periodo) => {
-        const capacidadePeriodo = await PacoteService.obterDisponibilidadeFisica(pacote, periodo.id);
+        const capacidadesPeriodo = await Promise.all(formasParaCalculo.map(async (forma) => PacoteService.obterDisponibilidadeFisica(pacote, periodo.id, forma)));
+        const capacidadePeriodo = capacidadeEscolhida
+          ? await PacoteService.obterDisponibilidadeFisica(pacote, periodo.id, formaSolicitada)
+          : capacidadesPeriodo.reduce((melhor, atual) => atual.vagas_disponiveis > melhor.vagas_disponiveis ? atual : melhor, capacidadesPeriodo[0] || capacidade);
         return {
           ...periodo,
           disponibilidade: capacidadePeriodo.disponibilidade,
@@ -639,7 +659,9 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
           destaque_texto: pacote.destaque_texto,
           modalidade_hospedagem: pacote.modalidade_hospedagem,
         forma_contratacao: pacote.modalidade_hospedagem === "camping" ? "onibus" : pacote.forma_contratacao,
-        configuracao_necessaria: pacote.modalidade_hospedagem !== "camping" && !["onibus", "hospedagem", "onibus_hospedagem"].includes(String(pacote.forma_contratacao)),
+          formas_contratacao: formasContratacao,
+          disponibilidade_por_forma: disponibilidadePorForma,
+        configuracao_necessaria: formasContratacao.length === 0,
           formas_pagamento: regras.formasPermitidas,
           boleto_parcelas_maximo: regras.boletoParcelasMaximo || null,
           disponibilidade_configurada: pacote.disponibilidade,
@@ -915,6 +937,7 @@ router.post("/", authMiddleware, requireRole("admin"), async (req: Request, res:
       disponibilidade: disponibilidade || "disponivel",
       contrato_modelo: modeloContratoPorForma(comercial.forma_contratacao),
       forma_contratacao: comercial.forma_contratacao,
+      formas_contratacao: comercial.formas_contratacao,
       onibus_config: comercial.onibus_config,
       configuracao_pagamento: comercial.configuracao_pagamento,
       data_limite_pagamento: comercial.data_limite_pagamento,
@@ -955,6 +978,7 @@ router.put("/:pacote_id", authMiddleware, requireRole("admin"), async (req: Requ
     const finalComercial = validarConfiguracaoComercial({
       modalidade_hospedagem: modalidade_hospedagem ?? atual.modalidade_hospedagem,
       forma_contratacao: req.body.forma_contratacao ?? atual.forma_contratacao,
+      formas_contratacao: req.body.formas_contratacao ?? atual.formas_contratacao,
       onibus_config: req.body.onibus_config ?? atual.onibus_config,
       configuracao_pagamento: req.body.configuracao_pagamento ?? atual.configuracao_pagamento,
       data_limite_pagamento: req.body.data_limite_pagamento !== undefined ? req.body.data_limite_pagamento : atual.data_limite_pagamento,
@@ -969,6 +993,7 @@ router.put("/:pacote_id", authMiddleware, requireRole("admin"), async (req: Requ
       disponibilidade: disponibilidade || undefined,
       contrato_modelo: modeloContratoPorForma(finalComercial.forma_contratacao),
       forma_contratacao: finalComercial.forma_contratacao,
+      formas_contratacao: finalComercial.formas_contratacao,
       onibus_config: finalComercial.onibus_config,
       configuracao_pagamento: finalComercial.configuracao_pagamento,
       data_limite_pagamento: finalComercial.data_limite_pagamento,

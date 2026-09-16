@@ -29,6 +29,8 @@ type Pacote = {
   valor_total: string;
   modalidade_hospedagem: string | null;
   forma_contratacao?: string | null;
+  formas_contratacao?: Array<'onibus' | 'hospedagem' | 'onibus_hospedagem'>;
+  disponibilidade_por_forma?: Record<string, { disponibilidade?: string; vagas_disponiveis?: number }>;
   disponibilidade: string | null;
   ativo: boolean;
   periodos?: Array<{ id: string; nome: string; data_inicio: string; data_fim: string }>;
@@ -65,6 +67,8 @@ type Venda = {
 type Vendedor = { id: string; nome: string; email: string };
 
 const dinheiro = (valor: number | string | undefined) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor || 0));
+const formaLabels: Record<string, string> = { onibus_hospedagem: 'Transporte + hospedagem', hospedagem: 'Somente hospedagem', onibus: 'Somente transporte' };
+const formasDoPacote = (pacote?: Pacote) => pacote?.modalidade_hospedagem === 'camping' ? ['onibus' as const] : (pacote?.formas_contratacao?.length ? pacote.formas_contratacao : pacote?.forma_contratacao && pacote.forma_contratacao !== 'livre' ? [pacote.forma_contratacao as 'onibus' | 'hospedagem' | 'onibus_hospedagem'] : []);
 const statusLabel: Record<string, string> = {
   pacote_montado: 'Pacote montado',
   checkout_iniciado: 'Checkout iniciado',
@@ -101,6 +105,7 @@ export default function Vendas() {
   const [eventoId, setEventoId] = useState('');
   const [loteId, setLoteId] = useState('');
   const [pacoteId, setPacoteId] = useState('');
+  const [formaContratacao, setFormaContratacao] = useState<'onibus' | 'hospedagem' | 'onibus_hospedagem' | ''>('');
   const [periodoId, setPeriodoId] = useState('');
   const [quantidades, setQuantidades] = useState<Record<string, number>>({});
   const [cupom, setCupom] = useState('');
@@ -154,6 +159,7 @@ export default function Vendas() {
     setEventoId(id);
     setLoteId('');
     setPacoteId('');
+    setFormaContratacao('');
     setPeriodoId('');
     setCalculo(null);
     if (!id) {
@@ -171,6 +177,7 @@ export default function Vendas() {
   const selecionarLote = async (id: string) => {
     setLoteId(id);
     setPacoteId('');
+    setFormaContratacao('');
     setPeriodoId('');
     setCalculo(null);
     if (!id) {
@@ -199,11 +206,24 @@ export default function Vendas() {
     setCalculo(null);
     if (!loteId || !pacoteId || !id) return;
     try {
-      const response = await api.get(`/pacotes/lotes/${loteId}/pacotes`, { params: { periodo_id: id } });
+      const response = await api.get(`/pacotes/lotes/${loteId}/pacotes`, { params: { periodo_id: id, forma_contratacao: formaContratacao || undefined } });
       const pacoteAtualizado = (response.data.pacotes || []).find((item: Pacote) => item.id === pacoteId);
       if (pacoteAtualizado) setPacotes((atuais) => atuais.map((item) => item.id === pacoteId ? { ...item, ...pacoteAtualizado } : item));
     } catch (err: any) {
       setErro(err.response?.data?.erro || 'Não foi possível validar a disponibilidade deste período.');
+    }
+  };
+
+  const selecionarForma = async (forma: 'onibus' | 'hospedagem' | 'onibus_hospedagem') => {
+    setFormaContratacao(forma);
+    setCalculo(null);
+    if (!loteId || !pacoteId) return;
+    try {
+      const response = await api.get(`/pacotes/lotes/${loteId}/pacotes`, { params: { periodo_id: periodoId || undefined, forma_contratacao: forma } });
+      const pacoteAtualizado = (response.data.pacotes || []).find((item: Pacote) => item.id === pacoteId);
+      if (pacoteAtualizado) setPacotes((atuais) => atuais.map((item) => item.id === pacoteId ? { ...item, ...pacoteAtualizado } : item));
+    } catch (err: any) {
+      setErro(err.response?.data?.erro || 'Não foi possível validar esta forma de contratação.');
     }
   };
 
@@ -214,6 +234,7 @@ export default function Vendas() {
       lote_id: loteId,
       pacote_id: pacoteId || undefined,
       periodo_id: periodoId || undefined,
+      forma_contratacao: formaContratacao || undefined,
       cupom_codigo: cupom.trim() || undefined,
       itens: itens
         .filter((item) => (quantidades[item.id] || 0) > 0)
@@ -225,7 +246,7 @@ export default function Vendas() {
           quantidade: quantidades[item.id],
         })),
     }),
-    [cliente, vendedorId, loteId, pacoteId, periodoId, cupom, itens, quantidades]
+    [cliente, vendedorId, loteId, pacoteId, periodoId, formaContratacao, cupom, itens, quantidades]
   );
 
   const calcular = async () => {
@@ -242,6 +263,14 @@ export default function Vendas() {
     const pacoteEscolhido = pacotes.find((item) => item.id === pacoteId);
     if (pacoteEscolhido?.disponibilidade === 'esgotado') {
       setErro('O pacote selecionado está esgotado para esta excursão.');
+      return;
+    }
+    if (pacoteEscolhido && (!formaContratacao || !formasDoPacote(pacoteEscolhido).includes(formaContratacao))) {
+      setErro('Selecione uma forma de contratação habilitada para este pacote.');
+      return;
+    }
+    if (pacoteEscolhido?.disponibilidade_por_forma?.[formaContratacao]?.disponibilidade === 'esgotado') {
+      setErro('A forma de contratação escolhida está esgotada para este período.');
       return;
     }
     if (pacoteEscolhido?.periodos?.length && !periodoId) {
@@ -573,7 +602,10 @@ export default function Vendas() {
                   className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
                   value={pacoteId}
                   onChange={(event) => {
-                    setPacoteId(event.target.value);
+                    const id = event.target.value;
+                    const pacote = pacotes.find((item) => item.id === id);
+                    setPacoteId(id);
+                    setFormaContratacao(formasDoPacote(pacote)[0] || '');
                     setPeriodoId('');
                     setCalculo(null);
                   }}
@@ -599,11 +631,17 @@ export default function Vendas() {
                       <span className="font-semibold text-primary">{dinheiro(pacoteSelecionado.valor_total)} por pessoa</span>
                     </div>
                     <p className="mt-1 text-xs text-gray-600">
-                      {pacoteSelecionado.forma_contratacao === 'onibus' ? 'Somente transporte' : pacoteSelecionado.forma_contratacao === 'hospedagem' ? 'Somente hospedagem' : 'Transporte + hospedagem'}
+                      {formaLabels[formaContratacao] || 'Escolha a forma de contratação'}
                       {pacoteSelecionado.descricao ? ` · ${pacoteSelecionado.descricao}` : ''}
                     </p>
                   </div>
                 );
+              })()}
+              {pacoteId && (() => {
+                const pacoteSelecionado = pacotes.find((item) => item.id === pacoteId);
+                const formas = formasDoPacote(pacoteSelecionado);
+                if (!pacoteSelecionado || formas.length <= 1) return null;
+                return <div><label className="mb-1 block text-sm font-medium text-gray-700">Tipo de contratação</label><select required className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm" value={formaContratacao} onChange={(event) => void selecionarForma(event.target.value as 'onibus' | 'hospedagem' | 'onibus_hospedagem')}><option value="">Selecione a forma</option>{formas.map((forma) => <option key={forma} value={forma} disabled={pacoteSelecionado.disponibilidade_por_forma?.[forma]?.disponibilidade === 'esgotado'}>{formaLabels[forma]}{pacoteSelecionado.disponibilidade_por_forma?.[forma]?.disponibilidade === 'esgotado' ? ' · Esgotado' : ''}</option>)}</select><p className="mt-1 text-xs text-gray-500">A disponibilidade de transporte e hospedagem será validada para esta escolha.</p></div>;
               })()}
               {pacoteId && (pacotes.find((item) => item.id === pacoteId)?.periodos || []).length > 0 && <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">Período da viagem</label>

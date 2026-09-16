@@ -3,31 +3,29 @@ import { eventos, lotes, pacotes, pacotePeriodos, itens_addon, cupons, reservas,
 import { createId } from "@paralleldrive/cuid2";
 import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import Decimal from "decimal.js";
-import { normalizarGrupoHospedagem, resolverRecursosContratacao, type GrupoHospedagem, type RecursosContratados } from "./contratacaoRecursos.js";
+import { normalizarGrupoHospedagem, normalizarFormasContratacao, resolverRecursosContratacao, type GrupoHospedagem, type RecursosContratados } from "./contratacaoRecursos.js";
 import { InventoryService } from "./inventoryService.js";
 
 export interface ItemSelecionado { id: string; nome: string; tipo: string; valor: number; quantidade: number; }
 export interface ParticipantePacote { nome_completo: string; cpf?: string; data_nascimento?: string; telefone?: string; email?: string; sexo_operacional?: GrupoHospedagem; }
 export interface ConfiguracaoPacote { lote_id: string; pacote_id?: string; periodo_id?: string; forma_contratacao?: 'onibus' | 'hospedagem' | 'onibus_hospedagem'; itens: ItemSelecionado[]; cupom_codigo?: string; usuario_id?: string; vendedor_id?: string; grupo_hospedagem?: GrupoHospedagem; participantes?: ParticipantePacote[]; }
-export interface ResultadoCalculo { valor_base: number; itens_selecionados: ItemSelecionado[]; subtotal: number; desconto_cupom: number; valor_total: number; pacote_id?: string; pacote_nome?: string; modalidade_hospedagem?: string; cupom_id?: string; mensagem?: string; }
+export interface ResultadoCalculo { valor_base: number; itens_selecionados: ItemSelecionado[]; subtotal: number; desconto_cupom: number; valor_total: number; pacote_id?: string; pacote_nome?: string; modalidade_hospedagem?: string; forma_contratacao?: string; cupom_id?: string; mensagem?: string; }
 
 export interface OrigemReserva { lead_id?: string; vendedor_id?: string; codigo_origem?: string; }
 
 
-function formaContratacaoPublica(valor: unknown, modalidade?: unknown): 'onibus' | 'hospedagem' | 'onibus_hospedagem' | null {
-  if (String(modalidade || '').trim().toLowerCase() === 'camping') return 'onibus';
-  const forma = String(valor || '').trim().toLowerCase();
-  if (forma === 'onibus' || forma === 'hospedagem' || forma === 'onibus_hospedagem') return forma;
-  return null;
+function formasContratacaoPublicas(pacote: { formas_contratacao?: unknown; forma_contratacao?: unknown; modalidade_hospedagem?: unknown }) {
+  return normalizarFormasContratacao(pacote.formas_contratacao, pacote.forma_contratacao, pacote.modalidade_hospedagem);
 }
 
 function validarFormaContratacaoSelecionada(config: ConfiguracaoPacote, pacote: typeof pacotes.$inferSelect | undefined) {
-  if (!pacote || !config.forma_contratacao) return;
-  const solicitada = String(config.forma_contratacao);
+  if (!pacote) return null;
+  const formas = formasContratacaoPublicas(pacote);
+  if (formas.length === 0) throw new Error('Este pacote precisa ter ao menos um tipo de contratação configurado no Admin antes de ser vendido');
+  const solicitada = String(config.forma_contratacao || formas[0]);
   if (!['onibus', 'hospedagem', 'onibus_hospedagem'].includes(solicitada)) throw new Error('Tipo de contratação inválido');
-  const publicada = formaContratacaoPublica(pacote.forma_contratacao, pacote.modalidade_hospedagem);
-  if (!publicada) throw new Error('Este pacote precisa ter o tipo de contratação configurado no Admin antes de ser vendido');
-  if (solicitada !== publicada) throw new Error('O tipo de contratação escolhido não corresponde ao pacote selecionado');
+  if (!formas.includes(solicitada as typeof formas[number])) throw new Error('O tipo de contratação escolhido não está habilitado neste pacote');
+  return solicitada as 'onibus' | 'hospedagem' | 'onibus_hospedagem';
 }
 
 function dinheiro(valor: Decimal): number { return valor.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber(); }
@@ -86,6 +84,7 @@ type PacoteOperacional = {
   id: string;
   lote_id: string;
   forma_contratacao: string;
+  formas_contratacao?: unknown;
   modalidade_hospedagem: string | null;
 };
 
@@ -102,9 +101,10 @@ async function alocarRecursosNaTransacao(
   loteId: string,
   periodoId: string | null | undefined,
   pessoas: PessoaAlocacao[],
+  formaEscolhida?: string | null,
 ): Promise<{ recursos: RecursosContratados; assento_alocacao_id: string | null; quarto_alocacao_id: string | null }> {
   const recursos = pacote
-    ? resolverRecursosContratacao(pacote.forma_contratacao, pacote.modalidade_hospedagem)
+    ? resolverRecursosContratacao(formaEscolhida || pacote.forma_contratacao, pacote.modalidade_hospedagem)
     : { transporte: false, hospedagem: false, estrutura_quarto: null };
   let assentoAlocacaoId: string | null = null;
   let quartoAlocacaoId: string | null = null;
@@ -193,7 +193,7 @@ async function alocarRecursosNaTransacao(
 
   await tx.execute(sql`UPDATE reservas SET
     grupo_hospedagem = ${recursos.hospedagem ? pessoasDaReserva[0]?.grupoHospedagem || null : null},
-    recursos_contratados = ${JSON.stringify(recursos)}::jsonb,
+    recursos_contratados = ${JSON.stringify({ ...recursos, forma_contratacao: formaEscolhida || pacote?.forma_contratacao || null })}::jsonb,
     atualizado_em = CURRENT_TIMESTAMP
     WHERE id = ${reservaId}`);
   return { recursos, assento_alocacao_id: assentoAlocacaoId, quarto_alocacao_id: quartoAlocacaoId };
@@ -242,7 +242,7 @@ export class PacoteService {
       if (!existente) return null;
 
       const pacote = existente.pacote_id
-        ? (await tx.execute(sql`SELECT id, lote_id, forma_contratacao, modalidade_hospedagem FROM pacotes WHERE id = ${existente.pacote_id} FOR SHARE`)).rows[0] as PacoteOperacional | undefined
+        ? (await tx.execute(sql`SELECT id, lote_id, forma_contratacao, formas_contratacao, modalidade_hospedagem FROM pacotes WHERE id = ${existente.pacote_id} FOR SHARE`)).rows[0] as PacoteOperacional | undefined
         : undefined;
       const recursosPublicados = pacote
         ? resolverRecursosContratacao(pacote.forma_contratacao, pacote.modalidade_hospedagem)
@@ -253,9 +253,12 @@ export class PacoteService {
         const pacoteDiferente = String(esperado.pacote_id || "") !== String(existente.pacote_id || "");
         const periodoDiferente = String(esperado.periodo_id || "") !== String(existente.periodo_id || "");
         const formaEsperada = esperado.forma_contratacao ? String(esperado.forma_contratacao) : null;
-        const formaPublicada = pacote ? formaContratacaoPublica(pacote.forma_contratacao, pacote.modalidade_hospedagem) : null;
-        const formaDiferente = Boolean(formaEsperada && formaEsperada !== formaPublicada);
-        const snapshotDivergenteDoCatalogo = Boolean(pacote && recursosDivergem(recursos, recursosPublicados));
+        const formasPublicadas = pacote ? formasContratacaoPublicas(pacote) : [];
+        const recursosEsperados = pacote && formaEsperada
+          ? resolverRecursosContratacao(formaEsperada, pacote.modalidade_hospedagem)
+          : recursosPublicados;
+        const formaDiferente = Boolean(formaEsperada && !formasPublicadas.includes(formaEsperada as typeof formasPublicadas[number]));
+        const snapshotDivergenteDoCatalogo = Boolean(pacote && formaEsperada && recursosDivergem(recursos, recursosEsperados));
         if (pacoteDiferente || periodoDiferente || formaDiferente || snapshotDivergenteDoCatalogo) {
           const contratoValidado = (await tx.execute(sql`
             SELECT 1 FROM contratos_documentos
@@ -350,7 +353,8 @@ export class PacoteService {
       const baixa = await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = "vagas_disponíveis" - ${quantidadePessoas}, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${lote_id} AND "vagas_disponíveis" >= ${quantidadePessoas} RETURNING id`);
       if (!baixa.rows.length) throw new Error("A excursão ficou sem vagas para retomar este carrinho");
 
-      const operacao = await alocarRecursosNaTransacao(tx, pacote, existente.id, usuario_id, lote_id, existente.periodo_id, pessoas);
+      const formaRetomada = String((recursos as any).forma_contratacao || esperado?.forma_contratacao || pacote?.forma_contratacao || "");
+      const operacao = await alocarRecursosNaTransacao(tx, pacote, existente.id, usuario_id, lote_id, existente.periodo_id, pessoas, formaRetomada);
       const holdId = hold?.id || createId();
       const agora = new Date();
       if (hold) {
@@ -382,10 +386,13 @@ export class PacoteService {
   }
 
   static async obterDisponibilidadeFisica(
-    pacote: Pick<typeof pacotes.$inferSelect, 'id' | 'lote_id' | 'forma_contratacao' | 'modalidade_hospedagem' | 'disponibilidade'>,
+    pacote: Pick<typeof pacotes.$inferSelect, 'id' | 'lote_id' | 'forma_contratacao' | 'formas_contratacao' | 'modalidade_hospedagem' | 'disponibilidade'>,
     periodoId?: string | null,
+    formaEscolhida?: string | null,
   ) {
-    const recursos = resolverRecursosContratacao(pacote.forma_contratacao, pacote.modalidade_hospedagem);
+    const formas = normalizarFormasContratacao(pacote.formas_contratacao, pacote.forma_contratacao, pacote.modalidade_hospedagem);
+    const forma = formaEscolhida || formas[0] || pacote.forma_contratacao;
+    const recursos = resolverRecursosContratacao(forma, pacote.modalidade_hospedagem);
     const lote = (await db.select({ vagas: lotes.vagas_disponíveis }).from(lotes).where(eq(lotes.id, pacote.lote_id)).limit(1))[0];
     const vagasLote = Math.max(0, Number(lote?.vagas || 0));
     let vagasTransporte: number | null = null;
@@ -443,11 +450,12 @@ export class PacoteService {
 
     let valorBase = new Decimal(lote.valor_base.toString());
     let pacoteSelecionado: typeof pacotes.$inferSelect | undefined;
+    let formaSelecionada: string | undefined;
     if (config.pacote_id) {
       pacoteSelecionado = (await db.select().from(pacotes).where(and(eq(pacotes.id, config.pacote_id), eq(pacotes.lote_id, config.lote_id), eq(pacotes.ativo, true))).limit(1))[0];
       if (!pacoteSelecionado) throw new Error("Pacote selecionado não encontrado, incompatível com o lote ou inativo");
       if (pacoteSelecionado.disponibilidade === "esgotado") throw new Error("Esta modalidade está esgotada");
-      validarFormaContratacaoSelecionada(config, pacoteSelecionado);
+      formaSelecionada = validarFormaContratacaoSelecionada(config, pacoteSelecionado) || undefined;
       const periodosAtivos = await db.select({ id: pacotePeriodos.id }).from(pacotePeriodos)
         .where(and(eq(pacotePeriodos.pacote_id, pacoteSelecionado.id), eq(pacotePeriodos.ativo, true)));
       if (periodosAtivos.length > 0 && !config.periodo_id) throw new Error("Escolha o período da viagem para continuar");
@@ -507,6 +515,7 @@ export class PacoteService {
       pacote_id: pacoteSelecionado?.id,
       pacote_nome: pacoteSelecionado?.nome,
       modalidade_hospedagem: pacoteSelecionado?.modalidade_hospedagem || undefined,
+      forma_contratacao: formaSelecionada,
       cupom_id: cupomId,
     };
   }
@@ -521,7 +530,7 @@ export class PacoteService {
       const lote = loteLock.rows[0] as { id: string; vagas_disponíveis: number } | undefined;
       if (!lote || Number(lote.vagas_disponíveis) < quantidadePessoas) throw new Error("Não há vagas suficientes para todas as pessoas adicionadas");
       const pacoteOperacional = config.pacote_id
-        ? (await tx.execute(sql`SELECT id, lote_id, forma_contratacao, modalidade_hospedagem
+        ? (await tx.execute(sql`SELECT id, lote_id, forma_contratacao, formas_contratacao, modalidade_hospedagem
           FROM pacotes WHERE id = ${config.pacote_id} AND lote_id = ${lote_id} AND ativo = true FOR SHARE`)).rows[0] as PacoteOperacional | undefined
         : undefined;
       if (config.pacote_id && !pacoteOperacional) throw new Error("Pacote selecionado não encontrado, incompatível com o lote ou inativo");
@@ -535,7 +544,7 @@ export class PacoteService {
       const responsavel = (await tx.select({ nome: usuarios.nome, cpf: usuarios.cpf, data_nascimento: usuarios.data_nascimento, telefone: usuarios.telefone, email: usuarios.email, sexo: usuarios.sexo }).from(usuarios).where(eq(usuarios.id, usuario_id)).limit(1))[0];
       const grupoHospedagem = normalizarGrupoHospedagem(responsavel?.sexo) || normalizarGrupoHospedagem(config.grupo_hospedagem);
       const recursosPacote = pacoteOperacional
-        ? resolverRecursosContratacao(pacoteOperacional.forma_contratacao, pacoteOperacional.modalidade_hospedagem)
+        ? resolverRecursosContratacao(calculo.forma_contratacao || pacoteOperacional.forma_contratacao, pacoteOperacional.modalidade_hospedagem)
         : { transporte: false, hospedagem: false, estrutura_quarto: null };
       if (recursosPacote.hospedagem && (!grupoHospedagem || participantes.some((participante) => !participante.sexo_operacional))) {
         throw new Error("Informe o sexo de todas as pessoas para direcionar a hospedagem");
@@ -636,7 +645,7 @@ export class PacoteService {
         participanteId: participante.id,
         grupoHospedagem: normalizarGrupoHospedagem(participante.sexo_operacional),
       }));
-      const operacao = await alocarRecursosNaTransacao(tx, pacoteOperacional, novaReserva.id, usuario_id, lote_id, config.periodo_id, pessoas);
+      const operacao = await alocarRecursosNaTransacao(tx, pacoteOperacional, novaReserva.id, usuario_id, lote_id, config.periodo_id, pessoas, calculo.forma_contratacao || pacoteOperacional?.forma_contratacao);
       if (calculo.cupom_id && usuario_id) {
         await tx.insert(cuponsUtilizacoes).values({ id: createId(), cupom_id: calculo.cupom_id, usuario_id, reserva_id: novaReserva.id });
       }

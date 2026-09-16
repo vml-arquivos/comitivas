@@ -25,12 +25,13 @@ describe("seleção explícita do tipo de contratação", () => {
   it("não inventa preço: cada tipo só usa pacote publicado para aquele escopo", async () => {
     const configurador = await fonte("../apps/web/src/pages/cliente/ConfiguradorPacote.tsx");
     const servico = await fonte("../server/services/pacoteService.ts");
-    expect(configurador).toContain("formaPublica(pacote.forma_contratacao) === formaContratacao");
+    expect(configurador).toContain("formasPublicas(pacote).includes(formaContratacao)");
     expect(configurador).toContain("O preço exibido é o preço real desse pacote");
     expect(servico).toContain("validarFormaContratacaoSelecionada(config, pacoteSelecionado)");
-    expect(servico).toContain("O tipo de contratação escolhido não corresponde ao pacote selecionado");
-    expect(servico).toContain("Este pacote precisa ter o tipo de contratação configurado no Admin antes de ser vendido");
-    expect(configurador).toContain("return null;");
+    expect(servico).toContain("O tipo de contratação escolhido não está habilitado neste pacote");
+    expect(servico).toContain("Este pacote precisa ter ao menos um tipo de contratação configurado no Admin antes de ser vendido");
+    expect(configurador).toContain("disponibilidade_por_forma");
+    expect(configurador).toContain("return [];");
   });
 
   it("confirma novamente o escopo no checkout antes do contrato/pagamento", async () => {
@@ -40,11 +41,11 @@ describe("seleção explícita do tipo de contratação", () => {
     expect(checkout).toContain("Este é o escopo que será usado no contrato e na operação da sua reserva");
   });
 
-  it("permite ao admin publicar preço separado para cada tipo de contrato", async () => {
+  it("permite ao admin habilitar formas de contratação no pacote", async () => {
     const admin = await fonte("../apps/web/src/pages/admin/Eventos.tsx");
-    expect(admin).toContain("O que está incluído");
+    expect(admin).toContain("Formas de contratação habilitadas");
     expect(admin).toContain("Cada pacote tem seu próprio preço, modalidade, contratação e galeria");
-    expect(admin).toContain('value="onibus_hospedagem"');
+    expect(admin).toContain("onibus_hospedagem");
     expect(admin).not.toContain('value="livre">Legado / livre');
     expect(admin).toContain("modeloContrato(pacoteForm.formaContratacao)");
   });

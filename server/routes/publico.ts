@@ -5,6 +5,7 @@ import { eq, and, gt, lt, desc, sql, isNull } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { AuthService } from "../services/authService.js";
 import { PacoteService } from "../services/pacoteService.js";
+import { normalizarFormasContratacao } from "../services/contratacaoRecursos.js";
 
 const router = Router();
 
@@ -106,6 +107,7 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
             lote_id: pacotes.lote_id,
             modalidade_hospedagem: pacotes.modalidade_hospedagem,
             forma_contratacao: pacotes.forma_contratacao,
+            formas_contratacao: pacotes.formas_contratacao,
             disponibilidade: pacotes.disponibilidade,
             destaque_titulo: pacotes.destaque_titulo,
             destaque_subtitulo: pacotes.destaque_subtitulo,
@@ -114,6 +116,19 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
           .from(pacotes)
           .where(and(eq(pacotes.lote_id, lote.id), eq(pacotes.ativo, true)));
         const modalidades = await Promise.all(modalidadesBase.map(async (modalidade) => {
+          const formasContratacao = normalizarFormasContratacao(modalidade.formas_contratacao, modalidade.forma_contratacao, modalidade.modalidade_hospedagem);
+          const capacidadeBasePorForma = await Promise.all(formasContratacao.map((forma) => PacoteService.obterDisponibilidadeFisica({
+            id: modalidade.id,
+            lote_id: modalidade.lote_id,
+            forma_contratacao: modalidade.forma_contratacao,
+            formas_contratacao: modalidade.formas_contratacao,
+            modalidade_hospedagem: modalidade.modalidade_hospedagem,
+            disponibilidade: modalidade.disponibilidade,
+          }, null, forma)));
+          const capacidadeBase = capacidadeBasePorForma.reduce((melhor, atual) => atual.vagas_disponiveis > melhor.vagas_disponiveis ? atual : melhor, capacidadeBasePorForma[0] || await PacoteService.obterDisponibilidadeFisica({
+            id: modalidade.id, lote_id: modalidade.lote_id, forma_contratacao: modalidade.forma_contratacao, formas_contratacao: modalidade.formas_contratacao,
+            modalidade_hospedagem: modalidade.modalidade_hospedagem, disponibilidade: modalidade.disponibilidade,
+          }));
           const periodosBase = await db.select({
             id: pacotePeriodos.id, nome: pacotePeriodos.nome, descricao: pacotePeriodos.descricao,
             data_inicio: pacotePeriodos.data_inicio, data_fim: pacotePeriodos.data_fim,
@@ -123,13 +138,15 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
             .where(and(eq(pacotePeriodos.pacote_id, modalidade.id), eq(pacotePeriodos.ativo, true)))
             .orderBy(pacotePeriodos.ordem, pacotePeriodos.data_inicio);
           const periodos = await Promise.all(periodosBase.map(async (periodo) => {
-            const capacidade = await PacoteService.obterDisponibilidadeFisica({
+            const capacidades = await Promise.all(formasContratacao.map((forma) => PacoteService.obterDisponibilidadeFisica({
               id: modalidade.id,
               lote_id: modalidade.lote_id,
               forma_contratacao: modalidade.forma_contratacao,
+              formas_contratacao: modalidade.formas_contratacao,
               modalidade_hospedagem: modalidade.modalidade_hospedagem,
               disponibilidade: modalidade.disponibilidade,
-            }, periodo.id);
+            }, periodo.id, forma)));
+            const capacidade = capacidades.reduce((melhor, atual) => atual.vagas_disponiveis > melhor.vagas_disponiveis ? atual : melhor, capacidades[0] || capacidadeBase);
             return {
               ...periodo,
               disponibilidade: capacidade.disponibilidade,
@@ -139,6 +156,9 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
 
           return {
             ...modalidade,
+            forma_contratacao: modalidade.modalidade_hospedagem === "camping" ? "onibus" : modalidade.forma_contratacao,
+            formas_contratacao: formasContratacao,
+            disponibilidade: capacidadeBase.disponibilidade,
             fotos: await db.select({ id: fotosPacote.id, url_foto: fotosPacote.url_foto, legenda: fotosPacote.legenda, alt_text: fotosPacote.alt_text, ordem: fotosPacote.ordem, capa: fotosPacote.capa })
               .from(fotosPacote)
               .where(eq(fotosPacote.pacote_id, modalidade.id))
