@@ -39,6 +39,8 @@ type Saida = {
   nome: string;
   evento_nome: string;
   lote_nome: string;
+  periodo_id?: string | null;
+  periodo_nome?: string | null;
   data_partida: string | null;
   data_retorno: string | null;
   status: string;
@@ -100,6 +102,7 @@ function dataParaInput(valor?: string | null) {
 export default function OperacaoOnibus() {
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [lotes, setLotes] = useState<Lote[]>([]);
+  const [periodos, setPeriodos] = useState<any[]>([]);
   const [saidas, setSaidas] = useState<Saida[]>([]);
   const [saidaId, setSaidaId] = useState("");
   const [mapa, setMapa] = useState<Mapa | null>(null);
@@ -117,6 +120,7 @@ export default function OperacaoOnibus() {
   const [onibusEditando, setOnibusEditando] = useState<string | null>(null);
   const [saidaForm, setSaidaForm] = useState({
     lote_id: "",
+    periodo_id: "",
     nome: "",
     data_partida: "",
     data_retorno: "",
@@ -135,6 +139,16 @@ export default function OperacaoOnibus() {
     endereco: "",
     horario: "",
   });
+
+  const carregarPeriodos = async (loteId: string) => {
+    if (!loteId) {
+      setPeriodos([]);
+      return;
+    }
+    const resposta = await api.get(`/pacotes/lotes/${loteId}/pacotes`);
+    const lista = (resposta.data.pacotes || []).flatMap((pacote: any) => pacote.periodos || []).filter((periodo: any, indice: number, itens: any[]) => itens.findIndex((item) => item.id === periodo.id) === indice);
+    setPeriodos(lista);
+  };
 
   const carregarMapa = async (id = saidaId) => {
     if (!id) {
@@ -229,6 +243,7 @@ export default function OperacaoOnibus() {
       const novaSaidaId = resposta.data.saida.id;
       setSaidaForm({
         lote_id: "",
+        periodo_id: "",
         nome: "",
         data_partida: "",
         data_retorno: "",
@@ -422,10 +437,10 @@ export default function OperacaoOnibus() {
                 }}
                 className={inputClass}
               >
-                <option value="">Nenhuma saída cadastrada</option>
-                {saidas.map((saida) => (
-                  <option key={saida.id} value={saida.id}>
-                    {saida.evento_nome} · {saida.lote_nome} · {saida.nome}
+                  <option value="">Nenhuma saída cadastrada</option>
+                  {saidas.map((saida) => (
+                    <option key={saida.id} value={saida.id}>
+                    {saida.evento_nome} · {saida.lote_nome} · {saida.periodo_nome ? `${saida.periodo_nome} · ` : ""}{saida.nome}
                   </option>
                 ))}
               </select>
@@ -775,7 +790,8 @@ export default function OperacaoOnibus() {
 
       <AdminModal aberto={modal === "saida"} titulo="Nova saída operacional" descricao="Vincule a operação a uma viagem e lote já cadastrados." fechar={() => setModal(null)} largura="ampla">
         <form onSubmit={criarSaida} className="grid gap-4 md:grid-cols-2">
-          <div className="md:col-span-2"><label className="mb-1 block text-sm font-medium">Viagem e lote</label><select required value={saidaForm.lote_id} onChange={(e) => { const lote = lotesComEvento.find((item) => item.id === e.target.value); setSaidaForm({ lote_id: e.target.value, nome: lote ? `${lote.evento_nome} — ${lote.nome}` : "", data_partida: dataParaInput(lote?.data_embarque), data_retorno: dataParaInput(lote?.data_retorno) }); }} className={inputClass}><option value="">Selecione</option>{lotesComEvento.map((lote) => <option key={lote.id} value={lote.id}>{lote.evento_nome} · {lote.nome}</option>)}</select></div>
+          <div className="md:col-span-2"><label className="mb-1 block text-sm font-medium">Viagem e lote</label><select required value={saidaForm.lote_id} onChange={(e) => { const lote = lotesComEvento.find((item) => item.id === e.target.value); setSaidaForm({ lote_id: e.target.value, periodo_id: "", nome: lote ? `${lote.evento_nome} — ${lote.nome}` : "", data_partida: dataParaInput(lote?.data_embarque), data_retorno: dataParaInput(lote?.data_retorno) }); void carregarPeriodos(e.target.value).catch(() => setPeriodos([])); }} className={inputClass}><option value="">Selecione</option>{lotesComEvento.map((lote) => <option key={lote.id} value={lote.id}>{lote.evento_nome} · {lote.nome}</option>)}</select></div>
+          <div className="md:col-span-2"><label className="mb-1 block text-sm font-medium">Período operacional (opcional)</label><select value={saidaForm.periodo_id} onChange={(e) => setSaidaForm({ ...saidaForm, periodo_id: e.target.value })} className={inputClass} disabled={!saidaForm.lote_id || periodos.length === 0}><option value="">Todos os períodos do lote</option>{periodos.map((periodo) => <option key={periodo.id} value={periodo.id}>{periodo.nome} · {new Date(periodo.data_inicio).toLocaleDateString("pt-BR")} a {new Date(periodo.data_fim).toLocaleDateString("pt-BR")}</option>)}</select></div>
           <div className="md:col-span-2"><Input required label="Nome da saída" value={saidaForm.nome} onChange={(e) => setSaidaForm({ ...saidaForm, nome: e.target.value })} /></div>
           <Input label="Partida" type="datetime-local" value={saidaForm.data_partida} onChange={(e) => setSaidaForm({ ...saidaForm, data_partida: e.target.value })} />
           <Input label="Retorno" type="datetime-local" value={saidaForm.data_retorno} onChange={(e) => setSaidaForm({ ...saidaForm, data_retorno: e.target.value })} />

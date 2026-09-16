@@ -10,6 +10,7 @@ type Cliente = {
   email: string;
   cpf: string | null;
   telefone: string | null;
+  sexo?: string | null;
 };
 type Evento = { id: string; nome: string; local: string; ativo: boolean };
 type Lote = {
@@ -29,6 +30,7 @@ type Pacote = {
   modalidade_hospedagem: string | null;
   disponibilidade: string | null;
   ativo: boolean;
+  periodos?: Array<{ id: string; nome: string; data_inicio: string; data_fim: string }>;
 };
 type Item = {
   id: string;
@@ -76,6 +78,7 @@ const FORM_CLIENTE = {
   cpf: '',
   telefone: '',
   data_nascimento: '',
+  sexo: '',
   endereco: '',
   senha: '',
 };
@@ -97,6 +100,7 @@ export default function Vendas() {
   const [eventoId, setEventoId] = useState('');
   const [loteId, setLoteId] = useState('');
   const [pacoteId, setPacoteId] = useState('');
+  const [periodoId, setPeriodoId] = useState('');
   const [quantidades, setQuantidades] = useState<Record<string, number>>({});
   const [cupom, setCupom] = useState('');
   const [calculo, setCalculo] = useState<any>(null);
@@ -149,6 +153,7 @@ export default function Vendas() {
     setEventoId(id);
     setLoteId('');
     setPacoteId('');
+    setPeriodoId('');
     setCalculo(null);
     if (!id) {
       setLotes([]);
@@ -165,6 +170,7 @@ export default function Vendas() {
   const selecionarLote = async (id: string) => {
     setLoteId(id);
     setPacoteId('');
+    setPeriodoId('');
     setCalculo(null);
     if (!id) {
       setPacotes([]);
@@ -186,6 +192,7 @@ export default function Vendas() {
       vendedor_id: vendedorId || undefined,
       lote_id: loteId,
       pacote_id: pacoteId || undefined,
+      periodo_id: periodoId || undefined,
       cupom_codigo: cupom.trim() || undefined,
       itens: itens
         .filter((item) => (quantidades[item.id] || 0) > 0)
@@ -197,7 +204,7 @@ export default function Vendas() {
           quantidade: quantidades[item.id],
         })),
     }),
-    [cliente, vendedorId, loteId, pacoteId, cupom, itens, quantidades]
+    [cliente, vendedorId, loteId, pacoteId, periodoId, cupom, itens, quantidades]
   );
 
   const calcular = async () => {
@@ -205,6 +212,11 @@ export default function Vendas() {
     setMensagem(null);
     if (!cliente || !loteId) {
       setErro('Selecione o cliente e o lote antes de calcular.');
+      return;
+    }
+    const pacoteEscolhido = pacotes.find((item) => item.id === pacoteId);
+    if (pacoteEscolhido?.periodos?.length && !periodoId) {
+      setErro('Selecione o período da viagem antes de calcular.');
       return;
     }
     setSalvando(true);
@@ -418,6 +430,13 @@ export default function Vendas() {
                       }))
                     }
                   />
+                  <label className="text-sm font-medium text-gray-700">Sexo para hospedagem
+                    <select required className="mt-1 flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm" value={formCliente.sexo} onChange={(event) => setFormCliente((form) => ({ ...form, sexo: event.target.value }))}>
+                      <option value="">Selecione</option>
+                      <option value="feminino">Feminino</option>
+                      <option value="masculino">Masculino</option>
+                    </select>
+                  </label>
                   <Input
                     label="Endereço completo"
                     required
@@ -453,7 +472,7 @@ export default function Vendas() {
                     <button type="button" key={item.id} onClick={() => setCliente(item)} className={`w-full rounded-lg border p-3 text-left transition ${cliente?.id === item.id ? 'border-primary bg-primary/5' : 'border-transparent hover:border-gray-200 hover:bg-gray-50'}`}>
                       <span className="font-medium text-gray-900">{item.nome}</span>
                       <span className="block text-xs text-gray-500">
-                        {item.email} · CPF {item.cpf || 'não informado'}
+                        {item.email} · CPF {item.cpf || 'não informado'} · hospedagem: {item.sexo || 'não cadastrado'}
                       </span>
                     </button>
                   ))}
@@ -461,7 +480,7 @@ export default function Vendas() {
               )}
               {cliente && (
                 <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-900">
-                  <strong>Cliente selecionado:</strong> {cliente.nome} · {cliente.email}
+                  <strong>Cliente selecionado:</strong> {cliente.nome} · {cliente.email} · hospedagem: {cliente.sexo || 'não cadastrado'}
                   <button
                     type="button"
                     onClick={() => {
@@ -526,6 +545,7 @@ export default function Vendas() {
                   value={pacoteId}
                   onChange={(event) => {
                     setPacoteId(event.target.value);
+                    setPeriodoId('');
                     setCalculo(null);
                   }}
                   disabled={!loteId}
@@ -533,13 +553,20 @@ export default function Vendas() {
                   <option value="">Usar valor-base do lote ({dinheiro(loteSelecionado?.valor_base)})</option>
                   {pacotes
                     .filter((item) => item.ativo && item.disponibilidade !== 'esgotado')
-                    .map((item) => (
+                  .map((item) => (
                       <option key={item.id} value={item.id}>
                         {item.nome} — {dinheiro(item.valor_total)}
                       </option>
                     ))}
                 </select>
               </div>
+              {pacoteId && (pacotes.find((item) => item.id === pacoteId)?.periodos || []).length > 0 && <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Período da viagem</label>
+                <select required className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm" value={periodoId} onChange={(event) => { setPeriodoId(event.target.value); setCalculo(null); }}>
+                  <option value="">Selecione o período</option>
+                  {(pacotes.find((item) => item.id === pacoteId)?.periodos || []).map((periodo) => <option key={periodo.id} value={periodo.id}>{periodo.nome} · {new Date(periodo.data_inicio).toLocaleDateString('pt-BR')} a {new Date(periodo.data_fim).toLocaleDateString('pt-BR')}</option>)}
+                </select>
+              </div>}
             </section>
 
             {itens.length > 0 && (

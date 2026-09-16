@@ -44,4 +44,23 @@ describe("períodos múltiplos dentro do pacote", () => {
     expect(admin).toContain("carregarPeriodosPacote(pacote.id)");
     expect(exclusao).toContain("DELETE FROM pacote_periodos");
   });
+
+  it("interliga ônibus e quartos ao período e mantém a venda interna no mesmo fluxo", () => {
+    const migration = ler("drizzle/0026_periodo_inventario_operacional.sql");
+    const onibus = ler("server/services/operacaoOnibusService.ts");
+    const hospedagem = ler("server/services/hospedagemService.ts");
+    const integridade = ler("server/services/contratacaoIntegridadeService.ts");
+    const vendas = ler("apps/web/src/pages/admin/Vendas.tsx");
+    expect(migration).toContain("ALTER TABLE saidas_operacionais");
+    expect(migration).toContain("ALTER TABLE quartos_hospedagem");
+    expect(migration).toContain("ADD COLUMN IF NOT EXISTS periodo_id");
+    expect(onibus).toContain("s.periodo_id");
+    expect(onibus).toContain("periodo_nome");
+    expect(hospedagem).toContain("q.periodo_id");
+    expect(hospedagem).toContain("const periodoId = texto(input?.periodo_id");
+    expect(integridade).toContain("s.periodo_id = ${reserva.periodo_id}");
+    expect(integridade).toContain("q.periodo_id = ${reserva.periodo_id}");
+    expect(vendas).toContain("periodo_id: periodoId || undefined");
+    expect(vendas).toContain("Período da viagem");
+  });
 });

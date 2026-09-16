@@ -58,16 +58,17 @@ async function registrar(tx: any, saidaId: string | null, entidade: string, enti
 }
 
 export class OperacaoOnibusService {
-  static async alocarPrimeiroDisponivel(loteId: string, reservaId: string, atorId: string) {
+  static async alocarPrimeiroDisponivel(loteId: string, reservaId: string, atorId: string, periodoId?: string | null) {
     for (let tentativa = 0; tentativa < 3; tentativa += 1) {
       const livre = linhas(await db.execute(sql`SELECT a.id
         FROM saidas_operacionais s
         JOIN onibus_operacionais o ON o.saida_id = s.id AND o.ativo = true
         JOIN assentos_onibus a ON a.onibus_id = o.id AND a.status = 'disponivel'
         WHERE s.lote_id = ${loteId} AND s.ativa = true
+          AND ((${periodoId || null}::text IS NULL AND s.periodo_id IS NULL) OR (${periodoId || null}::text IS NOT NULL AND (s.periodo_id IS NULL OR s.periodo_id = ${periodoId || null})))
           AND NOT EXISTS (SELECT 1 FROM assento_alocacoes aa WHERE aa.assento_id = a.id AND aa.status = 'ativa')
           AND NOT EXISTS (SELECT 1 FROM assento_holds h WHERE h.assento_id = a.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP)
-        ORDER BY o.venda_ordem, o.criado_em, a.numero LIMIT 1`))[0];
+        ORDER BY CASE WHEN s.periodo_id = ${periodoId || null} THEN 0 WHEN s.periodo_id IS NULL THEN 1 ELSE 2 END, o.venda_ordem, o.criado_em, a.numero LIMIT 1`))[0];
       if (!livre) return null;
       try {
         return await this.alocarAssento(livre.id, reservaId, null, atorId);
@@ -84,7 +85,7 @@ export class OperacaoOnibusService {
   static async listar() {
     const saidas = linhas(await db.execute(sql`
       SELECT s.*, l.nome AS lote_nome, l.vagas_totais, l."vagas_disponíveis" AS vagas_disponiveis,
-        e.id AS evento_id, e.nome AS evento_nome,
+        e.id AS evento_id, e.nome AS evento_nome, pp.nome AS periodo_nome,
         (SELECT COUNT(*)::int FROM onibus_operacionais o WHERE o.saida_id = s.id AND o.ativo) AS total_onibus,
         (SELECT COALESCE(SUM(o.capacidade), 0)::int FROM onibus_operacionais o WHERE o.saida_id = s.id AND o.ativo) AS capacidade_fisica,
         (SELECT COUNT(*)::int FROM assento_alocacoes aa
@@ -102,6 +103,7 @@ export class OperacaoOnibusService {
       FROM saidas_operacionais s
       JOIN lotes l ON l.id = s.lote_id
       JOIN eventos e ON e.id = l.evento_id
+      LEFT JOIN pacote_periodos pp ON pp.id = s.periodo_id
       WHERE s.ativa = true AND l.ativo = true AND e.ativo = true
       ORDER BY COALESCE(s.data_partida, l.data_embarque, l.data_inicio), s.criado_em DESC
     `));
@@ -118,14 +120,19 @@ export class OperacaoOnibusService {
     if (!loteId || !nome) throw new Error("Lote e nome da saída são obrigatórios");
     const partida = dataOpcional(input?.data_partida);
     const retorno = dataOpcional(input?.data_retorno);
+    const periodoId = texto(input?.periodo_id, 120) || null;
     if (partida && retorno && retorno < partida) throw new Error("O retorno não pode ser anterior à partida");
     return db.transaction(async (tx) => {
       const lote = linhas(await tx.execute(sql`SELECT id FROM lotes WHERE id = ${loteId} FOR UPDATE`))[0];
       if (!lote) throw new Error("Lote não encontrado");
+      if (periodoId) {
+        const periodo = linhas(await tx.execute(sql`SELECT pp.id FROM pacote_periodos pp JOIN pacotes p ON p.id = pp.pacote_id WHERE pp.id = ${periodoId} AND pp.ativo = true AND p.lote_id = ${loteId}`))[0];
+        if (!periodo) throw new Error("Período inválido para este lote");
+      }
       const id = createId();
       const criada = linhas(await tx.execute(sql`INSERT INTO saidas_operacionais
-        (id, lote_id, nome, data_partida, data_retorno, status, ativa, criado_por, criado_em, atualizado_em)
-        VALUES (${id}, ${loteId}, ${nome}, ${partida}, ${retorno}, 'planejamento', true, ${atorId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        (id, lote_id, periodo_id, nome, data_partida, data_retorno, status, ativa, criado_por, criado_em, atualizado_em)
+        VALUES (${id}, ${loteId}, ${periodoId}, ${nome}, ${partida}, ${retorno}, 'planejamento', true, ${atorId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         RETURNING *`))[0];
       await registrar(tx, id, "saida", id, "saida_criada", atorId, undefined, criada);
       return criada;
@@ -309,8 +316,8 @@ export class OperacaoOnibusService {
 
   static async obterMapa(saidaId: string) {
     await db.execute(sql`UPDATE assento_holds SET status = 'expirado', liberado_em = CURRENT_TIMESTAMP WHERE status = 'ativo' AND expira_em <= CURRENT_TIMESTAMP`);
-    const saida = linhas(await db.execute(sql`SELECT s.*, l.nome AS lote_nome, l.vagas_totais, l."vagas_disponíveis" AS vagas_disponiveis, e.id AS evento_id, e.nome AS evento_nome
-      FROM saidas_operacionais s JOIN lotes l ON l.id = s.lote_id JOIN eventos e ON e.id = l.evento_id WHERE s.id = ${saidaId}`))[0];
+    const saida = linhas(await db.execute(sql`SELECT s.*, l.nome AS lote_nome, l.vagas_totais, l."vagas_disponíveis" AS vagas_disponiveis, e.id AS evento_id, e.nome AS evento_nome, pp.nome AS periodo_nome
+      FROM saidas_operacionais s JOIN lotes l ON l.id = s.lote_id JOIN eventos e ON e.id = l.evento_id LEFT JOIN pacote_periodos pp ON pp.id = s.periodo_id WHERE s.id = ${saidaId}`))[0];
     if (!saida) throw new Error("Saída não encontrada");
     const onibusBrutos = linhas(await db.execute(sql`SELECT o.*,
       COUNT(a.id)::int AS total_assentos,
@@ -342,6 +349,7 @@ export class OperacaoOnibusService {
       FROM reservas r JOIN usuarios u ON u.id = r.usuario_id AND u.tipo = 'cliente'
       LEFT JOIN pacotes p ON p.id = r.pacote_id
       WHERE r.lote_id = ${saida.lote_id} AND r.status <> 'abandonado'
+        AND ((${saida.periodo_id || null}::text IS NULL AND r.periodo_id IS NULL) OR (${saida.periodo_id || null}::text IS NOT NULL AND r.periodo_id = ${saida.periodo_id}))
         AND (SELECT COUNT(*) FROM assento_alocacoes aa WHERE aa.reserva_id = r.id AND aa.status = 'ativa')
           < GREATEST(1, (SELECT COUNT(*) FROM reserva_participantes rp WHERE rp.reserva_id = r.id OR rp.grupo_id = r.grupo_id))
         AND (
@@ -375,15 +383,16 @@ export class OperacaoOnibusService {
   static async alocarAssento(assentoId: string, reservaId: string, pontoId: string | null, atorId: string) {
     return db.transaction(async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`assento:${assentoId}`})), pg_advisory_xact_lock(hashtext(${`reserva-assento:${reservaId}`}))`);
-      const alvo = linhas(await tx.execute(sql`SELECT a.id AS assento_id, a.numero, a.status AS assento_status, o.id AS onibus_id, o.nome AS onibus_nome, o.saida_id, o.ativo AS onibus_ativo, s.lote_id, s.ativa AS saida_ativa
+      const alvo = linhas(await tx.execute(sql`SELECT a.id AS assento_id, a.numero, a.status AS assento_status, o.id AS onibus_id, o.nome AS onibus_nome, o.saida_id, o.ativo AS onibus_ativo, s.lote_id, s.periodo_id, s.ativa AS saida_ativa
         FROM assentos_onibus a JOIN onibus_operacionais o ON o.id = a.onibus_id JOIN saidas_operacionais s ON s.id = o.saida_id WHERE a.id = ${assentoId} FOR UPDATE OF a`))[0];
       if (!alvo || !alvo.onibus_ativo || !alvo.saida_ativa) throw new Error("Poltrona não encontrada ou indisponível");
       if (alvo.assento_status !== "disponivel") throw new Error("A poltrona está bloqueada");
-      const reserva = linhas(await tx.execute(sql`SELECT r.id, r.usuario_id, r.lote_id, r.grupo_id, r.status, r.recursos_contratados,
+      const reserva = linhas(await tx.execute(sql`SELECT r.id, r.usuario_id, r.lote_id, r.periodo_id, r.grupo_id, r.status, r.recursos_contratados,
         u.tipo, p.forma_contratacao, p.modalidade_hospedagem
         FROM reservas r JOIN usuarios u ON u.id = r.usuario_id LEFT JOIN pacotes p ON p.id = r.pacote_id
         WHERE r.id = ${reservaId} FOR UPDATE OF r`))[0];
       if (!reserva || reserva.tipo !== "cliente" || reserva.lote_id !== alvo.lote_id || reserva.status === "abandonado") throw new Error("A reserva não pertence a esta saída ou não está disponível");
+      if (alvo.periodo_id && reserva.periodo_id !== alvo.periodo_id) throw new Error("A reserva pertence a outro período desta viagem");
       const recursosRegistrados = reserva.recursos_contratados;
       const recursos = typeof recursosRegistrados?.transporte === "boolean" && typeof recursosRegistrados?.hospedagem === "boolean"
         ? recursosRegistrados

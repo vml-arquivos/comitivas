@@ -9,10 +9,10 @@ type GeneroQuarto = 'feminino' | 'masculino';
 type EstruturaQuarto = 'ar_condicionado' | 'ventilador' | 'sem_climatizacao' | 'outro';
 type LinhaQuartos = { id: string; quantidade: string; capacidade: string; genero: GeneroQuarto; estrutura: EstruturaQuarto };
 
-const vazio = { nome: '', genero: 'feminino' as GeneroQuarto, capacidade: '4', estrutura: 'ar_condicionado' as EstruturaQuarto, pacote_id: '', observacoes: '' };
+const vazio = { nome: '', genero: 'feminino' as GeneroQuarto, capacidade: '4', estrutura: 'ar_condicionado' as EstruturaQuarto, pacote_id: '', periodo_id: '', observacoes: '' };
 const novaChave = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`;
 const novaLinha = (): LinhaQuartos => ({ id: novaChave(), quantidade: '1', capacidade: '4', genero: 'feminino', estrutura: 'ar_condicionado' });
-const novoLote = () => ({ titulo: '', pacote_id: '', observacoes: '', chave_idempotencia: novaChave(), configuracoes: [novaLinha()] });
+const novoLote = () => ({ titulo: '', pacote_id: '', periodo_id: '', observacoes: '', chave_idempotencia: novaChave(), configuracoes: [novaLinha()] });
 
 const estruturaLabel: Record<EstruturaQuarto, string> = {
   ar_condicionado: 'Ar-condicionado',
@@ -36,7 +36,9 @@ export default function HospedagemQuartos() {
   const [eventos, setEventos] = useState<any[]>([]);
   const [lotes, setLotes] = useState<any[]>([]);
   const [pacotes, setPacotes] = useState<any[]>([]);
+  const [periodos, setPeriodos] = useState<any[]>([]);
   const [loteId, setLoteId] = useState('');
+  const [periodoId, setPeriodoId] = useState('');
   const [mapa, setMapa] = useState<any | null>(null);
   const [modal, setModal] = useState(false);
   const [editando, setEditando] = useState<any | null>(null);
@@ -51,12 +53,18 @@ export default function HospedagemQuartos() {
   const [mensagem, setMensagem] = useState('');
   const [salvando, setSalvando] = useState(false);
 
-  const carregarMapa = async (id = loteId) => {
+  const carregarMapa = async (id = loteId, periodo = periodoId) => {
     if (!id) return setMapa(null);
-    await api.post(`/hospedagem/lotes/${id}/reconciliar`).catch(() => undefined);
-    const [mapaRes, pacotesRes] = await Promise.all([api.get(`/hospedagem/lotes/${id}`), api.get(`/pacotes/lotes/${id}/pacotes`)]);
+    const pacotesRes = await api.get(`/pacotes/lotes/${id}/pacotes`);
+    const pacotesLista = pacotesRes.data.pacotes || [];
+    const periodosLista = pacotesLista.flatMap((pacote: any) => pacote.periodos || []).filter((periodo: any, indice: number, lista: any[]) => lista.findIndex((item) => item.id === periodo.id) === indice);
+    const periodoFinal = periodo && periodosLista.some((item: any) => item.id === periodo) ? periodo : periodosLista.length === 1 ? periodosLista[0].id : '';
+    setPeriodos(periodosLista);
+    setPeriodoId(periodoFinal);
+    await api.post(`/hospedagem/lotes/${id}/reconciliar${periodoFinal ? `?periodo_id=${encodeURIComponent(periodoFinal)}` : ''}`).catch(() => undefined);
+    const mapaRes = await api.get(`/hospedagem/lotes/${id}${periodoFinal ? `?periodo_id=${encodeURIComponent(periodoFinal)}` : ''}`);
     setMapa(mapaRes.data);
-    setPacotes(pacotesRes.data.pacotes || []);
+    setPacotes(pacotesLista);
   };
 
   const carregar = async () => {
@@ -110,7 +118,7 @@ export default function HospedagemQuartos() {
 
   const abrirEdicao = (quarto: any) => {
     setEditando(quarto);
-    setForm({ nome: quarto.nome, genero: quarto.genero, capacidade: String(quarto.capacidade), estrutura: quarto.estrutura || 'outro', pacote_id: quarto.pacote_id || '', observacoes: quarto.observacoes || '' });
+    setForm({ nome: quarto.nome, genero: quarto.genero, capacidade: String(quarto.capacidade), estrutura: quarto.estrutura || 'outro', pacote_id: quarto.pacote_id || '', periodo_id: quarto.periodo_id || '', observacoes: quarto.observacoes || '' });
     setModal(true);
   };
 
@@ -122,11 +130,12 @@ export default function HospedagemQuartos() {
     setMensagem('');
     try {
       if (editando) {
-        await api.patch(`/hospedagem/lotes/${loteId}/quartos/${editando.id}`, { ...form, capacidade: Number(form.capacidade) });
+        await api.patch(`/hospedagem/lotes/${loteId}/quartos/${editando.id}`, { ...form, periodo_id: form.periodo_id || undefined, capacidade: Number(form.capacidade) });
         setMensagem('Quarto atualizado.');
       } else {
         const response = await api.post(`/hospedagem/lotes/${loteId}/quartos/lote`, {
           ...loteForm,
+          periodo_id: loteForm.periodo_id || undefined,
           configuracoes: loteForm.configuracoes.map((item) => ({ ...item, quantidade: Number(item.quantidade), capacidade: Number(item.capacidade) })),
         });
         setMensagem(response.data.reutilizado ? 'Este conjunto já havia sido criado.' : `${response.data.quantidade} quarto(s) criado(s) automaticamente.`);
@@ -183,11 +192,17 @@ export default function HospedagemQuartos() {
     {erro && <div className="rounded-xl bg-red-50 p-4 text-sm text-red-700">{erro}</div>}
     {mensagem && <div className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800">{mensagem}</div>}
 
-    <section className="admin-card p-5">
-      <label className="block text-sm font-medium">Viagem e período
-        <select className="admin-field mt-1" value={loteId} onChange={(event) => { setLoteId(event.target.value); void carregarMapa(event.target.value); }}>
+    <section className="admin-card grid gap-4 p-5 md:grid-cols-2">
+      <label className="block text-sm font-medium">Viagem
+        <select className="admin-field mt-1" value={loteId} onChange={(event) => { setLoteId(event.target.value); setPeriodoId(''); void carregarMapa(event.target.value, ''); }}>
           <option value="">Selecione</option>
           {loteComEvento.map((lote) => <option key={lote.id} value={lote.id}>{lote.evento_nome} · {lote.nome}</option>)}
+        </select>
+      </label>
+      <label className="block text-sm font-medium">Período operacional
+        <select className="admin-field mt-1" value={periodoId} onChange={(event) => { setPeriodoId(event.target.value); void carregarMapa(loteId, event.target.value); }} disabled={!loteId || periodos.length === 0}>
+          <option value="">Todos os períodos</option>
+          {periodos.map((periodo: any) => <option key={periodo.id} value={periodo.id}>{periodo.nome} · {new Date(periodo.data_inicio).toLocaleDateString('pt-BR')} a {new Date(periodo.data_fim).toLocaleDateString('pt-BR')}</option>)}
         </select>
       </label>
     </section>
@@ -257,7 +272,7 @@ export default function HospedagemQuartos() {
                   <span className={`admin-status ${lotado ? 'bg-slate-100 text-slate-700' : Number(quarto.ocupadas) > 0 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>{lotado ? 'Lotado' : Number(quarto.ocupadas) > 0 ? 'Parcial' : 'Disponível'}</span>
                 </div>
                 {resumo.conjunto && <p className="mt-1 truncate text-xs text-slate-500">{resumo.conjunto}{resumo.estrutura ? ` · ${resumo.estrutura}` : ''}</p>}
-                <p className="mt-1 text-xs font-medium text-slate-700">{quarto.ocupadas}/{quarto.capacidade} ocupadas · {quarto.pacote_nome || 'Todos os pacotes'}</p>
+                <p className="mt-1 text-xs font-medium text-slate-700">{quarto.ocupadas}/{quarto.capacidade} ocupadas · {quarto.pacote_nome || 'Todos os pacotes'}{quarto.periodo_nome ? ` · ${quarto.periodo_nome}` : ''}</p>
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" className="!min-h-10 !border-[#073F50] !bg-white !px-3 !text-[#073F50] hover:!bg-slate-100" onClick={() => abrirEdicao(quarto)}>Editar</Button>
@@ -307,14 +322,20 @@ export default function HospedagemQuartos() {
             </label>
           </div>
           <label className="text-sm font-medium">Pacote específico (opcional)
-            <select className="admin-field mt-1" value={form.pacote_id} onChange={(event) => setForm({ ...form, pacote_id: event.target.value })}><option value="">Todos os pacotes do período</option>{pacotes.map((pacote) => <option key={pacote.id} value={pacote.id}>{pacote.nome}</option>)}</select>
+            <select className="admin-field mt-1" value={form.pacote_id} onChange={(event) => setForm({ ...form, pacote_id: event.target.value, periodo_id: '' })}><option value="">Todos os pacotes do período</option>{pacotes.map((pacote) => <option key={pacote.id} value={pacote.id}>{pacote.nome}</option>)}</select>
+          </label>
+          <label className="text-sm font-medium">Período específico (opcional)
+            <select className="admin-field mt-1" value={form.periodo_id} onChange={(event) => setForm({ ...form, periodo_id: event.target.value })}><option value="">Todos os períodos</option>{periodos.filter((periodo) => !form.pacote_id || periodo.pacote_id === form.pacote_id).map((periodo) => <option key={periodo.id} value={periodo.id}>{periodo.nome}</option>)}</select>
           </label>
           <label className="text-sm font-medium">Observações<textarea className="admin-field mt-1 min-h-24" value={form.observacoes} onChange={(event) => setForm({ ...form, observacoes: event.target.value })} /></label>
         </> : <>
           <div className="grid gap-4 md:grid-cols-[1.25fr_.75fr]">
             <Input required minLength={3} maxLength={72} label="Título do conjunto" placeholder="Ex.: 1º fim de semana" value={loteForm.titulo} onChange={(event) => setLoteForm({ ...loteForm, titulo: event.target.value })} />
             <label className="text-sm font-medium">Pacote específico (opcional)
-              <select className="admin-field mt-1" value={loteForm.pacote_id} onChange={(event) => setLoteForm({ ...loteForm, pacote_id: event.target.value })}><option value="">Todos os pacotes do período</option>{pacotes.map((pacote) => <option key={pacote.id} value={pacote.id}>{pacote.nome}</option>)}</select>
+              <select className="admin-field mt-1" value={loteForm.pacote_id} onChange={(event) => setLoteForm({ ...loteForm, pacote_id: event.target.value, periodo_id: '' })}><option value="">Todos os pacotes do período</option>{pacotes.map((pacote) => <option key={pacote.id} value={pacote.id}>{pacote.nome}</option>)}</select>
+            </label>
+            <label className="text-sm font-medium">Período específico (opcional)
+              <select className="admin-field mt-1" value={loteForm.periodo_id} onChange={(event) => setLoteForm({ ...loteForm, periodo_id: event.target.value })}><option value="">Todos os períodos</option>{periodos.filter((periodo) => !loteForm.pacote_id || periodo.pacote_id === loteForm.pacote_id).map((periodo) => <option key={periodo.id} value={periodo.id}>{periodo.nome}</option>)}</select>
             </label>
           </div>
           <div className="space-y-3">

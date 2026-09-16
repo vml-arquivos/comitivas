@@ -3,11 +3,11 @@ import { HospedagemService } from "../services/hospedagemService.js";
 
 const router = Router();
 router.get("/lotes/:loteId", async (req: Request, res: Response) => {
-  try { return res.json(await HospedagemService.obterMapa(req.params.loteId)); }
+  try { return res.json(await HospedagemService.obterMapa(req.params.loteId, String(req.query.periodo_id || "") || null)); }
   catch (error: any) { return res.status(error.message === "Lote não encontrado" ? 404 : 400).json({ erro: error.message || "Erro ao carregar hospedagem" }); }
 });
 router.post("/lotes/:loteId/reconciliar", async (req: Request, res: Response) => {
-  try { return res.json(await HospedagemService.reconciliarLote(req.params.loteId, req.usuario!.id)); }
+  try { return res.json(await HospedagemService.reconciliarLote(req.params.loteId, req.usuario!.id, String(req.query.periodo_id || "") || null)); }
   catch (error: any) { return res.status(409).json({ erro: error.message || "Erro ao reconciliar quartos" }); }
 });
 router.post("/lotes/:loteId/quartos", async (req: Request, res: Response) => {

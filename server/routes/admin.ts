@@ -635,7 +635,7 @@ router.get("/vendas/clientes", async (req: Request, res: Response) => {
       condicoes.push(or(sql`${usuarios.nome} ILIKE ${termo}`, sql`${usuarios.email} ILIKE ${termo}`, digitos ? sql`regexp_replace(COALESCE(${usuarios.cpf}, ''), '\\D', '', 'g') LIKE ${`%${digitos}%`}` : sql`false`)!);
     }
 
-    const clientes = await db.select({ id: usuarios.id, nome: usuarios.nome, email: usuarios.email, cpf: usuarios.cpf, telefone: usuarios.telefone, criado_em: usuarios.criado_em })
+    const clientes = await db.select({ id: usuarios.id, nome: usuarios.nome, email: usuarios.email, cpf: usuarios.cpf, telefone: usuarios.telefone, sexo: usuarios.sexo, criado_em: usuarios.criado_em })
       .from(usuarios)
       .where(and(...condicoes))
       .orderBy(desc(usuarios.criado_em))
@@ -657,12 +657,14 @@ router.post("/vendas/clientes", async (req: Request, res: Response) => {
     const telefone = somenteDigitos(req.body?.telefone);
     const endereco = String(req.body?.endereco || "").trim();
     const dataNascimento = req.body?.data_nascimento ? new Date(req.body.data_nascimento) : null;
-    const faltantes = camposFaltantesCadastroMinimo({ nome, email, cpf, telefone, data_nascimento: dataNascimento, endereco }, { exigirSexoEnderecoEstruturado: false });
+    const sexo = String(req.body?.sexo || '').trim().toLowerCase();
+    const faltantes = camposFaltantesCadastroMinimo({ nome, email, cpf, telefone, data_nascimento: dataNascimento, endereco, sexo }, { exigirSexoEnderecoEstruturado: false });
     if (faltantes.length) return res.status(400).json({ erro: `Complete os dados essenciais do cliente: ${faltantes.join(", ")}` });
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ erro: "Informe um e-mail válido" });
     if (!cpfValido(cpf)) return res.status(400).json({ erro: "Informe um CPF válido" });
     if (telefone.length < 10 || telefone.length > 13) return res.status(400).json({ erro: "Informe um telefone com DDD válido" });
     if (!dataNascimento || Number.isNaN(dataNascimento.getTime()) || dataNascimento.getTime() >= Date.now()) return res.status(400).json({ erro: "Data de nascimento inválida" });
+    if (!['feminino', 'masculino'].includes(sexo)) return res.status(400).json({ erro: "Informe o sexo para direcionar a hospedagem" });
 
     const senhaTemporaria = String(req.body?.senha || "").trim() || gerarSenhaTemporaria();
     if (senhaTemporaria.length < 8) return res.status(400).json({ erro: "Senha deve ter no mínimo 8 caracteres" });
@@ -679,6 +681,7 @@ router.post("/vendas/clientes", async (req: Request, res: Response) => {
         cpf,
         telefone,
         data_nascimento: dataNascimento,
+        sexo,
         endereco,
         tipo: "cliente",
         senha_hash: await AuthService.hashPassword(senhaTemporaria),

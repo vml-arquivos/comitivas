@@ -10,6 +10,7 @@ type ReservaOperacional = {
   usuario_id: string;
   lote_id: string;
   pacote_id: string | null;
+  periodo_id: string | null;
   grupo_id: string | null;
   inventario_hold_id: string | null;
   checkout_estado: string | null;
@@ -98,7 +99,7 @@ export class ContratacaoIntegridadeService {
     // "conferir as vagas" e "assinar o contrato" em que uma poltrona/quarto
     // possa ser liberado por outra operação.
     const reserva = (await tx.execute(sql`
-      SELECT r.id, r.lote_id, r.pacote_id, r.grupo_id, r.recursos_contratados, r.grupo_hospedagem,
+      SELECT r.id, r.lote_id, r.pacote_id, r.periodo_id, r.grupo_id, r.recursos_contratados, r.grupo_hospedagem,
              p.forma_contratacao AS pacote_forma_contratacao, p.modalidade_hospedagem AS pacote_modalidade_hospedagem
         FROM reservas r
         LEFT JOIN pacotes p ON p.id = r.pacote_id
@@ -165,7 +166,7 @@ export class ContratacaoIntegridadeService {
 
     return db.transaction(async (tx) => {
       const reserva = (await tx.execute(sql`
-        SELECT r.id, r.usuario_id, r.lote_id, r.pacote_id, r.grupo_id, r.inventario_hold_id,
+        SELECT r.id, r.usuario_id, r.lote_id, r.pacote_id, r.periodo_id, r.grupo_id, r.inventario_hold_id,
                r.checkout_estado, r.status, r.recursos_contratados, r.grupo_hospedagem,
                p.forma_contratacao AS pacote_forma_contratacao,
                p.modalidade_hospedagem AS pacote_modalidade_hospedagem
@@ -298,7 +299,7 @@ export class ContratacaoIntegridadeService {
             JOIN assentos_onibus a ON a.id = aa.assento_id
             JOIN onibus_operacionais o ON o.id = a.onibus_id
             JOIN saidas_operacionais s ON s.id = o.saida_id
-           WHERE aa.reserva_id = ${reserva.id} AND aa.status = 'ativa'
+               WHERE aa.reserva_id = ${reserva.id} AND aa.status = 'ativa'
            ORDER BY aa.alocado_em, aa.id
            FOR UPDATE OF aa
         `)).rows as Array<{ alocacao_id: string; assento_id: string; numero: number; onibus_id: string; onibus_nome: string; saida_id: string }>;
@@ -316,9 +317,12 @@ export class ContratacaoIntegridadeService {
                 JOIN onibus_operacionais o ON o.saida_id = s.id AND o.ativo = true
                 JOIN assentos_onibus a ON a.onibus_id = o.id AND a.status = 'disponivel' AND a.numero <= o.capacidade
                WHERE s.lote_id = ${reserva.lote_id} AND s.ativa = true
+                 AND (${reserva.periodo_id}::text IS NULL AND s.periodo_id IS NULL OR ${reserva.periodo_id}::text IS NOT NULL AND (s.periodo_id IS NULL OR s.periodo_id = ${reserva.periodo_id}))
                  AND NOT EXISTS (SELECT 1 FROM assento_alocacoes aa WHERE aa.assento_id = a.id AND aa.status = 'ativa')
                  AND NOT EXISTS (SELECT 1 FROM assento_holds ah WHERE ah.assento_id = a.id AND ah.status = 'ativo' AND ah.expira_em > CURRENT_TIMESTAMP)
-               ORDER BY CASE WHEN s.id = ${saidaPreferida} THEN 0 ELSE 1 END, o.venda_ordem, o.criado_em, a.numero
+               ORDER BY CASE WHEN s.id = ${saidaPreferida} THEN 0 ELSE 1 END,
+                        CASE WHEN s.periodo_id = ${reserva.periodo_id} THEN 0 WHEN s.periodo_id IS NULL THEN 1 ELSE 2 END,
+                        o.venda_ordem, o.criado_em, a.numero
                LIMIT 1 FOR UPDATE OF a
             `)).rows[0] as { assento_id: string; numero: number; onibus_id: string; onibus_nome: string; saida_id: string } | undefined;
             if (!assento) throw new Error("O contrato inclui transporte, mas não há poltrona disponível para todas as pessoas");
@@ -380,6 +384,7 @@ export class ContratacaoIntegridadeService {
                 FROM quartos_hospedagem q
                 CROSS JOIN LATERAL generate_series(1, q.capacidade) AS vaga(numero)
                WHERE q.lote_id = ${reserva.lote_id} AND q.ativo = true
+                 AND (${reserva.periodo_id}::text IS NULL AND q.periodo_id IS NULL OR ${reserva.periodo_id}::text IS NOT NULL AND (q.periodo_id IS NULL OR q.periodo_id = ${reserva.periodo_id}))
                  AND q.genero = ${grupo}
                  AND q.estrutura = ${recursos.estrutura_quarto}
                  AND (q.pacote_id IS NULL OR q.pacote_id = ${reserva.pacote_id})
@@ -387,7 +392,8 @@ export class ContratacaoIntegridadeService {
                    SELECT 1 FROM quarto_alocacoes qa
                     WHERE qa.quarto_id = q.id AND qa.numero_vaga = vaga.numero AND qa.status = 'ativa'
                  )
-               ORDER BY CASE WHEN q.pacote_id = ${reserva.pacote_id} THEN 0 ELSE 1 END, q.nome, vaga.numero
+               ORDER BY CASE WHEN q.periodo_id = ${reserva.periodo_id} THEN 0 WHEN q.periodo_id IS NULL THEN 1 ELSE 2 END,
+                        CASE WHEN q.pacote_id = ${reserva.pacote_id} THEN 0 ELSE 1 END, q.nome, vaga.numero
                LIMIT 1 FOR UPDATE OF q
             `)).rows[0] as { quarto_id: string; quarto_nome: string; genero: string; estrutura: string; numero_vaga: number } | undefined;
             if (!quarto) throw new Error(`O contrato inclui hospedagem, mas não há vaga de quarto ${recursos.estrutura_quarto === "ar_condicionado" ? "com ar-condicionado" : "com ventilador"} para o grupo ${grupo}`);

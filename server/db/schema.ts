@@ -495,6 +495,7 @@ export const inventarioHolds = pgTable("inventario_holds", {
 export const saidasOperacionais = pgTable("saidas_operacionais", {
   id: text("id").primaryKey().$defaultFn(() => createId()),
   lote_id: text("lote_id").notNull().references(() => lotes.id),
+  periodo_id: text("periodo_id").references(() => pacotePeriodos.id),
   nome: varchar("nome", { length: 160 }).notNull(),
   data_partida: timestamp("data_partida"),
   data_retorno: timestamp("data_retorno"),
@@ -503,7 +504,7 @@ export const saidasOperacionais = pgTable("saidas_operacionais", {
   criado_por: text("criado_por").references(() => usuarios.id),
   criado_em: timestamp("criado_em").defaultNow().notNull(),
   atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
-}, (table) => ({ loteIdx: index("saidas_operacionais_lote_idx").on(table.lote_id, table.ativa) }));
+}, (table) => ({ loteIdx: index("saidas_operacionais_lote_idx").on(table.lote_id, table.ativa), periodoIdx: index("saidas_operacionais_periodo_idx").on(table.periodo_id, table.ativa) }));
 
 export const onibusOperacionais = pgTable("onibus_operacionais", {
   id: text("id").primaryKey().$defaultFn(() => createId()),
@@ -598,6 +599,7 @@ export const quartosHospedagem = pgTable("quartos_hospedagem", {
   id: text("id").primaryKey().$defaultFn(() => createId()),
   lote_id: text("lote_id").notNull().references(() => lotes.id),
   pacote_id: text("pacote_id").references(() => pacotes.id),
+  periodo_id: text("periodo_id").references(() => pacotePeriodos.id),
   nome: varchar("nome", { length: 120 }).notNull(),
   genero: varchar("genero", { length: 20 }).notNull(),
   capacidade: integer("capacidade").notNull(),
@@ -608,7 +610,7 @@ export const quartosHospedagem = pgTable("quartos_hospedagem", {
   criado_por: text("criado_por").references(() => usuarios.id),
   criado_em: timestamp("criado_em").defaultNow().notNull(),
   atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
-}, (table) => ({ loteIdx: index("quartos_hospedagem_lote_idx").on(table.lote_id, table.ativo) }));
+}, (table) => ({ loteIdx: index("quartos_hospedagem_lote_idx").on(table.lote_id, table.ativo), periodoIdx: index("quartos_hospedagem_periodo_idx").on(table.periodo_id, table.ativo) }));
 
 export const quartoAlocacoes = pgTable("quarto_alocacoes", {
   id: text("id").primaryKey().$defaultFn(() => createId()),
