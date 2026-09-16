@@ -260,7 +260,7 @@ export class OperacaoOnibusService {
         motorista_nome = CASE WHEN ${input?.motorista_nome === undefined} THEN motorista_nome ELSE ${texto(input?.motorista_nome, 160) || null} END,
         motorista_telefone = CASE WHEN ${input?.motorista_telefone === undefined} THEN motorista_telefone ELSE ${texto(input?.motorista_telefone, 20) || null} END,
         responsavel_nome = CASE WHEN ${input?.responsavel_nome === undefined} THEN responsavel_nome ELSE ${texto(input?.responsavel_nome, 160) || null} END,
-        periodo_id = CASE WHEN ${periodoInformado === undefined} THEN periodo_id ELSE COALESCE(${periodoInformado}, periodo_saida_id) END,
+        periodo_id = CASE WHEN ${periodoInformado === undefined} THEN periodo_id ELSE ${periodoFinal} END,
         capacidade = COALESCE(${capacidade}, capacidade), status = COALESCE(${status}, status), ativo = COALESCE(${typeof input?.ativo === "boolean" ? input.ativo : null}, ativo), atualizado_em = CURRENT_TIMESTAMP
         WHERE id = ${id} RETURNING *`))[0];
       await registrar(tx, antes.saida_id, "onibus", id, "onibus_atualizado", atorId, antes, depois);

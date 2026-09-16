@@ -3,6 +3,13 @@ import { OperacaoOnibusService } from "../services/operacaoOnibusService.js";
 
 const router = Router();
 
+function mensagemOperacao(error: unknown, fallback: string): string {
+  const mensagem = error instanceof Error ? error.message : "";
+  return /Failed query|SQL|syntax error|relation .* does not exist|column .* does not exist/i.test(mensagem)
+    ? fallback
+    : mensagem || fallback;
+}
+
 function csv(valor: unknown): string {
   return `"${String(valor ?? "").replace(/"/g, '""')}"`;
 }
@@ -21,7 +28,7 @@ router.post("/saidas", async (req: Request, res: Response) => {
     const saida = await OperacaoOnibusService.criarSaida(req.body, req.usuario!.id);
     return res.status(201).json({ saida });
   } catch (error: any) {
-    return res.status(400).json({ erro: error.message || "Não foi possível criar a saída" });
+    return res.status(400).json({ erro: mensagemOperacao(error, "Não foi possível criar a saída") });
   }
 });
 
@@ -29,7 +36,7 @@ router.patch("/saidas/:saidaId", async (req: Request, res: Response) => {
   try {
     return res.json({ saida: await OperacaoOnibusService.atualizarSaida(req.params.saidaId, req.body, req.usuario!.id) });
   } catch (error: any) {
-    return res.status(400).json({ erro: error.message || "Não foi possível atualizar a saída" });
+    return res.status(400).json({ erro: mensagemOperacao(error, "Não foi possível atualizar a saída") });
   }
 });
 
@@ -47,7 +54,8 @@ router.get("/saidas/:saidaId/mapa", async (req: Request, res: Response) => {
   try {
     return res.json(await OperacaoOnibusService.obterMapa(req.params.saidaId));
   } catch (error: any) {
-    return res.status(error.message === "Saída não encontrada" ? 404 : 400).json({ erro: error.message || "Não foi possível carregar o mapa" });
+    const mensagem = mensagemOperacao(error, "Não foi possível carregar o mapa");
+    return res.status(mensagem === "Saída não encontrada" ? 404 : 400).json({ erro: mensagem });
   }
 });
 
@@ -55,7 +63,7 @@ router.post("/saidas/:saidaId/onibus", async (req: Request, res: Response) => {
   try {
     return res.status(201).json({ onibus: await OperacaoOnibusService.criarOnibus(req.params.saidaId, req.body, req.usuario!.id) });
   } catch (error: any) {
-    return res.status(400).json({ erro: error.message || "Não foi possível cadastrar o ônibus" });
+    return res.status(400).json({ erro: mensagemOperacao(error, "Não foi possível cadastrar o ônibus") });
   }
 });
 
@@ -63,7 +71,8 @@ router.patch("/onibus/:onibusId", async (req: Request, res: Response) => {
   try {
     return res.json({ onibus: await OperacaoOnibusService.atualizarOnibus(req.params.onibusId, req.body, req.usuario!.id) });
   } catch (error: any) {
-    return res.status(400).json({ erro: error.message || "Não foi possível atualizar o ônibus" });
+    console.error("[OPERACAO] Falha ao atualizar ônibus:", error);
+    return res.status(400).json({ erro: mensagemOperacao(error, "Não foi possível atualizar o ônibus") });
   }
 });
 
