@@ -38,9 +38,13 @@ describe("períodos múltiplos dentro do pacote", () => {
     expect(configurador).toContain("Escolha o período");
     expect(configurador).toContain("periodo_id: periodoId || undefined");
     expect(intent).toContain("periodoId?: string");
-    expect(admin).toContain("Períodos do pacote");
+    expect(admin).toContain("Períodos configurados");
+    expect(admin).toContain("AdminModal");
+    expect(admin).toContain("Pré-visualização");
+    expect(admin).toContain('type="date"');
+    expect(admin).toContain("abrirCalendario");
     expect(admin).toContain("setPacotesPorLote");
-    expect(admin).toContain("setPeriodosPacoteAberto(pacote.id)");
+    expect(admin).toContain("setPeriodosPacoteAberto(abrir ? pacoteId : null)");
     expect(admin).toContain("carregarPeriodosPacote(pacote.id)");
     expect(exclusao).toContain("DELETE FROM pacote_periodos");
   });

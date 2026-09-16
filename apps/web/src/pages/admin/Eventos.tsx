@@ -1,7 +1,8 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, type FocusEvent } from 'react';
 import { api } from '../../contexts/AuthContext';
 import { Card, CardContent, Button, Input } from '@ui/index';
-import { CalendarDays, ChevronDown, ChevronUp, ImagePlus, MapPin, PackagePlus, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { AdminModal } from '../../components/admin/AdminModal';
+import { CalendarDays, CalendarRange, ChevronDown, ChevronUp, Clock3, Eye, FileText, ImagePlus, MapPin, PackagePlus, Pencil, Plus, Trash2, X } from 'lucide-react';
 
 interface Evento {
   id: string;
@@ -124,6 +125,25 @@ function paraDataHoraInput(valor?: string | null) {
   if (!valor) return '';
   const parte = partesData(valor);
   return `${parte.year}-${parte.month}-${parte.day}T${parte.hour}:${parte.minute}`;
+}
+
+function dataInputBr(valor?: string) {
+  if (!valor) return 'Escolha uma data';
+  const [data] = valor.split('T');
+  const [ano, mes, dia] = data.split('-');
+  return ano && mes && dia ? `${dia}/${mes}/${ano}` : valor;
+}
+
+function dataHoraInputBr(valor?: string) {
+  if (!valor) return 'Não informado';
+  const [data, hora] = valor.split('T');
+  const [ano, mes, dia] = data.split('-');
+  return ano && mes && dia ? `${dia}/${mes}/${ano}${hora ? ` às ${hora}` : ''}` : valor;
+}
+
+function abrirCalendario(evento: FocusEvent<HTMLInputElement>) {
+  const input = evento.currentTarget as HTMLInputElement & { showPicker?: () => void };
+  input.showPicker?.();
 }
 
 function disponibilidadeLabel(valor: Disponibilidade) {
@@ -394,7 +414,7 @@ export default function EventosAdmin() {
 
   const editarPacote = (loteId: string, pacote: Pacote) => {
     const pagamento = pacote.configuracao_pagamento || {};
-    limparFeedback(); setPacotesAbertos(loteId); setPacoteEditando(pacote.id); setGaleriaPacoteAberta(null); setPeriodosPacoteAberto(pacote.id); setPacoteForm({
+    limparFeedback(); setPacotesAbertos(loteId); setPacoteEditando(pacote.id); setGaleriaPacoteAberta(null); setPeriodosPacoteAberto(null); setPacoteForm({
       nome: pacote.nome, descricao: pacote.descricao || '', valorTotal: String(pacote.valor_total), modalidade: pacote.modalidade_hospedagem, disponibilidade: pacote.disponibilidade,
       formaContratacao: pacote.modalidade_hospedagem === 'camping' ? 'onibus' : pacote.forma_contratacao || 'onibus_hospedagem', quantidadeOnibus: String(pacote.onibus_config?.length || 1), capacidadeOnibus: String(pacote.onibus_config?.[0]?.capacidade || 44),
       formasPagamento: pagamento.formas_permitidas || ['pix', 'boleto'], boletoParcelas: String(pagamento.boleto_parcelas_maximo || 1), creditoParcelas: String(pagamento.credito_parcelas_maximo || 10), creditoTaxa: String(pagamento.credito_taxa_percentual || 0), creditoJurosMensal: String(pagamento.credito_juros_mensal_percentual || 0), prazoSegurancaDias: String(pagamento.prazo_seguranca_dias || 0), multaAtraso: String(pagamento.multa_atraso_percentual || 0), jurosMoraMensal: String(pagamento.juros_mora_mensal_percentual || 0), dataLimitePagamento: pacote.data_limite_pagamento ? paraDataInput(pacote.data_limite_pagamento) : '',
@@ -491,23 +511,129 @@ export default function EventosAdmin() {
 
   const renderPeriodosPacote = (pacote: Pacote) => {
     const periodos = periodosPorPacote[pacote.id] || pacote.periodos || [];
-    return <section className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div><p className="text-xs font-bold uppercase tracking-wide text-slate-600">Períodos do pacote</p><p className="mt-1 text-xs text-slate-500">Cadastre finais de semana ou datas diferentes para o cliente escolher no site.</p></div>
-        <Button type="button" variant="outline" onClick={() => { setPeriodoEditando(null); setPeriodoForm(vazioPeriodo); }}><Plus size={14} className="mr-1" />Novo período</Button>
-      </div>
-      <form onSubmit={(e) => void salvarPeriodo(e, pacote.id)} className="mt-3 grid gap-3 rounded-lg bg-slate-50 p-3 md:grid-cols-4">
-        <Input label="Nome do período" value={periodoForm.nome} onChange={(e) => setPeriodoForm({ ...periodoForm, nome: e.target.value })} placeholder="1º fim de semana" />
-        <Input label="Início" type="date" value={periodoForm.dataInicio} onChange={(e) => setPeriodoForm({ ...periodoForm, dataInicio: e.target.value })} />
-        <Input label="Fim" type="date" value={periodoForm.dataFim} onChange={(e) => setPeriodoForm({ ...periodoForm, dataFim: e.target.value })} />
-        <Input label="Ordem (opcional)" type="number" min={0} value={periodoForm.ordem} onChange={(e) => setPeriodoForm({ ...periodoForm, ordem: e.target.value })} />
-        <Input label="Saída (opcional)" type="datetime-local" value={periodoForm.dataEmbarque} onChange={(e) => setPeriodoForm({ ...periodoForm, dataEmbarque: e.target.value })} />
-        <Input label="Retorno (opcional)" type="datetime-local" value={periodoForm.dataRetorno} onChange={(e) => setPeriodoForm({ ...periodoForm, dataRetorno: e.target.value })} />
-        <div className="md:col-span-2"><label className="mb-1 block text-sm font-medium text-slate-700">Descrição (opcional)<textarea value={periodoForm.descricao} onChange={(e) => setPeriodoForm({ ...periodoForm, descricao: e.target.value })} rows={2} className="mt-1 w-full rounded-md border border-slate-300 p-2 text-sm" placeholder="Informação apresentada ao cliente" /></label></div>
-        <div className="flex flex-wrap items-end gap-2 md:col-span-4"><Button type="submit" disabled={salvando}>{salvando ? 'Salvando...' : periodoEditando ? 'Salvar período' : 'Adicionar período'}</Button>{periodoEditando && <Button type="button" variant="outline" onClick={() => { setPeriodoEditando(null); setPeriodoForm(vazioPeriodo); }}>Cancelar edição</Button>}</div>
-      </form>
-      {periodos.length === 0 ? <p className="mt-3 rounded-lg border border-dashed border-slate-200 p-3 text-xs text-slate-500">Nenhum período adicional. O pacote usará as datas do lote.</p> : <div className="mt-3 space-y-2">{periodos.map((periodo) => <div key={periodo.id} className={`flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between ${periodo.ativo ? 'border-slate-200' : 'border-amber-200 bg-amber-50'}`}><div><p className="text-sm font-bold text-slate-800">{periodo.nome}{!periodo.ativo && <span className="ml-2 text-[10px] uppercase text-amber-700">desativado</span>}</p><p className="text-xs text-slate-500">{new Date(periodo.data_inicio).toLocaleDateString('pt-BR')} a {new Date(periodo.data_fim).toLocaleDateString('pt-BR')}</p>{periodo.descricao && <p className="mt-1 text-xs text-slate-500">{periodo.descricao}</p>}</div><div className="flex gap-1"><button type="button" onClick={() => editarPeriodo(periodo)} className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-800" title="Editar período"><Pencil size={15} /></button><button type="button" onClick={() => void excluirPeriodo(pacote.id, periodo.id)} className="rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600" title="Excluir período"><Trash2 size={15} /></button></div></div>)}</div>}
-    </section>;
+    const fechar = () => {
+      setPeriodosPacoteAberto(null);
+      setPeriodoEditando(null);
+      setPeriodoForm(vazioPeriodo);
+    };
+    const iniciarNovo = () => {
+      setPeriodoEditando(null);
+      setPeriodoForm(vazioPeriodo);
+      requestAnimationFrame(() => document.getElementById(`form-periodo-${pacote.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    };
+
+    return (
+      <AdminModal
+        aberto={periodosPacoteAberto === pacote.id}
+        titulo={`Períodos · ${pacote.nome}`}
+        descricao="Configure cada final de semana ou janela de viagem que o cliente poderá escolher neste pacote."
+        fechar={fechar}
+        largura="ampla"
+      >
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1.12fr)_minmax(280px,.88fr)]">
+          <form id={`form-periodo-${pacote.id}`} onSubmit={(e) => void salvarPeriodo(e, pacote.id)} className="space-y-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[.16em] text-[#C94F38]">{periodoEditando ? 'Editar período' : 'Novo período'}</p>
+                <h3 className="mt-1 text-xl font-black text-[#073F50]">Dados da janela de viagem</h3>
+                <p className="mt-1 text-sm leading-6 text-slate-500">Use um nome claro, escolha as datas no calendário e descreva o que o cliente verá na vitrine.</p>
+              </div>
+              <button type="button" onClick={iniciarNovo} className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-[#073F50] transition hover:border-[#C94F38]/40 hover:text-[#C94F38]">
+                <Plus size={14} className="mr-1 inline" /> Novo
+              </button>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <Input
+                    label="Nome do período"
+                    value={periodoForm.nome}
+                    onChange={(e) => setPeriodoForm({ ...periodoForm, nome: e.target.value })}
+                    placeholder="Ex.: 1º fim de semana"
+                    maxLength={160}
+                    autoFocus
+                    required
+                  />
+                  <p className="mt-1.5 text-xs text-slate-400">Ex.: Primeiro fim de semana, segundo fim de semana ou pacote especial.</p>
+                </div>
+                <div>
+                  <Input
+                    label="Início do período"
+                    type="date"
+                    value={periodoForm.dataInicio}
+                    onChange={(e) => setPeriodoForm({ ...periodoForm, dataInicio: e.target.value })}
+                    onFocus={abrirCalendario}
+                    required
+                  />
+                  <p className="mt-1.5 flex items-center gap-1 text-xs text-slate-400"><CalendarRange size={13} /> Calendário · {dataInputBr(periodoForm.dataInicio)}</p>
+                </div>
+                <div>
+                  <Input
+                    label="Fim do período"
+                    type="date"
+                    value={periodoForm.dataFim}
+                    onChange={(e) => setPeriodoForm({ ...periodoForm, dataFim: e.target.value })}
+                    onFocus={abrirCalendario}
+                    min={periodoForm.dataInicio || undefined}
+                    required
+                  />
+                  <p className="mt-1.5 flex items-center gap-1 text-xs text-slate-400"><CalendarRange size={13} /> Calendário · {dataInputBr(periodoForm.dataFim)}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5">
+              <div className="mb-4 flex items-start gap-3">
+                <div className="rounded-xl bg-white p-2 text-[#C94F38] shadow-sm"><Clock3 size={18} /></div>
+                <div><h4 className="font-black text-[#073F50]">Operação da viagem <span className="font-normal text-slate-400">(opcional)</span></h4><p className="mt-1 text-xs leading-5 text-slate-500">Informe saída e retorno quando este período tiver horários próprios de ônibus.</p></div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <Input label="Saída / embarque" type="datetime-local" value={periodoForm.dataEmbarque} onChange={(e) => setPeriodoForm({ ...periodoForm, dataEmbarque: e.target.value })} onFocus={abrirCalendario} />
+                  <p className="mt-1.5 text-xs text-slate-400">{dataHoraInputBr(periodoForm.dataEmbarque)}</p>
+                </div>
+                <div>
+                  <Input label="Retorno" type="datetime-local" value={periodoForm.dataRetorno} onChange={(e) => setPeriodoForm({ ...periodoForm, dataRetorno: e.target.value })} onFocus={abrirCalendario} min={periodoForm.dataEmbarque || undefined} />
+                  <p className="mt-1.5 text-xs text-slate-400">{dataHoraInputBr(periodoForm.dataRetorno)}</p>
+                </div>
+                <Input label="Ordem de exibição" type="number" min={0} value={periodoForm.ordem} onChange={(e) => setPeriodoForm({ ...periodoForm, ordem: e.target.value })} placeholder="Ex.: 1" />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor={`descricao-periodo-${pacote.id}`} className="mb-1.5 block text-sm font-semibold text-[#334A58]">Descrição para o cliente <span className="font-normal text-slate-400">(opcional)</span></label>
+              <textarea id={`descricao-periodo-${pacote.id}`} value={periodoForm.descricao} onChange={(e) => setPeriodoForm({ ...periodoForm, descricao: e.target.value })} maxLength={2000} rows={4} className="min-h-[112px] w-full resize-y rounded-xl border border-[#182D3B]/15 bg-white px-4 py-3 text-sm text-[#334A58] placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/35" placeholder="Ex.: Saída na quinta à noite, retorno no domingo após o encerramento." />
+              <div className="mt-1 flex justify-between gap-3 text-xs text-slate-400"><span>Esse texto aparece junto ao período na experiência do cliente.</span><span>{periodoForm.descricao.length}/2000</span></div>
+            </div>
+
+            <div className="flex flex-wrap gap-3 border-t border-slate-200 pt-5">
+              <Button type="submit" disabled={salvando}>{salvando ? 'Salvando...' : periodoEditando ? 'Salvar alterações' : 'Adicionar período'}</Button>
+              {periodoEditando && <Button type="button" variant="outline" onClick={iniciarNovo}>Cancelar edição</Button>}
+            </div>
+          </form>
+
+          <aside className="h-fit rounded-2xl border border-[#C94F38]/20 bg-[#fff8f4] p-4 sm:p-5 lg:sticky lg:top-24">
+            <div className="flex items-center gap-2 text-[#C94F38]"><Eye size={17} /><p className="text-xs font-black uppercase tracking-[.14em]">Pré-visualização</p></div>
+            <p className="mt-2 text-xs leading-5 text-slate-500">Veja como a janela ficará organizada antes de salvar.</p>
+            <div className="mt-5 overflow-hidden rounded-2xl border border-white bg-white shadow-sm">
+              <div className="border-b border-slate-100 bg-[#073F50] px-4 py-3"><p className="text-[10px] font-black uppercase tracking-[.14em] text-white/70">{pacote.nome}</p><p className="mt-1 text-sm font-bold text-white">Período selecionável</p></div>
+              <div className="space-y-4 p-4">
+                <div><p className="text-lg font-black text-[#073F50]">{periodoForm.nome.trim() || 'Nome do período'}</p><p className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-[#C94F38]"><CalendarRange size={15} />{periodoForm.dataInicio && periodoForm.dataFim ? `${dataInputBr(periodoForm.dataInicio)} a ${dataInputBr(periodoForm.dataFim)}` : 'Escolha as datas'}</p></div>
+                {(periodoForm.dataEmbarque || periodoForm.dataRetorno) && <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600"><p className="font-bold text-[#073F50]">Operação</p><p className="mt-1">Saída: {dataHoraInputBr(periodoForm.dataEmbarque)}</p><p>Retorno: {dataHoraInputBr(periodoForm.dataRetorno)}</p></div>}
+                <div className="flex items-start gap-2 border-t border-slate-100 pt-3"><FileText size={15} className="mt-0.5 shrink-0 text-slate-400" /><p className="text-sm leading-6 text-slate-600">{periodoForm.descricao.trim() || 'A descrição do período aparecerá aqui para orientar o cliente.'}</p></div>
+              </div>
+            </div>
+            <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs leading-5 text-emerald-800">As datas e a descrição só entram no catálogo depois que você clicar em salvar.</div>
+          </aside>
+        </div>
+
+        <section className="mt-7 border-t border-slate-200 pt-6">
+          <div className="flex items-center justify-between gap-3"><div><h3 className="text-lg font-black text-[#073F50]">Períodos configurados</h3><p className="mt-1 text-sm text-slate-500">Edite ou remova qualquer janela sem alterar o histórico das reservas.</p></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{periodos.length} {periodos.length === 1 ? 'período' : 'períodos'}</span></div>
+          {periodos.length === 0 ? <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-500">Nenhum período adicional. Enquanto não houver uma janela, o pacote usará as datas do lote.</div> : <div className="mt-4 grid gap-3 md:grid-cols-2">{periodos.map((periodo) => <article key={periodo.id} className={`rounded-2xl border bg-white p-4 shadow-sm ${periodo.ativo ? 'border-slate-200' : 'border-amber-200 bg-amber-50/60'}`}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h4 className="font-black text-[#073F50]">{periodo.nome}</h4>{!periodo.ativo && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-amber-700">Desativado</span>}</div><p className="mt-2 flex items-center gap-1.5 text-sm font-semibold text-[#C94F38]"><CalendarRange size={14} />{new Date(periodo.data_inicio).toLocaleDateString('pt-BR')} a {new Date(periodo.data_fim).toLocaleDateString('pt-BR')}</p>{(periodo.data_embarque || periodo.data_retorno) && <p className="mt-1 text-xs text-slate-500">Saída {periodo.data_embarque ? new Date(periodo.data_embarque).toLocaleString('pt-BR') : 'não informada'} · retorno {periodo.data_retorno ? new Date(periodo.data_retorno).toLocaleString('pt-BR') : 'não informado'}</p>}{periodo.descricao && <p className="mt-3 line-clamp-3 text-sm leading-5 text-slate-600">{periodo.descricao}</p>}</div><div className="flex shrink-0 gap-1"><button type="button" onClick={() => editarPeriodo(periodo)} className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500 transition hover:border-[#C94F38]/40 hover:text-[#C94F38]" title="Editar período"><Pencil size={15} /></button><button type="button" onClick={() => void excluirPeriodo(pacote.id, periodo.id)} className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500 transition hover:border-red-200 hover:text-red-600" title="Excluir período"><Trash2 size={15} /></button></div></div></article>)}</div>}
+        </section>
+      </AdminModal>
+    );
   };
 
   return <div className="admin-page">
