@@ -82,7 +82,8 @@ function validarIntervaloPeriodo(inicio: Date, fim: Date, embarque: Date | null,
 function validarConfiguracaoComercial(body: any) {
   const modalidade = String(body.modalidade_hospedagem || "quarto_ventilador").trim().toLowerCase();
   const formaPadrao = "onibus_hospedagem";
-  const formaContratacao = String(body.forma_contratacao || formaPadrao).trim().toLowerCase();
+  const formaSolicitada = String(body.forma_contratacao || formaPadrao).trim().toLowerCase();
+  const formaContratacao = modalidade === "camping" ? "onibus" : formaSolicitada;
   if (!FORMAS_CONTRATACAO.has(formaContratacao)) throw new Error("Forma de contratação inválida");
 
   const onibusConfig = Array.isArray(body.onibus_config) ? body.onibus_config : [];
@@ -503,7 +504,7 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
       pacote_nome: pacoteSelecionado[0]?.nome || null,
       pacote_descricao: pacoteSelecionado[0]?.descricao || null,
       modalidade_hospedagem: pacoteSelecionado[0]?.modalidade_hospedagem || null,
-      forma_contratacao: pacoteSelecionado[0]?.forma_contratacao || "hospedagem",
+      forma_contratacao: pacoteSelecionado[0]?.modalidade_hospedagem === "camping" ? "onibus" : pacoteSelecionado[0]?.forma_contratacao || "hospedagem",
       onibus_config: pacoteSelecionado[0]?.onibus_config || [],
       configuracao_pagamento: pacoteSelecionado[0]?.configuracao_pagamento || {},
       data_limite_pagamento: pacoteSelecionado[0]?.data_limite_pagamento || null,
@@ -627,8 +628,8 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
           destaque_subtitulo: pacote.destaque_subtitulo,
           destaque_texto: pacote.destaque_texto,
           modalidade_hospedagem: pacote.modalidade_hospedagem,
-        forma_contratacao: pacote.forma_contratacao,
-        configuracao_necessaria: !["onibus", "hospedagem", "onibus_hospedagem"].includes(String(pacote.forma_contratacao)),
+        forma_contratacao: pacote.modalidade_hospedagem === "camping" ? "onibus" : pacote.forma_contratacao,
+        configuracao_necessaria: pacote.modalidade_hospedagem !== "camping" && !["onibus", "hospedagem", "onibus_hospedagem"].includes(String(pacote.forma_contratacao)),
         formas_pagamento: regras.formasPermitidas,
         boleto_parcelas_maximo: regras.boletoParcelasMaximo || null,
         disponibilidade_configurada: pacote.disponibilidade,

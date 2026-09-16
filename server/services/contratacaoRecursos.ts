@@ -22,6 +22,10 @@ export function resolverRecursosContratacao(
   const forma = String(formaBruta || "hospedagem") as FormaContratacao;
   const modalidade = String(modalidadeBruta || "quarto_ventilador") as ModalidadePacote;
 
+  if (modalidade === "camping") {
+    return { transporte: true, hospedagem: false, estrutura_quarto: null };
+  }
+
   const estrutura_quarto: EstruturaQuarto | null = modalidade === "quarto_ar_condicionado"
     ? "ar_condicionado"
     : modalidade === "quarto_ventilador" ? "ventilador" : null;

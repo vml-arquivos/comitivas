@@ -14,7 +14,8 @@ export interface ResultadoCalculo { valor_base: number; itens_selecionados: Item
 export interface OrigemReserva { lead_id?: string; vendedor_id?: string; codigo_origem?: string; }
 
 
-function formaContratacaoPublica(valor: unknown): 'onibus' | 'hospedagem' | 'onibus_hospedagem' | null {
+function formaContratacaoPublica(valor: unknown, modalidade?: unknown): 'onibus' | 'hospedagem' | 'onibus_hospedagem' | null {
+  if (String(modalidade || '').trim().toLowerCase() === 'camping') return 'onibus';
   const forma = String(valor || '').trim().toLowerCase();
   if (forma === 'onibus' || forma === 'hospedagem' || forma === 'onibus_hospedagem') return forma;
   return null;
@@ -24,7 +25,7 @@ function validarFormaContratacaoSelecionada(config: ConfiguracaoPacote, pacote: 
   if (!pacote || !config.forma_contratacao) return;
   const solicitada = String(config.forma_contratacao);
   if (!['onibus', 'hospedagem', 'onibus_hospedagem'].includes(solicitada)) throw new Error('Tipo de contratação inválido');
-  const publicada = formaContratacaoPublica(pacote.forma_contratacao);
+  const publicada = formaContratacaoPublica(pacote.forma_contratacao, pacote.modalidade_hospedagem);
   if (!publicada) throw new Error('Este pacote precisa ter o tipo de contratação configurado no Admin antes de ser vendido');
   if (solicitada !== publicada) throw new Error('O tipo de contratação escolhido não corresponde ao pacote selecionado');
 }
@@ -247,7 +248,7 @@ export class PacoteService {
         const pacoteDiferente = String(esperado.pacote_id || "") !== String(existente.pacote_id || "");
         const periodoDiferente = String(esperado.periodo_id || "") !== String(existente.periodo_id || "");
         const formaEsperada = esperado.forma_contratacao ? String(esperado.forma_contratacao) : null;
-        const formaPublicada = pacote ? formaContratacaoPublica(pacote.forma_contratacao) : null;
+        const formaPublicada = pacote ? formaContratacaoPublica(pacote.forma_contratacao, pacote.modalidade_hospedagem) : null;
         const formaDiferente = Boolean(formaEsperada && formaEsperada !== formaPublicada);
         const snapshotDivergenteDoCatalogo = Boolean(pacote && recursosDivergem(recursos, recursosPublicados));
         if (pacoteDiferente || periodoDiferente || formaDiferente || snapshotDivergenteDoCatalogo) {

@@ -25,7 +25,7 @@ function snapshot(recursos: "transporte" | "hospedagem" | "completo") {
 
 describe("capacidade integrada da contratação", () => {
   it("amarra cada modalidade somente aos recursos contratados", () => {
-    expect(resolverRecursosContratacao("hospedagem", "camping")).toEqual({ transporte: false, hospedagem: true, estrutura_quarto: null });
+    expect(resolverRecursosContratacao("hospedagem", "camping")).toEqual({ transporte: true, hospedagem: false, estrutura_quarto: null });
     expect(resolverRecursosContratacao("hospedagem", "quarto_ventilador")).toEqual({ transporte: false, hospedagem: true, estrutura_quarto: "ventilador" });
     expect(resolverRecursosContratacao("onibus_hospedagem", "quarto_ar_condicionado")).toEqual({ transporte: true, hospedagem: true, estrutura_quarto: "ar_condicionado" });
     expect(resolverRecursosContratacao("onibus", "quarto_ar_condicionado")).toEqual({ transporte: true, hospedagem: false, estrutura_quarto: null });
