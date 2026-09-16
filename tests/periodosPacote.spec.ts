@@ -40,6 +40,8 @@ describe("períodos múltiplos dentro do pacote", () => {
     expect(intent).toContain("periodoId?: string");
     expect(admin).toContain("Períodos do pacote");
     expect(admin).toContain("setPacotesPorLote");
+    expect(admin).toContain("setPeriodosPacoteAberto(pacote.id)");
+    expect(admin).toContain("carregarPeriodosPacote(pacote.id)");
     expect(exclusao).toContain("DELETE FROM pacote_periodos");
   });
 });

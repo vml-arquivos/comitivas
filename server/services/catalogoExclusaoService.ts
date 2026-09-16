@@ -68,11 +68,34 @@ export class CatalogoExclusaoService {
       const pacote = linhas(await tx.execute(sql`SELECT * FROM pacotes WHERE id = ${pacoteId} FOR UPDATE`))[0];
       if (!pacote) throw new Error("Pacote não encontrado");
       const dependencia = linhas(await tx.execute(sql`SELECT EXISTS (
-        SELECT 1 FROM reservas WHERE pacote_id = ${pacoteId}
-        UNION ALL SELECT 1 FROM reservas WHERE cupom_id IN (SELECT id FROM cupons WHERE pacote_id = ${pacoteId})
-        UNION ALL SELECT 1 FROM leads_origem WHERE pacote_id = ${pacoteId}
-        UNION ALL SELECT 1 FROM cupons_utilizacoes WHERE cupom_id IN (SELECT id FROM cupons WHERE pacote_id = ${pacoteId})
-        UNION ALL SELECT 1 FROM comissoes WHERE regra_id IN (SELECT id FROM comissao_regras WHERE pacote_id = ${pacoteId})
+        SELECT 1 FROM reservas
+        WHERE pacote_id = ${pacoteId}
+          AND COALESCE(status::text, '') <> 'abandonado'
+          AND COALESCE(checkout_estado, '') NOT IN ('expirado', 'cancelado', 'cancelado_cliente', 'troca_pacote_cliente', 'reiniciado_cliente', 'cancelamento_aprovado')
+        UNION ALL SELECT 1
+        FROM contratos_documentos cd
+        JOIN reservas r ON r.id = cd.reserva_id
+        WHERE r.pacote_id = ${pacoteId}
+          AND cd.status NOT IN ('invalidado')
+          AND COALESCE(r.checkout_estado, '') NOT IN ('expirado', 'cancelado', 'cancelado_cliente', 'troca_pacote_cliente', 'reiniciado_cliente', 'cancelamento_aprovado')
+        UNION ALL SELECT 1
+        FROM pagamentos pg
+        JOIN reservas r ON r.id = pg.reserva_id
+        WHERE r.pacote_id = ${pacoteId}
+          AND (pg.status IN ('pendente', 'processando', 'aprovado') OR COALESCE(pg.valor_pago_centavos, 0) > 0)
+        UNION ALL SELECT 1
+        FROM quarto_alocacoes qa
+        JOIN quartos_hospedagem qh ON qh.id = qa.quarto_id
+        WHERE qh.pacote_id = ${pacoteId}
+          AND COALESCE(qa.status, '') NOT IN ('cancelada', 'encerrada')
+        UNION ALL SELECT 1
+        FROM cupons_utilizacoes cu
+        JOIN cupons c ON c.id = cu.cupom_id
+        WHERE c.pacote_id = ${pacoteId}
+        UNION ALL SELECT 1
+        FROM comissoes c
+        JOIN comissao_regras cr ON cr.id = c.regra_id
+        WHERE cr.pacote_id = ${pacoteId}
       ) AS possui_historico`))[0];
 
       if (Boolean(dependencia?.possui_historico)) {
@@ -83,6 +106,12 @@ export class CatalogoExclusaoService {
         return { modo: "arquivado", mensagem: "Pacote retirado do sistema e arquivado para preservar vendas e contratos existentes." };
       }
 
+      // Leads e solicitações são histórico de CRM/governança e não devem
+      // impedir a remoção de um pacote sem cliente ou contratação ativa.
+      await tx.execute(sql`UPDATE leads_origem SET pacote_id = NULL WHERE pacote_id = ${pacoteId}`);
+      await tx.execute(sql`UPDATE reserva_solicitacoes SET pacote_destino_id = NULL WHERE pacote_destino_id = ${pacoteId}`);
+      await tx.execute(sql`DELETE FROM quarto_alocacoes WHERE quarto_id IN (SELECT id FROM quartos_hospedagem WHERE pacote_id = ${pacoteId})`);
+      await tx.execute(sql`DELETE FROM quartos_hospedagem WHERE pacote_id = ${pacoteId}`);
       await tx.execute(sql`DELETE FROM comissao_regras WHERE pacote_id = ${pacoteId}`);
       await tx.execute(sql`DELETE FROM cupons WHERE pacote_id = ${pacoteId}`);
       await tx.execute(sql`DELETE FROM fotos_pacote WHERE pacote_id = ${pacoteId}`);

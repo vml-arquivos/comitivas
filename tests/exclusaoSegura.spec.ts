@@ -9,7 +9,7 @@ describe("exclusão segura do catálogo e da operação", () => {
   it("arquiva excursão, período e pacote quando existe histórico", async () => {
     const servico = await fonte("../server/services/catalogoExclusaoService.ts");
 
-    expect(servico).toContain("SELECT 1 FROM reservas WHERE pacote_id");
+    expect(servico).toContain("FROM reservas\n        WHERE pacote_id");
     expect(servico).toContain("SELECT 1 FROM reservas WHERE lote_id");
     expect(servico).toContain("UPDATE pacotes SET ativo = false");
     expect(servico).toContain("UPDATE lotes SET ativo = false");

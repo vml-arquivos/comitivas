@@ -21,6 +21,8 @@ describe("catálogo simples de excursões, lotes e pacotes", () => {
   it("preserva a configuração de lotes opcionais para primeiro e segundo lote", () => {
     const tela = ler("apps/web/src/pages/admin/Eventos.tsx");
     expect(tela).toContain("Configurar lotes");
+    expect(tela).toContain("Configurar Pacotes");
+    expect(tela).not.toContain("Gerir pacotes");
     expect(tela).toContain("1º lote");
     expect(tela).toContain("2º lote");
     expect(tela).toContain("Criar novo pacote");
@@ -43,5 +45,15 @@ describe("catálogo simples de excursões, lotes e pacotes", () => {
     expect(tela).toContain("Imagens da excursão");
     expect(tela).toContain("Imagens do pacote");
     expect(tela).toContain("fotos.length >= 5");
+  });
+
+  it("arquiva pacote apenas quando existe uso real que exige preservar histórico", () => {
+    const exclusao = ler("server/services/catalogoExclusaoService.ts");
+    expect(exclusao).toContain("FROM contratos_documentos cd");
+    expect(exclusao).toContain("FROM pagamentos pg");
+    expect(exclusao).toContain("FROM quarto_alocacoes qa");
+    expect(exclusao).toContain("UPDATE leads_origem SET pacote_id = NULL");
+    expect(exclusao).toContain("UPDATE reserva_solicitacoes SET pacote_destino_id = NULL");
+    expect(exclusao).toContain("UPDATE pacotes SET ativo = false");
   });
 });
