@@ -622,6 +622,7 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
         .orderBy(pacotePeriodos.ordem, pacotePeriodos.data_inicio);
         return {
           id: pacote.id,
+          lote_id: pacote.lote_id,
           nome: pacote.nome,
           descricao: pacote.descricao,
           valor_total: pacote.valor_total,
@@ -631,13 +632,14 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
           modalidade_hospedagem: pacote.modalidade_hospedagem,
         forma_contratacao: pacote.modalidade_hospedagem === "camping" ? "onibus" : pacote.forma_contratacao,
         configuracao_necessaria: pacote.modalidade_hospedagem !== "camping" && !["onibus", "hospedagem", "onibus_hospedagem"].includes(String(pacote.forma_contratacao)),
-        formas_pagamento: regras.formasPermitidas,
-        boleto_parcelas_maximo: regras.boletoParcelasMaximo || null,
-        disponibilidade_configurada: pacote.disponibilidade,
-        disponibilidade: capacidade.disponibilidade,
-        fotos,
-        periodos,
-      };
+          formas_pagamento: regras.formasPermitidas,
+          boleto_parcelas_maximo: regras.boletoParcelasMaximo || null,
+          disponibilidade_configurada: pacote.disponibilidade,
+          disponibilidade: capacidade.disponibilidade,
+          ativo: pacote.ativo,
+          fotos,
+          periodos,
+        };
     }));
     res.json({ lote_id: req.params.lote_id, pacotes: pacotesComDisponibilidade });
   } catch (error) {

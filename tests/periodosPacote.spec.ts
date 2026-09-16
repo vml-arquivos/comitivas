@@ -76,4 +76,15 @@ describe("períodos múltiplos dentro do pacote", () => {
     expect(vendas).toContain("selecionarPeriodo");
     expect(vendas).toContain("params: { periodo_id: id }");
   });
+
+  it("mantém o mapa de ônibus compatível com PostgreSQL e entrega o catálogo completo ao comercial", () => {
+    const onibus = ler("server/services/operacaoOnibusService.ts");
+    const pacotes = ler("server/routes/pacotes.ts");
+    const vendas = ler("apps/web/src/pages/admin/Vendas.tsx");
+    expect(onibus).toContain("GROUP BY o.id, pp.nome");
+    expect(pacotes).toContain("ativo: pacote.ativo");
+    expect(pacotes).toContain("lote_id: pacote.lote_id");
+    expect(vendas).toContain("Promise.allSettled");
+    expect(vendas).toContain("Selecione um dos pacotes publicados");
+  });
 });

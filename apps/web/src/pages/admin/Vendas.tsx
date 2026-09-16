@@ -28,6 +28,7 @@ type Pacote = {
   descricao: string | null;
   valor_total: string;
   modalidade_hospedagem: string | null;
+  forma_contratacao?: string | null;
   disponibilidade: string | null;
   ativo: boolean;
   periodos?: Array<{ id: string; nome: string; data_inicio: string; data_fim: string }>;
@@ -178,9 +179,16 @@ export default function Vendas() {
       return;
     }
     try {
-      const [pacotesResponse, itensResponse] = await Promise.all([api.get(`/pacotes/lotes/${id}/pacotes`), api.get(`/pacotes/lotes/${id}/itens`)]);
-      setPacotes(pacotesResponse.data.pacotes || []);
-      setItens(itensResponse.data.itens || []);
+      // O catálogo de pacotes é a fonte autoritativa da venda. Adicionais são
+      // opcionais e não podem impedir a tela de carregar os pacotes reais.
+      const [pacotesResult, itensResult] = await Promise.allSettled([
+        api.get(`/pacotes/lotes/${id}/pacotes`),
+        api.get(`/pacotes/lotes/${id}/itens`),
+      ]);
+      if (pacotesResult.status === 'rejected') throw pacotesResult.reason;
+      setPacotes(pacotesResult.value.data.pacotes || []);
+      setItens(itensResult.status === 'fulfilled' ? (itensResult.value.data.itens || []) : []);
+      setQuantidades({});
     } catch (err: any) {
       setErro(err.response?.data?.erro || 'Não foi possível carregar modalidades e adicionais.');
     }
@@ -227,7 +235,15 @@ export default function Vendas() {
       setErro('Selecione o cliente e o lote antes de calcular.');
       return;
     }
+    if (pacotes.length > 0 && !pacoteId) {
+      setErro('Selecione um dos pacotes publicados para esta excursão.');
+      return;
+    }
     const pacoteEscolhido = pacotes.find((item) => item.id === pacoteId);
+    if (pacoteEscolhido?.disponibilidade === 'esgotado') {
+      setErro('O pacote selecionado está esgotado para esta excursão.');
+      return;
+    }
     if (pacoteEscolhido?.periodos?.length && !periodoId) {
       setErro('Selecione o período da viagem antes de calcular.');
       return;
@@ -563,16 +579,32 @@ export default function Vendas() {
                   }}
                   disabled={!loteId}
                 >
-                  <option value="">Usar valor-base do lote ({dinheiro(loteSelecionado?.valor_base)})</option>
+                  {pacotes.length === 0 && <option value="">Usar valor-base legado do lote ({dinheiro(loteSelecionado?.valor_base)})</option>}
                   {pacotes
-                    .filter((item) => item.ativo && item.disponibilidade !== 'esgotado')
-                  .map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.nome} — {dinheiro(item.valor_total)}
+                    .filter((item) => item.ativo)
+                    .map((item) => (
+                      <option key={item.id} value={item.id} disabled={item.disponibilidade === 'esgotado'}>
+                        {item.nome} — {dinheiro(item.valor_total)} · {item.disponibilidade === 'esgotado' ? 'Esgotado' : item.disponibilidade === 'ultimas_vagas' ? 'Últimas vagas' : 'Disponível'}
                       </option>
                     ))}
                 </select>
               </div>
+              {pacoteId && (() => {
+                const pacoteSelecionado = pacotes.find((item) => item.id === pacoteId);
+                if (!pacoteSelecionado) return null;
+                return (
+                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm text-gray-700">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <strong className="text-gray-900">{pacoteSelecionado.nome}</strong>
+                      <span className="font-semibold text-primary">{dinheiro(pacoteSelecionado.valor_total)} por pessoa</span>
+                    </div>
+                    <p className="mt-1 text-xs text-gray-600">
+                      {pacoteSelecionado.forma_contratacao === 'onibus' ? 'Somente transporte' : pacoteSelecionado.forma_contratacao === 'hospedagem' ? 'Somente hospedagem' : 'Transporte + hospedagem'}
+                      {pacoteSelecionado.descricao ? ` · ${pacoteSelecionado.descricao}` : ''}
+                    </p>
+                  </div>
+                );
+              })()}
               {pacoteId && (pacotes.find((item) => item.id === pacoteId)?.periodos || []).length > 0 && <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">Período da viagem</label>
                 <select required className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm" value={periodoId} onChange={(event) => void selecionarPeriodo(event.target.value)}>

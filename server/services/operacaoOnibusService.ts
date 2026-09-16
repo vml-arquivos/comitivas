@@ -353,7 +353,7 @@ export class OperacaoOnibusService {
         LEFT JOIN assentos_onibus a ON a.onibus_id = o.id AND a.numero <= o.capacidade
       LEFT JOIN assento_alocacoes aa ON aa.assento_id = a.id AND aa.status = 'ativa'
       LEFT JOIN assento_holds h ON h.assento_id = a.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP
-      WHERE o.saida_id = ${saidaId} AND o.ativo = true GROUP BY o.id ORDER BY o.venda_ordem, o.criado_em`));
+      WHERE o.saida_id = ${saidaId} AND o.ativo = true GROUP BY o.id, pp.nome ORDER BY o.venda_ordem, o.criado_em`));
     const onibus = classificarFilaOnibus(onibusBrutos);
     const assentos = linhas(await db.execute(sql`SELECT a.*, o.nome AS onibus_nome,
       aa.id AS alocacao_id, aa.reserva_id, aa.usuario_id, aa.ponto_embarque_id, aa.alocado_em,
