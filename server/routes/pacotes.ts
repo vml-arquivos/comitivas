@@ -611,6 +611,15 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
   try {
     const periodoId = String(req.query.periodo_id || "").trim() || null;
     const formaSolicitada = String(req.query.forma_contratacao || "").trim().toLowerCase() || null;
+    const lote = (await db.select({ data_inicio: lotes.data_inicio, data_fim: lotes.data_fim }).from(lotes).where(eq(lotes.id, req.params.lote_id)).limit(1))[0];
+    if (!lote) return res.status(404).json({ erro: "Lote não encontrado" });
+    const inicioLote = new Date(lote.data_inicio).getTime();
+    const fimLote = new Date(lote.data_fim).getTime();
+    const periodoDentroDoLote = (periodo: { data_inicio: Date | string; data_fim: Date | string }) => {
+      const inicio = new Date(periodo.data_inicio).getTime();
+      const fim = new Date(periodo.data_fim).getTime();
+      return Number.isFinite(inicio) && Number.isFinite(fim) && inicio >= inicioLote && fim <= fimLote;
+    };
     const lista = await db
       .select()
       .from(pacotes)
@@ -637,7 +646,8 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
       }).from(pacotePeriodos)
         .where(and(eq(pacotePeriodos.pacote_id, pacote.id), eq(pacotePeriodos.ativo, true)))
         .orderBy(pacotePeriodos.ordem, pacotePeriodos.data_inicio);
-      const periodos = await Promise.all(periodosBase.map(async (periodo) => {
+      const periodosDoLote = periodosBase.filter(periodoDentroDoLote);
+      const periodos = await Promise.all(periodosDoLote.map(async (periodo) => {
         const capacidadesPeriodo = await Promise.all(formasParaCalculo.map(async (forma) => PacoteService.obterDisponibilidadeFisica(pacote, periodo.id, forma)));
         const capacidadePeriodo = capacidadeEscolhida
           ? await PacoteService.obterDisponibilidadeFisica(pacote, periodo.id, formaSolicitada)

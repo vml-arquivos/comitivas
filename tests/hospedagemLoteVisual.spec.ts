@@ -64,4 +64,17 @@ describe("cadastro em lote e identificação visual", () => {
     expect(hospedagem).toContain("Quartos masculinos");
     expect(hospedagem).toContain("filtroGenero");
   });
+
+  it("restringe períodos operacionais ao intervalo do lote", async () => {
+    const [catalogo, publico, servico] = await Promise.all([
+      fonte("../server/routes/pacotes.ts"),
+      fonte("../server/routes/publico.ts"),
+      fonte("../server/services/hospedagemService.ts"),
+    ]);
+    expect(catalogo).toContain("periodoDentroDoLote");
+    expect(publico).toContain("periodoDentroDoLote(periodo, lote)");
+    expect(servico).toContain("pp.data_inicio >= l.data_inicio");
+    expect(servico).toContain("pp.data_fim <= l.data_fim");
+    expect(servico).toContain("Período não pertence ao lote selecionado");
+  });
 });

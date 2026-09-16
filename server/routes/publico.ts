@@ -9,6 +9,14 @@ import { normalizarFormasContratacao } from "../services/contratacaoRecursos.js"
 
 const router = Router();
 
+function periodoDentroDoLote(periodo: { data_inicio: Date | string; data_fim: Date | string }, lote: { data_inicio: Date | string; data_fim: Date | string }) {
+  const inicioLote = new Date(lote.data_inicio).getTime();
+  const fimLote = new Date(lote.data_fim).getTime();
+  const inicio = new Date(periodo.data_inicio).getTime();
+  const fim = new Date(periodo.data_fim).getTime();
+  return Number.isFinite(inicio) && Number.isFinite(fim) && inicio >= inicioLote && fim <= fimLote;
+}
+
 // GET /api/publico/stats - Números reais para prova social da landing page
 router.get("/stats", async (req: Request, res: Response) => {
   try {
@@ -137,7 +145,7 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
           }).from(pacotePeriodos)
             .where(and(eq(pacotePeriodos.pacote_id, modalidade.id), eq(pacotePeriodos.ativo, true)))
             .orderBy(pacotePeriodos.ordem, pacotePeriodos.data_inicio);
-          const periodos = await Promise.all(periodosBase.map(async (periodo) => {
+          const periodos = await Promise.all(periodosBase.filter((periodo) => periodoDentroDoLote(periodo, lote)).map(async (periodo) => {
             const capacidades = await Promise.all(formasContratacao.map((forma) => PacoteService.obterDisponibilidadeFisica({
               id: modalidade.id,
               lote_id: modalidade.lote_id,
