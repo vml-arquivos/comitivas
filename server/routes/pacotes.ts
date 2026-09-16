@@ -601,13 +601,14 @@ router.post("/reservas/:reserva_id/simular-pagamento", authMiddleware, async (re
 // Listar pacotes ativos de um lote (público)
 router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
   try {
+    const periodoId = String(req.query.periodo_id || "").trim() || null;
     const lista = await db
       .select()
       .from(pacotes)
       .where(and(eq(pacotes.lote_id, req.params.lote_id), eq(pacotes.ativo, true)));
 
     const pacotesComDisponibilidade = await Promise.all(lista.map(async (pacote) => {
-      const capacidade = await PacoteService.obterDisponibilidadeFisica(pacote);
+      const capacidade = await PacoteService.obterDisponibilidadeFisica(pacote, periodoId);
       const regras = regrasDoPacote(pacote);
       const fotos = await db.select({ id: fotosPacote.id, url_foto: fotosPacote.url_foto, legenda: fotosPacote.legenda, alt_text: fotosPacote.alt_text, ordem: fotosPacote.ordem, capa: fotosPacote.capa })
         .from(fotosPacote).where(eq(fotosPacote.pacote_id, pacote.id)).orderBy(fotosPacote.ordem);

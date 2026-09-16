@@ -100,6 +100,7 @@ async function alocarRecursosNaTransacao(
   reservaId: string,
   usuarioId: string,
   loteId: string,
+  periodoId: string | null | undefined,
   pessoas: PessoaAlocacao[],
 ): Promise<{ recursos: RecursosContratados; assento_alocacao_id: string | null; quarto_alocacao_id: string | null }> {
   const recursos = pacote
@@ -123,9 +124,11 @@ async function alocarRecursosNaTransacao(
       JOIN onibus_operacionais o ON o.saida_id = s.id AND o.ativo = true
       JOIN assentos_onibus a ON a.onibus_id = o.id AND a.status = 'disponivel' AND a.numero <= o.capacidade
       WHERE s.lote_id = ${loteId} AND s.ativa = true
+        AND (${periodoId || null}::text IS NULL OR COALESCE(o.periodo_id, s.periodo_id) IS NULL OR COALESCE(o.periodo_id, s.periodo_id) = ${periodoId || null})
         AND NOT EXISTS (SELECT 1 FROM assento_alocacoes aa WHERE aa.assento_id = a.id AND aa.status = 'ativa')
         AND NOT EXISTS (SELECT 1 FROM assento_holds h WHERE h.assento_id = a.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP)
-      ORDER BY o.venda_ordem, o.criado_em, a.numero
+      ORDER BY CASE WHEN COALESCE(o.periodo_id, s.periodo_id) = ${periodoId || null} THEN 0 WHEN COALESCE(o.periodo_id, s.periodo_id) IS NULL THEN 1 ELSE 2 END,
+        o.venda_ordem, o.criado_em, a.numero
       LIMIT 1 FOR UPDATE OF a
       `)).rows[0] as { assento_id: string; numero: number; onibus_id: string; onibus_nome: string; saida_id: string } | undefined;
       if (!assento) throw new Error("As vagas de transporte deste período estão esgotadas");
@@ -160,11 +163,13 @@ async function alocarRecursosNaTransacao(
         AND q.genero = ${grupoHospedagem}
         AND q.estrutura = ${recursos.estrutura_quarto}
         AND (q.pacote_id IS NULL OR q.pacote_id = ${pacote?.id || null})
+        AND (${periodoId || null}::text IS NULL OR q.periodo_id IS NULL OR q.periodo_id = ${periodoId || null})
         AND NOT EXISTS (
           SELECT 1 FROM quarto_alocacoes qa
           WHERE qa.quarto_id = q.id AND qa.numero_vaga = vaga.numero AND qa.status = 'ativa'
         )
-      ORDER BY CASE WHEN q.pacote_id = ${pacote?.id || null} THEN 0 ELSE 1 END, q.nome, vaga.numero
+      ORDER BY CASE WHEN q.periodo_id = ${periodoId || null} THEN 0 WHEN q.periodo_id IS NULL THEN 1 ELSE 2 END,
+        CASE WHEN q.pacote_id = ${pacote?.id || null} THEN 0 ELSE 1 END, q.nome, vaga.numero
       LIMIT 1 FOR UPDATE OF q
       `)).rows[0] as { quarto_id: string; quarto_nome: string; numero_vaga: number } | undefined;
       if (!quarto) {
@@ -345,7 +350,7 @@ export class PacoteService {
       const baixa = await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = "vagas_disponíveis" - ${quantidadePessoas}, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${lote_id} AND "vagas_disponíveis" >= ${quantidadePessoas} RETURNING id`);
       if (!baixa.rows.length) throw new Error("A excursão ficou sem vagas para retomar este carrinho");
 
-      const operacao = await alocarRecursosNaTransacao(tx, pacote, existente.id, usuario_id, lote_id, pessoas);
+      const operacao = await alocarRecursosNaTransacao(tx, pacote, existente.id, usuario_id, lote_id, existente.periodo_id, pessoas);
       const holdId = hold?.id || createId();
       const agora = new Date();
       if (hold) {
@@ -376,7 +381,7 @@ export class PacoteService {
     return Boolean(lote?.ativo && Number(lote.vagas) >= quantidade);
   }
 
-  static async obterDisponibilidadeFisica(pacote: typeof pacotes.$inferSelect) {
+  static async obterDisponibilidadeFisica(pacote: typeof pacotes.$inferSelect, periodoId?: string | null) {
     const recursos = resolverRecursosContratacao(pacote.forma_contratacao, pacote.modalidade_hospedagem);
     const lote = (await db.select({ vagas: lotes.vagas_disponíveis }).from(lotes).where(eq(lotes.id, pacote.lote_id)).limit(1))[0];
     const vagasLote = Math.max(0, Number(lote?.vagas || 0));
@@ -390,6 +395,7 @@ export class PacoteService {
         JOIN onibus_operacionais o ON o.saida_id = s.id AND o.ativo = true
         JOIN assentos_onibus a ON a.onibus_id = o.id AND a.status = 'disponivel' AND a.numero <= o.capacidade
         WHERE s.lote_id = ${pacote.lote_id} AND s.ativa = true
+          AND (${periodoId || null}::text IS NULL OR COALESCE(o.periodo_id, s.periodo_id) IS NULL OR COALESCE(o.periodo_id, s.periodo_id) = ${periodoId || null})
           AND NOT EXISTS (SELECT 1 FROM assento_alocacoes aa WHERE aa.assento_id = a.id AND aa.status = 'ativa')
           AND NOT EXISTS (SELECT 1 FROM assento_holds h WHERE h.assento_id = a.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP)`)).rows[0] as { total: number } | undefined;
       vagasTransporte = Math.max(0, Number(linha?.total || 0));
@@ -402,6 +408,7 @@ export class PacoteService {
         WHERE q.lote_id = ${pacote.lote_id} AND q.ativo = true
           AND q.estrutura = ${recursos.estrutura_quarto}
           AND (q.pacote_id IS NULL OR q.pacote_id = ${pacote.id})
+          AND (${periodoId || null}::text IS NULL OR q.periodo_id IS NULL OR q.periodo_id = ${periodoId || null})
         GROUP BY q.genero`)).rows as Array<{ genero: GrupoHospedagem; total: number }>;
       vagasHospedagemPorGrupo = { masculino: 0, feminino: 0 };
       for (const linha of linhasGrupo) {
@@ -626,7 +633,7 @@ export class PacoteService {
         participanteId: participante.id,
         grupoHospedagem: normalizarGrupoHospedagem(participante.sexo_operacional),
       }));
-      const operacao = await alocarRecursosNaTransacao(tx, pacoteOperacional, novaReserva.id, usuario_id, lote_id, pessoas);
+      const operacao = await alocarRecursosNaTransacao(tx, pacoteOperacional, novaReserva.id, usuario_id, lote_id, config.periodo_id, pessoas);
       if (calculo.cupom_id && usuario_id) {
         await tx.insert(cuponsUtilizacoes).values({ id: createId(), cupom_id: calculo.cupom_id, usuario_id, reserva_id: novaReserva.id });
       }

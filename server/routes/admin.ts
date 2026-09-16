@@ -719,7 +719,7 @@ router.post("/vendas/clientes", async (req: Request, res: Response) => {
 
 router.post("/vendas/calcular", async (req: Request, res: Response) => {
   try {
-    if (req.usuario?.tipo === "vendedor" && String(req.body?.cupom || "").trim()) return res.status(403).json({ erro: "Vendedores não podem aplicar cupons ou descontos" });
+    if (req.usuario?.tipo === "vendedor" && String(req.body?.cupom_codigo || req.body?.cupom || "").trim()) return res.status(403).json({ erro: "Vendedores não podem aplicar cupons ou descontos" });
     const usuarioId = String(req.body?.usuario_id || "").trim();
     const cliente = (await db.select({ id: usuarios.id, ativo: usuarios.ativo }).from(usuarios).where(and(eq(usuarios.id, usuarioId), eq(usuarios.tipo, "cliente"))).limit(1))[0];
     if (!cliente || !cliente.ativo) return res.status(404).json({ erro: "Cliente ativo não encontrado" });
@@ -735,7 +735,7 @@ router.post("/vendas/calcular", async (req: Request, res: Response) => {
 router.post("/vendas/reservar", async (req: Request, res: Response) => {
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
-    if (req.usuario.tipo === "vendedor" && String(req.body?.cupom || "").trim()) return res.status(403).json({ erro: "Vendedores não podem aplicar cupons ou descontos" });
+    if (req.usuario.tipo === "vendedor" && String(req.body?.cupom_codigo || req.body?.cupom || "").trim()) return res.status(403).json({ erro: "Vendedores não podem aplicar cupons ou descontos" });
     const usuarioId = String(req.body?.usuario_id || "").trim();
     const cliente = (await db.select().from(usuarios).where(and(eq(usuarios.id, usuarioId), eq(usuarios.tipo, "cliente"), eq(usuarios.ativo, true))).limit(1))[0];
     if (!cliente) return res.status(404).json({ erro: "Cliente ativo não encontrado" });

@@ -186,6 +186,19 @@ export default function Vendas() {
     }
   };
 
+  const selecionarPeriodo = async (id: string) => {
+    setPeriodoId(id);
+    setCalculo(null);
+    if (!loteId || !pacoteId || !id) return;
+    try {
+      const response = await api.get(`/pacotes/lotes/${loteId}/pacotes`, { params: { periodo_id: id } });
+      const pacoteAtualizado = (response.data.pacotes || []).find((item: Pacote) => item.id === pacoteId);
+      if (pacoteAtualizado) setPacotes((atuais) => atuais.map((item) => item.id === pacoteId ? { ...item, ...pacoteAtualizado } : item));
+    } catch (err: any) {
+      setErro(err.response?.data?.erro || 'Não foi possível validar a disponibilidade deste período.');
+    }
+  };
+
   const payload = useMemo(
     () => ({
       usuario_id: cliente?.id,
@@ -562,7 +575,7 @@ export default function Vendas() {
               </div>
               {pacoteId && (pacotes.find((item) => item.id === pacoteId)?.periodos || []).length > 0 && <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">Período da viagem</label>
-                <select required className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm" value={periodoId} onChange={(event) => { setPeriodoId(event.target.value); setCalculo(null); }}>
+                <select required className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm" value={periodoId} onChange={(event) => void selecionarPeriodo(event.target.value)}>
                   <option value="">Selecione o período</option>
                   {(pacotes.find((item) => item.id === pacoteId)?.periodos || []).map((periodo) => <option key={periodo.id} value={periodo.id}>{periodo.nome} · {new Date(periodo.data_inicio).toLocaleDateString('pt-BR')} a {new Date(periodo.data_fim).toLocaleDateString('pt-BR')}</option>)}
                 </select>

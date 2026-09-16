@@ -127,6 +127,7 @@ export default function OperacaoOnibus() {
   });
   const [onibusForm, setOnibusForm] = useState({
     nome: "Transporte 1",
+    periodo_id: "",
     capacidade: "44",
     identificacao: "",
     placa: "",
@@ -157,6 +158,7 @@ export default function OperacaoOnibus() {
     }
     const resposta = await api.get(`/operacao/saidas/${id}/mapa`);
     setMapa(resposta.data);
+    await carregarPeriodos(resposta.data.saida.lote_id);
     setAssentoSelecionado(null);
   };
 
@@ -284,6 +286,7 @@ export default function OperacaoOnibus() {
     setOnibusEditando(onibus.id);
     setOnibusForm({
       nome: onibus.nome || "",
+      periodo_id: onibus.periodo_id || mapa?.saida.periodo_id || "",
       capacidade: String(onibus.capacidade || 1),
       identificacao: onibus.identificacao || "",
       placa: onibus.placa || "",
@@ -516,7 +519,7 @@ export default function OperacaoOnibus() {
             </div>
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" onClick={() => setModal("ponto")}><MapPin size={16} className="mr-2" />Novo ponto</Button>
-              <Button type="button" onClick={() => { setOnibusEditando(null); setOnibusForm({ nome: `Transporte ${(mapa?.onibus.length || 0) + 1}`, capacidade: "44", identificacao: "", placa: "", motorista_nome: "", motorista_telefone: "", responsavel_nome: "" }); setModal("onibus"); }}><BusFront size={16} className="mr-2" />Novo veículo</Button>
+              <Button type="button" onClick={() => { setOnibusEditando(null); setOnibusForm({ nome: `Transporte ${(mapa?.onibus.length || 0) + 1}`, periodo_id: mapa?.saida.periodo_id || "", capacidade: "44", identificacao: "", placa: "", motorista_nome: "", motorista_telefone: "", responsavel_nome: "" }); setModal("onibus"); }}><BusFront size={16} className="mr-2" />Novo veículo</Button>
             </div>
           </section>
 
@@ -568,6 +571,7 @@ export default function OperacaoOnibus() {
                           {onibus.placa || "placa não informada"} ·{" "}
                           {onibus.ocupadas}/{onibus.capacidade} ocupados
                         </p>
+                        <p className="mt-1 text-xs font-semibold text-[#7a2037]">Período: {onibus.periodo_nome || "ônibus geral da saída"}</p>
                         <span className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${onibus.fila_status === "em_venda" ? "bg-emerald-100 text-emerald-800" : onibus.fila_status === "esgotado" ? "bg-slate-100 text-slate-600" : "bg-amber-100 text-amber-800"}`}>
                           {onibus.fila_status === "em_venda" ? `Em venda · ${onibus.vagas_venda} lugares` : onibus.fila_status === "esgotado" ? "Esgotado" : "Aguardando liberação"}
                         </span>
@@ -803,6 +807,7 @@ export default function OperacaoOnibus() {
         <form onSubmit={salvarOnibus} className="grid gap-4 sm:grid-cols-2">
           <Input required label="Nome / identificação" value={onibusForm.nome} onChange={(e) => setOnibusForm({ ...onibusForm, nome: e.target.value })} />
           <Input required label="Quantidade de lugares" type="number" min={1} max={100} value={onibusForm.capacidade} onChange={(e) => setOnibusForm({ ...onibusForm, capacidade: e.target.value })} />
+          <div className="sm:col-span-2"><label className="mb-1 block text-sm font-medium">Período atendido</label><select value={onibusForm.periodo_id} onChange={(e) => setOnibusForm({ ...onibusForm, periodo_id: e.target.value })} className={inputClass} disabled={periodos.length === 0}><option value="">Ônibus geral da saída</option>{periodos.map((periodo) => <option key={periodo.id} value={periodo.id}>{periodo.nome} · {new Date(periodo.data_inicio).toLocaleDateString("pt-BR")} a {new Date(periodo.data_fim).toLocaleDateString("pt-BR")}</option>)}</select><p className="mt-1 text-xs text-slate-500">Escolha um período para ligar este ônibus às vagas corretas; deixe geral para atender o lote inteiro.</p></div>
           <Input label="Prefixo / referência" value={onibusForm.identificacao} onChange={(e) => setOnibusForm({ ...onibusForm, identificacao: e.target.value })} />
           <Input label="Placa, quando aplicável" value={onibusForm.placa} onChange={(e) => setOnibusForm({ ...onibusForm, placa: e.target.value })} />
           <Input label="Motorista / condutor" value={onibusForm.motorista_nome} onChange={(e) => setOnibusForm({ ...onibusForm, motorista_nome: e.target.value })} />

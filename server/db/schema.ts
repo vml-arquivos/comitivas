@@ -509,6 +509,7 @@ export const saidasOperacionais = pgTable("saidas_operacionais", {
 export const onibusOperacionais = pgTable("onibus_operacionais", {
   id: text("id").primaryKey().$defaultFn(() => createId()),
   saida_id: text("saida_id").notNull().references(() => saidasOperacionais.id),
+  periodo_id: text("periodo_id").references(() => pacotePeriodos.id),
   nome: varchar("nome", { length: 120 }).notNull(),
   identificacao: varchar("identificacao", { length: 120 }),
   placa: varchar("placa", { length: 12 }),
@@ -521,7 +522,7 @@ export const onibusOperacionais = pgTable("onibus_operacionais", {
   ativo: boolean("ativo").notNull().default(true),
   criado_em: timestamp("criado_em").defaultNow().notNull(),
   atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
-}, (table) => ({ saidaIdx: index("onibus_operacionais_saida_idx").on(table.saida_id, table.ativo) }));
+}, (table) => ({ saidaIdx: index("onibus_operacionais_saida_idx").on(table.saida_id, table.ativo), periodoIdx: index("onibus_operacionais_periodo_idx").on(table.periodo_id, table.ativo) }));
 
 export const assentosOnibus = pgTable("assentos_onibus", {
   id: text("id").primaryKey().$defaultFn(() => createId()),

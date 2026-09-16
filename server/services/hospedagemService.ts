@@ -258,7 +258,7 @@ export class HospedagemService {
           FROM quartos_hospedagem q
           LEFT JOIN LATERAL (SELECT COUNT(*)::int AS total FROM quarto_alocacoes qa WHERE qa.quarto_id = q.id AND qa.status = 'ativa') ocupadas ON true
           WHERE q.lote_id = ${reserva.lote_id} AND q.ativo = true
-            AND ((${reserva.periodo_id}::text IS NULL AND q.periodo_id IS NULL) OR (${reserva.periodo_id}::text IS NOT NULL AND (q.periodo_id IS NULL OR q.periodo_id = ${reserva.periodo_id})))
+            AND (${reserva.periodo_id}::text IS NULL OR q.periodo_id IS NULL OR q.periodo_id = ${reserva.periodo_id})
             AND (q.pacote_id IS NULL OR q.pacote_id = ${reserva.pacote_id})
             AND q.genero = ${grupo}
             AND (${recursos.estrutura_quarto}::text IS NULL OR q.estrutura = ${recursos.estrutura_quarto})

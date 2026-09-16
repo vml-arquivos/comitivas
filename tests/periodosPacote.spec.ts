@@ -51,6 +51,8 @@ describe("períodos múltiplos dentro do pacote", () => {
 
   it("interliga ônibus e quartos ao período e mantém a venda interna no mesmo fluxo", () => {
     const migration = ler("drizzle/0026_periodo_inventario_operacional.sql");
+    const migrationOnibus = ler("drizzle/0027_periodo_por_onibus.sql");
+    const schema = ler("server/db/schema.ts");
     const onibus = ler("server/services/operacaoOnibusService.ts");
     const hospedagem = ler("server/services/hospedagemService.ts");
     const integridade = ler("server/services/contratacaoIntegridadeService.ts");
@@ -58,13 +60,20 @@ describe("períodos múltiplos dentro do pacote", () => {
     expect(migration).toContain("ALTER TABLE saidas_operacionais");
     expect(migration).toContain("ALTER TABLE quartos_hospedagem");
     expect(migration).toContain("ADD COLUMN IF NOT EXISTS periodo_id");
+    expect(migrationOnibus).toContain("ALTER TABLE onibus_operacionais");
+    expect(migrationOnibus).toContain("ADD COLUMN IF NOT EXISTS periodo_id");
+    expect(schema).toContain('periodo_id: text("periodo_id").references(() => pacotePeriodos.id)');
     expect(onibus).toContain("s.periodo_id");
+    expect(onibus).toContain("o.periodo_id");
     expect(onibus).toContain("periodo_nome");
+    expect(onibus).toContain("mesmo período específico da saída");
     expect(hospedagem).toContain("q.periodo_id");
     expect(hospedagem).toContain("const periodoId = texto(input?.periodo_id");
-    expect(integridade).toContain("s.periodo_id = ${reserva.periodo_id}");
+    expect(integridade).toContain("COALESCE(o.periodo_id, s.periodo_id)");
     expect(integridade).toContain("q.periodo_id = ${reserva.periodo_id}");
     expect(vendas).toContain("periodo_id: periodoId || undefined");
     expect(vendas).toContain("Período da viagem");
+    expect(vendas).toContain("selecionarPeriodo");
+    expect(vendas).toContain("params: { periodo_id: id }");
   });
 });

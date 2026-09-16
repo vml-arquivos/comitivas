@@ -55,6 +55,8 @@ describe("capacidade integrada da contratação", () => {
     expect(migration).toContain("estrutura");
     expect(migration).not.toMatch(/\bDROP\s+(?:TABLE|COLUMN)\b|\bTRUNCATE\b|\bDELETE\s+FROM\b/i);
     expect(pacote).toContain("alocarRecursosNaTransacao(tx");
+    expect(pacote).toContain("COALESCE(o.periodo_id, s.periodo_id)");
+    expect(pacote).toContain("q.periodo_id");
     expect(pacote).toContain("capacidade-transporte:");
     expect(pacote).toContain("capacidade-hospedagem:");
     expect(rota).not.toContain("OperacaoOnibusService.alocarPrimeiroDisponivel");

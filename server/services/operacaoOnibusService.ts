@@ -65,10 +65,10 @@ export class OperacaoOnibusService {
         JOIN onibus_operacionais o ON o.saida_id = s.id AND o.ativo = true
         JOIN assentos_onibus a ON a.onibus_id = o.id AND a.status = 'disponivel'
         WHERE s.lote_id = ${loteId} AND s.ativa = true
-          AND ((${periodoId || null}::text IS NULL AND s.periodo_id IS NULL) OR (${periodoId || null}::text IS NOT NULL AND (s.periodo_id IS NULL OR s.periodo_id = ${periodoId || null})))
+          AND (${periodoId || null}::text IS NULL OR COALESCE(o.periodo_id, s.periodo_id) IS NULL OR COALESCE(o.periodo_id, s.periodo_id) = ${periodoId || null})
           AND NOT EXISTS (SELECT 1 FROM assento_alocacoes aa WHERE aa.assento_id = a.id AND aa.status = 'ativa')
           AND NOT EXISTS (SELECT 1 FROM assento_holds h WHERE h.assento_id = a.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP)
-        ORDER BY CASE WHEN s.periodo_id = ${periodoId || null} THEN 0 WHEN s.periodo_id IS NULL THEN 1 ELSE 2 END, o.venda_ordem, o.criado_em, a.numero LIMIT 1`))[0];
+        ORDER BY CASE WHEN COALESCE(o.periodo_id, s.periodo_id) = ${periodoId || null} THEN 0 WHEN COALESCE(o.periodo_id, s.periodo_id) IS NULL THEN 1 ELSE 2 END, o.venda_ordem, o.criado_em, a.numero LIMIT 1`))[0];
       if (!livre) return null;
       try {
         return await this.alocarAssento(livre.id, reservaId, null, atorId);
@@ -167,17 +167,23 @@ export class OperacaoOnibusService {
   static async criarOnibus(saidaId: string, input: any, atorId: string) {
     const nome = texto(input?.nome, 120);
     const capacidade = Number(input?.capacidade);
+    const periodoId = texto(input?.periodo_id, 120) || null;
     const layout = gerarLayoutAssentos(capacidade);
     if (!nome) throw new Error("Informe o nome do ônibus");
     return db.transaction(async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`saida:${saidaId}`}))`);
-      const saida = linhas(await tx.execute(sql`SELECT id FROM saidas_operacionais WHERE id = ${saidaId} AND ativa = true FOR UPDATE`))[0];
+      const saida = linhas(await tx.execute(sql`SELECT id, lote_id, periodo_id FROM saidas_operacionais WHERE id = ${saidaId} AND ativa = true FOR UPDATE`))[0];
       if (!saida) throw new Error("Saída não encontrada ou arquivada");
+      if (periodoId) {
+        const periodo = linhas(await tx.execute(sql`SELECT pp.id FROM pacote_periodos pp JOIN pacotes p ON p.id = pp.pacote_id WHERE pp.id = ${periodoId} AND pp.ativo = true AND p.lote_id = ${saida.lote_id}`))[0];
+        if (!periodo) throw new Error("Período inválido para o lote desta saída");
+        if (saida.periodo_id && saida.periodo_id !== periodoId) throw new Error("O ônibus deve usar o mesmo período específico da saída");
+      }
       const proximaOrdem = Number(linhas(await tx.execute(sql`SELECT COALESCE(MAX(venda_ordem), 0)::int + 1 AS ordem FROM onibus_operacionais WHERE saida_id = ${saidaId} AND ativo = true`))[0]?.ordem || 1);
       const id = createId();
       const onibus = linhas(await tx.execute(sql`INSERT INTO onibus_operacionais
-        (id, saida_id, nome, identificacao, placa, capacidade, venda_ordem, motorista_nome, motorista_telefone, responsavel_nome, status, ativo, criado_em, atualizado_em)
-        VALUES (${id}, ${saidaId}, ${nome}, ${texto(input?.identificacao, 120) || null}, ${texto(input?.placa, 12).toUpperCase() || null}, ${capacidade}, ${proximaOrdem},
+        (id, saida_id, periodo_id, nome, identificacao, placa, capacidade, venda_ordem, motorista_nome, motorista_telefone, responsavel_nome, status, ativo, criado_em, atualizado_em)
+        VALUES (${id}, ${saidaId}, ${periodoId || saida.periodo_id || null}, ${nome}, ${texto(input?.identificacao, 120) || null}, ${texto(input?.placa, 12).toUpperCase() || null}, ${capacidade}, ${proximaOrdem},
           ${texto(input?.motorista_nome, 160) || null}, ${texto(input?.motorista_telefone, 20) || null}, ${texto(input?.responsavel_nome, 160) || null},
           'planejamento', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING *`))[0];
       for (const assento of layout) {
@@ -193,10 +199,28 @@ export class OperacaoOnibusService {
     const status = input?.status === undefined ? null : texto(input.status, 30);
     if (status && !["planejamento", "confirmado", "em_viagem", "concluido", "cancelado"].includes(status)) throw new Error("Status do ônibus inválido");
     const capacidade = input?.capacidade === undefined ? null : Number(input.capacidade);
+    const periodoInformado = input?.periodo_id === undefined ? undefined : (texto(input.periodo_id, 120) || null);
     if (capacidade !== null) gerarLayoutAssentos(capacidade);
     return db.transaction(async (tx) => {
-      const antes = linhas(await tx.execute(sql`SELECT * FROM onibus_operacionais WHERE id = ${id} FOR UPDATE`))[0];
+      const antes = linhas(await tx.execute(sql`SELECT o.*, s.lote_id, s.periodo_id AS periodo_saida_id FROM onibus_operacionais o JOIN saidas_operacionais s ON s.id = o.saida_id WHERE o.id = ${id} FOR UPDATE`))[0];
       if (!antes) throw new Error("Ônibus não encontrado");
+      if (periodoInformado) {
+        const periodo = linhas(await tx.execute(sql`SELECT pp.id FROM pacote_periodos pp JOIN pacotes p ON p.id = pp.pacote_id WHERE pp.id = ${periodoInformado} AND pp.ativo = true AND p.lote_id = ${antes.lote_id}`))[0];
+        if (!periodo) throw new Error("Período inválido para o lote deste ônibus");
+        if (antes.periodo_saida_id && antes.periodo_saida_id !== periodoInformado) throw new Error("O ônibus deve usar o mesmo período específico da saída");
+      }
+      const periodoAnterior = antes.periodo_id || antes.periodo_saida_id || null;
+      const periodoFinal = periodoInformado === undefined ? periodoAnterior : periodoInformado || antes.periodo_saida_id || null;
+      if (periodoInformado !== undefined && periodoFinal !== periodoAnterior) {
+        const usoPeriodo = linhas(await tx.execute(sql`SELECT
+          COUNT(*) FILTER (WHERE aa.status = 'ativa')::int AS ocupadas,
+          COUNT(*) FILTER (WHERE h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP)::int AS holds
+          FROM assentos_onibus a
+          LEFT JOIN assento_alocacoes aa ON aa.assento_id = a.id
+          LEFT JOIN assento_holds h ON h.assento_id = a.id
+          WHERE a.onibus_id = ${id}`))[0];
+        if (Number(usoPeriodo?.ocupadas || 0) > 0 || Number(usoPeriodo?.holds || 0) > 0) throw new Error("Mova ou libere as poltronas antes de alterar o período do ônibus");
+      }
       if (input?.ativo === false) {
         const ocupadas = linhas(await tx.execute(sql`SELECT COUNT(*)::int AS total FROM assento_alocacoes aa JOIN assentos_onibus a ON a.id = aa.assento_id WHERE a.onibus_id = ${id} AND aa.status = 'ativa'`))[0];
         if (Number(ocupadas?.total) > 0) throw new Error("Mova ou libere as poltronas ocupadas antes de arquivar o ônibus");
@@ -236,6 +260,7 @@ export class OperacaoOnibusService {
         motorista_nome = CASE WHEN ${input?.motorista_nome === undefined} THEN motorista_nome ELSE ${texto(input?.motorista_nome, 160) || null} END,
         motorista_telefone = CASE WHEN ${input?.motorista_telefone === undefined} THEN motorista_telefone ELSE ${texto(input?.motorista_telefone, 20) || null} END,
         responsavel_nome = CASE WHEN ${input?.responsavel_nome === undefined} THEN responsavel_nome ELSE ${texto(input?.responsavel_nome, 160) || null} END,
+        periodo_id = CASE WHEN ${periodoInformado === undefined} THEN periodo_id ELSE COALESCE(${periodoInformado}, periodo_saida_id) END,
         capacidade = COALESCE(${capacidade}, capacidade), status = COALESCE(${status}, status), ativo = COALESCE(${typeof input?.ativo === "boolean" ? input.ativo : null}, ativo), atualizado_em = CURRENT_TIMESTAMP
         WHERE id = ${id} RETURNING *`))[0];
       await registrar(tx, antes.saida_id, "onibus", id, "onibus_atualizado", atorId, antes, depois);
@@ -319,12 +344,13 @@ export class OperacaoOnibusService {
     const saida = linhas(await db.execute(sql`SELECT s.*, l.nome AS lote_nome, l.vagas_totais, l."vagas_disponíveis" AS vagas_disponiveis, e.id AS evento_id, e.nome AS evento_nome, pp.nome AS periodo_nome
       FROM saidas_operacionais s JOIN lotes l ON l.id = s.lote_id JOIN eventos e ON e.id = l.evento_id LEFT JOIN pacote_periodos pp ON pp.id = s.periodo_id WHERE s.id = ${saidaId}`))[0];
     if (!saida) throw new Error("Saída não encontrada");
-    const onibusBrutos = linhas(await db.execute(sql`SELECT o.*,
+      const onibusBrutos = linhas(await db.execute(sql`SELECT o.*, pp.nome AS periodo_nome,
       COUNT(a.id)::int AS total_assentos,
       COUNT(aa.id) FILTER (WHERE aa.status = 'ativa')::int AS ocupadas,
       COUNT(a.id) FILTER (WHERE a.status = 'bloqueado')::int AS bloqueadas,
       COUNT(h.id) FILTER (WHERE h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP)::int AS em_hold
-      FROM onibus_operacionais o LEFT JOIN assentos_onibus a ON a.onibus_id = o.id AND a.numero <= o.capacidade
+      FROM onibus_operacionais o LEFT JOIN pacote_periodos pp ON pp.id = o.periodo_id
+        LEFT JOIN assentos_onibus a ON a.onibus_id = o.id AND a.numero <= o.capacidade
       LEFT JOIN assento_alocacoes aa ON aa.assento_id = a.id AND aa.status = 'ativa'
       LEFT JOIN assento_holds h ON h.assento_id = a.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP
       WHERE o.saida_id = ${saidaId} AND o.ativo = true GROUP BY o.id ORDER BY o.venda_ordem, o.criado_em`));
@@ -349,7 +375,7 @@ export class OperacaoOnibusService {
       FROM reservas r JOIN usuarios u ON u.id = r.usuario_id AND u.tipo = 'cliente'
       LEFT JOIN pacotes p ON p.id = r.pacote_id
       WHERE r.lote_id = ${saida.lote_id} AND r.status <> 'abandonado'
-        AND ((${saida.periodo_id || null}::text IS NULL AND r.periodo_id IS NULL) OR (${saida.periodo_id || null}::text IS NOT NULL AND r.periodo_id = ${saida.periodo_id}))
+        AND (${saida.periodo_id || null}::text IS NULL OR r.periodo_id = ${saida.periodo_id})
         AND (SELECT COUNT(*) FROM assento_alocacoes aa WHERE aa.reserva_id = r.id AND aa.status = 'ativa')
           < GREATEST(1, (SELECT COUNT(*) FROM reserva_participantes rp WHERE rp.reserva_id = r.id OR rp.grupo_id = r.grupo_id))
         AND (
@@ -383,7 +409,7 @@ export class OperacaoOnibusService {
   static async alocarAssento(assentoId: string, reservaId: string, pontoId: string | null, atorId: string) {
     return db.transaction(async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`assento:${assentoId}`})), pg_advisory_xact_lock(hashtext(${`reserva-assento:${reservaId}`}))`);
-      const alvo = linhas(await tx.execute(sql`SELECT a.id AS assento_id, a.numero, a.status AS assento_status, o.id AS onibus_id, o.nome AS onibus_nome, o.saida_id, o.ativo AS onibus_ativo, s.lote_id, s.periodo_id, s.ativa AS saida_ativa
+      const alvo = linhas(await tx.execute(sql`SELECT a.id AS assento_id, a.numero, a.status AS assento_status, o.id AS onibus_id, o.nome AS onibus_nome, o.saida_id, o.ativo AS onibus_ativo, s.lote_id, COALESCE(o.periodo_id, s.periodo_id) AS periodo_id, s.ativa AS saida_ativa
         FROM assentos_onibus a JOIN onibus_operacionais o ON o.id = a.onibus_id JOIN saidas_operacionais s ON s.id = o.saida_id WHERE a.id = ${assentoId} FOR UPDATE OF a`))[0];
       if (!alvo || !alvo.onibus_ativo || !alvo.saida_ativa) throw new Error("Poltrona não encontrada ou indisponível");
       if (alvo.assento_status !== "disponivel") throw new Error("A poltrona está bloqueada");
@@ -419,14 +445,16 @@ export class OperacaoOnibusService {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`fila-onibus:${alvo.saida_id}`}))`);
       const onibusEmVenda = linhas(await tx.execute(sql`SELECT o.id, o.nome, o.venda_ordem
         FROM onibus_operacionais o
+        JOIN saidas_operacionais so ON so.id = o.saida_id
         WHERE o.saida_id = ${alvo.saida_id} AND o.ativo = true
+          AND (${alvo.periodo_id || null}::text IS NULL OR COALESCE(o.periodo_id, so.periodo_id) IS NULL OR COALESCE(o.periodo_id, so.periodo_id) = ${alvo.periodo_id})
           AND EXISTS (
             SELECT 1 FROM assentos_onibus livre
             WHERE livre.onibus_id = o.id AND livre.status = 'disponivel'
               AND NOT EXISTS (SELECT 1 FROM assento_alocacoes aa WHERE aa.assento_id = livre.id AND aa.status = 'ativa')
               AND NOT EXISTS (SELECT 1 FROM assento_holds h WHERE h.assento_id = livre.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP)
           )
-        ORDER BY o.venda_ordem, o.criado_em LIMIT 1`))[0];
+        ORDER BY CASE WHEN COALESCE(o.periodo_id, so.periodo_id) = ${alvo.periodo_id || null} THEN 0 ELSE 1 END, o.venda_ordem, o.criado_em LIMIT 1`))[0];
       if (!onibusEmVenda) throw new Error("Todos os ônibus desta saída estão esgotados");
       if (onibusEmVenda.id !== alvo.onibus_id) throw new Error(`Este ônibus ainda aguarda liberação. Complete primeiro o ${onibusEmVenda.nome}`);
       if (pontoId) {
