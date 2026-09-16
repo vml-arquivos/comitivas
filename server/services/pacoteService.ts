@@ -381,7 +381,10 @@ export class PacoteService {
     return Boolean(lote?.ativo && Number(lote.vagas) >= quantidade);
   }
 
-  static async obterDisponibilidadeFisica(pacote: typeof pacotes.$inferSelect, periodoId?: string | null) {
+  static async obterDisponibilidadeFisica(
+    pacote: Pick<typeof pacotes.$inferSelect, 'id' | 'lote_id' | 'forma_contratacao' | 'modalidade_hospedagem' | 'disponibilidade'>,
+    periodoId?: string | null,
+  ) {
     const recursos = resolverRecursosContratacao(pacote.forma_contratacao, pacote.modalidade_hospedagem);
     const lote = (await db.select({ vagas: lotes.vagas_disponíveis }).from(lotes).where(eq(lotes.id, pacote.lote_id)).limit(1))[0];
     const vagasLote = Math.max(0, Number(lote?.vagas || 0));

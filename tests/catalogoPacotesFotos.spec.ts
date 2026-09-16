@@ -78,9 +78,14 @@ describe("catálogo simples de excursões, lotes e pacotes", () => {
     expect(home).toContain("fotoEventoAtiva");
     expect(home).toContain("intervaloOferta");
     expect(home).toContain("destaque_titulo");
-    expect(eventos).toContain("modalidade.periodos?.[0]");
+    expect(eventos).toContain("Período da viagem");
+    expect(eventos).toContain("flatMap((modalidade)");
     expect(configurador).toContain("pacote.destaque_titulo");
+    expect(configurador).toContain("periodoSolicitado");
+    expect(configurador).toContain("Este período está esgotado");
     expect(admin).toContain("Destaque comercial na vitrine");
+    expect(publico).toContain("vagas_disponiveis: capacidade.vagas_disponiveis");
+    expect(home).toContain("params.set('periodo'");
   });
 
   it("trata camping como modalidade somente transporte", () => {

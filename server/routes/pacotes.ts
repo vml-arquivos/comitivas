@@ -612,7 +612,7 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
       const regras = regrasDoPacote(pacote);
       const fotos = await db.select({ id: fotosPacote.id, url_foto: fotosPacote.url_foto, legenda: fotosPacote.legenda, alt_text: fotosPacote.alt_text, ordem: fotosPacote.ordem, capa: fotosPacote.capa })
         .from(fotosPacote).where(eq(fotosPacote.pacote_id, pacote.id)).orderBy(fotosPacote.ordem);
-      const periodos = await db.select({
+      const periodosBase = await db.select({
         id: pacotePeriodos.id, pacote_id: pacotePeriodos.pacote_id, nome: pacotePeriodos.nome, descricao: pacotePeriodos.descricao,
         data_inicio: pacotePeriodos.data_inicio, data_fim: pacotePeriodos.data_fim,
         data_embarque: pacotePeriodos.data_embarque, data_retorno: pacotePeriodos.data_retorno,
@@ -620,6 +620,14 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
       }).from(pacotePeriodos)
         .where(and(eq(pacotePeriodos.pacote_id, pacote.id), eq(pacotePeriodos.ativo, true)))
         .orderBy(pacotePeriodos.ordem, pacotePeriodos.data_inicio);
+      const periodos = await Promise.all(periodosBase.map(async (periodo) => {
+        const capacidadePeriodo = await PacoteService.obterDisponibilidadeFisica(pacote, periodo.id);
+        return {
+          ...periodo,
+          disponibilidade: capacidadePeriodo.disponibilidade,
+          vagas_disponiveis: capacidadePeriodo.vagas_disponiveis,
+        };
+      }));
         return {
           id: pacote.id,
           lote_id: pacote.lote_id,

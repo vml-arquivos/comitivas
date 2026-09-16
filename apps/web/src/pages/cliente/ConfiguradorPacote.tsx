@@ -42,6 +42,8 @@ interface PeriodoPublicado {
   data_fim: string;
   data_embarque?: string | null;
   data_retorno?: string | null;
+  disponibilidade?: 'disponivel' | 'ultimas_vagas' | 'esgotado' | string | null;
+  vagas_disponiveis?: number;
 }
 
 const modalidadeMeta: Record<PacotePublicado['modalidade_hospedagem'], { label: string; icon: typeof TentTree; destaque: string }> = {
@@ -91,6 +93,7 @@ export default function ConfiguradorPacote() {
   const { user, isLoading: authLoading } = useAuth();
   const [searchParams] = useSearchParams();
   const pacoteSolicitado = searchParams.get('pacote');
+  const periodoSolicitado = searchParams.get('periodo');
   const [pacotes, setPacotes] = useState<PacotePublicado[]>([]);
   const [pacoteId, setPacoteId] = useState<string>('');
   const [periodoId, setPeriodoId] = useState<string>('');
@@ -154,7 +157,7 @@ export default function ConfiguradorPacote() {
       }
     };
     carregarConfigurador();
-  }, [loteId, pacoteSolicitado]);
+  }, [loteId, pacoteSolicitado, periodoSolicitado]);
 
   const pacoteSelecionado = useMemo(() => pacotes.find((pacote) => pacote.id === pacoteId), [pacotes, pacoteId]);
   const pacoteSugerido = useMemo(() => pacoteSolicitado ? pacotes.find((pacote) => pacote.id === pacoteSolicitado) : undefined, [pacotes, pacoteSolicitado]);
@@ -173,6 +176,7 @@ export default function ConfiguradorPacote() {
   const exigeHospedagem = formaContratacao === 'hospedagem' || formaContratacao === 'onibus_hospedagem';
   const periodosDisponiveis = pacoteSelecionado?.periodos || [];
   const exigePeriodo = periodosDisponiveis.length > 0;
+  const periodoSelecionado = periodosDisponiveis.find((periodo) => periodo.id === periodoId);
   useEffect(() => {
     if (isLoading || !loteId || !formaContratacao || (pacotes.length > 0 && !pacoteId) || (exigePeriodo && !periodoId)) {
       setCalculo(null);
@@ -207,7 +211,10 @@ export default function ConfiguradorPacote() {
       return;
     }
     setPacoteId(id);
-    setPeriodoId(selecionado.periodos?.length === 1 ? selecionado.periodos[0].id : '');
+    setPeriodoId(
+      selecionado.periodos?.find((periodo) => periodo.id === periodoSolicitado)?.id
+      || (selecionado.periodos?.length === 1 ? selecionado.periodos[0].id : ''),
+    );
     const leadId = lerLeadId();
     const leadIntentToken = lerLeadIntentToken();
     if (leadId && leadIntentToken && loteId) {
@@ -244,6 +251,10 @@ export default function ConfiguradorPacote() {
     }
     if (exigePeriodo && !periodoId) {
       setError('Escolha o período da viagem para continuar.');
+      return;
+    }
+    if (periodoSelecionado?.disponibilidade === 'esgotado') {
+      setError('Este período está esgotado. Escolha outra data para continuar.');
       return;
     }
     if (pacoteSelecionado?.disponibilidade === 'esgotado') {
@@ -416,7 +427,7 @@ export default function ConfiguradorPacote() {
 
         {pacoteSelecionado && exigePeriodo && <section className="rounded-2xl border border-[#C94F38]/20 bg-white p-5">
           <div className="mb-3"><h2 className="text-xl font-bold text-slate-900">Escolha o período</h2><p className="text-sm text-gray-500">Este pacote possui mais de uma data. Selecione exatamente o final de semana ou intervalo desejado.</p></div>
-          <div className="grid gap-3 sm:grid-cols-2">{periodosDisponiveis.map((periodo) => <button key={periodo.id} type="button" aria-pressed={periodoId === periodo.id} onClick={() => { setPeriodoId(periodo.id); setCalculo(null); setError(''); }} className={`rounded-xl border p-4 text-left transition-all ${periodoId === periodo.id ? 'border-primary bg-primary/5 shadow-md ring-2 ring-primary/20' : 'border-slate-200 hover:border-primary/40'}`}><p className="font-bold text-slate-900">{periodo.nome}</p><p className="mt-1 text-sm text-slate-600">{formatarPeriodo(periodo.data_inicio)} a {formatarPeriodo(periodo.data_fim)}</p>{periodo.descricao && <p className="mt-2 text-xs leading-5 text-slate-500">{periodo.descricao}</p>}{periodoId === periodo.id && <span className="mt-2 inline-block text-xs font-bold text-primary">Período selecionado</span>}</button>)}</div>
+          <div className="grid gap-3 sm:grid-cols-2">{periodosDisponiveis.map((periodo) => { const esgotado = periodo.disponibilidade === 'esgotado'; return <button key={periodo.id} type="button" aria-pressed={periodoId === periodo.id} disabled={esgotado} onClick={() => { setPeriodoId(periodo.id); setCalculo(null); setError(''); }} className={`rounded-xl border p-4 text-left transition-all disabled:cursor-not-allowed disabled:opacity-60 ${periodoId === periodo.id ? 'border-primary bg-primary/5 shadow-md ring-2 ring-primary/20' : 'border-slate-200 hover:border-primary/40'}`}><div className="flex items-start justify-between gap-3"><p className="font-bold text-slate-900">{periodo.nome}</p>{periodo.disponibilidade && <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${esgotado ? 'bg-slate-800 text-white' : periodo.disponibilidade === 'ultimas_vagas' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{esgotado ? 'Esgotado' : periodo.disponibilidade === 'ultimas_vagas' ? 'Últimas vagas' : 'Disponível'}</span>}</div><p className="mt-1 text-sm text-slate-600">{formatarPeriodo(periodo.data_inicio)} a {formatarPeriodo(periodo.data_fim)}</p>{periodo.descricao && <p className="mt-2 text-xs leading-5 text-slate-500">{periodo.descricao}</p>}{periodoId === periodo.id && <span className="mt-2 inline-block text-xs font-bold text-primary">Período selecionado</span>}</button>; })}</div>
         </section>}
 
         <section className="rounded-2xl border border-slate-200 bg-white p-5">

@@ -50,6 +50,8 @@ type Periodo = {
   data_inicio: string;
   data_fim: string;
   descricao?: string | null;
+  disponibilidade?: 'disponivel' | 'ultimas_vagas' | 'esgotado' | string | null;
+  vagas_disponiveis?: number;
 };
 
 type Lote = {
@@ -78,6 +80,7 @@ type Oferta = {
   evento: Evento;
   lote: Lote;
   pacote: Modalidade;
+  periodo?: Periodo;
 };
 
 const MENSAGEM_WHATSAPP_PADRAO = 'Olá! Quero saber mais sobre os pacotes publicados da Excursão das Comitivas para Barretos.';
@@ -179,10 +182,19 @@ function normalizarItens(valor: unknown): string[] {
 }
 
 function intervaloOferta(oferta: Oferta) {
-  const periodo = oferta.pacote.periodos?.[0];
+  const periodo = oferta.periodo || oferta.pacote.periodos?.[0];
   return {
     inicio: periodo?.data_inicio || oferta.lote.data_inicio,
     fim: periodo?.data_fim || oferta.lote.data_fim,
+  };
+}
+
+function rotuloPeriodo(oferta: Oferta) {
+  const periodo = oferta.periodo || oferta.pacote.periodos?.[0];
+  if (!periodo) return null;
+  return {
+    nome: periodo.nome,
+    intervalo: `${formatarData(periodo.data_inicio, true)} a ${formatarData(periodo.data_fim, true)}`,
   };
 }
 
@@ -214,7 +226,10 @@ export default function Home() {
 
   const ofertas = useMemo<Oferta[]>(() => eventos.flatMap((evento) =>
     (evento.lotes || []).flatMap((lote) =>
-      (lote.modalidades || []).map((pacote) => ({ evento, lote, pacote })))), [eventos]);
+      (lote.modalidades || []).flatMap((pacote) => {
+        const periodos = pacote.periodos?.length ? pacote.periodos : [undefined];
+        return periodos.map((periodo) => ({ evento, lote, pacote, periodo }));
+      }))), [eventos]);
 
   const ofertaAtiva = ofertas.length > 0 ? ofertas[Math.min(indiceOferta, ofertas.length - 1)] : null;
 
@@ -226,6 +241,7 @@ export default function Home() {
   const linkPacote = (oferta: Oferta) => {
     const params = new URLSearchParams();
     params.set('pacote', oferta.pacote.id);
+    if (oferta.periodo?.id) params.set('periodo', oferta.periodo.id);
     if (refComercial) params.set('ref', refComercial);
     return `/pacote/${encodeURIComponent(oferta.lote.id)}?${params.toString()}`;
   };
@@ -314,10 +330,11 @@ export default function Home() {
   };
 
   const exibirNumero = (valor: number | null, sufixo = '') => valor === null ? '—' : `${valor.toLocaleString('pt-BR')}${sufixo}`;
-  const statusAtivo = statusOferta(ofertaAtiva?.pacote.disponibilidade);
+  const statusAtivo = statusOferta(ofertaAtiva?.periodo?.disponibilidade || ofertaAtiva?.pacote.disponibilidade);
   const itensAtivos = normalizarItens(ofertaAtiva?.pacote.itens_inclusos);
   const fotoEventoAtiva = ofertaAtiva?.evento.fotos?.find((foto) => foto.capa)?.url_foto || ofertaAtiva?.evento.fotos?.[0]?.url_foto || '/images/hero-parque-peao.jpg';
   const intervaloAtivo = ofertaAtiva ? intervaloOferta(ofertaAtiva) : null;
+  const periodoAtivo = ofertaAtiva ? rotuloPeriodo(ofertaAtiva) : null;
 
   return (
     <div className="min-h-screen bg-[#F8F5EF] text-[#182D3B]">
@@ -402,7 +419,7 @@ export default function Home() {
                   <p className="mt-3 text-sm font-bold text-[#334A58]">{ofertaAtiva.pacote.nome}</p>
                   {(ofertaAtiva.pacote.destaque_titulo || ofertaAtiva.pacote.destaque_subtitulo || ofertaAtiva.pacote.destaque_texto) && <div className="mt-3 rounded-xl border border-[#851F32]/15 bg-[#F8F0F1] px-3 py-2.5"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">{ofertaAtiva.pacote.destaque_subtitulo || 'Destaque'}</p>{ofertaAtiva.pacote.destaque_titulo && <p className="mt-1 text-sm font-extrabold text-[#182D3B]">{ofertaAtiva.pacote.destaque_titulo}</p>}{ofertaAtiva.pacote.destaque_texto && <p className="mt-1 text-xs leading-5 text-[#5F7079]">{ofertaAtiva.pacote.destaque_texto}</p>}</div>}
                   <div className="mt-4 grid grid-cols-2 gap-3 border-y border-[#182D3B]/10 py-4 text-xs text-[#60717B]">
-                    <span className="inline-flex items-center gap-1.5"><Calendar size={14} className="text-[#851F32]" />{formatarData(intervaloAtivo?.inicio, true)} a {formatarData(intervaloAtivo?.fim, true)}</span>
+                    <span className="inline-flex min-w-0 items-start gap-1.5"><Calendar size={14} className="mt-0.5 shrink-0 text-[#851F32]" /><span className="min-w-0"><strong className="block truncate text-[#182D3B]">{periodoAtivo?.nome || 'Período da excursão'}</strong><span className="block">{formatarData(intervaloAtivo?.inicio, true)} a {formatarData(intervaloAtivo?.fim, true)}</span></span></span>
                     <span className="text-right font-extrabold text-[#182D3B]">{formatarMoeda(ofertaAtiva.pacote.valor_total) || 'Valor no configurador'}</span>
                   </div>
                   {itensAtivos.length > 0 && <p className="mt-4 line-clamp-2 text-xs leading-5 text-[#687882]">{itensAtivos.join(' · ')}</p>}
@@ -469,19 +486,20 @@ export default function Home() {
 
           {!isLoading && ofertas.length > 0 && (
             <div className="mt-10 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-              {ofertas.slice(0, 6).map((oferta) => {
-                const status = statusOferta(oferta.pacote.disponibilidade);
+              {ofertas.map((oferta) => {
+                const status = statusOferta(oferta.periodo?.disponibilidade || oferta.pacote.disponibilidade);
                 const itens = normalizarItens(oferta.pacote.itens_inclusos);
                 const intervalo = intervaloOferta(oferta);
+                const periodo = rotuloPeriodo(oferta);
                 return (
-                    <article key={`${oferta.lote.id}-${oferta.pacote.id}`} className="group flex min-h-[385px] min-w-0 flex-col rounded-[1.5rem] border border-[#182D3B]/10 bg-white p-6 shadow-[0_12px_35px_rgba(24,45,59,0.06)] transition hover:-translate-y-1 hover:shadow-[0_20px_45px_rgba(24,45,59,0.1)]">
+                    <article key={`${oferta.lote.id}-${oferta.pacote.id}-${oferta.periodo?.id || 'base'}`} className="group flex min-h-[385px] min-w-0 flex-col rounded-[1.5rem] border border-[#182D3B]/10 bg-white p-6 shadow-[0_12px_35px_rgba(24,45,59,0.06)] transition hover:-translate-y-1 hover:shadow-[0_20px_45px_rgba(24,45,59,0.1)]">
                     <div className="flex items-start justify-between gap-4"><p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#851F32]">{oferta.evento.nome}</p><span className={`shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase ${status.classe}`}>{status.label}</span></div>
                     <h3 className="font-editorial mt-4 text-2xl leading-tight text-[#182D3B]">{oferta.pacote.nome}</h3>
                     {(oferta.pacote.destaque_titulo || oferta.pacote.destaque_subtitulo || oferta.pacote.destaque_texto) && <div className="mt-3 rounded-xl border border-[#851F32]/15 bg-[#F8F0F1] px-3 py-2.5"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">{oferta.pacote.destaque_subtitulo || 'Destaque'}</p>{oferta.pacote.destaque_titulo && <p className="mt-1 text-sm font-extrabold text-[#182D3B]">{oferta.pacote.destaque_titulo}</p>}{oferta.pacote.destaque_texto && <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#5F7079]">{oferta.pacote.destaque_texto}</p>}</div>}
                     <p className="mt-2 line-clamp-2 min-h-10 text-sm leading-5 text-[#6B7C85]">{oferta.pacote.descricao || oferta.lote.descricao || 'Detalhes completos disponíveis no configurador.'}</p>
-                    <div className="mt-5 flex flex-wrap gap-x-4 gap-y-2 border-y border-[#182D3B]/10 py-4 text-xs text-[#60717B]"><span className="inline-flex items-center gap-1.5"><Calendar size={14} className="text-[#851F32]" />{formatarData(intervalo.inicio, true)} a {formatarData(intervalo.fim, true)}</span><span className="inline-flex items-center gap-1.5"><MapPin size={14} className="text-[#851F32]" />{oferta.evento.local}</span></div>
+                    <div className="mt-5 flex flex-wrap gap-x-4 gap-y-2 border-y border-[#182D3B]/10 py-4 text-xs text-[#60717B]"><span className="inline-flex min-w-0 items-start gap-1.5"><Calendar size={14} className="mt-0.5 shrink-0 text-[#851F32]" /><span><strong className="block text-[#182D3B]">{periodo?.nome || 'Período da excursão'}</strong><span>{formatarData(intervalo.inicio, true)} a {formatarData(intervalo.fim, true)}</span></span></span><span className="inline-flex items-center gap-1.5"><MapPin size={14} className="text-[#851F32]" />{oferta.evento.local}</span></div>
                     {itens.length > 0 && <ul className="mt-4 space-y-2">{itens.map((item) => <li key={item} className="flex items-start gap-2 text-xs leading-5 text-[#5F7079]"><Check size={14} className="mt-0.5 shrink-0 text-[#851F32]" />{item}</li>)}</ul>}
-                    <div className="mt-auto pt-6"><p className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#88949B]">Valor publicado</p><p className="font-editorial mt-1 text-2xl text-[#182D3B]">{formatarMoeda(oferta.pacote.valor_total) || 'Consultar'}</p><Link to={linkPacote(oferta)} className={`mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full px-5 text-sm font-extrabold transition ${oferta.pacote.disponibilidade === 'esgotado' ? 'pointer-events-none bg-slate-100 text-slate-400' : 'bg-[#851F32] text-white hover:bg-[#6f1929]'}`} aria-disabled={oferta.pacote.disponibilidade === 'esgotado'}>{oferta.pacote.disponibilidade === 'esgotado' ? 'Pacote esgotado' : 'Quero este pacote'}{oferta.pacote.disponibilidade !== 'esgotado' && <ArrowRight size={16} />}</Link></div>
+                    <div className="mt-auto pt-6"><p className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#88949B]">Valor publicado</p><p className="font-editorial mt-1 text-2xl text-[#182D3B]">{formatarMoeda(oferta.pacote.valor_total) || 'Consultar'}</p><Link to={linkPacote(oferta)} className={`mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full px-5 text-sm font-extrabold transition ${(oferta.periodo?.disponibilidade || oferta.pacote.disponibilidade) === 'esgotado' ? 'pointer-events-none bg-slate-100 text-slate-400' : 'bg-[#851F32] text-white hover:bg-[#6f1929]'}`} aria-disabled={(oferta.periodo?.disponibilidade || oferta.pacote.disponibilidade) === 'esgotado'}>{(oferta.periodo?.disponibilidade || oferta.pacote.disponibilidade) === 'esgotado' ? 'Período esgotado' : 'Quero este pacote'}{(oferta.periodo?.disponibilidade || oferta.pacote.disponibilidade) !== 'esgotado' && <ArrowRight size={16} />}</Link></div>
                   </article>
                 );
               })}

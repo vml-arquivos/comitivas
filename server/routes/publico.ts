@@ -4,6 +4,7 @@ import { eventos, lotes, pacotes, pacotePeriodos, fotos_evento, fotosPacote, ava
 import { eq, and, gt, lt, desc, sql, isNull } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { AuthService } from "../services/authService.js";
+import { PacoteService } from "../services/pacoteService.js";
 
 const router = Router();
 
@@ -102,7 +103,9 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
             descricao: pacotes.descricao,
             valor_total: pacotes.valor_total,
             itens_inclusos: pacotes.itens_selecionados,
+            lote_id: pacotes.lote_id,
             modalidade_hospedagem: pacotes.modalidade_hospedagem,
+            forma_contratacao: pacotes.forma_contratacao,
             disponibilidade: pacotes.disponibilidade,
             destaque_titulo: pacotes.destaque_titulo,
             destaque_subtitulo: pacotes.destaque_subtitulo,
@@ -110,21 +113,39 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
           })
           .from(pacotes)
           .where(and(eq(pacotes.lote_id, lote.id), eq(pacotes.ativo, true)));
-        const modalidades = await Promise.all(modalidadesBase.map(async (modalidade) => ({
-          ...modalidade,
-          fotos: await db.select({ id: fotosPacote.id, url_foto: fotosPacote.url_foto, legenda: fotosPacote.legenda, alt_text: fotosPacote.alt_text, ordem: fotosPacote.ordem, capa: fotosPacote.capa })
-            .from(fotosPacote)
-            .where(eq(fotosPacote.pacote_id, modalidade.id))
-            .orderBy(fotosPacote.ordem),
-          periodos: await db.select({
+        const modalidades = await Promise.all(modalidadesBase.map(async (modalidade) => {
+          const periodosBase = await db.select({
             id: pacotePeriodos.id, nome: pacotePeriodos.nome, descricao: pacotePeriodos.descricao,
             data_inicio: pacotePeriodos.data_inicio, data_fim: pacotePeriodos.data_fim,
             data_embarque: pacotePeriodos.data_embarque, data_retorno: pacotePeriodos.data_retorno,
             ordem: pacotePeriodos.ordem,
           }).from(pacotePeriodos)
             .where(and(eq(pacotePeriodos.pacote_id, modalidade.id), eq(pacotePeriodos.ativo, true)))
-            .orderBy(pacotePeriodos.ordem, pacotePeriodos.data_inicio),
-        })));
+            .orderBy(pacotePeriodos.ordem, pacotePeriodos.data_inicio);
+          const periodos = await Promise.all(periodosBase.map(async (periodo) => {
+            const capacidade = await PacoteService.obterDisponibilidadeFisica({
+              id: modalidade.id,
+              lote_id: modalidade.lote_id,
+              forma_contratacao: modalidade.forma_contratacao,
+              modalidade_hospedagem: modalidade.modalidade_hospedagem,
+              disponibilidade: modalidade.disponibilidade,
+            }, periodo.id);
+            return {
+              ...periodo,
+              disponibilidade: capacidade.disponibilidade,
+              vagas_disponiveis: capacidade.vagas_disponiveis,
+            };
+          }));
+
+          return {
+            ...modalidade,
+            fotos: await db.select({ id: fotosPacote.id, url_foto: fotosPacote.url_foto, legenda: fotosPacote.legenda, alt_text: fotosPacote.alt_text, ordem: fotosPacote.ordem, capa: fotosPacote.capa })
+              .from(fotosPacote)
+              .where(eq(fotosPacote.pacote_id, modalidade.id))
+              .orderBy(fotosPacote.ordem),
+            periodos,
+          };
+        }));
 
         return {
           ...lote,

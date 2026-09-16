@@ -26,6 +26,8 @@ type Periodo = {
   data_inicio: string;
   data_fim: string;
   descricao?: string | null;
+  disponibilidade?: 'disponivel' | 'ultimas_vagas' | 'esgotado' | string | null;
+  vagas_disponiveis?: number;
 };
 
 type Foto = {
@@ -238,17 +240,19 @@ export default function Eventos() {
                           </span>
                         </div>
 
-                        {lote.modalidades.filter((m) => (filtroModalidade === 'todas' || m.modalidade_hospedagem === filtroModalidade) && (!somenteDisponiveis || m.disponibilidade !== 'esgotado')).length > 0 ? (
+                        {lote.modalidades.filter((m) => (filtroModalidade === 'todas' || m.modalidade_hospedagem === filtroModalidade) && (!somenteDisponiveis || (m.periodos?.length ? m.periodos.some((periodo) => periodo.disponibilidade !== 'esgotado') : m.disponibilidade !== 'esgotado'))).length > 0 ? (
                           <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                            {lote.modalidades.filter((m) => (filtroModalidade === 'todas' || m.modalidade_hospedagem === filtroModalidade) && (!somenteDisponiveis || m.disponibilidade !== 'esgotado')).map((modalidade) => {
-                              const status = statusOferta(modalidade.disponibilidade);
-                              const esgotado = modalidade.disponibilidade === 'esgotado';
+                            {lote.modalidades.filter((m) => (filtroModalidade === 'todas' || m.modalidade_hospedagem === filtroModalidade) && (!somenteDisponiveis || (m.periodos?.length ? m.periodos.some((periodo) => periodo.disponibilidade !== 'esgotado') : m.disponibilidade !== 'esgotado'))).flatMap((modalidade) => {
+                              const periodos = modalidade.periodos?.length ? modalidade.periodos : [undefined];
                               const inclusos = itensInclusos(modalidade.itens_inclusos);
-                              const periodo = modalidade.periodos?.[0];
-                              const pacoteLink = `/pacote/${lote.id}?pacote=${encodeURIComponent(modalidade.id)}${ref ? `&ref=${encodeURIComponent(ref)}` : ''}`;
+                              return periodos.map((periodo) => {
+                                const disponibilidade = periodo?.disponibilidade || modalidade.disponibilidade;
+                                const status = statusOferta(disponibilidade);
+                                const esgotado = disponibilidade === 'esgotado';
+                                const pacoteLink = `/pacote/${lote.id}?pacote=${encodeURIComponent(modalidade.id)}${periodo?.id ? `&periodo=${encodeURIComponent(periodo.id)}` : ''}${ref ? `&ref=${encodeURIComponent(ref)}` : ''}`;
 
-                              return (
-                                <article key={modalidade.id} className={`flex min-h-full flex-col rounded-[1.5rem] border p-5 transition ${esgotado ? 'border-[#182D3B]/10 bg-[#F8F5EF]/55' : 'border-[#182D3B]/10 bg-white hover:-translate-y-0.5 hover:border-[#851F32]/25 hover:shadow-[0_14px_32px_rgba(24,45,59,0.08)]'}`}>
+                                return (
+                                <article key={`${modalidade.id}-${periodo?.id || 'base'}`} className={`flex min-h-full flex-col rounded-[1.5rem] border p-5 transition ${esgotado ? 'border-[#182D3B]/10 bg-[#F8F5EF]/55' : 'border-[#182D3B]/10 bg-white hover:-translate-y-0.5 hover:border-[#851F32]/25 hover:shadow-[0_14px_32px_rgba(24,45,59,0.08)]'}`}>
                                   <div className="flex items-start justify-between gap-3">
                                     {modalidade.fotos?.[0] ? <img src={modalidade.fotos[0].url_foto} alt={modalidade.fotos[0].alt_text || modalidade.fotos[0].legenda || modalidade.nome} className="h-14 w-14 rounded-xl object-cover" loading="lazy" /> : <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[#F4EAEC] text-[#851F32]"><BedDouble size={20} /></span>}
                                     <span className={`rounded-full px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wide ${status.classe}`}>{status.label}</span>
@@ -256,7 +260,7 @@ export default function Eventos() {
                                   <h4 className="font-editorial mt-5 text-xl font-bold leading-tight text-[#182D3B]">{modalidade.nome}</h4>
                                   {(modalidade.destaque_titulo || modalidade.destaque_subtitulo || modalidade.destaque_texto) && <div className="mt-3 rounded-xl border border-[#851F32]/15 bg-[#F8F0F1] px-3 py-2.5"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">{modalidade.destaque_subtitulo || 'Destaque'}</p>{modalidade.destaque_titulo && <p className="mt-1 text-sm font-extrabold text-[#182D3B]">{modalidade.destaque_titulo}</p>}{modalidade.destaque_texto && <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#5F7079]">{modalidade.destaque_texto}</p>}</div>}
                                   {modalidade.descricao && <p className="mt-2 line-clamp-3 text-sm leading-6 text-[#182D3B]/60">{modalidade.descricao}</p>}
-                                  {periodo && <p className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-[#60717B]"><Calendar size={13} className="text-[#851F32]" />{periodo.nome}: {formatarData(periodo.data_inicio)} a {formatarData(periodo.data_fim)}</p>}
+                                  <div className="mt-4 rounded-xl border border-[#182D3B]/10 bg-[#FCFAF7] p-3"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">Período da viagem</p><p className="mt-1 flex items-start gap-1.5 text-sm font-extrabold text-[#182D3B]"><Calendar size={15} className="mt-0.5 shrink-0 text-[#851F32]" />{periodo?.nome || 'Período da excursão'}</p><p className="mt-1 pl-6 text-xs font-semibold text-[#60717B]">{periodo ? `${formatarData(periodo.data_inicio)} a ${formatarData(periodo.data_fim)}` : `${formatarData(lote.data_inicio)} a ${formatarData(lote.data_fim)}`}</p>{periodo?.descricao && <p className="mt-2 pl-6 text-xs leading-5 text-[#60717B]">{periodo.descricao}</p>}</div>
                                   {inclusos.length > 0 && (
                                     <ul className="mt-4 space-y-2 text-xs text-[#182D3B]/68">
                                       {inclusos.slice(0, 3).map((item) => <li key={item} className="flex gap-2"><Check size={14} className="mt-0.5 shrink-0 text-[#851F32]" /><span>{item}</span></li>)}
@@ -274,7 +278,8 @@ export default function Eventos() {
                                     )}
                                   </div>
                                 </article>
-                              );
+                                );
+                              });
                             })}
                           </div>
                         ) : (
