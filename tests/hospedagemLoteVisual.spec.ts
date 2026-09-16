@@ -65,16 +65,19 @@ describe("cadastro em lote e identificação visual", () => {
     expect(hospedagem).toContain("filtroGenero");
   });
 
-  it("restringe períodos operacionais ao intervalo do lote", async () => {
+  it("mantém todos os períodos do pacote e valida apenas o vínculo com o lote", async () => {
     const [catalogo, publico, servico] = await Promise.all([
       fonte("../server/routes/pacotes.ts"),
       fonte("../server/routes/publico.ts"),
       fonte("../server/services/hospedagemService.ts"),
     ]);
-    expect(catalogo).toContain("periodoDentroDoLote");
-    expect(publico).toContain("periodoDentroDoLote(periodo, lote)");
-    expect(servico).toContain("pp.data_inicio >= l.data_inicio");
-    expect(servico).toContain("pp.data_fim <= l.data_fim");
+    expect(catalogo).toContain("periodosBase.map");
+    expect(catalogo).not.toContain("periodosDoLote");
+    expect(publico).toContain("periodosBase.map");
+    expect(publico).not.toContain("periodoDentroDoLote");
+    expect(servico).toContain("p.lote_id = ${loteId}");
+    expect(servico).not.toContain("pp.data_inicio >= l.data_inicio");
+    expect(servico).not.toContain("pp.data_fim <= l.data_fim");
     expect(servico).toContain("Período não pertence ao lote selecionado");
   });
 });

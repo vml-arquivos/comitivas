@@ -61,7 +61,7 @@ export class HospedagemService {
     const lote = linhas(await db.execute(sql`SELECT l.*, e.nome AS evento_nome FROM lotes l JOIN eventos e ON e.id = l.evento_id WHERE l.id = ${loteId}`))[0];
     if (!lote) throw new Error("Lote não encontrado");
     if (periodoId) {
-      const periodo = linhas(await db.execute(sql`SELECT pp.id FROM pacote_periodos pp JOIN pacotes p ON p.id = pp.pacote_id WHERE pp.id = ${periodoId} AND pp.ativo = true AND p.lote_id = ${loteId} AND pp.data_inicio >= ${lote.data_inicio} AND pp.data_fim <= ${lote.data_fim}`))[0];
+      const periodo = linhas(await db.execute(sql`SELECT pp.id FROM pacote_periodos pp JOIN pacotes p ON p.id = pp.pacote_id WHERE pp.id = ${periodoId} AND pp.ativo = true AND p.lote_id = ${loteId}`))[0];
       if (!periodo) throw new Error("Período não pertence ao lote selecionado");
     }
     const quartos = linhas(await db.execute(sql`SELECT q.*, p.nome AS pacote_nome, pp.nome AS periodo_nome,
@@ -118,7 +118,7 @@ export class HospedagemService {
         if (!pacote) throw new Error("Pacote inválido para este lote");
       }
       if (periodoId) {
-        const periodo = linhas(await tx.execute(sql`SELECT pp.id FROM pacote_periodos pp JOIN pacotes p ON p.id = pp.pacote_id JOIN lotes l ON l.id = p.lote_id WHERE pp.id = ${periodoId} AND pp.ativo = true AND p.lote_id = ${loteId} AND pp.data_inicio >= l.data_inicio AND pp.data_fim <= l.data_fim AND (${pacoteId}::text IS NULL OR pp.pacote_id = ${pacoteId})`))[0];
+        const periodo = linhas(await tx.execute(sql`SELECT pp.id FROM pacote_periodos pp JOIN pacotes p ON p.id = pp.pacote_id WHERE pp.id = ${periodoId} AND pp.ativo = true AND p.lote_id = ${loteId} AND (${pacoteId}::text IS NULL OR pp.pacote_id = ${pacoteId})`))[0];
         if (!periodo) throw new Error("Período inválido para este pacote e lote");
       }
       if (!id) {
@@ -166,7 +166,7 @@ export class HospedagemService {
         if (!pacote) throw new Error("Pacote inválido ou inativo para este período");
       }
       if (periodoId) {
-        const periodo = linhas(await tx.execute(sql`SELECT pp.id FROM pacote_periodos pp JOIN pacotes p ON p.id = pp.pacote_id JOIN lotes l ON l.id = p.lote_id WHERE pp.id = ${periodoId} AND pp.ativo = true AND p.lote_id = ${loteId} AND pp.data_inicio >= l.data_inicio AND pp.data_fim <= l.data_fim AND (${pacoteId}::text IS NULL OR pp.pacote_id = ${pacoteId})`))[0];
+        const periodo = linhas(await tx.execute(sql`SELECT pp.id FROM pacote_periodos pp JOIN pacotes p ON p.id = pp.pacote_id WHERE pp.id = ${periodoId} AND pp.ativo = true AND p.lote_id = ${loteId} AND (${pacoteId}::text IS NULL OR pp.pacote_id = ${pacoteId})`))[0];
         if (!periodo) throw new Error("Período inválido para este pacote e lote");
       }
 

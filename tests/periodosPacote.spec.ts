@@ -106,4 +106,15 @@ describe("períodos múltiplos dentro do pacote", () => {
     expect(vendas).toContain("Tipo de contratação");
     expect(vendas).toContain("formasDoPacote");
   });
+
+  it("devolve a configuração completa para hidratar a edição do pacote", () => {
+    const rotas = ler("server/routes/pacotes.ts");
+    const admin = ler("apps/web/src/pages/admin/Eventos.tsx");
+    expect(rotas).toContain("onibus_config: pacote.onibus_config");
+    expect(rotas).toContain("configuracao_pagamento: pacote.configuracao_pagamento");
+    expect(rotas).toContain("data_limite_pagamento: dataIsoSegura(pacote.data_limite_pagamento)");
+    expect(admin).toContain("pacote.configuracao_pagamento || {}");
+    expect(admin).toContain("pacote.onibus_config?.length || 1");
+    expect(admin).toContain("pacote.data_limite_pagamento ? paraDataInput");
+  });
 });
