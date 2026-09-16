@@ -56,4 +56,30 @@ describe("catálogo simples de excursões, lotes e pacotes", () => {
     expect(exclusao).toContain("UPDATE reserva_solicitacoes SET pacote_destino_id = NULL");
     expect(exclusao).toContain("UPDATE pacotes SET ativo = false");
   });
+
+  it("permite configurar destaque do pacote e exibe foto da excursão e período na vitrine", () => {
+    const schema = ler("server/db/schema.ts");
+    const migration = ler("drizzle/0025_destaques_comerciais_pacotes.sql");
+    const journal = ler("drizzle/meta/_journal.json");
+    const rotas = ler("server/routes/pacotes.ts");
+    const publico = ler("server/routes/publico.ts");
+    const home = ler("apps/web/src/pages/publico/Home.tsx");
+    const eventos = ler("apps/web/src/pages/Eventos.tsx");
+    const configurador = ler("apps/web/src/pages/cliente/ConfiguradorPacote.tsx");
+    const admin = ler("apps/web/src/pages/admin/Eventos.tsx");
+    expect(schema).toContain('destaque_titulo: varchar("destaque_titulo"');
+    expect(schema).toContain('destaque_subtitulo: varchar("destaque_subtitulo"');
+    expect(schema).toContain('destaque_texto: text("destaque_texto")');
+    expect(migration).toContain("ALTER TABLE pacotes ADD COLUMN IF NOT EXISTS destaque_titulo");
+    expect(journal).toContain('"tag": "0025_destaques_comerciais_pacotes"');
+    expect(rotas).toContain("textoDestaque(req.body?.destaque_titulo");
+    expect(rotas).toContain("destaque_texto: pacote.destaque_texto");
+    expect(publico).toContain("destaque_subtitulo: pacotes.destaque_subtitulo");
+    expect(home).toContain("fotoEventoAtiva");
+    expect(home).toContain("intervaloOferta");
+    expect(home).toContain("destaque_titulo");
+    expect(eventos).toContain("modalidade.periodos?.[0]");
+    expect(configurador).toContain("pacote.destaque_titulo");
+    expect(admin).toContain("Destaque comercial na vitrine");
+  });
 });

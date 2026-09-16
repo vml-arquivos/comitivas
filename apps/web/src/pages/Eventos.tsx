@@ -14,6 +14,18 @@ type Modalidade = {
   valor_total: string | number;
   itens_inclusos?: unknown;
   fotos?: Foto[];
+  periodos?: Periodo[];
+  destaque_titulo?: string | null;
+  destaque_subtitulo?: string | null;
+  destaque_texto?: string | null;
+};
+
+type Periodo = {
+  id: string;
+  nome: string;
+  data_inicio: string;
+  data_fim: string;
+  descricao?: string | null;
 };
 
 type Foto = {
@@ -232,6 +244,7 @@ export default function Eventos() {
                               const status = statusOferta(modalidade.disponibilidade);
                               const esgotado = modalidade.disponibilidade === 'esgotado';
                               const inclusos = itensInclusos(modalidade.itens_inclusos);
+                              const periodo = modalidade.periodos?.[0];
                               const pacoteLink = `/pacote/${lote.id}?pacote=${encodeURIComponent(modalidade.id)}${ref ? `&ref=${encodeURIComponent(ref)}` : ''}`;
 
                               return (
@@ -241,7 +254,9 @@ export default function Eventos() {
                                     <span className={`rounded-full px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wide ${status.classe}`}>{status.label}</span>
                                   </div>
                                   <h4 className="font-editorial mt-5 text-xl font-bold leading-tight text-[#182D3B]">{modalidade.nome}</h4>
+                                  {(modalidade.destaque_titulo || modalidade.destaque_subtitulo || modalidade.destaque_texto) && <div className="mt-3 rounded-xl border border-[#851F32]/15 bg-[#F8F0F1] px-3 py-2.5"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">{modalidade.destaque_subtitulo || 'Destaque'}</p>{modalidade.destaque_titulo && <p className="mt-1 text-sm font-extrabold text-[#182D3B]">{modalidade.destaque_titulo}</p>}{modalidade.destaque_texto && <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#5F7079]">{modalidade.destaque_texto}</p>}</div>}
                                   {modalidade.descricao && <p className="mt-2 line-clamp-3 text-sm leading-6 text-[#182D3B]/60">{modalidade.descricao}</p>}
+                                  {periodo && <p className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-[#60717B]"><Calendar size={13} className="text-[#851F32]" />{periodo.nome}: {formatarData(periodo.data_inicio)} a {formatarData(periodo.data_fim)}</p>}
                                   {inclusos.length > 0 && (
                                     <ul className="mt-4 space-y-2 text-xs text-[#182D3B]/68">
                                       {inclusos.slice(0, 3).map((item) => <li key={item} className="flex gap-2"><Check size={14} className="mt-0.5 shrink-0 text-[#851F32]" /><span>{item}</span></li>)}

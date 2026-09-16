@@ -104,6 +104,9 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
             itens_inclusos: pacotes.itens_selecionados,
             modalidade_hospedagem: pacotes.modalidade_hospedagem,
             disponibilidade: pacotes.disponibilidade,
+            destaque_titulo: pacotes.destaque_titulo,
+            destaque_subtitulo: pacotes.destaque_subtitulo,
+            destaque_texto: pacotes.destaque_texto,
           })
           .from(pacotes)
           .where(and(eq(pacotes.lote_id, lote.id), eq(pacotes.ativo, true)));

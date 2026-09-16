@@ -58,6 +58,12 @@ function dataIsoSegura(valor: unknown): string | null {
   return Number.isNaN(data.getTime()) ? null : data.toISOString();
 }
 
+function textoDestaque(valor: unknown, limite: number): string | null {
+  if (valor === undefined || valor === null) return null;
+  const texto = String(valor).trim().slice(0, limite);
+  return texto || null;
+}
+
 function dataPeriodo(valor: unknown, campo: string, obrigatoria = true): Date | null {
   if (valor === undefined || valor === null || valor === "") {
     if (obrigatoria) throw new Error(`${campo} é obrigatória`);
@@ -612,12 +618,15 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
       }).from(pacotePeriodos)
         .where(and(eq(pacotePeriodos.pacote_id, pacote.id), eq(pacotePeriodos.ativo, true)))
         .orderBy(pacotePeriodos.ordem, pacotePeriodos.data_inicio);
-      return {
-        id: pacote.id,
-        nome: pacote.nome,
-        descricao: pacote.descricao,
-        valor_total: pacote.valor_total,
-        modalidade_hospedagem: pacote.modalidade_hospedagem,
+        return {
+          id: pacote.id,
+          nome: pacote.nome,
+          descricao: pacote.descricao,
+          valor_total: pacote.valor_total,
+          destaque_titulo: pacote.destaque_titulo,
+          destaque_subtitulo: pacote.destaque_subtitulo,
+          destaque_texto: pacote.destaque_texto,
+          modalidade_hospedagem: pacote.modalidade_hospedagem,
         forma_contratacao: pacote.forma_contratacao,
         configuracao_necessaria: !["onibus", "hospedagem", "onibus_hospedagem"].includes(String(pacote.forma_contratacao)),
         formas_pagamento: regras.formasPermitidas,
@@ -897,6 +906,9 @@ router.post("/", authMiddleware, requireRole("admin"), async (req: Request, res:
       onibus_config: comercial.onibus_config,
       configuracao_pagamento: comercial.configuracao_pagamento,
       data_limite_pagamento: comercial.data_limite_pagamento,
+      destaque_titulo: textoDestaque(req.body?.destaque_titulo, 160),
+      destaque_subtitulo: textoDestaque(req.body?.destaque_subtitulo, 255),
+      destaque_texto: textoDestaque(req.body?.destaque_texto, 4000),
       ativo: ativo !== false,
       criado_em: new Date(),
       atualizado_em: new Date(),
@@ -948,6 +960,9 @@ router.put("/:pacote_id", authMiddleware, requireRole("admin"), async (req: Requ
       onibus_config: finalComercial.onibus_config,
       configuracao_pagamento: finalComercial.configuracao_pagamento,
       data_limite_pagamento: finalComercial.data_limite_pagamento,
+      destaque_titulo: req.body?.destaque_titulo !== undefined ? textoDestaque(req.body.destaque_titulo, 160) : undefined,
+      destaque_subtitulo: req.body?.destaque_subtitulo !== undefined ? textoDestaque(req.body.destaque_subtitulo, 255) : undefined,
+      destaque_texto: req.body?.destaque_texto !== undefined ? textoDestaque(req.body.destaque_texto, 4000) : undefined,
       ativo: ativo !== undefined ? Boolean(ativo) : undefined,
       atualizado_em: new Date(),
     }).where(eq(pacotes.id, req.params.pacote_id)).returning();

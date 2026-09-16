@@ -29,6 +29,9 @@ interface PacotePublicado {
   boleto_parcelas_maximo?: number | null;
   configuracao_necessaria?: boolean;
   periodos?: PeriodoPublicado[];
+  destaque_titulo?: string | null;
+  destaque_subtitulo?: string | null;
+  destaque_texto?: string | null;
 }
 
 interface PeriodoPublicado {
@@ -400,6 +403,7 @@ export default function ConfiguradorPacote() {
                   <div className="mb-4 inline-flex rounded-xl bg-slate-100 p-3 text-primary"><Icon size={24} /></div>
                   <p className="text-xs font-bold uppercase tracking-wide text-primary">{formaContratacao === 'onibus' ? 'Transporte' : meta?.label}</p>
                   <h3 className="mt-1 font-bold text-slate-900">{pacote.nome}</h3>
+                  {(pacote.destaque_titulo || pacote.destaque_subtitulo || pacote.destaque_texto) && <div className="mt-3 rounded-xl border border-[#C94F38]/15 bg-[#fff7f3] px-3 py-2.5"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#C94F38]">{pacote.destaque_subtitulo || 'Destaque'}</p>{pacote.destaque_titulo && <p className="mt-1 text-sm font-extrabold text-slate-900">{pacote.destaque_titulo}</p>}{pacote.destaque_texto && <p className="mt-1 text-xs leading-5 text-slate-600">{pacote.destaque_texto}</p>}</div>}
                   <p className="mt-2 min-h-10 text-sm text-gray-500">{pacote.descricao || (formaContratacao === 'onibus' ? 'Transporte rodoviário da excursão.' : meta?.destaque)}</p>
                   <p className="mt-4 text-xl font-bold text-slate-900">{formatarMoeda(pacote.valor_total)}</p>
                   <p className="mt-1 text-xs font-semibold text-slate-500">{rotuloPagamento(pacote)}</p>

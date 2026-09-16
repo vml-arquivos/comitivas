@@ -176,6 +176,13 @@
       "when": 1789500000000,
       "tag": "0024_periodos_por_pacote",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "5",
+      "when": 1789500001000,
+      "tag": "0025_destaques_comerciais_pacotes",
+      "breakpoints": true
     }
   ]
 }
