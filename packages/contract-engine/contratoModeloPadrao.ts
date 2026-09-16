@@ -14,7 +14,7 @@ export type ContratoModeloSnapshot = {
   pacote?: { nome?: string; descricao?: string | null; valor_total?: string | null };
   cliente: Record<string, unknown>;
   vendedor?: { nome?: string; email?: string } | null;
-  periodo: { check_in: string; check_out: string };
+  periodo: { nome?: string | null; check_in: string; check_out: string };
   hospedagem: { modalidade: string | null; local: string; quarto?: string | null; grupo?: string | null; vaga?: number | null };
   servicos_inclusos?: string[];
   adicionais?: Array<{ nome?: string; quantidade?: number }>;
@@ -195,6 +195,7 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
   const eventoNome = valueOrBlank(snapshot.evento?.nome, "Excursão contratada");
   const eventoLocal = valueOrBlank(snapshot.evento?.local, "Local informado na reserva");
   const loteNome = valueOrBlank(snapshot.lote?.nome, "Período contratado");
+  const periodoNome = valueOrBlank(snapshot.periodo?.nome, loteNome);
   const pacoteNome = valueOrBlank(snapshot.pacote?.nome, "Pacote contratado");
   const checkin = formatDate(snapshot.periodo?.check_in);
   const checkout = formatDate(snapshot.periodo?.check_out);
@@ -301,7 +302,7 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
   <div class="contract-summary-grid">
     <p><strong>Excursão:</strong> ${escapeHtml(eventoNome)}</p>
     <p><strong>Destino/local:</strong> ${escapeHtml(eventoLocal)}</p>
-    <p><strong>Período:</strong> ${escapeHtml(loteNome)}</p>
+    <p><strong>Período:</strong> ${escapeHtml(periodoNome)}</p>
     <p><strong>Datas:</strong> ${escapeHtml(checkin)} a ${escapeHtml(checkout)}</p>
     <p><strong>Pacote:</strong> ${escapeHtml(pacoteNome)}</p>
     <p><strong>Valor contratado:</strong> ${escapeHtml(totalMoney)}</p>

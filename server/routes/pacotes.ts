@@ -6,7 +6,7 @@ import { ConfiguracaoService } from "../services/configuracaoService.js";
 import { GatewayConfigService } from "../services/gatewayConfigService.js";
 import { AuthService } from "../services/authService.js";
 import { db } from "../db/index.js";
-import { eventos, lotes, pacotes, fotosPacote, itens_addon, reservas, usuarios, leads_origem, pagamentos, pagamentoParcelas, cupons, cuponsUtilizacoes, precosLedger, reservaParticipantes } from "../db/schema.js";
+import { eventos, lotes, pacotes, pacotePeriodos, fotosPacote, itens_addon, reservas, usuarios, leads_origem, pagamentos, pagamentoParcelas, cupons, cuponsUtilizacoes, precosLedger, reservaParticipantes } from "../db/schema.js";
 import { eq, and, desc, inArray, isNull, or, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { CatalogoExclusaoService } from "../services/catalogoExclusaoService.js";
@@ -56,6 +56,21 @@ function dataIsoSegura(valor: unknown): string | null {
   if (!valor) return null;
   const data = valor instanceof Date ? valor : new Date(String(valor));
   return Number.isNaN(data.getTime()) ? null : data.toISOString();
+}
+
+function dataPeriodo(valor: unknown, campo: string, obrigatoria = true): Date | null {
+  if (valor === undefined || valor === null || valor === "") {
+    if (obrigatoria) throw new Error(`${campo} é obrigatória`);
+    return null;
+  }
+  const data = new Date(String(valor));
+  if (Number.isNaN(data.getTime())) throw new Error(`${campo} inválida`);
+  return data;
+}
+
+function validarIntervaloPeriodo(inicio: Date, fim: Date, embarque: Date | null, retorno: Date | null) {
+  if (inicio.getTime() > fim.getTime()) throw new Error("A data inicial do período deve ser anterior à data final");
+  if (embarque && retorno && embarque.getTime() > retorno.getTime()) throw new Error("A saída deve ocorrer antes do retorno");
 }
 
 function validarConfiguracaoComercial(body: any) {
@@ -222,7 +237,7 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
       if (leadDaConta[0]) origem = { lead_id: leadDaConta[0].id, vendedor_id: leadDaConta[0].vendedor_id || undefined, codigo_origem: leadDaConta[0].codigo_origem || undefined };
     }
 
-    const carrinhoExistente = await PacoteService.retomarCarrinho(req.usuario.id, config.lote_id, { pacote_id: config.pacote_id, forma_contratacao: config.forma_contratacao });
+    const carrinhoExistente = await PacoteService.retomarCarrinho(req.usuario.id, config.lote_id, { pacote_id: config.pacote_id, periodo_id: config.periodo_id, forma_contratacao: config.forma_contratacao });
     const resultado = carrinhoExistente || await PacoteService.reservarPacote(
         req.usuario.id,
         config.lote_id,
@@ -289,6 +304,7 @@ router.get("/minhas-reservas", authMiddleware, async (req: Request, res: Respons
         id: reservas.id,
         lote_id: reservas.lote_id,
         pacote_id: reservas.pacote_id,
+        periodo_id: reservas.periodo_id,
         status: reservas.status,
         checkout_estado: reservas.checkout_estado,
         valor_total: reservas.valor_total,
@@ -301,6 +317,9 @@ router.get("/minhas-reservas", authMiddleware, async (req: Request, res: Respons
         criado_em: reservas.criado_em,
         atualizado_em: reservas.atualizado_em,
         pacote_nome: pacotes.nome,
+        periodo_nome: pacotePeriodos.nome,
+        periodo_data_inicio: pacotePeriodos.data_inicio,
+        periodo_data_fim: pacotePeriodos.data_fim,
         modalidade_hospedagem: pacotes.modalidade_hospedagem,
         lote_nome: lotes.nome,
         evento_nome: eventos.nome,
@@ -312,6 +331,7 @@ router.get("/minhas-reservas", authMiddleware, async (req: Request, res: Respons
       .innerJoin(lotes, eq(reservas.lote_id, lotes.id))
       .innerJoin(eventos, eq(lotes.evento_id, eventos.id))
       .leftJoin(pacotes, eq(reservas.pacote_id, pacotes.id))
+      .leftJoin(pacotePeriodos, eq(reservas.periodo_id, pacotePeriodos.id))
       .where(eq(reservas.usuario_id, req.usuario.id))
       .orderBy(desc(reservas.criado_em));
 
@@ -418,6 +438,13 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
         .where(eq(pacotes.id, reserva[0].pacote_id))
         .limit(1)
       : [];
+    const periodoSelecionado = reserva[0].periodo_id
+      ? await db.select({
+        id: pacotePeriodos.id, nome: pacotePeriodos.nome, descricao: pacotePeriodos.descricao,
+        data_inicio: pacotePeriodos.data_inicio, data_fim: pacotePeriodos.data_fim,
+        data_embarque: pacotePeriodos.data_embarque, data_retorno: pacotePeriodos.data_retorno,
+      }).from(pacotePeriodos).where(eq(pacotePeriodos.id, reserva[0].periodo_id)).limit(1)
+      : [];
 
     const loteResult = await db
       .select({
@@ -436,7 +463,7 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
       ? (await db.select({ codigo: cupons.codigo }).from(cupons).where(eq(cupons.id, reserva[0].cupom_id)).limit(1))[0]
       : undefined;
     const regrasPacote = regrasDoPacote(pacoteSelecionado[0] as any);
-    const dataViagem = loteResult[0]?.data_embarque || loteResult[0]?.data_inicio;
+    const dataViagem = periodoSelecionado[0]?.data_embarque || periodoSelecionado[0]?.data_inicio || loteResult[0]?.data_embarque || loteResult[0]?.data_inicio;
     const dataLimitePagamento = ContratoService.calcularDataLimiteEfetiva(regrasPacote.dataLimitePagamento, dataViagem, regrasPacote.prazoSegurancaDias);
     const configPagamento = await ConfiguracaoService.obterConfiguracoesPagamento();
     // Se o contrato já foi gerado, a condição fica travada (ver Checkout.tsx),
@@ -474,6 +501,13 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
       onibus_config: pacoteSelecionado[0]?.onibus_config || [],
       configuracao_pagamento: pacoteSelecionado[0]?.configuracao_pagamento || {},
       data_limite_pagamento: pacoteSelecionado[0]?.data_limite_pagamento || null,
+      periodo_id: reserva[0].periodo_id || null,
+      periodo_nome: periodoSelecionado[0]?.nome || null,
+      periodo_descricao: periodoSelecionado[0]?.descricao || null,
+      periodo_data_inicio: periodoSelecionado[0]?.data_inicio || null,
+      periodo_data_fim: periodoSelecionado[0]?.data_fim || null,
+      periodo_data_embarque: periodoSelecionado[0]?.data_embarque || null,
+      periodo_data_retorno: periodoSelecionado[0]?.data_retorno || null,
       lote_nome: loteResult[0]?.lote_nome || null,
       evento_nome: loteResult[0]?.evento_nome || null,
       evento_local: loteResult[0]?.evento_local || null,
@@ -570,6 +604,14 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
       const regras = regrasDoPacote(pacote);
       const fotos = await db.select({ id: fotosPacote.id, url_foto: fotosPacote.url_foto, legenda: fotosPacote.legenda, alt_text: fotosPacote.alt_text, ordem: fotosPacote.ordem, capa: fotosPacote.capa })
         .from(fotosPacote).where(eq(fotosPacote.pacote_id, pacote.id)).orderBy(fotosPacote.ordem);
+      const periodos = await db.select({
+        id: pacotePeriodos.id, nome: pacotePeriodos.nome, descricao: pacotePeriodos.descricao,
+        data_inicio: pacotePeriodos.data_inicio, data_fim: pacotePeriodos.data_fim,
+        data_embarque: pacotePeriodos.data_embarque, data_retorno: pacotePeriodos.data_retorno,
+        ordem: pacotePeriodos.ordem,
+      }).from(pacotePeriodos)
+        .where(and(eq(pacotePeriodos.pacote_id, pacote.id), eq(pacotePeriodos.ativo, true)))
+        .orderBy(pacotePeriodos.ordem, pacotePeriodos.data_inicio);
       return {
         id: pacote.id,
         nome: pacote.nome,
@@ -583,6 +625,7 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
         disponibilidade_configurada: pacote.disponibilidade,
         disponibilidade: capacidade.disponibilidade,
         fotos,
+        periodos,
       };
     }));
     res.json({ lote_id: req.params.lote_id, pacotes: pacotesComDisponibilidade });
@@ -642,6 +685,86 @@ router.post("/reservas/:reserva_id/aplicar-cupom", authMiddleware, async (req: R
   } catch (error: any) {
     console.error("[PACOTES] Erro ao aplicar cupom:", error?.message || "falha não detalhada");
     return res.status(400).json({ erro: error?.message || "Não foi possível aplicar o cupom" });
+  }
+});
+
+// Períodos comerciais pertencentes ao pacote. O inventário continua no lote;
+// o período é um recorte comercial persistido na reserva e no contrato.
+router.get("/:pacote_id/periodos", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const periodos = await db.select().from(pacotePeriodos)
+      .where(eq(pacotePeriodos.pacote_id, req.params.pacote_id))
+      .orderBy(pacotePeriodos.ordem, pacotePeriodos.data_inicio);
+    return res.json({ periodos });
+  } catch (error) {
+    console.error("[PACOTES] Erro ao listar períodos:", error);
+    return res.status(500).json({ erro: "Erro ao listar períodos do pacote" });
+  }
+});
+
+router.post("/:pacote_id/periodos", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const pacote = (await db.select({ id: pacotes.id, lote_id: pacotes.lote_id }).from(pacotes).where(eq(pacotes.id, req.params.pacote_id)).limit(1))[0];
+    if (!pacote) return res.status(404).json({ erro: "Pacote não encontrado" });
+    const nome = String(req.body?.nome || "").trim().slice(0, 255);
+    if (nome.length < 2) return res.status(400).json({ erro: "Informe um nome para o período" });
+    const inicio = dataPeriodo(req.body?.data_inicio, "A data inicial");
+    const fim = dataPeriodo(req.body?.data_fim, "A data final");
+    const embarque = dataPeriodo(req.body?.data_embarque, "A data de embarque", false);
+    const retorno = dataPeriodo(req.body?.data_retorno, "A data de retorno", false);
+    validarIntervaloPeriodo(inicio!, fim!, embarque, retorno);
+    const existentes = await db.select({ id: pacotePeriodos.id }).from(pacotePeriodos).where(eq(pacotePeriodos.pacote_id, pacote.id));
+    const criado = (await db.insert(pacotePeriodos).values({
+      id: createId(), pacote_id: pacote.id, nome, descricao: String(req.body?.descricao || "").trim().slice(0, 2000) || null,
+      data_inicio: inicio!, data_fim: fim!, data_embarque: embarque, data_retorno: retorno,
+      ordem: Number.isInteger(Number(req.body?.ordem)) ? Number(req.body.ordem) : existentes.length,
+      ativo: req.body?.ativo !== false, criado_em: new Date(), atualizado_em: new Date(),
+    }).returning())[0];
+    return res.status(201).json({ mensagem: "Período adicionado ao pacote", periodo: criado });
+  } catch (error: any) {
+    console.error("[PACOTES] Erro ao criar período:", error);
+    return res.status(400).json({ erro: error?.message || "Não foi possível adicionar o período" });
+  }
+});
+
+router.put("/:pacote_id/periodos/:periodo_id", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const atual = (await db.select().from(pacotePeriodos).where(and(eq(pacotePeriodos.id, req.params.periodo_id), eq(pacotePeriodos.pacote_id, req.params.pacote_id))).limit(1))[0];
+    if (!atual) return res.status(404).json({ erro: "Período não encontrado" });
+    const inicio = dataPeriodo(req.body?.data_inicio ?? atual.data_inicio, "A data inicial");
+    const fim = dataPeriodo(req.body?.data_fim ?? atual.data_fim, "A data final");
+    const embarque = dataPeriodo(req.body?.data_embarque ?? atual.data_embarque, "A data de embarque", false);
+    const retorno = dataPeriodo(req.body?.data_retorno ?? atual.data_retorno, "A data de retorno", false);
+    validarIntervaloPeriodo(inicio!, fim!, embarque, retorno);
+    const atualizado = (await db.update(pacotePeriodos).set({
+      nome: req.body?.nome !== undefined ? String(req.body.nome).trim().slice(0, 255) : undefined,
+      descricao: req.body?.descricao !== undefined ? String(req.body.descricao || "").trim().slice(0, 2000) || null : undefined,
+      data_inicio: inicio!, data_fim: fim!, data_embarque: embarque, data_retorno: retorno,
+      ordem: req.body?.ordem !== undefined ? Number(req.body.ordem) : undefined,
+      ativo: req.body?.ativo !== undefined ? Boolean(req.body.ativo) : undefined,
+      atualizado_em: new Date(),
+    }).where(eq(pacotePeriodos.id, atual.id)).returning())[0];
+    return res.json({ mensagem: "Período atualizado", periodo: atualizado });
+  } catch (error: any) {
+    console.error("[PACOTES] Erro ao atualizar período:", error);
+    return res.status(400).json({ erro: error?.message || "Não foi possível atualizar o período" });
+  }
+});
+
+router.delete("/:pacote_id/periodos/:periodo_id", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const periodo = (await db.select().from(pacotePeriodos).where(and(eq(pacotePeriodos.id, req.params.periodo_id), eq(pacotePeriodos.pacote_id, req.params.pacote_id))).limit(1))[0];
+    if (!periodo) return res.status(404).json({ erro: "Período não encontrado" });
+    const historico = await db.select({ id: reservas.id }).from(reservas).where(eq(reservas.periodo_id, periodo.id)).limit(1);
+    if (historico.length > 0) {
+      await db.update(pacotePeriodos).set({ ativo: false, atualizado_em: new Date() }).where(eq(pacotePeriodos.id, periodo.id));
+      return res.json({ modo: "arquivado", mensagem: "Período desativado para preservar reservas e contratos existentes." });
+    }
+    await db.delete(pacotePeriodos).where(eq(pacotePeriodos.id, periodo.id));
+    return res.json({ modo: "excluido", mensagem: "Período excluído definitivamente." });
+  } catch (error) {
+    console.error("[PACOTES] Erro ao excluir período:", error);
+    return res.status(500).json({ erro: "Não foi possível excluir o período" });
   }
 });
 

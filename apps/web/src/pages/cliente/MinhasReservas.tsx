@@ -141,6 +141,7 @@ export default function MinhasReservas() {
                     <div className="min-w-0">
                       <p className="text-xs font-bold uppercase tracking-[0.13em] text-primary">{reserva.evento_nome}</p>
                       <CardTitle className="mt-1 truncate text-xl">{reserva.pacote_nome || reserva.lote_nome}</CardTitle>
+                      {reserva.periodo_nome && <p className="mt-1 text-sm font-semibold text-slate-500">Período: {reserva.periodo_nome}</p>}
                     </div>
                     <span className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-bold ${status.classes}`}>{status.label}</span>
                   </div>

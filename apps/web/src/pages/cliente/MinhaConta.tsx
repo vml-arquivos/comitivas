@@ -607,6 +607,7 @@ export default function MinhaConta() {
                         <div>
                           <p className="text-xs font-black uppercase tracking-[.13em] text-[#851F32]">{reserva.evento_nome}</p>
                           <h3 className="mt-1 text-xl font-black text-slate-900">{reserva.pacote_nome || reserva.lote_nome}</h3>
+                          {reserva.periodo_nome && <p className="mt-1 text-sm font-semibold text-slate-500">Período: {reserva.periodo_nome}</p>}
                         </div>
                         <span className={`rounded-full px-3 py-1 text-[11px] font-bold ${st.classes}`}>{st.label}</span>
                       </div>
@@ -738,6 +739,7 @@ export default function MinhaConta() {
                       <div>
                         <p className="text-xs font-bold uppercase text-[#851F32]">{reserva.evento_nome}</p>
                         <h3 className="text-xl font-black">{reserva.pacote_nome || reserva.lote_nome}</h3>
+                        {reserva.periodo_nome && <p className="mt-1 text-sm font-semibold text-slate-500">Período: {reserva.periodo_nome}</p>}
                       </div>
                       <strong>{moeda(reserva.valor_total)}</strong>
                     </div>

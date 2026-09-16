@@ -28,6 +28,17 @@ interface PacotePublicado {
   formas_pagamento?: string[];
   boleto_parcelas_maximo?: number | null;
   configuracao_necessaria?: boolean;
+  periodos?: PeriodoPublicado[];
+}
+
+interface PeriodoPublicado {
+  id: string;
+  nome: string;
+  descricao?: string | null;
+  data_inicio: string;
+  data_fim: string;
+  data_embarque?: string | null;
+  data_retorno?: string | null;
 }
 
 const modalidadeMeta: Record<PacotePublicado['modalidade_hospedagem'], { label: string; icon: typeof TentTree; destaque: string }> = {
@@ -67,6 +78,10 @@ function formatarMoeda(valor: string | number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor) || 0);
 }
 
+function formatarPeriodo(data: string) {
+  return new Date(data).toLocaleDateString('pt-BR');
+}
+
 export default function ConfiguradorPacote() {
   const { loteId } = useParams();
   const navigate = useNavigate();
@@ -75,6 +90,7 @@ export default function ConfiguradorPacote() {
   const pacoteSolicitado = searchParams.get('pacote');
   const [pacotes, setPacotes] = useState<PacotePublicado[]>([]);
   const [pacoteId, setPacoteId] = useState<string>('');
+  const [periodoId, setPeriodoId] = useState<string>('');
   const [formaContratacao, setFormaContratacao] = useState<FormaContratacaoPublica | ''>('');
   const [participantes, setParticipantes] = useState<ParticipanteCheckout[]>([]);
   const [calculo, setCalculo] = useState<any>(null);
@@ -118,10 +134,12 @@ export default function ConfiguradorPacote() {
         // quando o próprio cliente já a fez antes do login e está retomando o checkout.
         if (intencaoValida && pacoteSalvo && formaSalva) {
           setPacoteId(pacoteSalvo.id);
+          setPeriodoId(intencaoSalva?.periodoId || (pacoteSalvo.periodos?.length === 1 ? pacoteSalvo.periodos[0].id : ''));
           setFormaContratacao(formaSalva);
           setParticipantes(intencaoSalva?.participantes || []);
         } else {
           setPacoteId('');
+          setPeriodoId('');
           setFormaContratacao('');
           setParticipantes([]);
         }
@@ -150,15 +168,17 @@ export default function ConfiguradorPacote() {
     });
   }, [pacotes, formaContratacao, pacoteSugerido]);
   const exigeHospedagem = formaContratacao === 'hospedagem' || formaContratacao === 'onibus_hospedagem';
+  const periodosDisponiveis = pacoteSelecionado?.periodos || [];
+  const exigePeriodo = periodosDisponiveis.length > 0;
   useEffect(() => {
-    if (isLoading || !loteId || !formaContratacao || (pacotes.length > 0 && !pacoteId)) {
+    if (isLoading || !loteId || !formaContratacao || (pacotes.length > 0 && !pacoteId) || (exigePeriodo && !periodoId)) {
       setCalculo(null);
       return;
     }
     const timer = setTimeout(async () => {
       setIsCalculating(true);
       try {
-        const response = await api.post('/pacotes/calcular', { lote_id: loteId, pacote_id: pacoteId || undefined, forma_contratacao: formaContratacao, itens: [] });
+        const response = await api.post('/pacotes/calcular', { lote_id: loteId, pacote_id: pacoteId || undefined, periodo_id: periodoId || undefined, forma_contratacao: formaContratacao, itens: [] });
         setCalculo(response.data);
       } catch (err: any) {
         setError(err.response?.data?.erro || 'Erro ao calcular o valor do pacote.');
@@ -168,10 +188,10 @@ export default function ConfiguradorPacote() {
       }
     }, 250);
     return () => clearTimeout(timer);
-  }, [loteId, pacoteId, formaContratacao, pacotes.length, isLoading]);
+  }, [loteId, pacoteId, periodoId, formaContratacao, pacotes.length, isLoading, exigePeriodo]);
 
   const selecionarFormaContratacao = (forma: FormaContratacaoPublica) => {
-    if (formaContratacao !== forma) setPacoteId('');
+    if (formaContratacao !== forma) { setPacoteId(''); setPeriodoId(''); }
     setFormaContratacao(forma);
     setCalculo(null);
     setError('');
@@ -184,6 +204,7 @@ export default function ConfiguradorPacote() {
       return;
     }
     setPacoteId(id);
+    setPeriodoId(selecionado.periodos?.length === 1 ? selecionado.periodos[0].id : '');
     const leadId = lerLeadId();
     const leadIntentToken = lerLeadIntentToken();
     if (leadId && leadIntentToken && loteId) {
@@ -216,6 +237,10 @@ export default function ConfiguradorPacote() {
     }
     if (pacotes.length > 0 && !pacoteId) {
       setError(formaContratacao === 'onibus' ? 'Escolha seu pacote de transporte para continuar.' : 'Escolha sua modalidade de hospedagem para continuar.');
+      return;
+    }
+    if (exigePeriodo && !periodoId) {
+      setError('Escolha o período da viagem para continuar.');
       return;
     }
     if (pacoteSelecionado?.disponibilidade === 'esgotado') {
@@ -257,6 +282,7 @@ export default function ConfiguradorPacote() {
     const intent = {
       loteId: loteId!,
       pacoteId,
+      periodoId: periodoId || undefined,
       formaContratacao,
       participantes,
       criadoEm: new Date().toISOString(),
@@ -268,6 +294,7 @@ export default function ConfiguradorPacote() {
         api.patch(`/publico/leads/${leadId}/intencao`, {
           lote_id: loteId,
           pacote_id: pacoteId,
+          periodo_id: periodoId || undefined,
           status: 'checkout_iniciado',
           lead_intent_token: leadIntentToken,
         }).catch(() => undefined);
@@ -288,6 +315,7 @@ export default function ConfiguradorPacote() {
       const response = await api.post('/pacotes/reservar', {
         lote_id: loteId,
         pacote_id: pacoteId || undefined,
+        periodo_id: periodoId || undefined,
         forma_contratacao: formaContratacao,
         itens: [],
         participantes,
@@ -382,6 +410,11 @@ export default function ConfiguradorPacote() {
           </section>
         )}
 
+        {pacoteSelecionado && exigePeriodo && <section className="rounded-2xl border border-[#C94F38]/20 bg-white p-5">
+          <div className="mb-3"><h2 className="text-xl font-bold text-slate-900">Escolha o período</h2><p className="text-sm text-gray-500">Este pacote possui mais de uma data. Selecione exatamente o final de semana ou intervalo desejado.</p></div>
+          <div className="grid gap-3 sm:grid-cols-2">{periodosDisponiveis.map((periodo) => <button key={periodo.id} type="button" aria-pressed={periodoId === periodo.id} onClick={() => { setPeriodoId(periodo.id); setCalculo(null); setError(''); }} className={`rounded-xl border p-4 text-left transition-all ${periodoId === periodo.id ? 'border-primary bg-primary/5 shadow-md ring-2 ring-primary/20' : 'border-slate-200 hover:border-primary/40'}`}><p className="font-bold text-slate-900">{periodo.nome}</p><p className="mt-1 text-sm text-slate-600">{formatarPeriodo(periodo.data_inicio)} a {formatarPeriodo(periodo.data_fim)}</p>{periodo.descricao && <p className="mt-2 text-xs leading-5 text-slate-500">{periodo.descricao}</p>}{periodoId === periodo.id && <span className="mt-2 inline-block text-xs font-bold text-primary">Período selecionado</span>}</button>)}</div>
+        </section>}
+
         <section className="rounded-2xl border border-slate-200 bg-white p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div><h2 className="text-xl font-bold text-slate-900">3. Vai viajar com mais alguém?</h2><p className="text-sm text-gray-500">Adicione as pessoas da sua comitiva. Os dados serão identificados no contrato.</p></div>
@@ -407,6 +440,7 @@ export default function ConfiguradorPacote() {
         <Card className="sticky top-[104px] overflow-hidden border-[#182D3B]/10 shadow-[0_18px_45px_rgba(24,45,59,0.10)]"><CardHeader className="border-b bg-[#182D3B] text-white"><CardTitle>Resumo da reserva</CardTitle></CardHeader><CardContent className="space-y-4 p-6">
           <div className="flex justify-between gap-4 text-sm"><span className="text-gray-600">Contrato</span><span className="max-w-44 text-right font-semibold text-slate-900">{formaContratacao ? formaContratacaoMeta[formaContratacao].label : 'Escolha o tipo'}</span></div>
           <div className="flex justify-between text-sm"><span className="text-gray-600">Pacote</span><span className="max-w-40 text-right font-medium">{pacoteSelecionado?.nome || (pacotes.length ? 'Escolha uma opção' : 'Pacote base')}</span></div>
+          {exigePeriodo && <div className="flex justify-between gap-4 text-sm"><span className="text-gray-600">Período</span><span className="max-w-48 text-right font-medium">{periodosDisponiveis.find((periodo) => periodo.id === periodoId)?.nome || 'Escolha uma data'}</span></div>}
           <div className="flex justify-between text-sm"><span className="text-gray-600">Valor-base</span><span className="font-medium">{formatarMoeda(calculo?.valor_base || 0)}</span></div>
           <div className="flex justify-between gap-4 text-sm"><span className="text-gray-600">Pagamento</span><span className="max-w-48 text-right font-medium text-slate-800">{rotuloPagamento(pacoteSelecionado)}</span></div>
           <div className="border-t pt-4"><div className="flex items-center justify-between"><span className="text-lg font-bold">Total</span><span className="text-2xl font-bold text-primary">{isCalculating ? '...' : formatarMoeda(calculo?.valor_total || 0)}</span></div></div>

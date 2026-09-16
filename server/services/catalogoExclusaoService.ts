@@ -56,6 +56,7 @@ async function excluirEstruturaDoLote(tx: any, loteId: string) {
   await tx.execute(sql`DELETE FROM comissao_regras WHERE pacote_id IN (SELECT id FROM pacotes WHERE lote_id = ${loteId})`);
   await tx.execute(sql`DELETE FROM cupons WHERE pacote_id IN (SELECT id FROM pacotes WHERE lote_id = ${loteId})`);
   await tx.execute(sql`DELETE FROM fotos_pacote WHERE pacote_id IN (SELECT id FROM pacotes WHERE lote_id = ${loteId})`);
+  await tx.execute(sql`DELETE FROM pacote_periodos WHERE pacote_id IN (SELECT id FROM pacotes WHERE lote_id = ${loteId})`);
   await tx.execute(sql`DELETE FROM pacotes WHERE lote_id = ${loteId}`);
   await tx.execute(sql`DELETE FROM itens_addon WHERE lote_id = ${loteId}`);
 }
@@ -85,6 +86,7 @@ export class CatalogoExclusaoService {
       await tx.execute(sql`DELETE FROM comissao_regras WHERE pacote_id = ${pacoteId}`);
       await tx.execute(sql`DELETE FROM cupons WHERE pacote_id = ${pacoteId}`);
       await tx.execute(sql`DELETE FROM fotos_pacote WHERE pacote_id = ${pacoteId}`);
+      await tx.execute(sql`DELETE FROM pacote_periodos WHERE pacote_id = ${pacoteId}`);
       await tx.execute(sql`DELETE FROM pacotes WHERE id = ${pacoteId}`);
       await auditar(tx, ator, "pacote", pacoteId, "excluido", pacote);
       return { modo: "excluido", mensagem: "Pacote excluído definitivamente." };

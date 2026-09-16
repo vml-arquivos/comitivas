@@ -130,6 +130,26 @@ export const pacotes = pgTable("pacotes", {
   loteIdx: index("pacotes_lote_id_idx").on(table.lote_id),
 }));
 
+// Um pacote pode oferecer vários períodos comerciais; o lote continua sendo
+// a unidade histórica de inventário e operação para manter compatibilidade.
+export const pacotePeriodos = pgTable("pacote_periodos", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  pacote_id: text("pacote_id").notNull().references(() => pacotes.id),
+  nome: varchar("nome", { length: 255 }).notNull(),
+  descricao: text("descricao"),
+  data_inicio: timestamp("data_inicio").notNull(),
+  data_fim: timestamp("data_fim").notNull(),
+  data_embarque: timestamp("data_embarque"),
+  data_retorno: timestamp("data_retorno"),
+  ordem: integer("ordem").notNull().default(0),
+  ativo: boolean("ativo").notNull().default(true),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+  atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
+}, (table) => ({
+  pacoteIdx: index("pacote_periodos_pacote_id_idx").on(table.pacote_id),
+  ativoIdx: index("pacote_periodos_ativo_idx").on(table.pacote_id, table.ativo, table.ordem),
+}));
+
 export const itens_addon = pgTable("itens_addon", {
   id: text("id").primaryKey().$defaultFn(() => createId()),
   lote_id: text("lote_id").notNull().references(() => lotes.id),
@@ -181,6 +201,7 @@ export const reservas = pgTable("reservas", {
   usuario_id: text("usuario_id").notNull().references(() => usuarios.id),
   lote_id: text("lote_id").notNull().references(() => lotes.id),
   pacote_id: text("pacote_id").references(() => pacotes.id),
+  periodo_id: text("periodo_id").references(() => pacotePeriodos.id),
   status: reservaStatusEnum("status").default("visitante"),
   checkout_estado: varchar("checkout_estado", { length: 40 }).notNull().default("rascunho"),
   inventario_hold_id: text("inventario_hold_id"),

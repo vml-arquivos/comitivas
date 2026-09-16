@@ -1,5 +1,5 @@
 import { db } from "../db/index.js";
-import { eventos, lotes, pacotes, itens_addon, cupons, reservas, inventarioHolds, precosLedger, cuponsUtilizacoes, comissaoRegras, comissoes, reservaGrupos, reservaParticipantes, usuarios } from "../db/schema.js";
+import { eventos, lotes, pacotes, pacotePeriodos, itens_addon, cupons, reservas, inventarioHolds, precosLedger, cuponsUtilizacoes, comissaoRegras, comissoes, reservaGrupos, reservaParticipantes, usuarios } from "../db/schema.js";
 import { createId } from "@paralleldrive/cuid2";
 import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import Decimal from "decimal.js";
@@ -8,7 +8,7 @@ import { InventoryService } from "./inventoryService.js";
 
 export interface ItemSelecionado { id: string; nome: string; tipo: string; valor: number; quantidade: number; }
 export interface ParticipantePacote { nome_completo: string; cpf?: string; data_nascimento?: string; telefone?: string; email?: string; sexo_operacional?: GrupoHospedagem; }
-export interface ConfiguracaoPacote { lote_id: string; pacote_id?: string; forma_contratacao?: 'onibus' | 'hospedagem' | 'onibus_hospedagem'; itens: ItemSelecionado[]; cupom_codigo?: string; usuario_id?: string; vendedor_id?: string; grupo_hospedagem?: GrupoHospedagem; participantes?: ParticipantePacote[]; }
+export interface ConfiguracaoPacote { lote_id: string; pacote_id?: string; periodo_id?: string; forma_contratacao?: 'onibus' | 'hospedagem' | 'onibus_hospedagem'; itens: ItemSelecionado[]; cupom_codigo?: string; usuario_id?: string; vendedor_id?: string; grupo_hospedagem?: GrupoHospedagem; participantes?: ParticipantePacote[]; }
 export interface ResultadoCalculo { valor_base: number; itens_selecionados: ItemSelecionado[]; subtotal: number; desconto_cupom: number; valor_total: number; pacote_id?: string; pacote_nome?: string; modalidade_hospedagem?: string; cupom_id?: string; mensagem?: string; }
 
 export interface OrigemReserva { lead_id?: string; vendedor_id?: string; codigo_origem?: string; }
@@ -221,7 +221,7 @@ export class PacoteService {
    * um hold expirado é renovado com nova reserva de inventário, sem duplicar a
    * reserva, o contrato ou a comissão.
    */
-  static async retomarCarrinho(usuario_id: string, lote_id: string, esperado?: Pick<ConfiguracaoPacote, "pacote_id" | "forma_contratacao">) {
+  static async retomarCarrinho(usuario_id: string, lote_id: string, esperado?: Pick<ConfiguracaoPacote, "pacote_id" | "periodo_id" | "forma_contratacao">) {
     return db.transaction(async (tx) => {
       const existente = (await tx.execute(sql`
         SELECT *
@@ -245,11 +245,12 @@ export class PacoteService {
 
       if (esperado) {
         const pacoteDiferente = String(esperado.pacote_id || "") !== String(existente.pacote_id || "");
+        const periodoDiferente = String(esperado.periodo_id || "") !== String(existente.periodo_id || "");
         const formaEsperada = esperado.forma_contratacao ? String(esperado.forma_contratacao) : null;
         const formaPublicada = pacote ? formaContratacaoPublica(pacote.forma_contratacao) : null;
         const formaDiferente = Boolean(formaEsperada && formaEsperada !== formaPublicada);
         const snapshotDivergenteDoCatalogo = Boolean(pacote && recursosDivergem(recursos, recursosPublicados));
-        if (pacoteDiferente || formaDiferente || snapshotDivergenteDoCatalogo) {
+        if (pacoteDiferente || periodoDiferente || formaDiferente || snapshotDivergenteDoCatalogo) {
           const contratoValidado = (await tx.execute(sql`
             SELECT 1 FROM contratos_documentos
              WHERE reserva_id = ${existente.id} AND validado_em IS NOT NULL AND status <> 'invalidado'
@@ -436,6 +437,10 @@ export class PacoteService {
       if (!pacoteSelecionado) throw new Error("Pacote selecionado não encontrado, incompatível com o lote ou inativo");
       if (pacoteSelecionado.disponibilidade === "esgotado") throw new Error("Esta modalidade está esgotada");
       validarFormaContratacaoSelecionada(config, pacoteSelecionado);
+      const periodosAtivos = await db.select({ id: pacotePeriodos.id }).from(pacotePeriodos)
+        .where(and(eq(pacotePeriodos.pacote_id, pacoteSelecionado.id), eq(pacotePeriodos.ativo, true)));
+      if (periodosAtivos.length > 0 && !config.periodo_id) throw new Error("Escolha o período da viagem para continuar");
+      if (config.periodo_id && !periodosAtivos.some((periodo) => periodo.id === config.periodo_id)) throw new Error("O período escolhido não pertence a este pacote ou está indisponível");
       valorBase = new Decimal(pacoteSelecionado.valor_total.toString());
     }
 
@@ -509,6 +514,13 @@ export class PacoteService {
           FROM pacotes WHERE id = ${config.pacote_id} AND lote_id = ${lote_id} AND ativo = true FOR SHARE`)).rows[0] as PacoteOperacional | undefined
         : undefined;
       if (config.pacote_id && !pacoteOperacional) throw new Error("Pacote selecionado não encontrado, incompatível com o lote ou inativo");
+      if (config.pacote_id) {
+        const periodosAtivos = (await tx.execute(sql`SELECT id FROM pacote_periodos WHERE pacote_id = ${config.pacote_id} AND ativo = true ORDER BY ordem, data_inicio`)).rows as Array<{ id: string }>;
+        if (periodosAtivos.length > 0 && !config.periodo_id) throw new Error("Escolha o período da viagem para continuar");
+        if (config.periodo_id && !periodosAtivos.some((periodo) => periodo.id === config.periodo_id)) throw new Error("O período escolhido não pertence a este pacote ou está indisponível");
+      } else if (config.periodo_id) {
+        throw new Error("O período só pode ser escolhido junto com um pacote");
+      }
       const responsavel = (await tx.select({ nome: usuarios.nome, cpf: usuarios.cpf, data_nascimento: usuarios.data_nascimento, telefone: usuarios.telefone, email: usuarios.email, sexo: usuarios.sexo }).from(usuarios).where(eq(usuarios.id, usuario_id)).limit(1))[0];
       const grupoHospedagem = normalizarGrupoHospedagem(responsavel?.sexo) || normalizarGrupoHospedagem(config.grupo_hospedagem);
       const recursosPacote = pacoteOperacional
@@ -554,6 +566,7 @@ export class PacoteService {
         usuario_id,
         lote_id,
         pacote_id: config.pacote_id || null,
+        periodo_id: config.periodo_id || null,
         status: "pacote_montado",
         checkout_estado: "inventario_reservado",
         // A FK aponta para inventario_holds, que referencia esta reserva.

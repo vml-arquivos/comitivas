@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { db } from "../db/index.js";
-import { eventos, lotes, pacotes, fotos_evento, fotosPacote, avaliacoes, reservas, leads_origem, usuarios, videosEvento } from "../db/schema.js";
+import { eventos, lotes, pacotes, pacotePeriodos, fotos_evento, fotosPacote, avaliacoes, reservas, leads_origem, usuarios, videosEvento } from "../db/schema.js";
 import { eq, and, gt, lt, desc, sql, isNull } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { AuthService } from "../services/authService.js";
@@ -113,6 +113,14 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
             .from(fotosPacote)
             .where(eq(fotosPacote.pacote_id, modalidade.id))
             .orderBy(fotosPacote.ordem),
+          periodos: await db.select({
+            id: pacotePeriodos.id, nome: pacotePeriodos.nome, descricao: pacotePeriodos.descricao,
+            data_inicio: pacotePeriodos.data_inicio, data_fim: pacotePeriodos.data_fim,
+            data_embarque: pacotePeriodos.data_embarque, data_retorno: pacotePeriodos.data_retorno,
+            ordem: pacotePeriodos.ordem,
+          }).from(pacotePeriodos)
+            .where(and(eq(pacotePeriodos.pacote_id, modalidade.id), eq(pacotePeriodos.ativo, true)))
+            .orderBy(pacotePeriodos.ordem, pacotePeriodos.data_inicio),
         })));
 
         return {
