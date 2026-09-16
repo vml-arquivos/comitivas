@@ -16,7 +16,7 @@ describe("seleção explícita do tipo de contratação", () => {
     expect(configurador).toContain("Somente hospedagem");
     expect(configurador).toContain("Somente transporte");
     expect(configurador).toContain("forma_contratacao: formaContratacao");
-    expect(configurador).toContain("Nenhum contrato será definido automaticamente pelo link");
+    expect(configurador).toContain("Agora selecione somente o tipo de contratação e o período da viagem");
     expect(configurador).not.toContain("if (formasAtivas.length === 1) setFormaContratacao");
     expect(configurador).not.toContain("if (selecionado) setFormaContratacao");
     expect(intent).toContain("formaContratacao?: 'onibus' | 'hospedagem' | 'onibus_hospedagem'");

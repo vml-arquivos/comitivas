@@ -146,8 +146,14 @@ export default function ConfiguradorPacote() {
           setFormaContratacao(formaSalva);
           setParticipantes(intencaoSalva?.participantes || []);
         } else {
-          setPacoteId('');
-          setPeriodoId('');
+          const pacoteDaVitrine = pacoteSolicitado
+            ? listaPacotes.find((pacote: PacotePublicado) => pacote.id === pacoteSolicitado && pacote.disponibilidade !== 'esgotado')
+            : undefined;
+          const periodoDaVitrine = periodoSolicitado && pacoteDaVitrine?.periodos?.some((periodo: PeriodoPublicado) => periodo.id === periodoSolicitado)
+            ? periodoSolicitado
+            : pacoteDaVitrine?.periodos?.length === 1 ? pacoteDaVitrine.periodos[0].id : '';
+          setPacoteId(pacoteDaVitrine?.id || '');
+          setPeriodoId(periodoDaVitrine);
           setFormaContratacao('');
           setParticipantes([]);
         }
@@ -406,7 +412,7 @@ export default function ConfiguradorPacote() {
         {pacoteSugerido && !formaContratacao && (
           <div className="flex gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
             <Info size={18} className="mt-0.5 shrink-0" />
-            <p>Você abriu <strong>{pacoteSugerido.nome}</strong>. Confirme primeiro o tipo de contratação; depois escolha a modalidade e o preço correspondente. Nenhum contrato será definido automaticamente pelo link.</p>
+            <p>Você escolheu <strong>{pacoteSugerido.nome}</strong>. Agora selecione somente o tipo de contratação e o período da viagem.</p>
           </div>
         )}
 
@@ -416,8 +422,10 @@ export default function ConfiguradorPacote() {
 
         {formaContratacao && pacotesDoTipo.length > 0 && (
           <section>
-            <div className="mb-3"><h2 className="text-xl font-bold text-slate-900">2. {formaContratacao === 'onibus' ? 'Escolha seu pacote de transporte' : 'Escolha sua hospedagem'}</h2><p className="text-sm text-gray-500">Mostramos somente as opções cadastradas para <strong>{formaContratacaoMeta[formaContratacao].label.toLowerCase()}</strong>. O preço exibido é o preço real desse pacote.</p></div>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="mb-3"><h2 className="text-xl font-bold text-slate-900">2. {pacoteSolicitado && pacoteSelecionado ? 'Pacote selecionado' : formaContratacao === 'onibus' ? 'Escolha seu pacote de transporte' : 'Escolha sua hospedagem'}</h2><p className="text-sm text-gray-500">{pacoteSolicitado && pacoteSelecionado ? 'O pacote escolhido na vitrine está abaixo. Se quiser, você pode trocar antes de continuar.' : <>Mostramos somente as opções cadastradas para <strong>{formaContratacaoMeta[formaContratacao].label.toLowerCase()}</strong>. O preço exibido é o preço real desse pacote.</>}</p></div>
+            {pacoteSolicitado && pacoteSelecionado && pacoteSelecionado.id === pacoteId ? (
+              <div className="rounded-2xl border border-primary/30 bg-primary/5 p-5 shadow-sm"><div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-black uppercase tracking-wide text-primary">Sua escolha</p><h3 className="mt-1 text-lg font-bold text-slate-900">{pacoteSelecionado.nome}</h3><p className="mt-1 text-sm text-slate-600">{formatarMoeda(pacoteSelecionado.valor_total)} · {rotuloPagamento(pacoteSelecionado)}</p></div><button type="button" onClick={() => { setPacoteId(''); setPeriodoId(''); setCalculo(null); }} className="rounded-full border border-primary/30 px-4 py-2 text-sm font-bold text-primary hover:bg-white">Trocar pacote</button></div></div>
+            ) : <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {pacotesDoTipo.map((pacote) => {
                 const meta = modalidadeMeta[pacote.modalidade_hospedagem];
                 const Icon = meta?.icon || TentTree;
@@ -435,7 +443,7 @@ export default function ConfiguradorPacote() {
                   <p className="mt-1 text-xs font-semibold text-slate-500">{rotuloPagamento(pacote)}</p>
                 </button>;
               })}
-            </div>
+            </div>}
             {pacoteSelecionado && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"><strong>{formaContratacaoMeta[formaContratacao].label}</strong> · {pacoteSelecionado.nome} selecionado.</div>}
           </section>
         )}
