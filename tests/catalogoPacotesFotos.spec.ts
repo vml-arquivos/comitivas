@@ -101,11 +101,11 @@ describe("catálogo simples de excursões, lotes e pacotes", () => {
     const tela = ler("apps/web/src/pages/admin/Eventos.tsx");
     const rotasPacotes = ler("server/routes/pacotes.ts");
     const publico = ler("server/routes/publico.ts");
-    expect(tela).toContain("Salvar pacote e configurar períodos");
+    expect(tela).toContain("Salvar pacote e selecionar períodos");
     expect(tela).toContain("Total planejado de transporte");
     expect(tela).toContain("Total planejado de hospedagem");
     expect(tela).toContain("Preço e vagas definidos nos lotes");
-    expect(tela).toContain("Próximo: configurar lotes");
+    expect(tela).toContain("Configurar lotes");
     expect(tela).toContain("onibus_config: anterior?.onibus_config || []");
     expect(rotasPacotes).toContain("O pacote define apenas o escopo contratado");
     expect(publico).not.toContain("data_embarque: pacotePeriodos.data_embarque");

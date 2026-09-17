@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent, type FocusEvent } from 'react';
 import { api } from '../../contexts/AuthContext';
 import { Card, CardContent, Button, Input } from '@ui/index';
 import { AdminModal } from '../../components/admin/AdminModal';
-import { ArrowRight, CalendarDays, CalendarRange, ChevronDown, ChevronUp, Clock3, Eye, FileText, ImagePlus, MapPin, PackagePlus, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { ArrowRight, CalendarDays, ChevronDown, ChevronUp, ImagePlus, MapPin, PackagePlus, Pencil, Plus, Trash2, X } from 'lucide-react';
 
 interface Evento {
   id: string;
@@ -221,7 +221,6 @@ const vazioPacote = {
   prazoSegurancaDias: '0', multaAtraso: '2', jurosMoraMensal: '1', dataLimitePagamento: '',
   destaqueTitulo: '', destaqueSubtitulo: '', destaqueTexto: '',
 };
-const vazioPeriodo = { nome: '', descricao: '', dataInicio: '', dataFim: '', dataEmbarque: '', dataRetorno: '', capacidadeTransporte: '', capacidadeHospedagem: '', ordem: '' };
 const vazioPeriodoExcursao = { nome: '', descricao: '', dataInicio: '', dataFim: '', dataEmbarque: '', dataRetorno: '', capacidadeTransporte: '', capacidadeHospedagem: '', ordem: '' };
 const vazioLoteComercial = { periodoId: '', nome: '', descricao: '', vagas: '', valor: '', dataInicio: '', dataFim: '', criterioEncerramento: 'vagas_data' as 'vagas' | 'data' | 'vagas_data' };
 
@@ -241,7 +240,6 @@ export default function EventosAdmin() {
   const [galeriaPacoteAberta, setGaleriaPacoteAberta] = useState<string | null>(null);
   const [periodosPacoteAberto, setPeriodosPacoteAberto] = useState<string | null>(null);
   const [lotesComerciaisPacoteAberto, setLotesComerciaisPacoteAberto] = useState<string | null>(null);
-  const [periodoEditando, setPeriodoEditando] = useState<string | null>(null);
   const [periodoExcursaoEditando, setPeriodoExcursaoEditando] = useState<string | null>(null);
   const [loteComercialEditando, setLoteComercialEditando] = useState<string | null>(null);
   const [mostrarFormEvento, setMostrarFormEvento] = useState(false);
@@ -251,7 +249,6 @@ export default function EventosAdmin() {
   const [eventoForm, setEventoForm] = useState(vazioEvento);
   const [loteForm, setLoteForm] = useState(vazioLote);
   const [pacoteForm, setPacoteForm] = useState(vazioPacote);
-  const [periodoForm, setPeriodoForm] = useState(vazioPeriodo);
   const [periodoExcursaoForm, setPeriodoExcursaoForm] = useState(vazioPeriodoExcursao);
   const [loteComercialForm, setLoteComercialForm] = useState(vazioLoteComercial);
   const [fotoEvento, setFotoEvento] = useState<{ arquivo: File | null; legenda: string }>({ arquivo: null, legenda: '' });
@@ -470,14 +467,12 @@ export default function EventosAdmin() {
       const resposta = pacoteEditando ? await api.put(`/pacotes/${pacoteEditando}`, payload) : await api.post('/pacotes', payload);
       const pacoteSalvo = resposta.data.pacote as Pacote;
       await carregarPacotes(loteId);
-      setMensagem(pacoteEditando ? 'Pacote atualizado. Configure ou revise os períodos abaixo.' : 'Pacote criado. Agora configure os períodos deste pacote.');
+      setMensagem(pacoteEditando ? 'Pacote atualizado. Agora revise os períodos centrais oferecidos.' : 'Pacote criado. Agora selecione os períodos centrais oferecidos.');
       setPacoteForm(vazioPacote); setPacoteEditando(null);
       if (pacoteSalvo?.id) {
         setLotesComerciaisPacoteAberto(null);
-        setPeriodoEditando(null);
-        setPeriodoForm(vazioPeriodo);
         setPeriodosPacoteAberto(pacoteSalvo.id);
-        await carregarPeriodosPacote(pacoteSalvo.id);
+        await Promise.all([carregarPeriodosPacote(pacoteSalvo.id), carregarPeriodosExcursaoPacote(pacoteSalvo.id)]);
         await carregarFotosPacote(pacoteSalvo.id).catch(() => undefined);
       }
     } catch (err: any) { setErro(erroDaApi(err, 'Não foi possível salvar o pacote.')); }
@@ -488,53 +483,10 @@ export default function EventosAdmin() {
     limparFeedback();
     const abrir = periodosPacoteAberto !== pacoteId;
     setPeriodosPacoteAberto(abrir ? pacoteId : null);
-    setPeriodoEditando(null);
-    setPeriodoForm(vazioPeriodo);
     if (abrir) {
       try { await Promise.all([carregarPeriodosPacote(pacoteId), carregarPeriodosExcursaoPacote(pacoteId)]); }
       catch (err: any) { setErro(erroDaApi(err, 'Não foi possível carregar os períodos do pacote.')); }
     }
-  };
-
-  const salvarPeriodo = async (e: FormEvent, pacoteId: string) => {
-    e.preventDefault();
-    limparFeedback();
-    if (!periodoForm.nome.trim() || !periodoForm.dataInicio || !periodoForm.dataFim) { setErro('Informe o nome e o intervalo do período.'); return; }
-    if (periodoForm.dataInicio > periodoForm.dataFim) { setErro('A data inicial deve ser anterior à data final.'); return; }
-    if (periodoForm.dataEmbarque && periodoForm.dataRetorno && periodoForm.dataEmbarque > periodoForm.dataRetorno) { setErro('A saída deve ocorrer antes do retorno.'); return; }
-    setSalvando(true);
-    try {
-      const payload = {
-        nome: periodoForm.nome.trim(), descricao: periodoForm.descricao.trim() || undefined,
-        data_inicio: dataSaoPauloIso(periodoForm.dataInicio), data_fim: dataSaoPauloIso(periodoForm.dataFim, true),
-        data_embarque: periodoForm.dataEmbarque ? dataHoraSaoPauloIso(periodoForm.dataEmbarque) : null,
-        data_retorno: periodoForm.dataRetorno ? dataHoraSaoPauloIso(periodoForm.dataRetorno) : null,
-        capacidade_transporte_planejada: periodoForm.capacidadeTransporte === '' ? null : Number(periodoForm.capacidadeTransporte),
-        capacidade_hospedagem_planejada: periodoForm.capacidadeHospedagem === '' ? null : Number(periodoForm.capacidadeHospedagem),
-        ordem: periodoForm.ordem ? Number(periodoForm.ordem) : undefined,
-      };
-      if (periodoEditando) await api.put(`/pacotes/${pacoteId}/periodos/${periodoEditando}`, payload);
-      else await api.post(`/pacotes/${pacoteId}/periodos`, payload);
-      await carregarPeriodosPacote(pacoteId);
-      setPeriodoForm(vazioPeriodo); setPeriodoEditando(null);
-      setMensagem(periodoEditando ? 'Período atualizado.' : 'Período adicionado ao pacote.');
-    } catch (err: any) { setErro(erroDaApi(err, 'Não foi possível salvar o período.')); }
-    finally { setSalvando(false); }
-  };
-
-  const editarPeriodo = (periodo: PeriodoPacote) => {
-    setPeriodoEditando(periodo.id);
-    setPeriodoForm({ nome: periodo.nome, descricao: periodo.descricao || '', dataInicio: paraDataInput(periodo.data_inicio), dataFim: paraDataInput(periodo.data_fim), dataEmbarque: paraDataHoraInput(periodo.data_embarque), dataRetorno: paraDataHoraInput(periodo.data_retorno), capacidadeTransporte: periodo.capacidade_transporte_planejada == null ? '' : String(periodo.capacidade_transporte_planejada), capacidadeHospedagem: periodo.capacidade_hospedagem_planejada == null ? '' : String(periodo.capacidade_hospedagem_planejada), ordem: String(periodo.ordem ?? '') });
-  };
-
-  const excluirPeriodo = async (pacoteId: string, periodoId: string) => {
-    if (!window.confirm('Excluir este período? Se houver reservas, ele será apenas desativado para preservar o histórico.')) return;
-    try {
-      limparFeedback();
-      const resposta = await api.delete(`/pacotes/${pacoteId}/periodos/${periodoId}`);
-      await carregarPeriodosPacote(pacoteId);
-      setMensagem(resposta.data.mensagem || 'Período removido.');
-    } catch (err: any) { setErro(erroDaApi(err, 'Não foi possível excluir o período.')); }
   };
 
   const abrirLotesComerciais = async (pacoteId: string) => {
@@ -695,8 +647,7 @@ export default function EventosAdmin() {
         <Input label="Fim" type="date" min={periodoExcursaoForm.dataInicio || undefined} value={periodoExcursaoForm.dataFim} onChange={(e) => setPeriodoExcursaoForm({ ...periodoExcursaoForm, dataFim: e.target.value })} onFocus={abrirCalendario} required />
         <Input label="Embarque (opcional)" type="datetime-local" value={periodoExcursaoForm.dataEmbarque} onChange={(e) => setPeriodoExcursaoForm({ ...periodoExcursaoForm, dataEmbarque: e.target.value })} onFocus={abrirCalendario} />
         <Input label="Retorno (opcional)" type="datetime-local" min={periodoExcursaoForm.dataEmbarque || undefined} value={periodoExcursaoForm.dataRetorno} onChange={(e) => setPeriodoExcursaoForm({ ...periodoExcursaoForm, dataRetorno: e.target.value })} onFocus={abrirCalendario} />
-        <Input label="Capacidade planejada de ônibus (opcional)" type="number" min={0} value={periodoExcursaoForm.capacidadeTransporte} onChange={(e) => setPeriodoExcursaoForm({ ...periodoExcursaoForm, capacidadeTransporte: e.target.value })} placeholder="Será controlada pelos ônibus reais" />
-        <Input label="Capacidade planejada de hospedagem (opcional)" type="number" min={0} value={periodoExcursaoForm.capacidadeHospedagem} onChange={(e) => setPeriodoExcursaoForm({ ...periodoExcursaoForm, capacidadeHospedagem: e.target.value })} placeholder="Será controlada pelos quartos reais" />
+        <div className="sm:col-span-2 rounded-2xl border border-[#C94F38]/20 bg-[#fff8f4] p-4"><p className="text-sm font-black text-[#073F50]">Capacidade planejada do período</p><p className="mt-1 text-xs leading-5 text-slate-600">Use como teto comercial opcional. A disponibilidade efetiva será controlada pelos ônibus e quartos reais cadastrados nesta janela.</p><div className="mt-3 grid gap-3 sm:grid-cols-2"><Input label="Total planejado de transporte (opcional)" type="number" min={0} value={periodoExcursaoForm.capacidadeTransporte} onChange={(e) => setPeriodoExcursaoForm({ ...periodoExcursaoForm, capacidadeTransporte: e.target.value })} placeholder="Será controlado pelos ônibus reais" /><Input label="Total planejado de hospedagem (opcional)" type="number" min={0} value={periodoExcursaoForm.capacidadeHospedagem} onChange={(e) => setPeriodoExcursaoForm({ ...periodoExcursaoForm, capacidadeHospedagem: e.target.value })} placeholder="Será controlado pelos quartos reais" /></div></div>
         <div className="sm:col-span-2"><label className="mb-1 block text-sm font-medium text-slate-700">Descrição <span className="font-normal text-slate-400">(opcional)</span><textarea value={periodoExcursaoForm.descricao} onChange={(e) => setPeriodoExcursaoForm({ ...periodoExcursaoForm, descricao: e.target.value })} rows={2} maxLength={2000} className="mt-1 w-full rounded-xl border border-slate-300 p-3 text-sm" placeholder="Informações da permanência ou da viagem." /></label></div>
         <div className="flex flex-wrap gap-2 sm:col-span-2"><Button type="submit" disabled={salvando}>{salvando ? 'Salvando...' : periodoExcursaoEditando ? 'Salvar período' : 'Criar período'}</Button>{periodoExcursaoEditando && <Button type="button" variant="outline" onClick={limpar}>Cancelar edição</Button>}</div>
       </form>
@@ -767,144 +718,58 @@ export default function EventosAdmin() {
   const renderPeriodosPacote = (pacote: Pacote) => {
     const periodos = periodosPorPacote[pacote.id] || pacote.periodos || [];
     const periodosCentrais = periodosExcursaoPacote[pacote.id] || [];
-    const fechar = () => {
-      setPeriodosPacoteAberto(null);
-      setPeriodoEditando(null);
-      setPeriodoForm(vazioPeriodo);
-    };
-    const iniciarNovo = () => {
-      setPeriodoEditando(null);
-      setPeriodoForm(vazioPeriodo);
-      requestAnimationFrame(() => document.getElementById(`form-periodo-${pacote.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-    };
+    const fechar = () => setPeriodosPacoteAberto(null);
+    const selecionados = periodosCentrais.filter((periodo) => periodo.selecionado);
 
     return (
       <AdminModal
         aberto={periodosPacoteAberto === pacote.id}
-        titulo={`Períodos · ${pacote.nome}`}
-        descricao="Configure cada final de semana ou janela de viagem que o cliente poderá escolher neste pacote."
+        titulo={`Períodos oferecidos · ${pacote.nome}`}
+        descricao="Os períodos são criados uma única vez na excursão e depois selecionados pelos pacotes que os oferecem."
         fechar={fechar}
         largura="ampla"
       >
-        <section className="mb-6 rounded-2xl border border-[#073F50]/15 bg-[#f8fbfa] p-4 sm:p-5">
-          <p className="text-xs font-black uppercase tracking-[.14em] text-[#C94F38]">Escolha as janelas da excursão</p>
-          <h3 className="mt-1 text-lg font-black text-[#073F50]">Este pacote oferece quais períodos?</h3>
-          <p className="mt-1 text-sm leading-6 text-slate-600">Selecione um ou mais períodos já criados na excursão. O ônibus e a hospedagem serão vinculados à mesma janela para todos os pacotes.</p>
-          {periodosCentrais.length === 0 ? <p className="mt-3 rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">Ainda não há períodos centrais. Feche este modal, crie-os na etapa da excursão e volte para selecionar.</p> : <div className="mt-3 grid gap-2 md:grid-cols-2">{periodosCentrais.map((periodo) => <label key={periodo.id} className={`flex items-start gap-3 rounded-xl border bg-white p-3 ${periodo.selecionado ? 'border-emerald-300' : 'border-slate-200'}`}><input type="checkbox" className="mt-1" checked={Boolean(periodo.selecionado)} disabled={salvando} onChange={() => void (periodo.selecionado ? removerPeriodoDoPacote(pacote.id, periodo.id) : adicionarPeriodoAoPacote(pacote.id, periodo.id))} /><span><strong className="block text-sm text-[#073F50]">{periodo.nome}</strong><span className="text-xs text-slate-500">{dataCalendarioBr(periodo.data_inicio)} a {dataCalendarioBr(periodo.data_fim)}{periodo.selecionado ? ' · selecionado neste pacote' : ' · disponível para seleção'}</span></span></label>)}</div>}
-        </section>
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1.12fr)_minmax(280px,.88fr)]">
-          <form id={`form-periodo-${pacote.id}`} onSubmit={(e) => void salvarPeriodo(e, pacote.id)} className="space-y-5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[.16em] text-[#C94F38]">{periodoEditando ? 'Editar período' : 'Novo período'}</p>
-                <h3 className="mt-1 text-xl font-black text-[#073F50]">Dados da janela de viagem</h3>
-                <p className="mt-1 text-sm leading-6 text-slate-500">Use um nome claro, escolha as datas no calendário e descreva o que o cliente verá na vitrine.</p>
-              </div>
-              <button type="button" onClick={iniciarNovo} className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-[#073F50] transition hover:border-[#C94F38]/40 hover:text-[#C94F38]">
-                <Plus size={14} className="mr-1 inline" /> Novo
-              </button>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="sm:col-span-2">
-                  <Input
-                    label="Nome do período"
-                    value={periodoForm.nome}
-                    onChange={(e) => setPeriodoForm({ ...periodoForm, nome: e.target.value })}
-                    placeholder="Ex.: 1º fim de semana"
-                    maxLength={160}
-                    autoFocus
-                    required
-                  />
-                  <p className="mt-1.5 text-xs text-slate-400">Ex.: Primeiro fim de semana, segundo fim de semana ou pacote especial.</p>
-                </div>
-                <div>
-                  <Input
-                    label="Início do período"
-                    type="date"
-                    value={periodoForm.dataInicio}
-                    onChange={(e) => setPeriodoForm({ ...periodoForm, dataInicio: e.target.value })}
-                    onFocus={abrirCalendario}
-                    required
-                  />
-                  <p className="mt-1.5 flex items-center gap-1 text-xs text-slate-400"><CalendarRange size={13} /> Calendário · {dataInputBr(periodoForm.dataInicio)}</p>
-                </div>
-                <div>
-                  <Input
-                    label="Fim do período"
-                    type="date"
-                    value={periodoForm.dataFim}
-                    onChange={(e) => setPeriodoForm({ ...periodoForm, dataFim: e.target.value })}
-                    onFocus={abrirCalendario}
-                    min={periodoForm.dataInicio || undefined}
-                    required
-                  />
-                  <p className="mt-1.5 flex items-center gap-1 text-xs text-slate-400"><CalendarRange size={13} /> Calendário · {dataInputBr(periodoForm.dataFim)}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-[#C94F38]/20 bg-[#fff8f4] p-4 sm:p-5">
-              <div className="mb-4 flex items-start gap-3">
-                <div className="rounded-xl bg-white p-2 text-[#C94F38] shadow-sm"><PackagePlus size={18} /></div>
-                <div><h4 className="font-black text-[#073F50]">Capacidade planejada do período</h4><p className="mt-1 text-xs leading-5 text-slate-600">Defina o teto comercial que poderá ser distribuído entre os lotes deste período. O sistema nunca venderá acima dele.</p></div>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Input label="Total planejado de transporte" type="number" min={0} max={100000} value={periodoForm.capacidadeTransporte} onChange={(e) => setPeriodoForm({ ...periodoForm, capacidadeTransporte: e.target.value })} placeholder="Ex.: 132 vagas" />
-                <Input label="Total planejado de hospedagem" type="number" min={0} max={100000} value={periodoForm.capacidadeHospedagem} onChange={(e) => setPeriodoForm({ ...periodoForm, capacidadeHospedagem: e.target.value })} placeholder="Ex.: 120 vagas" />
-              </div>
-              <p className="mt-3 text-xs leading-5 text-slate-500">Depois, cadastre ônibus e quartos reais vinculados a este período. Eles determinam a disponibilidade efetiva; adicionar ou remanejar recursos continua disponível nas telas de Operação e Hospedagem.</p>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5">
-              <div className="mb-4 flex items-start gap-3">
-                <div className="rounded-xl bg-white p-2 text-[#C94F38] shadow-sm"><Clock3 size={18} /></div>
-                <div><h4 className="font-black text-[#073F50]">Operação da viagem <span className="font-normal text-slate-400">(opcional)</span></h4><p className="mt-1 text-xs leading-5 text-slate-500">Informe saída e retorno quando este período tiver horários próprios de ônibus.</p></div>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <Input label="Saída / embarque" type="datetime-local" value={periodoForm.dataEmbarque} onChange={(e) => setPeriodoForm({ ...periodoForm, dataEmbarque: e.target.value })} onFocus={abrirCalendario} />
-                  <p className="mt-1.5 text-xs text-slate-400">{dataHoraInputBr(periodoForm.dataEmbarque)}</p>
-                </div>
-                <div>
-                  <Input label="Retorno" type="datetime-local" value={periodoForm.dataRetorno} onChange={(e) => setPeriodoForm({ ...periodoForm, dataRetorno: e.target.value })} onFocus={abrirCalendario} min={periodoForm.dataEmbarque || undefined} />
-                  <p className="mt-1.5 text-xs text-slate-400">{dataHoraInputBr(periodoForm.dataRetorno)}</p>
-                </div>
-                <Input label="Ordem de exibição" type="number" min={0} value={periodoForm.ordem} onChange={(e) => setPeriodoForm({ ...periodoForm, ordem: e.target.value })} placeholder="Ex.: 1" />
-              </div>
-            </div>
-
+        <section className="rounded-2xl border border-[#073F50]/15 bg-[#f8fbfa] p-4 sm:p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <label htmlFor={`descricao-periodo-${pacote.id}`} className="mb-1.5 block text-sm font-semibold text-[#334A58]">Descrição para o cliente <span className="font-normal text-slate-400">(opcional)</span></label>
-              <textarea id={`descricao-periodo-${pacote.id}`} value={periodoForm.descricao} onChange={(e) => setPeriodoForm({ ...periodoForm, descricao: e.target.value })} maxLength={2000} rows={4} className="min-h-[112px] w-full resize-y rounded-xl border border-[#182D3B]/15 bg-white px-4 py-3 text-sm text-[#334A58] placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/35" placeholder="Ex.: Saída na quinta à noite, retorno no domingo após o encerramento." />
-              <div className="mt-1 flex justify-between gap-3 text-xs text-slate-400"><span>Esse texto aparece junto ao período na experiência do cliente.</span><span>{periodoForm.descricao.length}/2000</span></div>
+              <p className="text-xs font-black uppercase tracking-[.14em] text-[#C94F38]">Etapa 2 · vincular período</p>
+              <h3 className="mt-1 text-lg font-black text-[#073F50]">Quais janelas este pacote oferece?</h3>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">Marque um ou mais períodos já cadastrados na excursão. A mesma janela compartilha os ônibus e os quartos entre todos os pacotes compatíveis; não crie datas novamente dentro do pacote.</p>
             </div>
+            <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-[#073F50] shadow-sm">{selecionados.length} selecionado{selecionados.length === 1 ? '' : 's'}</span>
+          </div>
 
-            <div className="flex flex-wrap gap-3 border-t border-slate-200 pt-5">
-              <Button type="submit" disabled={salvando}>{salvando ? 'Salvando...' : periodoEditando ? 'Salvar alterações' : 'Adicionar período'}</Button>
-              {periodoEditando && <Button type="button" variant="outline" onClick={iniciarNovo}>Cancelar edição</Button>}
+          {periodosCentrais.length === 0 ? (
+            <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-sm leading-6 text-slate-600">
+              <strong className="text-[#073F50]">Nenhum período central disponível.</strong> Feche esta janela, cadastre primeiro as janelas em “Períodos da excursão” e depois volte para vinculá-las ao pacote.
             </div>
-          </form>
-
-          <aside className="h-fit rounded-2xl border border-[#C94F38]/20 bg-[#fff8f4] p-4 sm:p-5 lg:sticky lg:top-24">
-            <div className="flex items-center gap-2 text-[#C94F38]"><Eye size={17} /><p className="text-xs font-black uppercase tracking-[.14em]">Pré-visualização</p></div>
-            <p className="mt-2 text-xs leading-5 text-slate-500">Veja como a janela ficará organizada antes de salvar.</p>
-            <div className="mt-5 overflow-hidden rounded-2xl border border-white bg-white shadow-sm">
-              <div className="border-b border-slate-100 bg-[#073F50] px-4 py-3"><p className="text-[10px] font-black uppercase tracking-[.14em] text-white/70">{pacote.nome}</p><p className="mt-1 text-sm font-bold text-white">Período selecionável</p></div>
-              <div className="space-y-4 p-4">
-                <div><p className="text-lg font-black text-[#073F50]">{periodoForm.nome.trim() || 'Nome do período'}</p><p className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-[#C94F38]"><CalendarRange size={15} />{periodoForm.dataInicio && periodoForm.dataFim ? `${dataInputBr(periodoForm.dataInicio)} a ${dataInputBr(periodoForm.dataFim)}` : 'Escolha as datas'}</p></div>
-                {(periodoForm.dataEmbarque || periodoForm.dataRetorno) && <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600"><p className="font-bold text-[#073F50]">Operação</p><p className="mt-1">Saída: {dataHoraInputBr(periodoForm.dataEmbarque)}</p><p>Retorno: {dataHoraInputBr(periodoForm.dataRetorno)}</p></div>}
-                <div className="flex items-start gap-2 border-t border-slate-100 pt-3"><FileText size={15} className="mt-0.5 shrink-0 text-slate-400" /><p className="text-sm leading-6 text-slate-600">{periodoForm.descricao.trim() || 'A descrição do período aparecerá aqui para orientar o cliente.'}</p></div>
-              </div>
+          ) : (
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+              {periodosCentrais.map((periodo) => (
+                <label key={periodo.id} className={`flex cursor-pointer items-start gap-3 rounded-2xl border bg-white p-4 transition ${periodo.selecionado ? 'border-emerald-300 bg-emerald-50/50 shadow-sm' : 'border-slate-200 hover:border-[#C94F38]/35'}`}>
+                  <input type="checkbox" className="mt-1 h-4 w-4 accent-[#C94F38]" checked={Boolean(periodo.selecionado)} disabled={salvando} onChange={() => void (periodo.selecionado ? removerPeriodoDoPacote(pacote.id, periodo.id) : adicionarPeriodoAoPacote(pacote.id, periodo.id))} />
+                  <span className="min-w-0">
+                    <strong className="block text-sm text-[#073F50]">{periodo.nome}</strong>
+                    <span className="mt-1 block text-xs font-semibold text-[#C94F38]">{dataCalendarioBr(periodo.data_inicio)} a {dataCalendarioBr(periodo.data_fim)}</span>
+                    {(periodo.capacidade_transporte_planejada != null || periodo.capacidade_hospedagem_planejada != null) && <span className="mt-2 block text-xs text-slate-500">Planejado: {periodo.capacidade_transporte_planejada ?? '—'} transporte · {periodo.capacidade_hospedagem_planejada ?? '—'} hospedagem</span>}
+                    {periodo.descricao && <span className="mt-2 block line-clamp-3 text-xs leading-5 text-slate-600">{periodo.descricao}</span>}
+                    <span className={`mt-2 inline-block text-[11px] font-bold ${periodo.selecionado ? 'text-emerald-700' : 'text-slate-500'}`}>{periodo.selecionado ? 'Selecionado neste pacote' : 'Disponível para seleção'}</span>
+                  </span>
+                </label>
+              ))}
             </div>
-            <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs leading-5 text-emerald-800">As datas e a descrição só entram no catálogo depois que você clicar em salvar.</div>
-          </aside>
-        </div>
+          )}
+        </section>
 
-        <section className="mt-7 border-t border-slate-200 pt-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="text-lg font-black text-[#073F50]">Períodos configurados</h3><p className="mt-1 text-sm text-slate-500">Edite ou remova qualquer janela sem alterar o histórico das reservas.</p></div><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{periodos.length} {periodos.length === 1 ? 'período' : 'períodos'}</span>{periodos.length > 0 && <Button type="button" onClick={() => { fechar(); void abrirLotesComerciais(pacote.id); }}><ArrowRight size={15} className="mr-2" />Próximo: configurar lotes</Button>}</div></div>
-          {periodos.length === 0 ? <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-500">Nenhum período adicional. Enquanto não houver uma janela, o pacote usará as datas do lote.</div> : <div className="mt-4 grid gap-3 md:grid-cols-2">{periodos.map((periodo) => <article key={periodo.id} className={`rounded-2xl border bg-white p-4 shadow-sm ${periodo.ativo ? 'border-slate-200' : 'border-amber-200 bg-amber-50/60'}`}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h4 className="font-black text-[#073F50]">{periodo.nome}</h4>{!periodo.ativo && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-amber-700">Desativado</span>}</div><p className="mt-2 flex items-center gap-1.5 text-sm font-semibold text-[#C94F38]"><CalendarRange size={14} />{dataCalendarioBr(periodo.data_inicio)} a {dataCalendarioBr(periodo.data_fim)}</p>{(periodo.capacidade_transporte_planejada != null || periodo.capacidade_hospedagem_planejada != null) && <p className="mt-2 text-xs font-semibold text-slate-600">Planejado: {periodo.capacidade_transporte_planejada ?? '—'} transporte · {periodo.capacidade_hospedagem_planejada ?? '—'} hospedagem</p>}{(periodo.data_embarque || periodo.data_retorno) && <p className="mt-1 text-xs text-slate-500">Saída {periodo.data_embarque ? dataHoraCalendarioBr(periodo.data_embarque) : 'não informada'} · retorno {periodo.data_retorno ? dataHoraCalendarioBr(periodo.data_retorno) : 'não informado'}</p>}{periodo.descricao && <p className="mt-3 line-clamp-3 text-sm leading-5 text-slate-600">{periodo.descricao}</p>}</div><div className="flex shrink-0 gap-1"><button type="button" onClick={() => editarPeriodo(periodo)} className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500 transition hover:border-[#C94F38]/40 hover:text-[#C94F38]" title="Editar período"><Pencil size={15} /></button><button type="button" onClick={() => void excluirPeriodo(pacote.id, periodo.id)} className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500 transition hover:border-red-200 hover:text-red-600" title="Excluir período"><Trash2 size={15} /></button></div></div></article>)}</div>}
+        <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-lg font-black text-[#073F50]">Períodos vinculados ao pacote</h3>
+              <p className="mt-1 text-sm text-slate-500">Os lotes comerciais usarão exatamente estas janelas e suas datas centrais.</p>
+            </div>
+            <Button type="button" disabled={periodos.length === 0} onClick={() => { fechar(); void abrirLotesComerciais(pacote.id); }}><ArrowRight size={15} className="mr-2" />Configurar lotes</Button>
+          </div>
+          {periodos.length === 0 ? <p className="mt-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">Selecione ao menos um período acima para liberar os lotes comerciais deste pacote.</p> : <div className="mt-4 grid gap-3 md:grid-cols-2">{periodos.map((periodo) => <article key={periodo.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4"><h4 className="font-black text-[#073F50]">{periodo.nome}</h4><p className="mt-2 text-sm font-semibold text-[#C94F38]">{dataCalendarioBr(periodo.data_inicio)} a {dataCalendarioBr(periodo.data_fim)}</p>{periodo.descricao && <p className="mt-2 line-clamp-3 text-sm leading-5 text-slate-600">{periodo.descricao}</p>}</article>)}</div>}
         </section>
       </AdminModal>
     );
@@ -928,16 +793,16 @@ export default function EventosAdmin() {
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
                 <p className="text-xs font-black uppercase tracking-[.14em] text-[#C94F38]">Configuração da excursão</p>
-                <h3 className="mt-1 text-lg font-black text-[#073F50]">Pacotes, períodos e operação</h3>
-                <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">Primeiro configure o pacote. Dentro dele, cadastre os períodos e vincule transporte e hospedagem. Só depois crie os lotes comerciais com preço e vagas para cada pacote e período; a forma de contratação é escolhida no checkout.</p>
+                <h3 className="mt-1 text-lg font-black text-[#073F50]">Períodos, pacotes e operação</h3>
+                <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">Primeiro crie as janelas da excursão. Depois crie os pacotes e selecione quais períodos cada um oferece. Ônibus e quartos são cadastrados uma vez por período e compartilhados entre os pacotes compatíveis; só depois configure os lotes comerciais.</p>
               </div>
               <Button variant="outline" disabled={!loteOperacional} onClick={() => { if (loteOperacional) void abrirPacotes(loteOperacional.id); }}>
                 <PackagePlus size={15} className="mr-2" />{loteOperacional && pacotesAbertos === loteOperacional.id ? 'Fechar configuração' : 'Configurar pacotes'}
               </Button>
             </div>
             <div className="mt-4 grid gap-3 md:grid-cols-3">
-              <div className="rounded-xl bg-[#fff8f4] p-3"><p className="text-xs font-black uppercase tracking-wide text-[#C94F38]">1. Pacote</p><p className="mt-1 text-sm text-slate-600">Nome, modalidade e formas de contratação.</p></div>
-              <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs font-black uppercase tracking-wide text-[#073F50]">2. Período e operação</p><p className="mt-1 text-sm text-slate-600">Datas, ônibus e quartos vinculados ao período.</p></div>
+              <div className="rounded-xl bg-[#fff8f4] p-3"><p className="text-xs font-black uppercase tracking-wide text-[#C94F38]">1. Pacote</p><p className="mt-1 text-sm text-slate-600">Crie o pacote, modalidade e formas de contratação.</p></div>
+              <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs font-black uppercase tracking-wide text-[#073F50]">2. Período e operação</p><p className="mt-1 text-sm text-slate-600">Selecione janelas e cadastre ônibus e quartos compartilhados.</p></div>
               <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs font-black uppercase tracking-wide text-[#073F50]">3. Lote comercial</p><p className="mt-1 text-sm text-slate-600">Preço, vagas e janela de venda por combinação.</p></div>
             </div>
             {renderPeriodosExcursao(evento)}
@@ -948,7 +813,7 @@ export default function EventosAdmin() {
                   <div>
                     <p className="text-xs font-black uppercase tracking-[.16em] text-[#C94F38]">{pacoteEditando ? 'Editar pacote' : '1 · Criar pacote'}</p>
                     <h5 className="mt-1 text-xl font-black text-[#073F50]">Estrutura do pacote</h5>
-                    <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">Defina o que será oferecido. As datas dos períodos, a capacidade, o preço e as vagas comerciais são configurados nos próximos passos.</p>
+                    <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">Defina o que será oferecido. As janelas são criadas na excursão e selecionadas depois; o preço e as vagas comerciais ficam nos lotes.</p>
                   </div>
                   <span className="inline-flex w-fit items-center rounded-full bg-white px-3 py-1.5 text-xs font-bold text-[#073F50] shadow-sm">Passo 1 de 3</span>
                 </div>
@@ -1001,9 +866,9 @@ export default function EventosAdmin() {
                 </div>
 
                 <div className="mt-5 flex flex-col gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:items-center">
-                  <Button type="submit" disabled={salvando}>{salvando ? 'Salvando...' : pacoteEditando ? 'Salvar pacote e revisar períodos' : 'Salvar pacote e configurar períodos'}</Button>
+                  <Button type="submit" disabled={salvando}>{salvando ? 'Salvando...' : pacoteEditando ? 'Salvar pacote e revisar períodos' : 'Salvar pacote e selecionar períodos'}</Button>
                   {pacoteEditando && <Button type="button" variant="outline" onClick={() => { setPacoteEditando(null); setPacoteForm(vazioPacote); }}>Cancelar edição</Button>}
-                  <p className="text-xs leading-5 text-slate-500 sm:ml-auto">Após salvar, os períodos serão abertos automaticamente.</p>
+                  <p className="text-xs leading-5 text-slate-500 sm:ml-auto">Após salvar, selecione os períodos centrais oferecidos.</p>
                 </div>
               </form>
               <div className={`mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3 ${pacoteEditando ? 'order-1' : 'order-2'}`}>{(pacotesPorLote[loteOperacional.id] || []).map((pacote) => <article key={pacote.id} className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex gap-3">{(fotosPorPacote[pacote.id] || [])[0] && <img src={(fotosPorPacote[pacote.id] || [])[0].url_foto} alt="" className="h-16 w-16 shrink-0 rounded-lg object-cover" />}<div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><div><p className="font-bold text-slate-900">{pacote.nome}</p><p className="text-xs font-medium text-[#C94F38]">{modalidades[pacote.modalidade_hospedagem]?.titulo || pacote.modalidade_hospedagem}</p></div><div className="flex gap-1"><button type="button" onClick={() => editarPacote(loteOperacional.id, pacote)} className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-800" title="Editar pacote"><Pencil size={15} /></button><button type="button" onClick={() => void excluirPacote(loteOperacional.id, pacote.id)} className="rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600" title="Excluir pacote"><Trash2 size={15} /></button></div></div><span className={`mt-2 inline-block rounded-full px-2 py-1 text-[10px] font-bold uppercase ${pacote.disponibilidade === 'esgotado' ? 'bg-slate-800 text-white' : pacote.disponibilidade === 'configuracao_pendente' ? 'bg-amber-100 text-amber-800' : pacote.disponibilidade === 'ultimas_vagas' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{disponibilidadeLabel(pacote.disponibilidade)}</span></div></div><p className="mt-3 text-sm font-bold text-[#073F50]">Preço e vagas definidos nos lotes</p><p className="mt-1 text-xs text-slate-500">{formasConfiguradasLabel(pacote)}</p><div className="mt-3 flex flex-wrap gap-3"><button type="button" onClick={() => { setGaleriaPacoteAberta(galeriaPacoteAberta === pacote.id ? null : pacote.id); if (galeriaPacoteAberta !== pacote.id) void carregarFotosPacote(pacote.id); }} className="text-xs font-bold text-[#851F32]">{galeriaPacoteAberta === pacote.id ? 'Fechar imagens' : `Imagens (${(fotosPorPacote[pacote.id] || []).length}/5)`}</button><button type="button" onClick={() => void abrirPeriodosPacote(pacote.id)} className="text-xs font-bold text-[#851F32]">{periodosPacoteAberto === pacote.id ? 'Fechar períodos' : `Períodos (${(periodosPorPacote[pacote.id] || pacote.periodos || []).length})`}</button><button type="button" onClick={() => void abrirLotesComerciais(pacote.id)} className="text-xs font-bold text-[#851F32]">{lotesComerciaisPacoteAberto === pacote.id ? 'Fechar lotes' : `Lotes comerciais (${(lotesComerciaisPorPacote[pacote.id] || []).length})`}</button></div>{galeriaPacoteAberta === pacote.id && renderGaleriaPacote(pacote)}{periodosPacoteAberto === pacote.id && renderPeriodosPacote(pacote)}{lotesComerciaisPacoteAberto === pacote.id && renderLotesComerciais(pacote)}</article>)}</div>
