@@ -81,11 +81,11 @@ SET evento_periodo_id = ep.id,
     atualizado_em = CURRENT_TIMESTAMP
 FROM pacotes p
 JOIN lotes l ON l.id = p.lote_id
-JOIN evento_periodos ep
-  ON ep.evento_id = l.evento_id
- AND DATE(ep.data_inicio) = DATE(pp.data_inicio)
- AND DATE(ep.data_fim) = DATE(pp.data_fim)
-WHERE pp.pacote_id = p.id AND pp.evento_periodo_id IS NULL;
+JOIN evento_periodos ep ON ep.evento_id = l.evento_id
+WHERE pp.pacote_id = p.id
+  AND pp.evento_periodo_id IS NULL
+  AND DATE(ep.data_inicio) = DATE(pp.data_inicio)
+  AND DATE(ep.data_fim) = DATE(pp.data_fim);
 
 UPDATE reservas r
 SET evento_periodo_id = pp.evento_periodo_id
