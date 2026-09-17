@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 
 export type FormaLoteComercial = "onibus_hospedagem" | "hospedagem" | "onibus";
 export type StatusLoteComercial = "disponivel" | "ultimas_vagas" | "esgotado" | "aguardando";
+export type CriterioEncerramentoLote = "vagas" | "data" | "vagas_data";
 
 export type LoteComercial = {
   id: string;
@@ -17,6 +18,7 @@ export type LoteComercial = {
   valor: string;
   data_inicio: Date;
   data_fim: Date | null;
+  criterio_encerramento: CriterioEncerramentoLote;
   saldo_migrado_em: Date | null;
   ativo: boolean;
   criado_em?: Date;
@@ -52,6 +54,7 @@ function mapear(row: any): LoteComercial {
     valor: String(row.valor),
     data_inicio: new Date(row.data_inicio),
     data_fim: row.data_fim ? new Date(row.data_fim) : null,
+    criterio_encerramento: row.criterio_encerramento === "vagas" || row.criterio_encerramento === "data" ? row.criterio_encerramento : "vagas_data",
     saldo_migrado_em: row.saldo_migrado_em ? new Date(row.saldo_migrado_em) : null,
     ativo: Boolean(row.ativo),
     criado_em: row.criado_em ? new Date(row.criado_em) : undefined,
@@ -67,13 +70,13 @@ async function consultar(executor: Executor, pacoteId: string, periodoId: string
   const rows = periodoId
     ? await executor.execute(sql`
         SELECT id, pacote_id, periodo_id, forma_contratacao, nome, descricao, ordem, vagas_totais, vagas_disponiveis,
-               valor, data_inicio, data_fim, saldo_migrado_em, ativo, criado_em, atualizado_em
+               valor, data_inicio, data_fim, criterio_encerramento, saldo_migrado_em, ativo, criado_em, atualizado_em
           FROM pacote_lotes_comerciais
          WHERE pacote_id = ${pacoteId} AND periodo_id = ${periodoId} AND ativo = true
          ORDER BY ordem ASC, data_inicio ASC, criado_em ASC, id ASC${lock}`)
     : await executor.execute(sql`
         SELECT id, pacote_id, periodo_id, forma_contratacao, nome, descricao, ordem, vagas_totais, vagas_disponiveis,
-               valor, data_inicio, data_fim, saldo_migrado_em, ativo, criado_em, atualizado_em
+               valor, data_inicio, data_fim, criterio_encerramento, saldo_migrado_em, ativo, criado_em, atualizado_em
           FROM pacote_lotes_comerciais
          WHERE pacote_id = ${pacoteId} AND periodo_id IS NULL AND ativo = true
          ORDER BY ordem ASC, data_inicio ASC, criado_em ASC, id ASC${lock}`);
@@ -90,7 +93,7 @@ async function consultarCandidatos(executor: Executor, pacoteId: string, periodo
 
 function estaAberto(lote: LoteComercial, agora: Date) {
   return lote.ativo && agora.getTime() >= lote.data_inicio.getTime()
-    && (!lote.data_fim || agora.getTime() <= lote.data_fim.getTime());
+    && (lote.criterio_encerramento === "vagas" || !lote.data_fim || agora.getTime() <= lote.data_fim.getTime());
 }
 
 function estaFuturo(lote: LoteComercial, agora: Date) {
@@ -101,7 +104,7 @@ async function migrarSaldoEncerradoNaTransacao(tx: any, lotes: LoteComercial[], 
   for (let indice = 0; indice < lotes.length - 1; indice += 1) {
     const atual = lotes[indice];
     const proximo = lotes[indice + 1];
-    if (!atual.data_fim || agora.getTime() <= atual.data_fim.getTime() || atual.vagas_disponiveis <= 0 || atual.saldo_migrado_em) continue;
+    if (atual.criterio_encerramento === "vagas" || !atual.data_fim || agora.getTime() <= atual.data_fim.getTime() || atual.vagas_disponiveis <= 0 || atual.saldo_migrado_em) continue;
     const saldo = atual.vagas_disponiveis;
     const atualizado = await tx.execute(sql`
       UPDATE pacote_lotes_comerciais
@@ -125,7 +128,7 @@ export class LoteComercialService {
     const filtroPeriodo = periodoId ? sql` AND periodo_id = ${periodoId}` : sql``;
     const rows = await db.execute(sql`
       SELECT id, pacote_id, periodo_id, forma_contratacao, nome, descricao, ordem, vagas_totais, vagas_disponiveis,
-             valor, data_inicio, data_fim, saldo_migrado_em, ativo, criado_em, atualizado_em
+             valor, data_inicio, data_fim, criterio_encerramento, saldo_migrado_em, ativo, criado_em, atualizado_em
         FROM pacote_lotes_comerciais
        WHERE pacote_id = ${pacoteId} AND ativo = true${filtroPeriodo}
        ORDER BY periodo_id NULLS FIRST, ordem, data_inicio, criado_em, id`);
@@ -166,7 +169,7 @@ export class LoteComercialService {
            SET vagas_disponiveis = vagas_disponiveis - ${quantidadeInteira}, atualizado_em = CURRENT_TIMESTAMP
          WHERE id = ${lote.id} AND ativo = true AND vagas_disponiveis >= ${quantidadeInteira}
          RETURNING id, pacote_id, periodo_id, forma_contratacao, nome, descricao, ordem, vagas_totais, vagas_disponiveis,
-                   valor, data_inicio, data_fim, saldo_migrado_em, ativo, criado_em, atualizado_em`);
+                   valor, data_inicio, data_fim, criterio_encerramento, saldo_migrado_em, ativo, criado_em, atualizado_em`);
       if (atualizado.rows?.length) return mapear(atualizado.rows[0]);
     }
     if (encontrouFuturo) throw new Error("Nenhuma condição comercial está disponível no momento. Verifique a data de início da venda.");
@@ -180,7 +183,7 @@ export class LoteComercialService {
          SET vagas_disponiveis = vagas_disponiveis - ${quantidadeInteira}, atualizado_em = CURRENT_TIMESTAMP
        WHERE id = ${loteId} AND ativo = true AND vagas_disponiveis >= ${quantidadeInteira}
        RETURNING id, pacote_id, periodo_id, forma_contratacao, nome, descricao, ordem, vagas_totais, vagas_disponiveis,
-                 valor, data_inicio, data_fim, saldo_migrado_em, ativo, criado_em, atualizado_em`);
+                 valor, data_inicio, data_fim, criterio_encerramento, saldo_migrado_em, ativo, criado_em, atualizado_em`);
     if (!atualizado.rows?.length) throw new Error("O lote comercial desta reserva não possui mais vagas disponíveis.");
     return mapear(atualizado.rows[0]);
   }

@@ -51,7 +51,8 @@ describe("mapa físico de ônibus", () => {
     const service = await readFile(new URL("../server/services/operacaoOnibusService.ts", import.meta.url), "utf8");
     const route = await readFile(new URL("../server/routes/operacao.ts", import.meta.url), "utf8");
 
-    expect(service).toContain("periodo_id = CASE WHEN ${periodoInformado === undefined} THEN periodo_id ELSE ${periodoFinal} END");
+    expect(service).toContain("periodo_id = CASE WHEN ${eventoPeriodoInformado !== undefined} THEN NULL WHEN ${periodoInformado === undefined} THEN periodo_id ELSE ${periodoFinal} END");
+    expect(service).toContain("evento_periodo_id = CASE WHEN ${eventoPeriodoInformado === undefined} THEN evento_periodo_id ELSE ${eventoPeriodoInformado} END");
     expect(service).not.toContain("COALESCE(${periodoInformado}, periodo_saida_id)");
     expect(route).toContain("function mensagemOperacao");
     expect(route).toContain('mensagemOperacao(error, "Não foi possível atualizar o ônibus")');

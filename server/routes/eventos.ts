@@ -7,6 +7,7 @@ import { createId } from "@paralleldrive/cuid2";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { CatalogoExclusaoService } from "../services/catalogoExclusaoService.js";
+import { PeriodoExcursaoService } from "../services/periodoExcursaoService.js";
 
 const router = Router();
 
@@ -65,6 +66,46 @@ router.get("/:evento_id", async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error("[EVENTOS] Erro ao obter:", error);
     res.status(500).json({ erro: "Erro ao obter evento" });
+  }
+});
+
+// Períodos são a segunda etapa do catálogo: pertencem à excursão e podem ser
+// escolhidos depois por qualquer pacote, sem duplicar a janela operacional.
+router.get("/:evento_id/periodos", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    return res.json({ evento_id: req.params.evento_id, periodos: await PeriodoExcursaoService.listar(req.params.evento_id) });
+  } catch (error: any) {
+    console.error("[EVENTOS] Erro ao listar períodos centrais:", error);
+    return res.status(500).json({ erro: error?.message || "Não foi possível listar os períodos da excursão" });
+  }
+});
+
+router.post("/:evento_id/periodos", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const periodo = await PeriodoExcursaoService.criar(req.params.evento_id, req.body);
+    return res.status(201).json({ mensagem: "Período criado na excursão", periodo });
+  } catch (error: any) {
+    console.error("[EVENTOS] Erro ao criar período central:", error);
+    return res.status(400).json({ erro: error?.message || "Não foi possível criar o período" });
+  }
+});
+
+router.put("/:evento_id/periodos/:periodo_id", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const periodo = await PeriodoExcursaoService.atualizar(req.params.evento_id, req.params.periodo_id, req.body);
+    return res.json({ mensagem: "Período da excursão atualizado", periodo });
+  } catch (error: any) {
+    console.error("[EVENTOS] Erro ao atualizar período central:", error);
+    return res.status(400).json({ erro: error?.message || "Não foi possível atualizar o período" });
+  }
+});
+
+router.delete("/:evento_id/periodos/:periodo_id", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    return res.json(await PeriodoExcursaoService.excluir(req.params.evento_id, req.params.periodo_id));
+  } catch (error: any) {
+    console.error("[EVENTOS] Erro ao excluir período central:", error);
+    return res.status(409).json({ erro: error?.message || "Não foi possível excluir o período" });
   }
 });
 

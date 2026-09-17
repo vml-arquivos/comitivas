@@ -53,16 +53,17 @@ export default function HospedagemQuartos() {
   const [mensagem, setMensagem] = useState('');
   const [salvando, setSalvando] = useState(false);
 
-  const carregarMapa = async (id = loteId, periodo = periodoId) => {
+  const carregarMapa = async (id = loteId, periodo = periodoId, lotesFonte = lotes) => {
     if (!id) return setMapa(null);
     const pacotesRes = await api.get(`/pacotes/lotes/${id}/pacotes`);
     const pacotesLista = pacotesRes.data.pacotes || [];
-    const periodosLista = pacotesLista.flatMap((pacote: any) => pacote.periodos || []).filter((periodo: any, indice: number, lista: any[]) => lista.findIndex((item) => item.id === periodo.id) === indice);
+    const eventoId = lotesFonte.find((lote: any) => lote.id === id)?.evento_id;
+    const periodosLista = eventoId ? ((await api.get(`/eventos/${eventoId}/periodos`)).data.periodos || []) : [];
     const periodoFinal = periodo && periodosLista.some((item: any) => item.id === periodo) ? periodo : periodosLista.length === 1 ? periodosLista[0].id : '';
     setPeriodos(periodosLista);
     setPeriodoId(periodoFinal);
-    await api.post(`/hospedagem/lotes/${id}/reconciliar${periodoFinal ? `?periodo_id=${encodeURIComponent(periodoFinal)}` : ''}`).catch(() => undefined);
-    const mapaRes = await api.get(`/hospedagem/lotes/${id}${periodoFinal ? `?periodo_id=${encodeURIComponent(periodoFinal)}` : ''}`);
+    await api.post(`/hospedagem/lotes/${id}/reconciliar${periodoFinal ? `?evento_periodo_id=${encodeURIComponent(periodoFinal)}` : ''}`).catch(() => undefined);
+    const mapaRes = await api.get(`/hospedagem/lotes/${id}${periodoFinal ? `?evento_periodo_id=${encodeURIComponent(periodoFinal)}` : ''}`);
     setMapa(mapaRes.data);
     setPacotes(pacotesLista);
   };
@@ -78,7 +79,7 @@ export default function HospedagemQuartos() {
       setLotes(lotesLista);
       const atual = lotesLista.some((lote: any) => lote.id === loteId) ? loteId : lotesLista[0]?.id || '';
       setLoteId(atual);
-      await carregarMapa(atual);
+      await carregarMapa(atual, '', lotesLista);
     } catch (error: any) {
       setErro(error.response?.data?.erro || 'Não foi possível carregar a hospedagem.');
     }
@@ -118,7 +119,7 @@ export default function HospedagemQuartos() {
 
   const abrirEdicao = (quarto: any) => {
     setEditando(quarto);
-    setForm({ nome: quarto.nome, genero: quarto.genero, capacidade: String(quarto.capacidade), estrutura: quarto.estrutura || 'outro', pacote_id: quarto.pacote_id || '', periodo_id: quarto.periodo_id || '', observacoes: quarto.observacoes || '' });
+    setForm({ nome: quarto.nome, genero: quarto.genero, capacidade: String(quarto.capacidade), estrutura: quarto.estrutura || 'outro', pacote_id: quarto.pacote_id || '', periodo_id: quarto.evento_periodo_id || quarto.periodo_id || '', observacoes: quarto.observacoes || '' });
     setModal(true);
   };
 
@@ -130,12 +131,12 @@ export default function HospedagemQuartos() {
     setMensagem('');
     try {
       if (editando) {
-        await api.patch(`/hospedagem/lotes/${loteId}/quartos/${editando.id}`, { ...form, periodo_id: form.periodo_id || undefined, capacidade: Number(form.capacidade) });
+        await api.patch(`/hospedagem/lotes/${loteId}/quartos/${editando.id}`, { ...form, periodo_id: undefined, evento_periodo_id: form.periodo_id || undefined, capacidade: Number(form.capacidade) });
         setMensagem('Quarto atualizado.');
       } else {
         const response = await api.post(`/hospedagem/lotes/${loteId}/quartos/lote`, {
           ...loteForm,
-          periodo_id: loteForm.periodo_id || undefined,
+          periodo_id: undefined, evento_periodo_id: loteForm.periodo_id || undefined,
           configuracoes: loteForm.configuracoes.map((item) => ({ ...item, quantidade: Number(item.quantidade), capacidade: Number(item.capacidade) })),
         });
         setMensagem(response.data.reutilizado ? 'Este conjunto já havia sido criado.' : `${response.data.quantidade} quarto(s) criado(s) automaticamente.`);
@@ -322,20 +323,20 @@ export default function HospedagemQuartos() {
             </label>
           </div>
           <label className="text-sm font-medium">Pacote específico (opcional)
-            <select className="admin-field mt-1" value={form.pacote_id} onChange={(event) => setForm({ ...form, pacote_id: event.target.value, periodo_id: '' })}><option value="">Todos os pacotes do período</option>{pacotes.map((pacote) => <option key={pacote.id} value={pacote.id}>{pacote.nome}</option>)}</select>
+            <select className="admin-field mt-1" value={form.pacote_id} onChange={(event) => setForm({ ...form, pacote_id: event.target.value })}><option value="">Todos os pacotes do período</option>{pacotes.map((pacote) => <option key={pacote.id} value={pacote.id}>{pacote.nome}</option>)}</select>
           </label>
           <label className="text-sm font-medium">Período específico (opcional)
-            <select className="admin-field mt-1" value={form.periodo_id} onChange={(event) => setForm({ ...form, periodo_id: event.target.value })}><option value="">Todos os períodos</option>{periodos.filter((periodo) => !form.pacote_id || periodo.pacote_id === form.pacote_id).map((periodo) => <option key={periodo.id} value={periodo.id}>{periodo.nome}</option>)}</select>
+            <select className="admin-field mt-1" value={form.periodo_id} onChange={(event) => setForm({ ...form, periodo_id: event.target.value })}><option value="">Todos os períodos da excursão</option>{periodos.map((periodo) => <option key={periodo.id} value={periodo.id}>{periodo.nome}</option>)}</select>
           </label>
           <label className="text-sm font-medium">Observações<textarea className="admin-field mt-1 min-h-24" value={form.observacoes} onChange={(event) => setForm({ ...form, observacoes: event.target.value })} /></label>
         </> : <>
           <div className="grid gap-4 md:grid-cols-[1.25fr_.75fr]">
             <Input required minLength={3} maxLength={72} label="Título do conjunto" placeholder="Ex.: 1º fim de semana" value={loteForm.titulo} onChange={(event) => setLoteForm({ ...loteForm, titulo: event.target.value })} />
             <label className="text-sm font-medium">Pacote específico (opcional)
-              <select className="admin-field mt-1" value={loteForm.pacote_id} onChange={(event) => setLoteForm({ ...loteForm, pacote_id: event.target.value, periodo_id: '' })}><option value="">Todos os pacotes do período</option>{pacotes.map((pacote) => <option key={pacote.id} value={pacote.id}>{pacote.nome}</option>)}</select>
+              <select className="admin-field mt-1" value={loteForm.pacote_id} onChange={(event) => setLoteForm({ ...loteForm, pacote_id: event.target.value })}><option value="">Todos os pacotes do período</option>{pacotes.map((pacote) => <option key={pacote.id} value={pacote.id}>{pacote.nome}</option>)}</select>
             </label>
             <label className="text-sm font-medium">Período específico (opcional)
-              <select className="admin-field mt-1" value={loteForm.periodo_id} onChange={(event) => setLoteForm({ ...loteForm, periodo_id: event.target.value })}><option value="">Todos os períodos</option>{periodos.filter((periodo) => !loteForm.pacote_id || periodo.pacote_id === loteForm.pacote_id).map((periodo) => <option key={periodo.id} value={periodo.id}>{periodo.nome}</option>)}</select>
+              <select className="admin-field mt-1" value={loteForm.periodo_id} onChange={(event) => setLoteForm({ ...loteForm, periodo_id: event.target.value })}><option value="">Todos os períodos da excursão</option>{periodos.map((periodo) => <option key={periodo.id} value={periodo.id}>{periodo.nome}</option>)}</select>
             </label>
           </div>
           <div className="space-y-3">

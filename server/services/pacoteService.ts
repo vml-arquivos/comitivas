@@ -113,6 +113,9 @@ async function alocarRecursosNaTransacao(
   let quartoAlocacaoId: string | null = null;
 
   const pessoasDaReserva = pessoas.length ? pessoas : [{ participanteId: null, grupoHospedagem: null }];
+  const periodoCentralId = periodoId
+    ? ((await tx.execute(sql`SELECT evento_periodo_id FROM pacote_periodos WHERE id = ${periodoId} LIMIT 1`)).rows[0] as { evento_periodo_id: string | null } | undefined)?.evento_periodo_id || null
+    : null;
 
   if (recursos.hospedagem && pessoasDaReserva.some((pessoa) => !pessoa.grupoHospedagem)) {
     throw new Error("Informe o sexo de todas as pessoas para direcionar a hospedagem");
@@ -130,7 +133,7 @@ async function alocarRecursosNaTransacao(
         AND ${periodoOperacionalCompativel(periodoId)}
         AND NOT EXISTS (SELECT 1 FROM assento_alocacoes aa WHERE aa.assento_id = a.id AND aa.status = 'ativa')
         AND NOT EXISTS (SELECT 1 FROM assento_holds h WHERE h.assento_id = a.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP)
-      ORDER BY CASE WHEN COALESCE(o.periodo_id, s.periodo_id) = ${periodoId || null} THEN 0 WHEN COALESCE(o.periodo_id, s.periodo_id) IS NULL THEN 1 ELSE 2 END,
+      ORDER BY CASE WHEN COALESCE(o.evento_periodo_id, s.evento_periodo_id, o.periodo_id, s.periodo_id) = ${periodoId || null} THEN 0 WHEN COALESCE(o.evento_periodo_id, s.evento_periodo_id, o.periodo_id, s.periodo_id) IS NULL THEN 1 ELSE 2 END,
         o.venda_ordem, o.criado_em, a.numero
       LIMIT 1 FOR UPDATE OF a
       `)).rows[0] as { assento_id: string; numero: number; onibus_id: string; onibus_nome: string; saida_id: string } | undefined;
@@ -166,12 +169,12 @@ async function alocarRecursosNaTransacao(
         AND q.genero = ${grupoHospedagem}
         AND q.estrutura = ${recursos.estrutura_quarto}
         AND (q.pacote_id IS NULL OR q.pacote_id = ${pacote?.id || null})
-        AND (${periodoId || null}::text IS NULL OR q.periodo_id IS NULL OR q.periodo_id = ${periodoId || null})
+        AND (${periodoId || null}::text IS NULL OR (q.periodo_id IS NULL AND q.evento_periodo_id IS NULL) OR q.periodo_id = ${periodoId || null} OR q.evento_periodo_id = ${periodoCentralId})
         AND NOT EXISTS (
           SELECT 1 FROM quarto_alocacoes qa
           WHERE qa.quarto_id = q.id AND qa.numero_vaga = vaga.numero AND qa.status = 'ativa'
         )
-      ORDER BY CASE WHEN q.periodo_id = ${periodoId || null} THEN 0 WHEN q.periodo_id IS NULL THEN 1 ELSE 2 END,
+      ORDER BY CASE WHEN q.evento_periodo_id = ${periodoCentralId} THEN 0 WHEN q.periodo_id = ${periodoId || null} THEN 0 WHEN q.periodo_id IS NULL AND q.evento_periodo_id IS NULL THEN 1 ELSE 2 END,
         CASE WHEN q.pacote_id = ${pacote?.id || null} THEN 0 ELSE 1 END, q.nome, vaga.numero
       LIMIT 1 FOR UPDATE OF q
       `)).rows[0] as { quarto_id: string; quarto_nome: string; numero_vaga: number } | undefined;
@@ -409,7 +412,7 @@ export class PacoteService {
     const lote = (await db.select({ vagas: lotes.vagas_disponíveis, operacional: lotes.operacional_interno }).from(lotes).where(eq(lotes.id, pacote.lote_id)).limit(1))[0];
     const vagasLote = lote?.operacional ? null : Math.max(0, Number(lote?.vagas || 0));
     const planejamento = periodoId
-      ? (await db.select({ transporte: pacotePeriodos.capacidade_transporte_planejada, hospedagem: pacotePeriodos.capacidade_hospedagem_planejada })
+      ? (await db.select({ transporte: pacotePeriodos.capacidade_transporte_planejada, hospedagem: pacotePeriodos.capacidade_hospedagem_planejada, evento_periodo_id: pacotePeriodos.evento_periodo_id })
         .from(pacotePeriodos).where(and(eq(pacotePeriodos.id, periodoId), eq(pacotePeriodos.pacote_id, pacote.id))).limit(1))[0]
       : undefined;
     let vagasTransporte: number | null = null;
@@ -439,7 +442,7 @@ export class PacoteService {
         WHERE q.lote_id = ${pacote.lote_id} AND q.ativo = true
           AND q.estrutura = ${recursos.estrutura_quarto}
           AND (q.pacote_id IS NULL OR q.pacote_id = ${pacote.id})
-          AND (${periodoId || null}::text IS NULL OR q.periodo_id IS NULL OR q.periodo_id = ${periodoId || null})`)).rows[0] as { total: number } | undefined;
+          AND (${periodoId || null}::text IS NULL OR (q.periodo_id IS NULL AND q.evento_periodo_id IS NULL) OR q.periodo_id = ${periodoId || null} OR q.evento_periodo_id = ${planejamento?.evento_periodo_id || null})`)).rows[0] as { total: number } | undefined;
       hospedagemConfigurada = Number(quartos?.total || 0) > 0;
       const linhasGrupo = (await db.execute(sql`SELECT q.genero,
           COALESCE(SUM(q.capacidade - (SELECT COUNT(*) FROM quarto_alocacoes qa WHERE qa.quarto_id = q.id AND qa.status = 'ativa')), 0)::int AS total
@@ -447,7 +450,7 @@ export class PacoteService {
         WHERE q.lote_id = ${pacote.lote_id} AND q.ativo = true
           AND q.estrutura = ${recursos.estrutura_quarto}
           AND (q.pacote_id IS NULL OR q.pacote_id = ${pacote.id})
-          AND (${periodoId || null}::text IS NULL OR q.periodo_id IS NULL OR q.periodo_id = ${periodoId || null})
+          AND (${periodoId || null}::text IS NULL OR (q.periodo_id IS NULL AND q.evento_periodo_id IS NULL) OR q.periodo_id = ${periodoId || null} OR q.evento_periodo_id = ${planejamento?.evento_periodo_id || null})
         GROUP BY q.genero`)).rows as Array<{ genero: GrupoHospedagem; total: number }>;
       vagasHospedagemPorGrupo = { masculino: 0, feminino: 0 };
       for (const linha of linhasGrupo) {
@@ -593,6 +596,9 @@ export class PacoteService {
       } else if (config.periodo_id) {
         throw new Error("O período só pode ser escolhido junto com um pacote");
       }
+      const eventoPeriodo = config.periodo_id
+        ? (await tx.execute(sql`SELECT evento_periodo_id FROM pacote_periodos WHERE id = ${config.periodo_id} AND pacote_id = ${config.pacote_id || null} LIMIT 1`)).rows[0] as { evento_periodo_id: string | null } | undefined
+        : undefined;
       const formaComercial = normalizarFormaLote(calculo.forma_contratacao || pacoteOperacional?.forma_contratacao);
       const loteComercial = pacoteOperacional
         ? await LoteComercialService.reservarNaTransacao(tx, pacoteOperacional.id, config.periodo_id || null, formaComercial, quantidadePessoas, config.lote_comercial_id ? Number(calculo.valor_base) : undefined)
@@ -646,6 +652,7 @@ export class PacoteService {
         lote_id,
         pacote_id: config.pacote_id || null,
         periodo_id: config.periodo_id || null,
+        evento_periodo_id: eventoPeriodo?.evento_periodo_id || null,
         lote_comercial_id: loteComercial?.id || null,
         status: "pacote_montado",
         checkout_estado: "inventario_reservado",

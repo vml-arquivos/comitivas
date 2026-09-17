@@ -86,11 +86,28 @@ describe("períodos múltiplos dentro do pacote", () => {
     const onibus = ler("server/services/operacaoOnibusService.ts");
     const pacotes = ler("server/routes/pacotes.ts");
     const vendas = ler("apps/web/src/pages/admin/Vendas.tsx");
-    expect(onibus).toContain("GROUP BY o.id, pp.nome");
+    expect(onibus).toContain("GROUP BY o.id, pp.nome, ep.nome");
+    expect(onibus).toContain("o.evento_periodo_id");
     expect(pacotes).toContain("ativo: pacote.ativo");
     expect(pacotes).toContain("lote_id: pacote.lote_id");
     expect(vendas).toContain("Promise.allSettled");
     expect(vendas).toContain("Selecione um dos pacotes publicados");
+  });
+
+  it("centraliza os períodos da excursão e permite selecionar a mesma janela em cada pacote", () => {
+    const migration = ler("drizzle/0033_periodos_centrais_excursao.sql");
+    const servico = ler("server/services/periodoExcursaoService.ts");
+    const eventos = ler("server/routes/eventos.ts");
+    const rotas = ler("server/routes/pacotes.ts");
+    const admin = ler("apps/web/src/pages/admin/Eventos.tsx");
+    expect(migration).toContain("CREATE TABLE IF NOT EXISTS evento_periodos");
+    expect(migration).toContain("ADD COLUMN IF NOT EXISTS evento_periodo_id");
+    expect(servico).toContain("adicionarAoPacote");
+    expect(servico).toContain("removerDoPacote");
+    expect(eventos).toContain('router.post("/:evento_id/periodos"');
+    expect(rotas).toContain('router.post("/:pacote_id/periodos-excursao/:evento_periodo_id"');
+    expect(rotas).toContain('router.delete("/:pacote_id/periodos-excursao/:evento_periodo_id"');
+    expect(admin).toContain("Janelas disponíveis para todos os pacotes");
   });
 
   it("permite escolher o escopo de contratação por pacote sem romper o legado", () => {

@@ -24,6 +24,18 @@ describe('lotes comerciais por pacote e período', () => {
     expect(service).toContain('vagas_disponiveis - ${quantidadeInteira}');
   });
 
+  it('permite configurar o encerramento por vagas, data ou primeira condição', () => {
+    const migration = ler('drizzle/0034_criterio_encerramento_lotes.sql');
+    const service = ler('server/services/loteComercialService.ts');
+    const routes = ler('server/routes/pacotes.ts');
+    const admin = ler('apps/web/src/pages/admin/Eventos.tsx');
+    expect(migration).toContain("criterio_encerramento VARCHAR(20)");
+    expect(service).toContain('criterio_encerramento');
+    expect(service).toContain('lote.criterio_encerramento === "vagas"');
+    expect(routes).toContain('criterioEncerramento');
+    expect(admin).toContain('Somente quando acabar as vagas');
+  });
+
   it('a reserva congela lote comercial e o inventário devolve suas vagas', () => {
     const pacote = ler('server/services/pacoteService.ts');
     const inventory = ler('server/services/inventoryService.ts');

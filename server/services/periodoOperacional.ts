@@ -3,86 +3,110 @@ import { sql } from "drizzle-orm";
 type Alias = "s" | "o" | "so";
 
 function periodoDaOperacao(alias: Alias) {
-  return sql.raw(`${alias}.periodo_id`);
+  return sql.raw(`COALESCE(${alias}.evento_periodo_id, ${alias}.periodo_id)`);
 }
 
 /**
- * Períodos comerciais pertencem aos pacotes e, por isso, possuem IDs distintos
- * mesmo quando representam a mesma permanência. A operação física pertence ao
- * lote e deve compartilhar ônibus entre esses períodos equivalentes.
- *
- * As queries consumidoras informam os aliases `s` (saída) e `o` (ônibus), ou
- * `so` (saída usado na consulta da fila). Um período sem vínculo continua
- * sendo geral para todo o lote; um período vinculado só atende o mesmo
- * intervalo de calendário.
+ * Compara uma seleção de pacote ou período central com a operação física.
+ * A comparação direta mantém o legado; o vínculo evento_periodo_id evita que
+ * Camping e hospedagem precisem de ônibus duplicados para a mesma janela.
  */
-export function periodoOperacionalCompativel(
-  periodoId: string | null | undefined,
-  saidaAlias: Alias = "s",
-  onibusAlias: Alias = "o",
-) {
+export function periodoOperacionalCompativel(periodoId: string | null | undefined, saidaAlias: Alias = "s", onibusAlias: Alias = "o") {
   const solicitado = periodoId || null;
-  const periodoOperacional = sql`COALESCE(${periodoDaOperacao(onibusAlias)}, ${periodoDaOperacao(saidaAlias)})`;
+  const operacional = sql`COALESCE(${periodoDaOperacao(onibusAlias)}, ${periodoDaOperacao(saidaAlias)})`;
   return sql`(
     ${solicitado}::text IS NULL
-    OR ${periodoOperacional} IS NULL
-    OR ${periodoOperacional} = ${solicitado}
+    OR ${operacional} IS NULL
+    OR ${operacional} = ${solicitado}
     OR EXISTS (
       SELECT 1
         FROM pacote_periodos periodo_solicitado
-        JOIN pacote_periodos periodo_operacional
-          ON periodo_operacional.id = ${periodoOperacional}
        WHERE periodo_solicitado.id = ${solicitado}
          AND periodo_solicitado.ativo = true
-         AND periodo_operacional.ativo = true
-         AND DATE(periodo_solicitado.data_inicio) = DATE(periodo_operacional.data_inicio)
-         AND DATE(periodo_solicitado.data_fim) = DATE(periodo_operacional.data_fim)
+         AND (
+           periodo_solicitado.evento_periodo_id = ${operacional}
+           OR EXISTS (
+             SELECT 1 FROM pacote_periodos periodo_operacional
+              WHERE periodo_operacional.id = ${operacional}
+                AND periodo_operacional.ativo = true
+                AND DATE(periodo_solicitado.data_inicio) = DATE(periodo_operacional.data_inicio)
+                AND DATE(periodo_solicitado.data_fim) = DATE(periodo_operacional.data_fim)
+           )
+           OR EXISTS (
+             SELECT 1 FROM evento_periodos evento_operacional
+              WHERE evento_operacional.id = ${operacional}
+                AND evento_operacional.ativo = true
+                AND DATE(periodo_solicitado.data_inicio) = DATE(evento_operacional.data_inicio)
+                AND DATE(periodo_solicitado.data_fim) = DATE(evento_operacional.data_fim)
+           )
+         )
+    )
+    OR EXISTS (
+      SELECT 1 FROM evento_periodos evento_solicitado
+       WHERE evento_solicitado.id = ${solicitado}
+         AND evento_solicitado.ativo = true
+         AND evento_solicitado.id = ${operacional}
     )
   )`;
 }
 
-export function periodoReservadoCompativel(
-  periodoReservaId: string | null | undefined,
-  periodoOperacaoId: string | null | undefined,
-) {
+export function periodoReservadoCompativel(periodoReservaId: string | null | undefined, periodoOperacaoId: string | null | undefined) {
   const reserva = periodoReservaId || null;
   const operacao = periodoOperacaoId || null;
   return sql`(
     ${operacao}::text IS NULL
     OR ${reserva} = ${operacao}
     OR EXISTS (
-      SELECT 1
-        FROM pacote_periodos periodo_reserva
-        JOIN pacote_periodos periodo_operacional
-          ON periodo_operacional.id = ${operacao}
+      SELECT 1 FROM pacote_periodos periodo_reserva
        WHERE periodo_reserva.id = ${reserva}
          AND periodo_reserva.ativo = true
-         AND periodo_operacional.ativo = true
-         AND DATE(periodo_reserva.data_inicio) = DATE(periodo_operacional.data_inicio)
-         AND DATE(periodo_reserva.data_fim) = DATE(periodo_operacional.data_fim)
+         AND (
+           periodo_reserva.evento_periodo_id = ${operacao}
+           OR EXISTS (
+             SELECT 1 FROM pacote_periodos periodo_operacional
+              WHERE periodo_operacional.id = ${operacao}
+                AND periodo_operacional.ativo = true
+                AND DATE(periodo_reserva.data_inicio) = DATE(periodo_operacional.data_inicio)
+                AND DATE(periodo_reserva.data_fim) = DATE(periodo_operacional.data_fim)
+           )
+           OR EXISTS (
+             SELECT 1 FROM evento_periodos evento_operacional
+              WHERE evento_operacional.id = ${operacao}
+                AND evento_operacional.ativo = true
+                AND DATE(periodo_reserva.data_inicio) = DATE(evento_operacional.data_inicio)
+                AND DATE(periodo_reserva.data_fim) = DATE(evento_operacional.data_fim)
+           )
+         )
     )
   )`;
 }
 
-/** Variante para consultas que já possuem a coluna de período da reserva. */
-export function periodoReservadoColunaCompativel(
-  periodoReservaColuna: any,
-  periodoOperacaoId: string | null | undefined,
-) {
+export function periodoReservadoColunaCompativel(periodoReservaColuna: any, periodoOperacaoId: string | null | undefined) {
   const operacao = periodoOperacaoId || null;
   return sql`(
     ${operacao}::text IS NULL
     OR ${periodoReservaColuna} = ${operacao}
     OR EXISTS (
-      SELECT 1
-        FROM pacote_periodos periodo_reserva
-        JOIN pacote_periodos periodo_operacional
-          ON periodo_operacional.id = ${operacao}
+      SELECT 1 FROM pacote_periodos periodo_reserva
        WHERE periodo_reserva.id = ${periodoReservaColuna}
          AND periodo_reserva.ativo = true
-         AND periodo_operacional.ativo = true
-         AND DATE(periodo_reserva.data_inicio) = DATE(periodo_operacional.data_inicio)
-         AND DATE(periodo_reserva.data_fim) = DATE(periodo_operacional.data_fim)
+         AND (
+           periodo_reserva.evento_periodo_id = ${operacao}
+           OR EXISTS (
+             SELECT 1 FROM pacote_periodos periodo_operacional
+              WHERE periodo_operacional.id = ${operacao}
+                AND periodo_operacional.ativo = true
+                AND DATE(periodo_reserva.data_inicio) = DATE(periodo_operacional.data_inicio)
+                AND DATE(periodo_reserva.data_fim) = DATE(periodo_operacional.data_fim)
+           )
+           OR EXISTS (
+             SELECT 1 FROM evento_periodos evento_operacional
+              WHERE evento_operacional.id = ${operacao}
+                AND evento_operacional.ativo = true
+                AND DATE(periodo_reserva.data_inicio) = DATE(evento_operacional.data_inicio)
+                AND DATE(periodo_reserva.data_fim) = DATE(evento_operacional.data_fim)
+           )
+         )
     )
   )`;
 }

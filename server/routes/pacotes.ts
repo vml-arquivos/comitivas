@@ -13,6 +13,7 @@ import { CatalogoExclusaoService } from "../services/catalogoExclusaoService.js"
 import { ContratacaoIntegridadeService } from "../services/contratacaoIntegridadeService.js";
 import { FORMAS_CONTRATACAO_VALIDAS, normalizarFormasContratacao } from "../services/contratacaoRecursos.js";
 import { LoteComercialService, normalizarFormaLote, statusComercialPublico } from "../services/loteComercialService.js";
+import { PeriodoExcursaoService } from "../services/periodoExcursaoService.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -793,6 +794,45 @@ router.post("/reservas/:reserva_id/aplicar-cupom", authMiddleware, async (req: R
   }
 });
 
+// Períodos centrais disponíveis na excursão. O pacote apenas escolhe quais
+// janelas oferece; transporte e hospedagem continuam compartilhados por janela.
+router.get("/:pacote_id/periodos-excursao", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const pacote = (await db.execute(sql`SELECT p.id, l.evento_id FROM pacotes p JOIN lotes l ON l.id = p.lote_id WHERE p.id = ${req.params.pacote_id}`)).rows[0] as { id: string; evento_id: string } | undefined;
+    if (!pacote) return res.status(404).json({ erro: "Pacote não encontrado" });
+    const periodos = (await db.execute(sql`
+      SELECT ep.*, (pp.id IS NOT NULL) AS selecionado, pp.id AS pacote_periodo_id
+        FROM evento_periodos ep
+        LEFT JOIN pacote_periodos pp ON pp.evento_periodo_id = ep.id AND pp.pacote_id = ${pacote.id}
+       WHERE ep.evento_id = ${pacote.evento_id} AND ep.ativo = true AND (pp.id IS NULL OR pp.ativo = true)
+       ORDER BY ep.ordem, ep.data_inicio, ep.id
+    `)).rows;
+    return res.json({ pacote_id: pacote.id, periodos });
+  } catch (error: any) {
+    console.error("[PACOTES] Erro ao listar períodos da excursão:", error);
+    return res.status(500).json({ erro: "Não foi possível carregar os períodos da excursão" });
+  }
+});
+
+router.post("/:pacote_id/periodos-excursao/:evento_periodo_id", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const periodo = await PeriodoExcursaoService.adicionarAoPacote(req.params.pacote_id, req.params.evento_periodo_id);
+    return res.status(201).json({ mensagem: "Período adicionado ao pacote", periodo });
+  } catch (error: any) {
+    console.error("[PACOTES] Erro ao selecionar período da excursão:", error);
+    return res.status(400).json({ erro: error?.message || "Não foi possível adicionar o período ao pacote" });
+  }
+});
+
+router.delete("/:pacote_id/periodos-excursao/:evento_periodo_id", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    return res.json(await PeriodoExcursaoService.removerDoPacote(req.params.pacote_id, req.params.evento_periodo_id));
+  } catch (error: any) {
+    console.error("[PACOTES] Erro ao retirar período da excursão:", error);
+    return res.status(409).json({ erro: error?.message || "Não foi possível retirar o período do pacote" });
+  }
+});
+
 // Períodos comerciais pertencentes ao pacote. O inventário continua no lote;
 // o período é um recorte comercial persistido na reserva e no contrato.
 router.get("/:pacote_id/periodos", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
@@ -828,6 +868,7 @@ router.post("/:pacote_id/periodos", authMiddleware, requireRole("admin"), async 
       ordem: Number.isInteger(Number(req.body?.ordem)) ? Number(req.body.ordem) : existentes.length,
       ativo: req.body?.ativo !== false, criado_em: new Date(), atualizado_em: new Date(),
     }).returning())[0];
+    await PeriodoExcursaoService.vincularPeriodoPacote(criado.id);
     return res.status(201).json({ mensagem: "Período adicionado ao pacote", periodo: criado });
   } catch (error: any) {
     console.error("[PACOTES] Erro ao criar período:", error);
@@ -866,6 +907,7 @@ router.put("/:pacote_id/periodos/:periodo_id", authMiddleware, requireRole("admi
       ativo: req.body?.ativo !== undefined ? Boolean(req.body.ativo) : undefined,
       atualizado_em: new Date(),
     }).where(eq(pacotePeriodos.id, atual.id)).returning())[0];
+    await PeriodoExcursaoService.vincularPeriodoPacote(atualizado.id);
     return res.json({ mensagem: "Período atualizado", periodo: atualizado });
   } catch (error: any) {
     console.error("[PACOTES] Erro ao atualizar período:", error);
@@ -916,10 +958,12 @@ router.post("/:pacote_id/lotes-comerciais", authMiddleware, requireRole("admin")
     const nome = String(req.body?.nome || "").trim().slice(0, 255);
     const vagas = Number(req.body?.vagas_totais ?? req.body?.vagas);
     const valor = Number(req.body?.valor);
+    const criterioEncerramento = ["vagas", "data", "vagas_data"].includes(String(req.body?.criterio_encerramento)) ? String(req.body.criterio_encerramento) : "vagas_data";
     const inicio = dataPeriodo(req.body?.data_inicio, "A data inicial da venda");
     const fim = dataPeriodo(req.body?.data_fim, "A data final da venda", false);
     if (!nome || !Number.isInteger(vagas) || vagas < 1) return res.status(400).json({ erro: "Informe nome e uma quantidade de vagas inteira maior que zero" });
     if (!Number.isFinite(valor) || valor < 0) return res.status(400).json({ erro: "Informe um preço válido para o lote" });
+    if (criterioEncerramento !== "vagas" && !fim) return res.status(400).json({ erro: "Informe a data final quando o lote encerrar por data" });
     if (fim && inicio && inicio.getTime() > fim.getTime()) return res.status(400).json({ erro: "A data inicial da venda deve ser anterior à data final" });
     if (req.body?.ativo !== false) await validarCapacidadeComercialPeriodo({ pacoteId: pacote.id, periodoId, vagas });
     const existentesComerciais = await db.select({ id: pacoteLotesComerciais.id }).from(pacoteLotesComerciais).where(and(eq(pacoteLotesComerciais.pacote_id, pacote.id), periodoId ? eq(pacoteLotesComerciais.periodo_id, periodoId) : isNull(pacoteLotesComerciais.periodo_id)));
@@ -927,7 +971,7 @@ router.post("/:pacote_id/lotes-comerciais", authMiddleware, requireRole("admin")
     const criado = (await db.insert(pacoteLotesComerciais).values({
       id: createId(), pacote_id: pacote.id, periodo_id: periodoId, forma_contratacao: "onibus_hospedagem",
       nome, descricao: String(req.body?.descricao || "").trim().slice(0, 2000) || null, ordem,
-      vagas_totais: vagas, vagas_disponiveis: vagas, valor: valor.toFixed(2), data_inicio: inicio!, data_fim: fim,
+      vagas_totais: vagas, vagas_disponiveis: vagas, valor: valor.toFixed(2), data_inicio: inicio!, data_fim: fim, criterio_encerramento: criterioEncerramento,
       ativo: req.body?.ativo !== false, criado_em: new Date(), atualizado_em: new Date(),
     }).returning())[0];
     return res.status(201).json({ mensagem: "Lote comercial criado", lote: criado });
@@ -946,9 +990,14 @@ router.put("/:pacote_id/lotes-comerciais/:lote_comercial_id", authMiddleware, re
     const disponiveis = req.body?.vagas_disponiveis !== undefined ? Number(req.body.vagas_disponiveis) : (req.body?.vagas_totais !== undefined ? total - ocupadas : Number(atual.vagas_disponiveis));
     if (!Number.isInteger(total) || total < 1 || total < ocupadas || !Number.isInteger(disponiveis) || disponiveis < 0 || disponiveis > total) return res.status(409).json({ erro: `A capacidade deve preservar as ${ocupadas} vagas já vendidas ou reservadas` });
     const valor = req.body?.valor !== undefined ? Number(req.body.valor) : Number(atual.valor);
+    const criterioEncerramento = req.body?.criterio_encerramento !== undefined
+      ? (["vagas", "data", "vagas_data"].includes(String(req.body.criterio_encerramento)) ? String(req.body.criterio_encerramento) : null)
+      : atual.criterio_encerramento;
+    if (!criterioEncerramento) return res.status(400).json({ erro: "Critério de encerramento inválido" });
     if (!Number.isFinite(valor) || valor < 0) return res.status(400).json({ erro: "Informe um preço válido para o lote" });
     const inicio = req.body?.data_inicio !== undefined ? dataPeriodo(req.body.data_inicio, "A data inicial da venda") : atual.data_inicio;
     const fim = req.body?.data_fim !== undefined ? dataPeriodo(req.body.data_fim, "A data final da venda", false) : atual.data_fim;
+    if (criterioEncerramento !== "vagas" && !fim) return res.status(400).json({ erro: "Informe a data final quando o lote encerrar por data" });
     if (fim && inicio && inicio.getTime() > fim.getTime()) return res.status(400).json({ erro: "A data inicial da venda deve ser anterior à data final" });
     const ativoFinal = req.body?.ativo !== undefined ? Boolean(req.body.ativo) : Boolean(atual.ativo);
     if (ativoFinal) await validarCapacidadeComercialPeriodo({ pacoteId: atual.pacote_id, periodoId: atual.periodo_id, vagas: total, ignorarId: atual.id });
@@ -956,7 +1005,7 @@ router.put("/:pacote_id/lotes-comerciais/:lote_comercial_id", authMiddleware, re
       nome: req.body?.nome !== undefined ? String(req.body.nome).trim().slice(0, 255) : undefined,
       descricao: req.body?.descricao !== undefined ? String(req.body.descricao || "").trim().slice(0, 2000) || null : undefined,
       ordem: req.body?.ordem !== undefined ? Number(req.body.ordem) : undefined,
-      vagas_totais: total, vagas_disponiveis: disponiveis, valor: valor.toFixed(2), data_inicio: inicio!, data_fim: fim,
+      vagas_totais: total, vagas_disponiveis: disponiveis, valor: valor.toFixed(2), data_inicio: inicio!, data_fim: fim, criterio_encerramento: criterioEncerramento,
       ativo: req.body?.ativo !== undefined ? Boolean(req.body.ativo) : undefined, atualizado_em: new Date(),
     }).where(eq(pacoteLotesComerciais.id, atual.id)).returning())[0];
     return res.json({ mensagem: "Lote comercial atualizado", lote: atualizado });

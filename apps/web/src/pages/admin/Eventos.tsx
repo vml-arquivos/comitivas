@@ -42,6 +42,7 @@ type Foto = {
 type PeriodoPacote = {
   id: string;
   pacote_id: string;
+  evento_periodo_id?: string | null;
   nome: string;
   descricao?: string | null;
   data_inicio: string;
@@ -52,6 +53,15 @@ type PeriodoPacote = {
   capacidade_hospedagem_planejada?: number | null;
   ordem?: number;
   ativo: boolean;
+};
+
+type PeriodoExcursao = Omit<PeriodoPacote, 'pacote_id'> & {
+  evento_id: string;
+  pacotes_total?: number;
+  saidas_total?: number;
+  quartos_total?: number;
+  selecionado?: boolean;
+  pacote_periodo_id?: string | null;
 };
 
 type LoteComercial = {
@@ -67,6 +77,7 @@ type LoteComercial = {
   valor: string;
   data_inicio: string;
   data_fim?: string | null;
+  criterio_encerramento?: 'vagas' | 'data' | 'vagas_data';
   ativo: boolean;
 };
 
@@ -206,7 +217,8 @@ const vazioPacote = {
   destaqueTitulo: '', destaqueSubtitulo: '', destaqueTexto: '',
 };
 const vazioPeriodo = { nome: '', descricao: '', dataInicio: '', dataFim: '', dataEmbarque: '', dataRetorno: '', capacidadeTransporte: '', capacidadeHospedagem: '', ordem: '' };
-const vazioLoteComercial = { periodoId: '', nome: '', descricao: '', vagas: '', valor: '', dataInicio: '', dataFim: '' };
+const vazioPeriodoExcursao = { nome: '', descricao: '', dataInicio: '', dataFim: '', dataEmbarque: '', dataRetorno: '', capacidadeTransporte: '', capacidadeHospedagem: '', ordem: '' };
+const vazioLoteComercial = { periodoId: '', nome: '', descricao: '', vagas: '', valor: '', dataInicio: '', dataFim: '', criterioEncerramento: 'vagas_data' as 'vagas' | 'data' | 'vagas_data' };
 
 export default function EventosAdmin() {
   const [eventos, setEventos] = useState<Evento[]>([]);
@@ -215,6 +227,8 @@ export default function EventosAdmin() {
   const [fotosPorEvento, setFotosPorEvento] = useState<Record<string, Foto[]>>({});
   const [fotosPorPacote, setFotosPorPacote] = useState<Record<string, Foto[]>>({});
   const [periodosPorPacote, setPeriodosPorPacote] = useState<Record<string, PeriodoPacote[]>>({});
+  const [periodosPorEvento, setPeriodosPorEvento] = useState<Record<string, PeriodoExcursao[]>>({});
+  const [periodosExcursaoPacote, setPeriodosExcursaoPacote] = useState<Record<string, PeriodoExcursao[]>>({});
   const [lotesComerciaisPorPacote, setLotesComerciaisPorPacote] = useState<Record<string, LoteComercial[]>>({});
   const [expandido, setExpandido] = useState<string | null>(null);
   const [loteAberto, setLoteAberto] = useState<string | null>(null);
@@ -223,6 +237,7 @@ export default function EventosAdmin() {
   const [periodosPacoteAberto, setPeriodosPacoteAberto] = useState<string | null>(null);
   const [lotesComerciaisPacoteAberto, setLotesComerciaisPacoteAberto] = useState<string | null>(null);
   const [periodoEditando, setPeriodoEditando] = useState<string | null>(null);
+  const [periodoExcursaoEditando, setPeriodoExcursaoEditando] = useState<string | null>(null);
   const [loteComercialEditando, setLoteComercialEditando] = useState<string | null>(null);
   const [mostrarFormEvento, setMostrarFormEvento] = useState(false);
   const [eventoEditando, setEventoEditando] = useState<string | null>(null);
@@ -232,6 +247,7 @@ export default function EventosAdmin() {
   const [loteForm, setLoteForm] = useState(vazioLote);
   const [pacoteForm, setPacoteForm] = useState(vazioPacote);
   const [periodoForm, setPeriodoForm] = useState(vazioPeriodo);
+  const [periodoExcursaoForm, setPeriodoExcursaoForm] = useState(vazioPeriodoExcursao);
   const [loteComercialForm, setLoteComercialForm] = useState(vazioLoteComercial);
   const [fotoEvento, setFotoEvento] = useState<{ arquivo: File | null; legenda: string }>({ arquivo: null, legenda: '' });
   const [fotoPacote, setFotoPacote] = useState<{ pacoteId: string; arquivo: File | null; legenda: string }>({ pacoteId: '', arquivo: null, legenda: '' });
@@ -301,6 +317,14 @@ export default function EventosAdmin() {
     const resposta = await api.get(`/pacotes/${pacoteId}/periodos`);
     setPeriodosPorPacote((atual) => ({ ...atual, [pacoteId]: resposta.data.periodos || [] }));
   };
+  const carregarPeriodosEvento = async (eventoId: string) => {
+    const resposta = await api.get(`/eventos/${eventoId}/periodos`);
+    setPeriodosPorEvento((atual) => ({ ...atual, [eventoId]: resposta.data.periodos || [] }));
+  };
+  const carregarPeriodosExcursaoPacote = async (pacoteId: string) => {
+    const resposta = await api.get(`/pacotes/${pacoteId}/periodos-excursao`);
+    setPeriodosExcursaoPacote((atual) => ({ ...atual, [pacoteId]: resposta.data.periodos || [] }));
+  };
 
   const carregarLotesComerciais = async (pacoteId: string) => {
     const resposta = await api.get(`/pacotes/${pacoteId}/lotes-comerciais`);
@@ -311,7 +335,7 @@ export default function EventosAdmin() {
     limparFeedback();
     if (expandido === eventoId) { setExpandido(null); return; }
     setExpandido(eventoId);
-    try { await Promise.all([carregarLotes(eventoId), carregarFotosEvento(eventoId)]); }
+    try { await Promise.all([carregarLotes(eventoId), carregarFotosEvento(eventoId), carregarPeriodosEvento(eventoId)]); }
     catch (err: any) { setErro(erroDaApi(err, 'Não foi possível carregar os detalhes da excursão.')); }
   };
 
@@ -332,6 +356,43 @@ export default function EventosAdmin() {
       setEventoForm(vazioEvento); setEventoEditando(null); setMostrarFormEvento(false);
     } catch (err: any) { setErro(erroDaApi(err, 'Não foi possível salvar a excursão.')); }
     finally { setSalvando(false); }
+  };
+
+  const salvarPeriodoExcursao = async (e: FormEvent, eventoId: string) => {
+    e.preventDefault();
+    limparFeedback();
+    if (!periodoExcursaoForm.nome.trim() || !periodoExcursaoForm.dataInicio || !periodoExcursaoForm.dataFim) { setErro('Informe o nome e o intervalo do período.'); return; }
+    if (periodoExcursaoForm.dataInicio > periodoExcursaoForm.dataFim) { setErro('A data inicial deve ser anterior à data final.'); return; }
+    if (periodoExcursaoForm.dataEmbarque && periodoExcursaoForm.dataRetorno && periodoExcursaoForm.dataEmbarque > periodoExcursaoForm.dataRetorno) { setErro('A saída deve ocorrer antes do retorno.'); return; }
+    setSalvando(true);
+    try {
+      const payload = {
+        nome: periodoExcursaoForm.nome.trim(), descricao: periodoExcursaoForm.descricao.trim() || null,
+        data_inicio: dataSaoPauloIso(periodoExcursaoForm.dataInicio), data_fim: dataSaoPauloIso(periodoExcursaoForm.dataFim, true),
+        data_embarque: periodoExcursaoForm.dataEmbarque ? dataHoraSaoPauloIso(periodoExcursaoForm.dataEmbarque) : null,
+        data_retorno: periodoExcursaoForm.dataRetorno ? dataHoraSaoPauloIso(periodoExcursaoForm.dataRetorno) : null,
+        capacidade_transporte_planejada: periodoExcursaoForm.capacidadeTransporte === '' ? null : Number(periodoExcursaoForm.capacidadeTransporte),
+        capacidade_hospedagem_planejada: periodoExcursaoForm.capacidadeHospedagem === '' ? null : Number(periodoExcursaoForm.capacidadeHospedagem),
+        ordem: periodoExcursaoForm.ordem === '' ? undefined : Number(periodoExcursaoForm.ordem),
+      };
+      if (periodoExcursaoEditando) await api.put(`/eventos/${eventoId}/periodos/${periodoExcursaoEditando}`, payload);
+      else await api.post(`/eventos/${eventoId}/periodos`, payload);
+      await carregarPeriodosEvento(eventoId);
+      setPeriodoExcursaoForm(vazioPeriodoExcursao); setPeriodoExcursaoEditando(null);
+      setMensagem(periodoExcursaoEditando ? 'Período da excursão atualizado.' : 'Período criado. Agora ele poderá ser escolhido nos pacotes.');
+    } catch (err: any) { setErro(erroDaApi(err, 'Não foi possível salvar o período da excursão.')); }
+    finally { setSalvando(false); }
+  };
+
+  const editarPeriodoExcursao = (periodo: PeriodoExcursao) => {
+    setPeriodoExcursaoEditando(periodo.id);
+    setPeriodoExcursaoForm({ nome: periodo.nome, descricao: periodo.descricao || '', dataInicio: paraDataInput(periodo.data_inicio), dataFim: paraDataInput(periodo.data_fim), dataEmbarque: paraDataHoraInput(periodo.data_embarque), dataRetorno: paraDataHoraInput(periodo.data_retorno), capacidadeTransporte: periodo.capacidade_transporte_planejada == null ? '' : String(periodo.capacidade_transporte_planejada), capacidadeHospedagem: periodo.capacidade_hospedagem_planejada == null ? '' : String(periodo.capacidade_hospedagem_planejada), ordem: String(periodo.ordem ?? '') });
+  };
+
+  const excluirPeriodoExcursao = async (eventoId: string, periodoId: string) => {
+    if (!window.confirm('Excluir este período? Se houver pacotes, vendas ou recursos, ele será arquivado.')) return;
+    try { limparFeedback(); const resposta = await api.delete(`/eventos/${eventoId}/periodos/${periodoId}`); await carregarPeriodosEvento(eventoId); setMensagem(resposta.data.mensagem || 'Período da excursão removido.'); }
+    catch (err: any) { setErro(erroDaApi(err, 'Não foi possível excluir o período da excursão.')); }
   };
 
   const salvarLote = async (e: FormEvent, eventoId: string) => {
@@ -425,7 +486,7 @@ export default function EventosAdmin() {
     setPeriodoEditando(null);
     setPeriodoForm(vazioPeriodo);
     if (abrir) {
-      try { await carregarPeriodosPacote(pacoteId); }
+      try { await Promise.all([carregarPeriodosPacote(pacoteId), carregarPeriodosExcursaoPacote(pacoteId)]); }
       catch (err: any) { setErro(erroDaApi(err, 'Não foi possível carregar os períodos do pacote.')); }
     }
   };
@@ -500,6 +561,7 @@ export default function EventosAdmin() {
         nome: loteComercialForm.nome.trim(), descricao: loteComercialForm.descricao.trim() || null,
         vagas_totais: vagas, valor, data_inicio: dataSaoPauloIso(loteComercialForm.dataInicio),
         data_fim: loteComercialForm.dataFim ? dataSaoPauloIso(loteComercialForm.dataFim, true) : null,
+        criterio_encerramento: loteComercialForm.criterioEncerramento,
       };
       if (loteComercialEditando) await api.put(`/pacotes/${pacote.id}/lotes-comerciais/${loteComercialEditando}`, payload);
       else await api.post(`/pacotes/${pacote.id}/lotes-comerciais`, payload);
@@ -512,13 +574,31 @@ export default function EventosAdmin() {
 
   const editarLoteComercial = (lote: LoteComercial) => {
     setLoteComercialEditando(lote.id);
-    setLoteComercialForm({ periodoId: lote.periodo_id || '', nome: lote.nome, descricao: lote.descricao || '', vagas: String(lote.vagas_totais), valor: String(lote.valor), dataInicio: paraDataInput(lote.data_inicio), dataFim: paraDataInput(lote.data_fim) });
+    setLoteComercialForm({ periodoId: lote.periodo_id || '', nome: lote.nome, descricao: lote.descricao || '', vagas: String(lote.vagas_totais), valor: String(lote.valor), dataInicio: paraDataInput(lote.data_inicio), dataFim: paraDataInput(lote.data_fim), criterioEncerramento: lote.criterio_encerramento || 'vagas_data' });
   };
 
   const excluirLoteComercial = async (pacoteId: string, loteId: string) => {
     if (!window.confirm('Excluir este lote comercial? Se houver vendas ou contratos, ele será arquivado.')) return;
     try { limparFeedback(); const resposta = await api.delete(`/pacotes/${pacoteId}/lotes-comerciais/${loteId}`); await carregarLotesComerciais(pacoteId); setMensagem(resposta.data.mensagem || 'Lote comercial removido.'); }
     catch (err: any) { setErro(erroDaApi(err, 'Não foi possível excluir o lote comercial.')); }
+  };
+
+  const adicionarPeriodoAoPacote = async (pacoteId: string, eventoPeriodoId: string) => {
+    try {
+      limparFeedback();
+      await api.post(`/pacotes/${pacoteId}/periodos-excursao/${eventoPeriodoId}`);
+      await Promise.all([carregarPeriodosPacote(pacoteId), carregarPeriodosExcursaoPacote(pacoteId)]);
+      setMensagem('Período da excursão adicionado ao pacote.');
+    } catch (err: any) { setErro(erroDaApi(err, 'Não foi possível adicionar o período ao pacote.')); }
+  };
+
+  const removerPeriodoDoPacote = async (pacoteId: string, eventoPeriodoId: string) => {
+    try {
+      limparFeedback();
+      await api.delete(`/pacotes/${pacoteId}/periodos-excursao/${eventoPeriodoId}`);
+      await Promise.all([carregarPeriodosPacote(pacoteId), carregarPeriodosExcursaoPacote(pacoteId)]);
+      setMensagem('Período retirado do pacote.');
+    } catch (err: any) { setErro(erroDaApi(err, 'Não foi possível retirar o período do pacote.')); }
   };
 
   const editarEvento = (evento: Evento) => {
@@ -599,6 +679,27 @@ export default function EventosAdmin() {
     catch (err: any) { setErro(erroDaApi(err, 'Não foi possível remover a imagem.')); }
   };
 
+  const renderPeriodosExcursao = (evento: Evento) => {
+    const periodos = periodosPorEvento[evento.id] || [];
+    const limpar = () => { setPeriodoExcursaoEditando(null); setPeriodoExcursaoForm(vazioPeriodoExcursao); };
+    return <section className="mt-5 rounded-2xl border border-[#073F50]/15 bg-[#f8fbfa] p-4 sm:p-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-black uppercase tracking-[.14em] text-[#C94F38]">Etapa 2 · períodos da excursão</p><h3 className="mt-1 text-lg font-black text-[#073F50]">Janelas disponíveis para todos os pacotes</h3><p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">Crie primeiro o primeiro fim de semana, segundo fim de semana, semana completa ou qualquer outra janela. Depois, cada pacote escolherá quais períodos oferece.</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-[#073F50] shadow-sm">{periodos.length} {periodos.length === 1 ? 'período' : 'períodos'}</span></div>
+      <form onSubmit={(e) => void salvarPeriodoExcursao(e, evento.id)} className="mt-4 grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2">
+        <div className="sm:col-span-2"><Input label="Nome do período" value={periodoExcursaoForm.nome} onChange={(e) => setPeriodoExcursaoForm({ ...periodoExcursaoForm, nome: e.target.value })} placeholder="Ex.: 1º fim de semana" required /></div>
+        <Input label="Início" type="date" value={periodoExcursaoForm.dataInicio} onChange={(e) => setPeriodoExcursaoForm({ ...periodoExcursaoForm, dataInicio: e.target.value })} onFocus={abrirCalendario} required />
+        <Input label="Fim" type="date" min={periodoExcursaoForm.dataInicio || undefined} value={periodoExcursaoForm.dataFim} onChange={(e) => setPeriodoExcursaoForm({ ...periodoExcursaoForm, dataFim: e.target.value })} onFocus={abrirCalendario} required />
+        <Input label="Embarque (opcional)" type="datetime-local" value={periodoExcursaoForm.dataEmbarque} onChange={(e) => setPeriodoExcursaoForm({ ...periodoExcursaoForm, dataEmbarque: e.target.value })} onFocus={abrirCalendario} />
+        <Input label="Retorno (opcional)" type="datetime-local" min={periodoExcursaoForm.dataEmbarque || undefined} value={periodoExcursaoForm.dataRetorno} onChange={(e) => setPeriodoExcursaoForm({ ...periodoExcursaoForm, dataRetorno: e.target.value })} onFocus={abrirCalendario} />
+        <Input label="Capacidade planejada de ônibus (opcional)" type="number" min={0} value={periodoExcursaoForm.capacidadeTransporte} onChange={(e) => setPeriodoExcursaoForm({ ...periodoExcursaoForm, capacidadeTransporte: e.target.value })} placeholder="Será controlada pelos ônibus reais" />
+        <Input label="Capacidade planejada de hospedagem (opcional)" type="number" min={0} value={periodoExcursaoForm.capacidadeHospedagem} onChange={(e) => setPeriodoExcursaoForm({ ...periodoExcursaoForm, capacidadeHospedagem: e.target.value })} placeholder="Será controlada pelos quartos reais" />
+        <div className="sm:col-span-2"><label className="mb-1 block text-sm font-medium text-slate-700">Descrição <span className="font-normal text-slate-400">(opcional)</span><textarea value={periodoExcursaoForm.descricao} onChange={(e) => setPeriodoExcursaoForm({ ...periodoExcursaoForm, descricao: e.target.value })} rows={2} maxLength={2000} className="mt-1 w-full rounded-xl border border-slate-300 p-3 text-sm" placeholder="Informações da permanência ou da viagem." /></label></div>
+        <div className="flex flex-wrap gap-2 sm:col-span-2"><Button type="submit" disabled={salvando}>{salvando ? 'Salvando...' : periodoExcursaoEditando ? 'Salvar período' : 'Criar período'}</Button>{periodoExcursaoEditando && <Button type="button" variant="outline" onClick={limpar}>Cancelar edição</Button>}</div>
+      </form>
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{periodos.map((periodo) => <article key={periodo.id} className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex items-start justify-between gap-2"><div><h4 className="font-black text-[#073F50]">{periodo.nome}</h4><p className="mt-1 text-sm font-semibold text-[#C94F38]">{dataCalendarioBr(periodo.data_inicio)} a {dataCalendarioBr(periodo.data_fim)}</p></div><div className="flex gap-1"><button type="button" onClick={() => editarPeriodoExcursao(periodo)} className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:text-[#C94F38]" title="Editar período"><Pencil size={14} /></button><button type="button" onClick={() => void excluirPeriodoExcursao(evento.id, periodo.id)} className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:text-red-600" title="Excluir período"><Trash2 size={14} /></button></div></div><p className="mt-2 text-xs text-slate-500">{periodo.pacotes_total || 0} pacotes · {periodo.saidas_total || 0} saídas · {periodo.quartos_total || 0} quartos vinculados</p>{periodo.descricao && <p className="mt-2 line-clamp-2 text-sm text-slate-600">{periodo.descricao}</p>}</article>)}</div>
+      {periodos.length === 0 && <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-500">Nenhum período criado. A excursão pode ter quantas janelas forem necessárias.</div>}
+    </section>;
+  };
+
   const renderGaleriaEvento = (eventoId: string) => {
     const fotos = fotosPorEvento[eventoId] || [];
     return (
@@ -645,6 +746,7 @@ export default function EventosAdmin() {
                 <Input label="Vagas deste lote" type="number" min={1} value={loteComercialForm.vagas} onChange={(e) => setLoteComercialForm({ ...loteComercialForm, vagas: e.target.value })} placeholder="50" required />
                 <Input label="Início da venda" type="date" value={loteComercialForm.dataInicio} onChange={(e) => setLoteComercialForm({ ...loteComercialForm, dataInicio: e.target.value })} onFocus={abrirCalendario} required />
                 <Input label="Fim da venda (opcional)" type="date" min={loteComercialForm.dataInicio || undefined} value={loteComercialForm.dataFim} onChange={(e) => setLoteComercialForm({ ...loteComercialForm, dataFim: e.target.value })} onFocus={abrirCalendario} />
+                <div className="sm:col-span-2"><label className="mb-1.5 block text-sm font-semibold text-[#334A58]">Encerramento do lote</label><select value={loteComercialForm.criterioEncerramento} onChange={(e) => setLoteComercialForm({ ...loteComercialForm, criterioEncerramento: e.target.value as 'vagas' | 'data' | 'vagas_data' })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"><option value="vagas_data">Quando acabar as vagas ou terminar a data</option><option value="vagas">Somente quando acabar as vagas</option><option value="data">Somente quando terminar a data</option></select><p className="mt-1.5 text-xs text-slate-500">O lote seguinte só assume quando o critério escolhido encerrar o lote atual. O saldo remanescente é migrado quando o encerramento ocorre por data.</p></div>
               </div>
               <label className="mt-4 block text-sm font-semibold text-[#334A58]">Descrição da condição <span className="font-normal text-slate-400">(opcional)</span><textarea value={loteComercialForm.descricao} onChange={(e) => setLoteComercialForm({ ...loteComercialForm, descricao: e.target.value })} rows={3} maxLength={2000} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Ex.: pré-venda para clientes da edição anterior." /></label>
               <div className="mt-4 flex flex-wrap gap-3 border-t border-slate-100 pt-4"><Button type="submit" disabled={salvando}>{salvando ? 'Salvando...' : loteComercialEditando ? 'Salvar lote' : 'Adicionar lote'}</Button>{loteComercialEditando && <Button type="button" variant="outline" onClick={novo}>Cancelar edição</Button>}</div>
@@ -659,6 +761,7 @@ export default function EventosAdmin() {
 
   const renderPeriodosPacote = (pacote: Pacote) => {
     const periodos = periodosPorPacote[pacote.id] || pacote.periodos || [];
+    const periodosCentrais = periodosExcursaoPacote[pacote.id] || [];
     const fechar = () => {
       setPeriodosPacoteAberto(null);
       setPeriodoEditando(null);
@@ -678,6 +781,12 @@ export default function EventosAdmin() {
         fechar={fechar}
         largura="ampla"
       >
+        <section className="mb-6 rounded-2xl border border-[#073F50]/15 bg-[#f8fbfa] p-4 sm:p-5">
+          <p className="text-xs font-black uppercase tracking-[.14em] text-[#C94F38]">Escolha as janelas da excursão</p>
+          <h3 className="mt-1 text-lg font-black text-[#073F50]">Este pacote oferece quais períodos?</h3>
+          <p className="mt-1 text-sm leading-6 text-slate-600">Selecione um ou mais períodos já criados na excursão. O ônibus e a hospedagem serão vinculados à mesma janela para todos os pacotes.</p>
+          {periodosCentrais.length === 0 ? <p className="mt-3 rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">Ainda não há períodos centrais. Feche este modal, crie-os na etapa da excursão e volte para selecionar.</p> : <div className="mt-3 grid gap-2 md:grid-cols-2">{periodosCentrais.map((periodo) => <label key={periodo.id} className={`flex items-start gap-3 rounded-xl border bg-white p-3 ${periodo.selecionado ? 'border-emerald-300' : 'border-slate-200'}`}><input type="checkbox" className="mt-1" checked={Boolean(periodo.selecionado)} disabled={salvando} onChange={() => void (periodo.selecionado ? removerPeriodoDoPacote(pacote.id, periodo.id) : adicionarPeriodoAoPacote(pacote.id, periodo.id))} /><span><strong className="block text-sm text-[#073F50]">{periodo.nome}</strong><span className="text-xs text-slate-500">{dataCalendarioBr(periodo.data_inicio)} a {dataCalendarioBr(periodo.data_fim)}{periodo.selecionado ? ' · selecionado neste pacote' : ' · disponível para seleção'}</span></span></label>)}</div>}
+        </section>
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1.12fr)_minmax(280px,.88fr)]">
           <form id={`form-periodo-${pacote.id}`} onSubmit={(e) => void salvarPeriodo(e, pacote.id)} className="space-y-5">
             <div className="flex items-start justify-between gap-3">
@@ -826,6 +935,7 @@ export default function EventosAdmin() {
               <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs font-black uppercase tracking-wide text-[#073F50]">2. Período e operação</p><p className="mt-1 text-sm text-slate-600">Datas, ônibus e quartos vinculados ao período.</p></div>
               <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs font-black uppercase tracking-wide text-[#073F50]">3. Lote comercial</p><p className="mt-1 text-sm text-slate-600">Preço, vagas e janela de venda por combinação.</p></div>
             </div>
+            {renderPeriodosExcursao(evento)}
             {!loteOperacional && <div className="mt-5 rounded-xl border border-dashed border-slate-300 p-5 text-sm text-slate-500">Preparando a estrutura operacional desta excursão. Atualize a tela para continuar.</div>}
             {pacotesAbertos === loteOperacional?.id && <div className="mt-4 flex flex-col border-t border-slate-100 pt-4"><div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><h4 className="font-bold text-slate-900">Pacotes desta excursão</h4><p className="mt-1 text-xs text-slate-500">Cada pacote tem seus períodos, formas de contratação, operação e condições comerciais.</p></div><Button variant="outline" onClick={() => { setPacoteEditando(null); setPacoteForm(vazioPacote); }}><Plus size={15} className="mr-2" />Criar novo pacote</Button></div>
               <form id={`config-pacote-${loteOperacional.id}`} onSubmit={(e) => void salvarPacote(e, loteOperacional.id)} className="rounded-2xl border border-[#C94F38]/20 bg-[#fffaf7] p-4 shadow-sm sm:p-5">

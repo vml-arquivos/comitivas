@@ -59,9 +59,16 @@ async function registrar(tx: any, entidade: string, entidadeId: string, acao: st
 export class HospedagemService {
   static async obterMapa(loteId: string, periodoId?: string | null) {
     const lote = linhas(await db.execute(sql`SELECT l.*, e.nome AS evento_nome FROM lotes l JOIN eventos e ON e.id = l.evento_id WHERE l.id = ${loteId}`))[0];
+    const periodoCentralId = periodoId ? String(linhas(await db.execute(sql`
+      SELECT COALESCE(pp.evento_periodo_id, ep.id) AS id
+        FROM (SELECT ${periodoId}::text AS id) selecionado
+        LEFT JOIN pacote_periodos pp ON pp.id = selecionado.id
+        LEFT JOIN evento_periodos ep ON ep.id = selecionado.id
+       LIMIT 1
+    `))[0]?.id || periodoId) : null;
     if (!lote) throw new Error("Lote não encontrado");
     if (periodoId) {
-      const periodo = linhas(await db.execute(sql`SELECT pp.id FROM pacote_periodos pp JOIN pacotes p ON p.id = pp.pacote_id WHERE pp.id = ${periodoId} AND pp.ativo = true AND p.lote_id = ${loteId}`))[0];
+      const periodo = linhas(await db.execute(sql`SELECT 1 FROM pacote_periodos pp JOIN pacotes p ON p.id = pp.pacote_id WHERE pp.id = ${periodoId} AND pp.ativo = true AND p.lote_id = ${loteId} UNION ALL SELECT 1 FROM evento_periodos WHERE id = ${periodoId} AND evento_id = ${lote.evento_id} AND ativo = true LIMIT 1`))[0];
       if (!periodo) throw new Error("Período não pertence ao lote selecionado");
     }
     const quartos = linhas(await db.execute(sql`SELECT q.*, p.nome AS pacote_nome, pp.nome AS periodo_nome,
@@ -69,7 +76,7 @@ export class HospedagemService {
       FROM quartos_hospedagem q LEFT JOIN pacotes p ON p.id = q.pacote_id LEFT JOIN pacote_periodos pp ON pp.id = q.periodo_id
       LEFT JOIN quarto_alocacoes qa ON qa.quarto_id = q.id AND qa.status = 'ativa'
       WHERE q.lote_id = ${loteId} AND q.ativo = true
-        AND (${periodoId || null}::text IS NULL OR q.periodo_id IS NULL OR q.periodo_id = ${periodoId || null})
+        AND (${periodoId || null}::text IS NULL OR (q.periodo_id IS NULL AND q.evento_periodo_id IS NULL) OR q.periodo_id = ${periodoId || null} OR q.evento_periodo_id = ${periodoCentralId})
       GROUP BY q.id, p.nome, pp.nome ORDER BY q.genero, q.nome`));
     const alocacoes = linhas(await db.execute(sql`SELECT qa.*, q.nome AS quarto_nome, q.genero,
       COALESCE(rp.nome_completo, u.nome) AS cliente_nome,
@@ -81,14 +88,14 @@ export class HospedagemService {
         AND rp.quarto_id = qa.quarto_id AND rp.vaga_quarto_id = qa.numero_vaga::text
       LEFT JOIN pacotes p ON p.id = r.pacote_id
       WHERE q.lote_id = ${loteId} AND qa.status = 'ativa'
-        AND (${periodoId || null}::text IS NULL OR q.periodo_id IS NULL OR q.periodo_id = ${periodoId || null})
+        AND (${periodoId || null}::text IS NULL OR (q.periodo_id IS NULL AND q.evento_periodo_id IS NULL) OR q.periodo_id = ${periodoId || null} OR q.evento_periodo_id = ${periodoCentralId})
       ORDER BY q.genero, q.nome, qa.numero_vaga`));
     const reservas = linhas(await db.execute(sql`SELECT r.id, r.usuario_id, u.nome AS cliente_nome, u.email AS cliente_email,
       r.pacote_id, p.nome AS pacote_nome
       FROM reservas r JOIN usuarios u ON u.id = r.usuario_id AND u.tipo = 'cliente'
       LEFT JOIN pacotes p ON p.id = r.pacote_id
       WHERE r.lote_id = ${loteId} AND r.status <> 'abandonado'
-        AND (${periodoId || null}::text IS NULL OR r.periodo_id = ${periodoId || null})
+        AND (${periodoId || null}::text IS NULL OR r.periodo_id = ${periodoId || null} OR r.evento_periodo_id = ${periodoCentralId})
         AND (SELECT COUNT(*) FROM quarto_alocacoes qa WHERE qa.reserva_id = r.id AND qa.status = 'ativa')
           < GREATEST(1, (SELECT COUNT(*) FROM reserva_participantes rp WHERE rp.reserva_id = r.id OR rp.grupo_id = r.grupo_id))
         AND (
@@ -107,12 +114,18 @@ export class HospedagemService {
     const capacidade = Number(input?.capacidade);
     const pacoteId = texto(input?.pacote_id, 120) || null;
     const periodoId = texto(input?.periodo_id, 120) || null;
+    const eventoPeriodoInformado = texto(input?.evento_periodo_id, 120) || null;
+    if (periodoId && eventoPeriodoInformado) throw new Error("Informe o período central ou o período do pacote, não os dois");
     const estruturaInput = input?.estrutura === undefined ? null : estruturaQuarto(input.estrutura);
     if (!nome || !["masculino", "feminino"].includes(genero)) throw new Error("Informe nome e grupo do quarto");
     if (!Number.isInteger(capacidade) || capacidade < 1 || capacidade > 30) throw new Error("A capacidade deve ficar entre 1 e 30");
     return db.transaction(async (tx) => {
-      const lote = linhas(await tx.execute(sql`SELECT id FROM lotes WHERE id = ${loteId} FOR UPDATE`))[0];
+      const lote = linhas(await tx.execute(sql`SELECT id, evento_id FROM lotes WHERE id = ${loteId} FOR UPDATE`))[0];
       if (!lote) throw new Error("Lote não encontrado");
+      if (eventoPeriodoInformado) {
+        const periodo = linhas(await tx.execute(sql`SELECT id FROM evento_periodos WHERE id = ${eventoPeriodoInformado} AND evento_id = ${lote.evento_id} AND ativo = true`))[0];
+        if (!periodo) throw new Error("Período central inválido para este lote");
+      }
       if (pacoteId) {
         const pacote = linhas(await tx.execute(sql`SELECT id FROM pacotes WHERE id = ${pacoteId} AND lote_id = ${loteId}`))[0];
         if (!pacote) throw new Error("Pacote inválido para este lote");
@@ -121,11 +134,12 @@ export class HospedagemService {
         const periodo = linhas(await tx.execute(sql`SELECT pp.id FROM pacote_periodos pp JOIN pacotes p ON p.id = pp.pacote_id WHERE pp.id = ${periodoId} AND pp.ativo = true AND p.lote_id = ${loteId} AND (${pacoteId}::text IS NULL OR pp.pacote_id = ${pacoteId})`))[0];
         if (!periodo) throw new Error("Período inválido para este pacote e lote");
       }
+      const eventoPeriodoId = eventoPeriodoInformado || (periodoId ? (linhas(await tx.execute(sql`SELECT evento_periodo_id FROM pacote_periodos WHERE id = ${periodoId}`))[0]?.evento_periodo_id || null) : null);
       if (!id) {
         const novoId = createId();
         const estrutura = estruturaInput || "outro";
-        const criado = linhas(await tx.execute(sql`INSERT INTO quartos_hospedagem (id, lote_id, pacote_id, periodo_id, nome, genero, capacidade, estrutura, observacoes, ativo, criado_por, criado_em, atualizado_em)
-          VALUES (${novoId}, ${loteId}, ${pacoteId}, ${periodoId}, ${nome}, ${genero}, ${capacidade}, ${estrutura}, ${texto(input?.observacoes, 2000) || null}, true, ${atorId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING *`))[0];
+        const criado = linhas(await tx.execute(sql`INSERT INTO quartos_hospedagem (id, lote_id, pacote_id, periodo_id, evento_periodo_id, nome, genero, capacidade, estrutura, observacoes, ativo, criado_por, criado_em, atualizado_em)
+          VALUES (${novoId}, ${loteId}, ${pacoteId}, ${periodoId}, ${eventoPeriodoId}, ${nome}, ${genero}, ${capacidade}, ${estrutura}, ${texto(input?.observacoes, 2000) || null}, true, ${atorId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING *`))[0];
         await registrar(tx, "quarto", novoId, "quarto_criado", atorId, undefined, criado);
         return criado;
       }
@@ -134,10 +148,10 @@ export class HospedagemService {
       const ocupadas = Number(linhas(await tx.execute(sql`SELECT COUNT(*)::int AS total FROM quarto_alocacoes WHERE quarto_id = ${id} AND status = 'ativa'`))[0]?.total || 0);
       if (capacidade < ocupadas) throw new Error("A capacidade não pode ser menor que a ocupação atual");
       const estruturaFinal = estruturaInput || antes.estrutura;
-      if (ocupadas > 0 && (genero !== antes.genero || estruturaFinal !== antes.estrutura || pacoteId !== antes.pacote_id || periodoId !== antes.periodo_id)) {
+      if (ocupadas > 0 && (genero !== antes.genero || estruturaFinal !== antes.estrutura || pacoteId !== antes.pacote_id || periodoId !== antes.periodo_id || eventoPeriodoId !== antes.evento_periodo_id)) {
         throw new Error("Remaneje os hóspedes antes de alterar grupo, estrutura ou pacote do quarto");
       }
-      const depois = linhas(await tx.execute(sql`UPDATE quartos_hospedagem SET pacote_id = ${pacoteId}, periodo_id = ${periodoId}, nome = ${nome}, genero = ${genero}, capacidade = ${capacidade}, estrutura = COALESCE(${estruturaInput}, estrutura), observacoes = ${texto(input?.observacoes, 2000) || null}, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${id} RETURNING *`))[0];
+      const depois = linhas(await tx.execute(sql`UPDATE quartos_hospedagem SET pacote_id = ${pacoteId}, periodo_id = ${periodoId}, evento_periodo_id = ${eventoPeriodoId}, nome = ${nome}, genero = ${genero}, capacidade = ${capacidade}, estrutura = COALESCE(${estruturaInput}, estrutura), observacoes = ${texto(input?.observacoes, 2000) || null}, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${id} RETURNING *`))[0];
       await registrar(tx, "quarto", id, "quarto_atualizado", atorId, antes, depois);
       return depois;
     });
@@ -147,6 +161,8 @@ export class HospedagemService {
     const titulo = texto(input?.titulo, 72);
     const pacoteId = texto(input?.pacote_id, 120) || null;
     const periodoId = texto(input?.periodo_id, 120) || null;
+    const eventoPeriodoInformado = texto(input?.evento_periodo_id, 120) || null;
+    if (periodoId && eventoPeriodoInformado) throw new Error("Informe o período central ou o período do pacote, não os dois");
     const observacoes = texto(input?.observacoes, 2000) || null;
     const chaveIdempotencia = texto(input?.chave_idempotencia, 120);
     const configuracoes = normalizarConfiguracoesQuartos(input?.configuracoes);
@@ -159,8 +175,12 @@ export class HospedagemService {
         WHERE entidade = 'quartos_lote' AND entidade_id = ${chaveIdempotencia} AND acao = 'quartos_criados_em_lote' LIMIT 1`))[0];
       if (repetida) return { quantidade: 0, quartos: [], reutilizado: true };
 
-      const lote = linhas(await tx.execute(sql`SELECT id FROM lotes WHERE id = ${loteId} FOR UPDATE`))[0];
+      const lote = linhas(await tx.execute(sql`SELECT id, evento_id FROM lotes WHERE id = ${loteId} FOR UPDATE`))[0];
       if (!lote) throw new Error("Lote não encontrado");
+      if (eventoPeriodoInformado) {
+        const periodo = linhas(await tx.execute(sql`SELECT id FROM evento_periodos WHERE id = ${eventoPeriodoInformado} AND evento_id = ${lote.evento_id} AND ativo = true`))[0];
+        if (!periodo) throw new Error("Período central inválido para este lote");
+      }
       if (pacoteId) {
         const pacote = linhas(await tx.execute(sql`SELECT id FROM pacotes WHERE id = ${pacoteId} AND lote_id = ${loteId} AND ativo = true`))[0];
         if (!pacote) throw new Error("Pacote inválido ou inativo para este período");
@@ -169,6 +189,7 @@ export class HospedagemService {
         const periodo = linhas(await tx.execute(sql`SELECT pp.id FROM pacote_periodos pp JOIN pacotes p ON p.id = pp.pacote_id WHERE pp.id = ${periodoId} AND pp.ativo = true AND p.lote_id = ${loteId} AND (${pacoteId}::text IS NULL OR pp.pacote_id = ${pacoteId})`))[0];
         if (!periodo) throw new Error("Período inválido para este pacote e lote");
       }
+      const eventoPeriodoId = eventoPeriodoInformado || (periodoId ? (linhas(await tx.execute(sql`SELECT evento_periodo_id FROM pacote_periodos WHERE id = ${periodoId}`))[0]?.evento_periodo_id || null) : null);
 
       const criados: any[] = [];
       const sequencias = new Map<string, number>();
@@ -179,15 +200,15 @@ export class HospedagemService {
         let sequencia = sequencias.get(prefixo);
         if (sequencia === undefined) {
           sequencia = Number(linhas(await tx.execute(sql`SELECT COUNT(*)::int AS total FROM quartos_hospedagem
-            WHERE lote_id = ${loteId} AND periodo_id IS NOT DISTINCT FROM ${periodoId} AND nome LIKE ${`${prefixo}%`}`))[0]?.total || 0);
+            WHERE lote_id = ${loteId} AND periodo_id IS NOT DISTINCT FROM ${periodoId} AND evento_periodo_id IS NOT DISTINCT FROM ${eventoPeriodoId} AND nome LIKE ${`${prefixo}%`}`))[0]?.total || 0);
         }
         for (let indice = 0; indice < configuracao.quantidade; indice += 1) {
           sequencia += 1;
           const id = createId();
           const nome = `${prefixo}${String(sequencia).padStart(2, "0")}`;
           const criado = linhas(await tx.execute(sql`INSERT INTO quartos_hospedagem
-            (id, lote_id, pacote_id, periodo_id, nome, genero, capacidade, estrutura, observacoes, ativo, criado_por, criado_em, atualizado_em)
-            VALUES (${id}, ${loteId}, ${pacoteId}, ${periodoId}, ${nome}, ${configuracao.genero}, ${configuracao.capacidade}, ${configuracao.estrutura}, ${observacoes}, true, ${atorId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            (id, lote_id, pacote_id, periodo_id, evento_periodo_id, nome, genero, capacidade, estrutura, observacoes, ativo, criado_por, criado_em, atualizado_em)
+            VALUES (${id}, ${loteId}, ${pacoteId}, ${periodoId}, ${eventoPeriodoId}, ${nome}, ${configuracao.genero}, ${configuracao.capacidade}, ${configuracao.estrutura}, ${observacoes}, true, ${atorId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             RETURNING *`))[0];
           criados.push(criado);
           await registrar(tx, "quarto", id, "quarto_criado", atorId, undefined, { ...criado, origem: "lote", chave_idempotencia: chaveIdempotencia });
@@ -221,7 +242,7 @@ export class HospedagemService {
   static async alocarAutomaticamente(reservaId: string, atorId: string) {
     return db.transaction(async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`reserva-quarto:${reservaId}`}))`);
-      const reserva = linhas(await tx.execute(sql`SELECT r.id, r.usuario_id, r.lote_id, r.pacote_id, r.periodo_id, r.grupo_id,
+      const reserva = linhas(await tx.execute(sql`SELECT r.id, r.usuario_id, r.lote_id, r.pacote_id, r.periodo_id, r.evento_periodo_id, r.grupo_id,
         r.grupo_hospedagem, r.recursos_contratados, p.modalidade_hospedagem, p.forma_contratacao
         FROM reservas r LEFT JOIN pacotes p ON p.id = r.pacote_id
         WHERE r.id = ${reservaId} FOR UPDATE OF r`))[0];
@@ -262,12 +283,12 @@ export class HospedagemService {
           FROM quartos_hospedagem q
           LEFT JOIN LATERAL (SELECT COUNT(*)::int AS total FROM quarto_alocacoes qa WHERE qa.quarto_id = q.id AND qa.status = 'ativa') ocupadas ON true
           WHERE q.lote_id = ${reserva.lote_id} AND q.ativo = true
-            AND (${reserva.periodo_id}::text IS NULL OR q.periodo_id IS NULL OR q.periodo_id = ${reserva.periodo_id})
+            AND (${reserva.evento_periodo_id || reserva.periodo_id}::text IS NULL OR (q.periodo_id IS NULL AND q.evento_periodo_id IS NULL) OR q.periodo_id = ${reserva.periodo_id} OR q.evento_periodo_id = ${reserva.evento_periodo_id})
             AND (q.pacote_id IS NULL OR q.pacote_id = ${reserva.pacote_id})
             AND q.genero = ${grupo}
             AND (${recursos.estrutura_quarto}::text IS NULL OR q.estrutura = ${recursos.estrutura_quarto})
             AND COALESCE(ocupadas.total, 0) < q.capacidade
-          ORDER BY (q.periodo_id = ${reserva.periodo_id}) DESC, (q.pacote_id = ${reserva.pacote_id}) DESC, COALESCE(ocupadas.total, 0), q.nome
+          ORDER BY (q.evento_periodo_id = ${reserva.evento_periodo_id}) DESC, (q.periodo_id = ${reserva.periodo_id}) DESC, (q.pacote_id = ${reserva.pacote_id}) DESC, COALESCE(ocupadas.total, 0), q.nome
           LIMIT 1 FOR UPDATE OF q`))[0];
         if (!quarto) throw new Error(`Não há vaga de quarto disponível para o grupo ${grupo}`);
         const vaga = linhas(await tx.execute(sql`SELECT serie.numero FROM generate_series(1, ${Number(quarto.capacidade)}) AS serie(numero)
@@ -289,7 +310,7 @@ export class HospedagemService {
     const pendentes = linhas(await db.execute(sql`SELECT r.id FROM reservas r
       JOIN pacotes p ON p.id = r.pacote_id
       WHERE r.lote_id = ${loteId} AND r.status <> 'abandonado'
-        AND (${periodoId || null}::text IS NULL OR r.periodo_id = ${periodoId || null})
+        AND (${periodoId || null}::text IS NULL OR r.periodo_id = ${periodoId || null} OR r.evento_periodo_id = ${periodoId || null})
         AND (p.forma_contratacao LIKE '%hospedagem%' OR p.forma_contratacao = 'livre')
         AND p.modalidade_hospedagem <> 'camping'
         AND (SELECT COUNT(*) FROM quarto_alocacoes qa WHERE qa.reserva_id = r.id AND qa.status = 'ativa')
@@ -308,12 +329,12 @@ export class HospedagemService {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`quarto:${quartoId}`})), pg_advisory_xact_lock(hashtext(${`reserva-quarto:${reservaId}`}))`);
       const quarto = linhas(await tx.execute(sql`SELECT * FROM quartos_hospedagem WHERE id = ${quartoId} AND ativo = true FOR UPDATE`))[0];
       if (!quarto) throw new Error("Quarto não encontrado");
-      const reserva = linhas(await tx.execute(sql`SELECT r.id, r.usuario_id, r.lote_id, r.pacote_id, r.periodo_id, r.grupo_id, r.status, r.grupo_hospedagem, r.recursos_contratados,
+      const reserva = linhas(await tx.execute(sql`SELECT r.id, r.usuario_id, r.lote_id, r.pacote_id, r.periodo_id, r.evento_periodo_id, r.grupo_id, r.status, r.grupo_hospedagem, r.recursos_contratados,
         u.tipo, p.forma_contratacao, p.modalidade_hospedagem
         FROM reservas r JOIN usuarios u ON u.id = r.usuario_id LEFT JOIN pacotes p ON p.id = r.pacote_id
         WHERE r.id = ${reservaId} FOR UPDATE OF r`))[0];
       if (!reserva || reserva.tipo !== "cliente" || reserva.status === "abandonado" || reserva.lote_id !== quarto.lote_id) throw new Error("A reserva não pertence a esta hospedagem");
-      if (quarto.periodo_id && reserva.periodo_id !== quarto.periodo_id) throw new Error("O quarto pertence a outro período desta viagem");
+      if ((quarto.evento_periodo_id || quarto.periodo_id) && (reserva.evento_periodo_id || reserva.periodo_id) !== (quarto.evento_periodo_id || quarto.periodo_id)) throw new Error("O quarto pertence a outro período desta viagem");
       const recursosRegistrados = reserva.recursos_contratados;
       const recursos = typeof recursosRegistrados?.transporte === "boolean" && typeof recursosRegistrados?.hospedagem === "boolean"
         ? recursosRegistrados
@@ -360,12 +381,12 @@ export class HospedagemService {
         WHERE qa.id = ${alocacaoId} AND qa.status = 'ativa' FOR UPDATE OF qa`))[0];
       if (!atual) throw new Error("Alocação ativa não encontrada");
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`quarto:${quartoId}`})), pg_advisory_xact_lock(hashtext(${`reserva-quarto:${atual.reserva_id}`}))`);
-      const destino = linhas(await tx.execute(sql`SELECT q.*, q.pacote_id AS quarto_pacote_id, r.pacote_id AS reserva_pacote_id, r.periodo_id AS reserva_periodo_id,
+      const destino = linhas(await tx.execute(sql`SELECT q.*, q.pacote_id AS quarto_pacote_id, r.pacote_id AS reserva_pacote_id, r.periodo_id AS reserva_periodo_id, r.evento_periodo_id AS reserva_evento_periodo_id,
         r.grupo_hospedagem, r.recursos_contratados, p.forma_contratacao, p.modalidade_hospedagem
         FROM quartos_hospedagem q JOIN reservas r ON r.id = ${atual.reserva_id} LEFT JOIN pacotes p ON p.id = r.pacote_id
         WHERE q.id = ${quartoId} AND q.ativo = true FOR UPDATE OF q`))[0];
       if (!destino || destino.lote_id !== atual.lote_id) throw new Error("O quarto de destino não pertence à mesma viagem");
-      if (destino.periodo_id && destino.reserva_periodo_id !== destino.periodo_id) throw new Error("O quarto de destino pertence a outro período desta viagem");
+      if ((destino.evento_periodo_id || destino.periodo_id) && (destino.reserva_evento_periodo_id || destino.reserva_periodo_id) !== (destino.evento_periodo_id || destino.periodo_id)) throw new Error("O quarto de destino pertence a outro período desta viagem");
       if (destino.quarto_pacote_id && destino.quarto_pacote_id !== destino.reserva_pacote_id) throw new Error("O quarto de destino pertence a outro pacote");
       const recursosRegistrados = destino.recursos_contratados;
       const recursos = typeof recursosRegistrados?.transporte === "boolean" && typeof recursosRegistrados?.hospedagem === "boolean"
