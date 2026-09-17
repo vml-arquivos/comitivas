@@ -122,8 +122,9 @@ function CapacidadesResumo({ capacidades }: { capacidades?: CapacidadePorForma[]
     {capacidades.map((capacidade) => {
       const transporte = capacidade.vagas_transporte;
       const hospedagem = capacidade.vagas_hospedagem;
-      const transporteLabel = capacidade.forma === 'onibus_hospedagem' && transporte != null ? `${transporte} transporte` : detalheCapacidade(capacidade);
-      const hospedagemLabel = capacidade.forma === 'onibus_hospedagem' && hospedagem != null ? `${hospedagem} hospedagem` : detalheCapacidade(capacidade);
+      const capacidadePendente = capacidade.disponibilidade === 'configuracao_pendente';
+      const transporteLabel = !capacidadePendente && capacidade.forma === 'onibus_hospedagem' && transporte != null ? `${transporte} transporte` : detalheCapacidade(capacidade);
+      const hospedagemLabel = !capacidadePendente && capacidade.forma === 'onibus_hospedagem' && hospedagem != null ? `${hospedagem} hospedagem` : detalheCapacidade(capacidade);
       return <div key={capacidade.forma} className="rounded-xl border border-[#182D3B]/10 bg-white px-3 py-3">
         <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[#851F32]">{rotuloForma(capacidade.forma)}</p>
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs font-semibold text-[#5F7079]">
