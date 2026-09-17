@@ -111,4 +111,18 @@ describe("catálogo simples de excursões, lotes e pacotes", () => {
     expect(publico).not.toContain("data_embarque: pacotePeriodos.data_embarque");
     expect(publico).not.toContain("data_retorno: pacotePeriodos.data_retorno");
   });
+
+  it("mantém a vitrine legível, agrupada por pacote e mostra somente a condição vigente", () => {
+    const home = ler("apps/web/src/pages/publico/Home.tsx");
+    const eventos = ler("apps/web/src/pages/Eventos.tsx");
+    const comercial = ler("server/services/loteComercialService.ts");
+    const modalComercial = (ler("apps/web/src/pages/admin/Eventos.tsx").match(/>Período<\/label>/g) || []).length;
+    expect(eventos).toContain("Pacotes publicados");
+    expect(eventos).toContain("Condição disponível");
+    expect(eventos).toContain("Escolher pacote e período");
+    expect(eventos).not.toContain("xl:grid-cols-3");
+    expect(home).toContain("lote_comercial_descricao");
+    expect(comercial).toContain("lote_comercial_descricao: status.lote?.descricao || null");
+    expect(modalComercial).toBe(1);
+  });
 });

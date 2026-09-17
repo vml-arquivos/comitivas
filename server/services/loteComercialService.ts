@@ -201,6 +201,7 @@ export function statusComercialPublico(status: StatusComercial) {
     // Nunca antecipa uma promoção que ainda não está aberta. O cliente vê
     // somente o lote efetivamente disponível neste instante.
     lote_comercial_nome: status.lote?.nome || null,
+    lote_comercial_descricao: status.lote?.descricao || null,
     lote_comercial_valor: status.lote?.valor || null,
     lote_comercial_data_fim: status.lote?.data_fim?.toISOString() || null,
     vagas_disponiveis: status.lote?.vagas_disponiveis ?? null,

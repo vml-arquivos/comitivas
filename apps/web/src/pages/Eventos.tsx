@@ -30,6 +30,7 @@ type Periodo = {
   vagas_disponiveis?: number;
   valor_total?: string | number | null;
   lote_comercial_nome?: string | null;
+  lote_comercial_descricao?: string | null;
   lote_comercial_data_fim?: string | null;
 };
 
@@ -221,94 +222,75 @@ export default function Eventos() {
         )}
 
         <div className="mt-10 space-y-10">
-          {eventosExibidos.map((evento) => (
-            <article key={evento.id} className="overflow-hidden rounded-[2rem] border border-[#182D3B]/10 bg-white shadow-[0_18px_50px_rgba(24,45,59,0.08)]">
-              <div className="grid lg:grid-cols-[0.36fr_0.64fr]">
-                <div className="relative min-h-[300px] overflow-hidden bg-[#182D3B] lg:min-h-full">
-                  <img src={evento.fotos?.find((foto) => foto.capa)?.url_foto || evento.fotos?.[0]?.url_foto || '/images/hero-parque-peao.jpg'} alt={evento.fotos?.[0]?.alt_text || ''} aria-hidden={!evento.fotos?.length} className="absolute inset-0 h-full w-full object-cover opacity-65" loading="lazy" width="760" height="980" />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#182D3B] via-[#182D3B]/45 to-transparent" />
-                  <div className="absolute inset-x-0 bottom-0 p-7 text-white">
-                    <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-white/70">Excursão publicada</p>
-                    <h2 className="font-editorial mt-3 text-3xl font-bold leading-tight">{evento.nome}</h2>
-                    <div className="mt-5 space-y-2 text-sm text-white/85">
-                      <p className="flex items-start gap-2"><MapPin size={16} className="mt-0.5 shrink-0 text-[#E3AAB4]" />{evento.local}</p>
-                      <p className="flex items-start gap-2"><Calendar size={16} className="mt-0.5 shrink-0 text-[#E3AAB4]" />{formatarData(evento.data_inicio)} a {formatarData(evento.data_fim)}</p>
+          {eventosExibidos.map((evento) => {
+            const pacotes = Array.from(new Map(evento.lotes.flatMap((lote) => lote.modalidades.map((modalidade) => [modalidade.id, { lote, modalidade }] as const))).values());
+            const pacotesFiltrados = pacotes.filter(({ modalidade }) => (filtroModalidade === 'todas' || modalidade.modalidade_hospedagem === filtroModalidade) && (!somenteDisponiveis || !['esgotado', 'aguardando'].includes(String(disponibilidadeModalidade(modalidade)))));
+            return (
+              <article key={evento.id} className="overflow-hidden rounded-[2rem] border border-[#182D3B]/10 bg-white shadow-[0_18px_50px_rgba(24,45,59,0.08)]">
+                <div className="grid lg:grid-cols-[minmax(300px,.38fr)_minmax(0,1.62fr)]">
+                  <div className="relative min-h-[360px] overflow-hidden bg-[#182D3B] lg:min-h-full">
+                    <img src={evento.fotos?.find((foto) => foto.capa)?.url_foto || evento.fotos?.[0]?.url_foto || '/images/hero-parque-peao.jpg'} alt={evento.fotos?.[0]?.alt_text || evento.nome} aria-hidden={!evento.fotos?.length} className="absolute inset-0 h-full w-full object-cover opacity-70" loading="lazy" width="760" height="980" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#182D3B] via-[#182D3B]/35 to-transparent" />
+                    <div className="absolute inset-x-0 bottom-0 p-6 text-white sm:p-8">
+                      <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-white/70">Excursão publicada</p>
+                      <h2 className="font-editorial mt-3 text-3xl font-bold leading-tight sm:text-4xl">{evento.nome}</h2>
+                      <div className="mt-5 space-y-2 text-sm text-white/85">
+                        <p className="flex items-start gap-2"><MapPin size={16} className="mt-0.5 shrink-0 text-[#E3AAB4]" />{evento.local}</p>
+                        <p className="flex items-start gap-2"><Calendar size={16} className="mt-0.5 shrink-0 text-[#E3AAB4]" />{formatarData(evento.data_inicio)} a {formatarData(evento.data_fim)}</p>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="p-6 sm:p-8 lg:p-9">
-                  {evento.descricao && <p className="max-w-3xl text-sm leading-7 text-[#182D3B]/66">{evento.descricao}</p>}
+                  <div className="p-5 sm:p-8 lg:p-10">
+                    {evento.descricao && <p className="max-w-3xl text-sm leading-7 text-[#182D3B]/66">{evento.descricao}</p>}
+                    <div className={`${evento.descricao ? 'mt-7' : ''} flex flex-col justify-between gap-3 border-b border-[#182D3B]/10 pb-5 sm:flex-row sm:items-end`}>
+                      <div>
+                        <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#851F32]">Pacotes publicados</p>
+                        <h3 className="font-editorial mt-2 text-3xl font-bold text-[#182D3B]">Escolha seu pacote</h3>
+                        <p className="mt-2 max-w-2xl text-sm leading-6 text-[#182D3B]/60">Cada pacote reúne seus períodos disponíveis. A forma de contratação e o período são confirmados uma única vez no configurador.</p>
+                      </div>
+                      <span className="w-fit shrink-0 rounded-full bg-[#E9F1EB] px-3 py-1.5 text-xs font-bold text-[#365B41]">{pacotesFiltrados.length} {pacotesFiltrados.length === 1 ? 'opção' : 'opções'}</span>
+                    </div>
 
-                  <div className={`${evento.descricao ? 'mt-7' : ''} space-y-8`}>
-                    {evento.lotes.map((lote) => (
-                      <section key={lote.id} aria-labelledby={`lote-${lote.id}`}>
-                        <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end">
-                          <div>
-                            <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#851F32]">{formatarData(lote.data_inicio)} — {formatarData(lote.data_fim)}</p>
-                            <h3 id={`lote-${lote.id}`} className="font-editorial mt-1 text-2xl font-bold text-[#182D3B]">{lote.nome}</h3>
-                            {lote.descricao && <p className="mt-2 max-w-2xl text-sm leading-6 text-[#182D3B]/60">{lote.descricao}</p>}
-                          </div>
-                          <span className={`self-start rounded-full px-3 py-1.5 text-xs font-bold ${lote.vagas_disponiveis > 0 ? 'bg-[#E9F1EB] text-[#365B41]' : 'bg-[#182D3B] text-white'}`}>
-                            {lote.vagas_disponiveis > 0 ? 'Vagas no lote' : 'Lote esgotado'}
-                          </span>
-                        </div>
+                    {pacotesFiltrados.length > 0 ? (
+                      <div className="mt-6 grid gap-5 md:grid-cols-2">
+                        {pacotesFiltrados.map(({ lote, modalidade }) => {
+                          const periodos = modalidade.periodos || [];
+                          const inclusos = itensInclusos(modalidade.itens_inclusos);
+                          const status = statusOferta(disponibilidadeModalidade(modalidade));
+                          const disponibilidade = disponibilidadeModalidade(modalidade);
+                          const esgotado = disponibilidade === 'esgotado';
+                          const bloqueado = esgotado || disponibilidade === 'aguardando';
+                          const pacoteLink = `/pacote/${lote.id}?pacote=${encodeURIComponent(modalidade.id)}${ref ? `&ref=${encodeURIComponent(ref)}` : ''}`;
+                          const valoresAtuais = periodos.filter((periodo) => !['esgotado', 'aguardando'].includes(String(periodo.disponibilidade))).map((periodo) => Number(periodo.valor_total)).filter((valor) => Number.isFinite(valor) && valor > 0);
+                          const valorAtual = valoresAtuais.sort((a, b) => a - b)[0] || Number(modalidade.valor_total);
+                          const periodoComLote = periodos.find((periodo) => periodo.lote_comercial_nome);
 
-                        {lote.modalidades.filter((m) => (filtroModalidade === 'todas' || m.modalidade_hospedagem === filtroModalidade) && (!somenteDisponiveis || !['esgotado', 'aguardando'].includes(String(disponibilidadeModalidade(m))))).length > 0 ? (
-                          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                            {lote.modalidades.filter((m) => (filtroModalidade === 'todas' || m.modalidade_hospedagem === filtroModalidade) && (!somenteDisponiveis || !['esgotado', 'aguardando'].includes(String(disponibilidadeModalidade(m))))).map((modalidade) => {
-                              const periodos = modalidade.periodos || [];
-                              const inclusos = itensInclusos(modalidade.itens_inclusos);
-                              const status = statusOferta(disponibilidadeModalidade(modalidade));
-                              const disponibilidade = disponibilidadeModalidade(modalidade);
-                              const esgotado = disponibilidade === 'esgotado';
-                              const bloqueado = esgotado || disponibilidade === 'aguardando';
-                              const pacoteLink = `/pacote/${lote.id}?pacote=${encodeURIComponent(modalidade.id)}${ref ? `&ref=${encodeURIComponent(ref)}` : ''}`;
-
-                              return (
-                                <article key={modalidade.id} className={`flex min-h-full flex-col rounded-[1.5rem] border p-5 transition ${esgotado ? 'border-[#182D3B]/10 bg-[#F8F5EF]/55' : 'border-[#182D3B]/10 bg-white hover:-translate-y-0.5 hover:border-[#851F32]/25 hover:shadow-[0_14px_32px_rgba(24,45,59,0.08)]'}`}>
-                                  <div className="flex items-start justify-between gap-3">
-                                    {modalidade.fotos?.[0] ? <img src={modalidade.fotos[0].url_foto} alt={modalidade.fotos[0].alt_text || modalidade.fotos[0].legenda || modalidade.nome} className="h-14 w-14 rounded-xl object-cover" loading="lazy" /> : <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[#F4EAEC] text-[#851F32]"><BedDouble size={20} /></span>}
-                                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wide ${status.classe}`}>{status.label}</span>
-                                  </div>
-                                  <h4 className="font-editorial mt-5 text-xl font-bold leading-tight text-[#182D3B]">{modalidade.nome}</h4>
-                                  {(modalidade.destaque_titulo || modalidade.destaque_subtitulo || modalidade.destaque_texto) && <div className="mt-3 rounded-xl border border-[#851F32]/15 bg-[#F8F0F1] px-3 py-2.5"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">{modalidade.destaque_subtitulo || 'Destaque'}</p>{modalidade.destaque_titulo && <p className="mt-1 text-sm font-extrabold text-[#182D3B]">{modalidade.destaque_titulo}</p>}{modalidade.destaque_texto && <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#5F7079]">{modalidade.destaque_texto}</p>}</div>}
-                                  {modalidade.descricao && <p className="mt-2 line-clamp-3 text-sm leading-6 text-[#182D3B]/60">{modalidade.descricao}</p>}
-                                  <div className="mt-4 rounded-xl border border-[#182D3B]/10 bg-[#FCFAF7] p-3"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">Períodos</p>{periodos.length > 0 ? <div className="mt-2 space-y-2">{periodos.map((periodo) => { const periodoStatus = statusOferta(periodo.disponibilidade); return <div key={periodo.id} className="flex items-start justify-between gap-3 rounded-lg bg-white px-2.5 py-2"><span><strong className="block text-sm font-extrabold text-[#182D3B]">{periodo.nome}</strong><span className="text-xs font-semibold text-[#60717B]">{formatarData(periodo.data_inicio)} a {formatarData(periodo.data_fim)}</span>{periodo.lote_comercial_nome && <small className="mt-0.5 block text-[10px] font-semibold text-[#851F32]">{periodo.lote_comercial_nome}{periodo.lote_comercial_data_fim ? ` · até ${formatarData(periodo.lote_comercial_data_fim)}` : ''}</small>}</span><span className="shrink-0 text-right"><strong className="block text-xs font-extrabold text-[#182D3B]">{periodo.valor_total ? formatarMoeda(periodo.valor_total) : 'Consultar'}</strong><span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${periodoStatus.classe}`}>{periodoStatus.label}</span></span></div>; })}</div> : <p className="mt-1 text-xs font-semibold text-[#60717B]">{formatarData(lote.data_inicio)} a {formatarData(lote.data_fim)}</p>}</div>
-                                  {inclusos.length > 0 && (
-                                    <ul className="mt-4 space-y-2 text-xs text-[#182D3B]/68">
-                                      {inclusos.slice(0, 3).map((item) => <li key={item} className="flex gap-2"><Check size={14} className="mt-0.5 shrink-0 text-[#851F32]" /><span>{item}</span></li>)}
-                                    </ul>
-                                  )}
-                                  <div className="mt-auto pt-6">
-                                    <p className="text-[11px] font-bold uppercase tracking-[0.13em] text-[#182D3B]/45">Valor publicado a partir de</p>
-                                    <p className="mt-1 text-2xl font-extrabold text-[#182D3B]">{formatarMoeda(periodos.map((periodo) => Number(periodo.valor_total)).filter((valor) => Number.isFinite(valor) && valor > 0).sort((a, b) => a - b)[0] || modalidade.valor_total)} <span className="text-xs font-semibold text-[#182D3B]/50">por pessoa</span></p>
-                                    {esgotado ? (
-                                      <WhatsAppCTA mensagem={`Olá! Quero saber sobre lista de espera para ${modalidade.nome} — ${lote.nome}.`} label="Consultar lista de espera" size="sm" className="mt-4 w-full" />
-                                    ) : bloqueado ? (
-                                      <span className="mt-4 inline-flex min-h-[46px] w-full items-center justify-center rounded-full bg-slate-100 px-4 text-sm font-extrabold text-slate-500">Indisponível no momento</span>
-                                    ) : (
-                                      <Link to={pacoteLink} className="mt-4 inline-flex min-h-[46px] w-full items-center justify-center gap-2 rounded-full bg-[#851F32] px-4 text-sm font-extrabold text-white transition hover:bg-[#6f1929]">
-                                        Escolher pacote e período <ArrowRight size={16} />
-                                      </Link>
-                                    )}
-                                  </div>
-                                </article>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <div className="mt-5 rounded-2xl border border-dashed border-[#182D3B]/15 bg-[#F8F5EF] p-6 text-center text-sm text-[#182D3B]/55">Nenhum pacote deste lote corresponde aos filtros selecionados.</div>
-                        )}
-                      </section>
-                    ))}
-
-                    {evento.lotes.length === 0 && <div className="rounded-2xl border border-dashed border-[#182D3B]/15 bg-[#F8F5EF] p-7 text-center text-sm text-[#182D3B]/55">Os lotes desta excursão ainda serão publicados.</div>}
+                          return (
+                            <article key={modalidade.id} className={`flex min-w-0 flex-col rounded-[1.5rem] border p-5 sm:p-6 transition ${esgotado ? 'border-[#182D3B]/10 bg-[#F8F5EF]/60' : 'border-[#182D3B]/10 bg-white hover:-translate-y-0.5 hover:border-[#851F32]/25 hover:shadow-[0_14px_32px_rgba(24,45,59,0.08)]'}`}>
+                              <div className="flex items-start justify-between gap-3">
+                                {modalidade.fotos?.[0] ? <img src={modalidade.fotos[0].url_foto} alt={modalidade.fotos[0].alt_text || modalidade.fotos[0].legenda || modalidade.nome} className="h-20 w-20 rounded-2xl object-cover" loading="lazy" /> : <span className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F4EAEC] text-[#851F32]"><BedDouble size={24} /></span>}
+                                <span className={`rounded-full px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wide ${status.classe}`}>{status.label}</span>
+                              </div>
+                              <h4 className="font-editorial mt-5 text-2xl font-bold leading-tight text-[#182D3B]">{modalidade.nome}</h4>
+                              {(modalidade.destaque_titulo || modalidade.destaque_subtitulo || modalidade.destaque_texto) && <div className="mt-4 rounded-2xl border border-[#851F32]/15 bg-[#F8F0F1] px-4 py-3"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">{modalidade.destaque_subtitulo || 'Condição em destaque'}</p>{modalidade.destaque_titulo && <p className="mt-1 text-sm font-extrabold text-[#182D3B]">{modalidade.destaque_titulo}</p>}{modalidade.destaque_texto && <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#5F7079]">{modalidade.destaque_texto}</p>}</div>}
+                              {periodoComLote && <div className="mt-4 rounded-2xl border border-[#851F32]/15 bg-[#FFF8F4] px-4 py-3"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">Condição disponível</p><p className="mt-1 text-sm font-extrabold text-[#182D3B]">{periodoComLote.lote_comercial_nome}</p>{periodoComLote.lote_comercial_data_fim && <p className="mt-1 text-xs text-[#5F7079]">Venda até {formatarData(periodoComLote.lote_comercial_data_fim)}</p>}</div>}
+                              {modalidade.descricao && <p className="mt-4 line-clamp-3 text-sm leading-6 text-[#182D3B]/60">{modalidade.descricao}</p>}
+                              <div className="mt-5 rounded-2xl border border-[#182D3B]/10 bg-[#FCFAF7] p-4"><div className="flex items-center justify-between gap-3"><p className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]"><Calendar size={14} />Períodos disponíveis</p><span className="text-xs font-bold text-[#182D3B]/50">{periodos.length || 0}</span></div>{periodos.length > 0 ? <div className="mt-3 space-y-2.5">{periodos.map((periodo) => { const periodoStatus = statusOferta(periodo.disponibilidade); return <div key={periodo.id} className="rounded-xl border border-[#182D3B]/8 bg-white px-3 py-3"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><strong className="block break-words text-sm font-extrabold text-[#182D3B]">{periodo.nome}</strong><span className="mt-1 block text-xs font-semibold text-[#60717B]">{formatarData(periodo.data_inicio)} a {formatarData(periodo.data_fim)}</span>{periodo.lote_comercial_nome && <small className="mt-1 block break-words text-[10px] font-bold text-[#851F32]">{periodo.lote_comercial_nome}</small>}{periodo.lote_comercial_descricao && <small className="mt-1 block line-clamp-2 text-[10px] leading-4 text-[#60717B]">{periodo.lote_comercial_descricao}</small>}</div><div className="shrink-0 text-right"><strong className="block text-xs font-extrabold text-[#182D3B]">{periodo.valor_total ? formatarMoeda(periodo.valor_total) : 'Consultar'}</strong><span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${periodoStatus.classe}`}>{periodoStatus.label}</span></div></div></div>; })}</div> : <p className="mt-2 text-xs font-semibold text-[#60717B]">Período confirmado no configurador.</p>}</div>
+                              {inclusos.length > 0 && <ul className="mt-4 space-y-2 text-xs text-[#182D3B]/68">{inclusos.slice(0, 3).map((item) => <li key={item} className="flex gap-2"><Check size={14} className="mt-0.5 shrink-0 text-[#851F32]" /><span>{item}</span></li>)}</ul>}
+                              <div className="mt-auto pt-6"><p className="text-[11px] font-bold uppercase tracking-[0.13em] text-[#182D3B]/45">Valor da condição disponível</p><p className="mt-1 text-2xl font-extrabold text-[#182D3B]">{Number.isFinite(valorAtual) && valorAtual > 0 ? formatarMoeda(valorAtual) : 'Consultar'} <span className="text-xs font-semibold text-[#182D3B]/50">por pessoa</span></p>{esgotado ? <WhatsAppCTA mensagem={`Olá! Quero saber sobre lista de espera para ${modalidade.nome} — ${evento.nome}.`} label="Consultar disponibilidade" size="sm" className="mt-4 w-full" /> : bloqueado ? <span className="mt-4 inline-flex min-h-[46px] w-full items-center justify-center rounded-full bg-slate-100 px-4 text-sm font-extrabold text-slate-500">Indisponível no momento</span> : <Link to={pacoteLink} className="mt-4 inline-flex min-h-[46px] w-full items-center justify-center gap-2 rounded-full bg-[#851F32] px-4 text-sm font-extrabold text-white transition hover:bg-[#6f1929]">Escolher pacote e período <ArrowRight size={16} /></Link>}</div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="mt-6 rounded-2xl border border-dashed border-[#182D3B]/15 bg-[#F8F5EF] p-7 text-center text-sm text-[#182D3B]/55">Nenhum pacote desta excursão corresponde aos filtros selecionados.</div>
+                    )}
                   </div>
                 </div>
-              </div>
-            </article>
-          ))}
+              </article>
+            );
+          })}
         </div>
       </section>
 
