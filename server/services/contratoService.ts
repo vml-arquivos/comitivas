@@ -20,6 +20,7 @@ import {
   lotes,
   pacotes,
   pacotePeriodos,
+  pacoteLotesComerciais,
   reservas,
   usuarios,
   assentoAlocacoes,
@@ -117,6 +118,7 @@ type SnapshotVenda = {
   vendedor?: { id: string; nome: string; email: string } | null;
   evento: Record<string, unknown>;
   lote: Record<string, unknown>;
+  lote_comercial?: Record<string, unknown> | null;
   periodo: { nome?: string | null; check_in: string; check_out: string };
   pacote: Record<string, unknown>;
   hospedagem: { modalidade: string | null; modalidade_nome: string; local: string; quarto?: string | null; grupo?: string | null; vaga?: number | null };
@@ -427,15 +429,18 @@ export class ContratoService {
     const vendedor = reserva.vendedor_id
       ? (await db.select({ id: usuarios.id, nome: usuarios.nome, email: usuarios.email }).from(usuarios).where(and(eq(usuarios.id, reserva.vendedor_id), eq(usuarios.tipo, "vendedor"))).limit(1))[0]
       : undefined;
-    return { reserva, usuario, lote, evento, pacote, periodo, vendedor };
+    const loteComercial = reserva.lote_comercial_id
+      ? (await db.select().from(pacoteLotesComerciais).where(eq(pacoteLotesComerciais.id, reserva.lote_comercial_id)).limit(1))[0]
+      : undefined;
+    return { reserva, usuario, lote, evento, pacote, periodo, vendedor, loteComercial };
   }
 
   static async gerarSnapshot(dadosContrato: DadosContrato): Promise<SnapshotVenda> {
-    const { reserva, usuario, lote, evento, pacote, periodo, vendedor } = await this.obterDadosBase(dadosContrato.reserva_id);
+    const { reserva, usuario, lote, evento, pacote, periodo, vendedor, loteComercial } = await this.obterDadosBase(dadosContrato.reserva_id);
     const adicionais = normalizarItens(reserva.itens_selecionados);
     const descontoQuery: any = db.select({ valor_desconto: descontosAdministrativos.valor_desconto }).from(descontosAdministrativos).where(eq(descontosAdministrativos.reserva_id, reserva.id));
     const descontoAdministrativo = (await (typeof descontoQuery.orderBy === "function" ? descontoQuery.orderBy(desc(descontosAdministrativos.criado_em)) : descontoQuery).limit(1))[0];
-    const base = decimal(pacote?.valor_total ?? lote.valor_base);
+    const base = decimal(loteComercial?.valor ?? pacote?.valor_total ?? lote.valor_base);
     const itens: ItemContrato[] = [{ id: pacote?.id, nome: pacote?.nome || `Pacote base — ${lote.nome}`, quantidade: 1, valor: base }, ...adicionais];
     const subtotal = itens.reduce((total, item) => total.plus(item.valor.times(item.quantidade)), new Decimal(0)).toDecimalPlaces(2);
     const descontoCupom = decimal(reserva.desconto_aplicado);
@@ -537,8 +542,9 @@ export class ContratoService {
       vendedor: vendedor ? { id: vendedor.id, nome: vendedor.nome, email: vendedor.email } : null,
       evento: { id: evento.id, nome: evento.nome, local: evento.local, data_inicio: formatarDataISO(evento.data_inicio), data_fim: formatarDataISO(evento.data_fim) },
       lote: { id: lote.id, nome: lote.nome, descricao: lote.descricao },
+      lote_comercial: loteComercial ? { id: loteComercial.id, nome: loteComercial.nome, descricao: loteComercial.descricao, forma_contratacao: loteComercial.forma_contratacao, valor: loteComercial.valor, data_inicio: formatarDataISO(loteComercial.data_inicio), data_fim: formatarDataISO(loteComercial.data_fim), vagas_totais: loteComercial.vagas_totais } : null,
       periodo: { nome: periodo?.nome || null, check_in: dataISOouNulo(hospedagemForm.check_in) || formatarDataISO(periodo?.data_inicio || lote.data_inicio) || "", check_out: dataISOouNulo(hospedagemForm.check_out) || formatarDataISO(periodo?.data_fim || lote.data_fim) || "" },
-      pacote: { id: pacote?.id || null, nome: pacote?.nome || null, descricao: pacote?.descricao || null, valor_total: pacote?.valor_total || null },
+      pacote: { id: pacote?.id || null, nome: pacote?.nome || null, descricao: pacote?.descricao || null, valor_total: base.toFixed(2), forma_contratacao: (recursosSalvos as any).forma_contratacao || pacote?.forma_contratacao || null },
       hospedagem: { modalidade: modalidadeHospedagem, modalidade_nome: modalidadeHospedagem ? MODALIDADES_HOSPEDAGEM[modalidadeHospedagem] || "Conforme contratação registrada" : "Não contratada", local: recursos.hospedagem ? localHospedagem : "", quarto: recursos.hospedagem ? quarto?.nome || null : null, grupo: recursos.hospedagem ? quarto?.genero || null : null, vaga: recursos.hospedagem ? quarto?.numero_vaga || null : null },
       servicos_inclusos: servicos,
       adicionais: adicionais.map((item) => ({ id: item.id, codigo: item.codigo, nome: item.nome, tipo: item.tipo, transporte_rodoviario: item.transporte_rodoviario, quantidade: item.quantidade, valor_unitario: item.valor.toFixed(2) })),

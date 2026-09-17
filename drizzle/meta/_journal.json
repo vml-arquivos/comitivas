@@ -204,6 +204,13 @@
       "when": 1789500004000,
       "tag": "0028_formas_contratacao_pacotes",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "5",
+      "when": 1789500005000,
+      "tag": "0029_lotes_comerciais_por_pacote",
+      "breakpoints": true
     }
   ]
 }

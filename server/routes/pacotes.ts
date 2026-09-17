@@ -6,12 +6,13 @@ import { ConfiguracaoService } from "../services/configuracaoService.js";
 import { GatewayConfigService } from "../services/gatewayConfigService.js";
 import { AuthService } from "../services/authService.js";
 import { db } from "../db/index.js";
-import { eventos, lotes, pacotes, pacotePeriodos, fotosPacote, itens_addon, reservas, usuarios, leads_origem, pagamentos, pagamentoParcelas, cupons, cuponsUtilizacoes, precosLedger, reservaParticipantes } from "../db/schema.js";
+import { eventos, lotes, pacotes, pacotePeriodos, pacoteLotesComerciais, fotosPacote, itens_addon, reservas, usuarios, leads_origem, pagamentos, pagamentoParcelas, cupons, cuponsUtilizacoes, precosLedger, reservaParticipantes } from "../db/schema.js";
 import { eq, and, desc, inArray, isNull, or, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { CatalogoExclusaoService } from "../services/catalogoExclusaoService.js";
 import { ContratacaoIntegridadeService } from "../services/contratacaoIntegridadeService.js";
 import { FORMAS_CONTRATACAO_VALIDAS, normalizarFormasContratacao } from "../services/contratacaoRecursos.js";
+import { LoteComercialService, normalizarFormaLote, statusComercialPublico } from "../services/loteComercialService.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -624,10 +625,18 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
         ? [formaSolicitada]
         : formasContratacao;
       const capacidades = await Promise.all(formasParaCalculo.map(async (forma) => [forma, await PacoteService.obterDisponibilidadeFisica(pacote, periodoId, forma)] as const));
+      const comerciais = await Promise.all(formasParaCalculo.map(async (forma) => [forma, await LoteComercialService.obterStatus(pacote.id, periodoId, normalizarFormaLote(forma))] as const));
+      const porForma = new Map(comerciais);
+      const combinarDisponibilidade = (fisica: string, comercial?: Awaited<ReturnType<typeof LoteComercialService.obterStatus>>) => {
+        if (comercial?.configurado && (comercial.status === "esgotado" || comercial.status === "aguardando")) return comercial.status;
+        if (fisica === "esgotado") return fisica;
+        if (fisica === "ultimas_vagas" || comercial?.status === "ultimas_vagas") return "ultimas_vagas";
+        return "disponivel";
+      };
       const capacidadeEscolhida = formaSolicitada && capacidades.find(([forma]) => forma === formaSolicitada)?.[1];
       const capacidadeFallback = capacidades[0]?.[1] || await PacoteService.obterDisponibilidadeFisica(pacote, periodoId);
       const capacidade = capacidadeEscolhida || capacidades.reduce((melhor, [, atual]) => atual.vagas_disponiveis > melhor.vagas_disponiveis ? atual : melhor, capacidadeFallback);
-      const disponibilidadePorForma = Object.fromEntries(capacidades.map(([forma, resultado]) => [forma, { disponibilidade: resultado.disponibilidade, vagas_disponiveis: resultado.vagas_disponiveis, vagas_transporte: resultado.vagas_transporte, vagas_hospedagem: resultado.vagas_hospedagem }]));
+      const disponibilidadePorForma = Object.fromEntries(capacidades.map(([forma, resultado]) => { const comercial = statusComercialPublico(porForma.get(forma)!); return [forma, { ...comercial, disponibilidade: combinarDisponibilidade(resultado.disponibilidade, porForma.get(forma)), vagas_disponiveis: resultado.vagas_disponiveis, vagas_transporte: resultado.vagas_transporte, vagas_hospedagem: resultado.vagas_hospedagem }]; }));
       const regras = regrasDoPacote(pacote);
       const fotos = await db.select({ id: fotosPacote.id, url_foto: fotosPacote.url_foto, legenda: fotosPacote.legenda, alt_text: fotosPacote.alt_text, ordem: fotosPacote.ordem, capa: fotosPacote.capa })
         .from(fotosPacote).where(eq(fotosPacote.pacote_id, pacote.id)).orderBy(fotosPacote.ordem);
@@ -641,13 +650,22 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
         .orderBy(pacotePeriodos.ordem, pacotePeriodos.data_inicio);
       const periodos = await Promise.all(periodosBase.map(async (periodo) => {
         const capacidadesPeriodo = await Promise.all(formasParaCalculo.map(async (forma) => PacoteService.obterDisponibilidadeFisica(pacote, periodo.id, forma)));
+        const comerciaisPeriodo = await Promise.all(formasParaCalculo.map(async (forma) => [forma, await LoteComercialService.obterStatus(pacote.id, periodo.id, normalizarFormaLote(forma))] as const));
+        const porFormaPeriodo = new Map(comerciaisPeriodo);
         const capacidadePeriodo = capacidadeEscolhida
           ? await PacoteService.obterDisponibilidadeFisica(pacote, periodo.id, formaSolicitada)
           : capacidadesPeriodo.reduce((melhor, atual) => atual.vagas_disponiveis > melhor.vagas_disponiveis ? atual : melhor, capacidadesPeriodo[0] || capacidade);
+        const formaPeriodo = formaSolicitada || formasParaCalculo.find((forma) => porFormaPeriodo.get(forma)?.lote || porFormaPeriodo.get(forma)?.configurado) || formasParaCalculo[0];
+        const comercialPeriodo = formaPeriodo ? porFormaPeriodo.get(formaPeriodo) : undefined;
+        const lotesComerciais = await LoteComercialService.listar(pacote.id, periodo.id, formaPeriodo ? normalizarFormaLote(formaPeriodo) : undefined);
+        const comercialPublico = statusComercialPublico(comercialPeriodo || { status: "disponivel", lote: null, proximos: [], configurado: false });
         return {
           ...periodo,
-          disponibilidade: capacidadePeriodo.disponibilidade,
+          valor_total: comercialPeriodo?.lote?.valor || pacote.valor_total,
+          ...comercialPublico,
+          disponibilidade: combinarDisponibilidade(capacidadePeriodo.disponibilidade, comercialPeriodo),
           vagas_disponiveis: capacidadePeriodo.vagas_disponiveis,
+          lotes_comerciais: lotesComerciais,
         };
       }));
         return {
@@ -656,6 +674,9 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
           nome: pacote.nome,
           descricao: pacote.descricao,
           valor_total: pacote.valor_total,
+          lote_comercial_id: porForma.get(formaSolicitada || formasParaCalculo[0])?.lote?.id || null,
+          lote_comercial_nome: porForma.get(formaSolicitada || formasParaCalculo[0])?.lote?.nome || null,
+          lote_comercial_valor: porForma.get(formaSolicitada || formasParaCalculo[0])?.lote?.valor || null,
           destaque_titulo: pacote.destaque_titulo,
           destaque_subtitulo: pacote.destaque_subtitulo,
           destaque_texto: pacote.destaque_texto,
@@ -671,7 +692,8 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
           formas_pagamento: regras.formasPermitidas,
           boleto_parcelas_maximo: regras.boletoParcelasMaximo || null,
           disponibilidade_configurada: pacote.disponibilidade,
-          disponibilidade: capacidade.disponibilidade,
+          disponibilidade: combinarDisponibilidade(capacidade.disponibilidade, porForma.get(formaSolicitada || formasParaCalculo[0])),
+          lotes_comerciais: await LoteComercialService.listar(pacote.id, periodoId, formaSolicitada ? normalizarFormaLote(formaSolicitada) : undefined),
           ativo: pacote.ativo,
           fotos,
           periodos,
@@ -700,6 +722,7 @@ router.post("/reservas/:reserva_id/aplicar-cupom", authMiddleware, async (req: R
     const cupom = lote ? (await db.select().from(cupons).where(and(
       eq(cupons.codigo, codigo), eq(cupons.evento_id, lote.evento_id), eq(cupons.ativo, true),
       or(isNull(cupons.pacote_id), reserva.pacote_id ? eq(cupons.pacote_id, reserva.pacote_id) : isNull(cupons.pacote_id)),
+      or(isNull(cupons.lote_comercial_id), reserva.lote_comercial_id ? eq(cupons.lote_comercial_id, reserva.lote_comercial_id) : isNull(cupons.lote_comercial_id)),
       or(isNull(cupons.vendedor_id), reserva.vendedor_id ? eq(cupons.vendedor_id, reserva.vendedor_id) : isNull(cupons.vendedor_id)),
     )).limit(1))[0] : undefined;
     if (!cupom) return res.status(400).json({ erro: "Cupom inválido para este evento ou pacote" });
@@ -814,6 +837,99 @@ router.delete("/:pacote_id/periodos/:periodo_id", authMiddleware, requireRole("a
   } catch (error) {
     console.error("[PACOTES] Erro ao excluir período:", error);
     return res.status(500).json({ erro: "Não foi possível excluir o período" });
+  }
+});
+
+// Lotes comerciais: preço e vagas pertencem ao pacote + período + forma.
+router.get("/:pacote_id/lotes-comerciais", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const pacote = (await db.select({ id: pacotes.id }).from(pacotes).where(eq(pacotes.id, req.params.pacote_id)).limit(1))[0];
+    if (!pacote) return res.status(404).json({ erro: "Pacote não encontrado" });
+    const lista = await db.select().from(pacoteLotesComerciais)
+      .where(eq(pacoteLotesComerciais.pacote_id, pacote.id))
+      .orderBy(pacoteLotesComerciais.periodo_id, pacoteLotesComerciais.forma_contratacao, pacoteLotesComerciais.ordem, pacoteLotesComerciais.data_inicio);
+    return res.json({ pacote_id: pacote.id, lotes: lista });
+  } catch (error) {
+    console.error("[PACOTES] Erro ao listar lotes comerciais:", error);
+    return res.status(500).json({ erro: "Não foi possível listar os lotes comerciais" });
+  }
+});
+
+router.post("/:pacote_id/lotes-comerciais", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const pacote = (await db.select().from(pacotes).where(eq(pacotes.id, req.params.pacote_id)).limit(1))[0];
+    if (!pacote) return res.status(404).json({ erro: "Pacote não encontrado" });
+    const forma = String(req.body?.forma_contratacao || pacote.forma_contratacao).trim().toLowerCase();
+    const formas = normalizarFormasContratacao(pacote.formas_contratacao, pacote.forma_contratacao, pacote.modalidade_hospedagem);
+    if (!FORMAS_CONTRATACAO.has(forma as typeof FORMAS_CONTRATACAO_VALIDAS[number]) || !formas.includes(forma as typeof FORMAS_CONTRATACAO_VALIDAS[number])) return res.status(400).json({ erro: "A forma de contratação não está habilitada neste pacote" });
+    const periodos = await db.select({ id: pacotePeriodos.id }).from(pacotePeriodos).where(and(eq(pacotePeriodos.pacote_id, pacote.id), eq(pacotePeriodos.ativo, true)));
+    const periodoId = String(req.body?.periodo_id || "").trim() || null;
+    if (periodos.length > 0 && !periodoId) return res.status(400).json({ erro: "Selecione o período deste lote comercial" });
+    if (periodoId && !periodos.some((periodo) => periodo.id === periodoId)) return res.status(400).json({ erro: "O período não pertence a este pacote ou está indisponível" });
+    const nome = String(req.body?.nome || "").trim().slice(0, 255);
+    const vagas = Number(req.body?.vagas_totais ?? req.body?.vagas);
+    const valor = Number(req.body?.valor);
+    const inicio = dataPeriodo(req.body?.data_inicio, "A data inicial da venda");
+    const fim = dataPeriodo(req.body?.data_fim, "A data final da venda", false);
+    if (!nome || !Number.isInteger(vagas) || vagas < 1) return res.status(400).json({ erro: "Informe nome e uma quantidade de vagas inteira maior que zero" });
+    if (!Number.isFinite(valor) || valor < 0) return res.status(400).json({ erro: "Informe um preço válido para o lote" });
+    if (fim && inicio && inicio.getTime() > fim.getTime()) return res.status(400).json({ erro: "A data inicial da venda deve ser anterior à data final" });
+    const existentesComerciais = await db.select({ id: pacoteLotesComerciais.id }).from(pacoteLotesComerciais).where(and(eq(pacoteLotesComerciais.pacote_id, pacote.id), periodoId ? eq(pacoteLotesComerciais.periodo_id, periodoId) : isNull(pacoteLotesComerciais.periodo_id), eq(pacoteLotesComerciais.forma_contratacao, forma)));
+    const ordem = Number.isInteger(Number(req.body?.ordem)) ? Number(req.body.ordem) : existentesComerciais.length;
+    const criado = (await db.insert(pacoteLotesComerciais).values({
+      id: createId(), pacote_id: pacote.id, periodo_id: periodoId, forma_contratacao: forma,
+      nome, descricao: String(req.body?.descricao || "").trim().slice(0, 2000) || null, ordem,
+      vagas_totais: vagas, vagas_disponiveis: vagas, valor: valor.toFixed(2), data_inicio: inicio!, data_fim: fim,
+      ativo: req.body?.ativo !== false, criado_em: new Date(), atualizado_em: new Date(),
+    }).returning())[0];
+    return res.status(201).json({ mensagem: "Lote comercial criado", lote: criado });
+  } catch (error: any) {
+    console.error("[PACOTES] Erro ao criar lote comercial:", error);
+    return res.status(400).json({ erro: mensagemErroPublica(error, "Não foi possível criar o lote comercial") });
+  }
+});
+
+router.put("/:pacote_id/lotes-comerciais/:lote_comercial_id", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const atual = (await db.select().from(pacoteLotesComerciais).where(and(eq(pacoteLotesComerciais.id, req.params.lote_comercial_id), eq(pacoteLotesComerciais.pacote_id, req.params.pacote_id))).limit(1))[0];
+    if (!atual) return res.status(404).json({ erro: "Lote comercial não encontrado" });
+    const ocupadas = Math.max(0, Number(atual.vagas_totais) - Number(atual.vagas_disponiveis));
+    const total = req.body?.vagas_totais !== undefined ? Number(req.body.vagas_totais) : Number(atual.vagas_totais);
+    const disponiveis = req.body?.vagas_disponiveis !== undefined ? Number(req.body.vagas_disponiveis) : (req.body?.vagas_totais !== undefined ? total - ocupadas : Number(atual.vagas_disponiveis));
+    if (!Number.isInteger(total) || total < 1 || total < ocupadas || !Number.isInteger(disponiveis) || disponiveis < 0 || disponiveis > total) return res.status(409).json({ erro: `A capacidade deve preservar as ${ocupadas} vagas já vendidas ou reservadas` });
+    const valor = req.body?.valor !== undefined ? Number(req.body.valor) : Number(atual.valor);
+    if (!Number.isFinite(valor) || valor < 0) return res.status(400).json({ erro: "Informe um preço válido para o lote" });
+    const inicio = req.body?.data_inicio !== undefined ? dataPeriodo(req.body.data_inicio, "A data inicial da venda") : atual.data_inicio;
+    const fim = req.body?.data_fim !== undefined ? dataPeriodo(req.body.data_fim, "A data final da venda", false) : atual.data_fim;
+    if (fim && inicio && inicio.getTime() > fim.getTime()) return res.status(400).json({ erro: "A data inicial da venda deve ser anterior à data final" });
+    const atualizado = (await db.update(pacoteLotesComerciais).set({
+      nome: req.body?.nome !== undefined ? String(req.body.nome).trim().slice(0, 255) : undefined,
+      descricao: req.body?.descricao !== undefined ? String(req.body.descricao || "").trim().slice(0, 2000) || null : undefined,
+      ordem: req.body?.ordem !== undefined ? Number(req.body.ordem) : undefined,
+      vagas_totais: total, vagas_disponiveis: disponiveis, valor: valor.toFixed(2), data_inicio: inicio!, data_fim: fim,
+      ativo: req.body?.ativo !== undefined ? Boolean(req.body.ativo) : undefined, atualizado_em: new Date(),
+    }).where(eq(pacoteLotesComerciais.id, atual.id)).returning())[0];
+    return res.json({ mensagem: "Lote comercial atualizado", lote: atualizado });
+  } catch (error: any) {
+    console.error("[PACOTES] Erro ao atualizar lote comercial:", error);
+    return res.status(400).json({ erro: mensagemErroPublica(error, "Não foi possível atualizar o lote comercial") });
+  }
+});
+
+router.delete("/:pacote_id/lotes-comerciais/:lote_comercial_id", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const atual = (await db.select().from(pacoteLotesComerciais).where(and(eq(pacoteLotesComerciais.id, req.params.lote_comercial_id), eq(pacoteLotesComerciais.pacote_id, req.params.pacote_id))).limit(1))[0];
+    if (!atual) return res.status(404).json({ erro: "Lote comercial não encontrado" });
+    const historico = await db.select({ id: reservas.id }).from(reservas).where(eq(reservas.lote_comercial_id, atual.id)).limit(1);
+    if (historico.length > 0) {
+      await db.update(pacoteLotesComerciais).set({ ativo: false, atualizado_em: new Date() }).where(eq(pacoteLotesComerciais.id, atual.id));
+      return res.json({ modo: "arquivado", mensagem: "Lote comercial arquivado para preservar vendas e contratos existentes." });
+    }
+    await db.delete(pacoteLotesComerciais).where(eq(pacoteLotesComerciais.id, atual.id));
+    return res.json({ modo: "excluido", mensagem: "Lote comercial excluído." });
+  } catch (error) {
+    console.error("[PACOTES] Erro ao excluir lote comercial:", error);
+    return res.status(500).json({ erro: "Não foi possível excluir o lote comercial" });
   }
 });
 

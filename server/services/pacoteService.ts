@@ -5,11 +5,12 @@ import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import Decimal from "decimal.js";
 import { normalizarGrupoHospedagem, normalizarFormasContratacao, resolverRecursosContratacao, type GrupoHospedagem, type RecursosContratados } from "./contratacaoRecursos.js";
 import { InventoryService } from "./inventoryService.js";
+import { LoteComercialService, normalizarFormaLote } from "./loteComercialService.js";
 
 export interface ItemSelecionado { id: string; nome: string; tipo: string; valor: number; quantidade: number; }
 export interface ParticipantePacote { nome_completo: string; cpf?: string; data_nascimento?: string; telefone?: string; email?: string; sexo_operacional?: GrupoHospedagem; }
-export interface ConfiguracaoPacote { lote_id: string; pacote_id?: string; periodo_id?: string; forma_contratacao?: 'onibus' | 'hospedagem' | 'onibus_hospedagem'; itens: ItemSelecionado[]; cupom_codigo?: string; usuario_id?: string; vendedor_id?: string; grupo_hospedagem?: GrupoHospedagem; participantes?: ParticipantePacote[]; }
-export interface ResultadoCalculo { valor_base: number; itens_selecionados: ItemSelecionado[]; subtotal: number; desconto_cupom: number; valor_total: number; pacote_id?: string; pacote_nome?: string; modalidade_hospedagem?: string; forma_contratacao?: string; cupom_id?: string; mensagem?: string; }
+export interface ConfiguracaoPacote { lote_id: string; pacote_id?: string; periodo_id?: string; lote_comercial_id?: string; forma_contratacao?: 'onibus' | 'hospedagem' | 'onibus_hospedagem'; itens: ItemSelecionado[]; cupom_codigo?: string; usuario_id?: string; vendedor_id?: string; grupo_hospedagem?: GrupoHospedagem; participantes?: ParticipantePacote[]; }
+export interface ResultadoCalculo { valor_base: number; itens_selecionados: ItemSelecionado[]; subtotal: number; desconto_cupom: number; valor_total: number; pacote_id?: string; pacote_nome?: string; modalidade_hospedagem?: string; forma_contratacao?: string; lote_comercial_id?: string; lote_comercial_nome?: string; lote_comercial_valor?: number; cupom_id?: string; mensagem?: string; }
 
 export interface OrigemReserva { lead_id?: string; vendedor_id?: string; codigo_origem?: string; }
 
@@ -354,6 +355,13 @@ export class PacoteService {
       if (!baixa.rows.length) throw new Error("A excursão ficou sem vagas para retomar este carrinho");
 
       const formaRetomada = String((recursos as any).forma_contratacao || esperado?.forma_contratacao || pacote?.forma_contratacao || "");
+      let loteComercialRetomado: { id: string; nome: string } | null = null;
+      if (pacote && existente.lote_comercial_id) {
+        loteComercialRetomado = await LoteComercialService.renovarNaTransacao(tx, existente.lote_comercial_id, quantidadePessoas);
+      } else if (pacote) {
+        const novoLoteComercial = await LoteComercialService.reservarNaTransacao(tx, pacote.id, existente.periodo_id, normalizarFormaLote(formaRetomada), quantidadePessoas);
+        loteComercialRetomado = novoLoteComercial ? { id: novoLoteComercial.id, nome: novoLoteComercial.nome } : null;
+      }
       const operacao = await alocarRecursosNaTransacao(tx, pacote, existente.id, usuario_id, lote_id, existente.periodo_id, pessoas, formaRetomada);
       const holdId = hold?.id || createId();
       const agora = new Date();
@@ -369,6 +377,7 @@ export class PacoteService {
         status: existente.status === "abandonado" ? "pacote_montado" : existente.status,
         checkout_estado: existente.status === "abandonado" || existente.checkout_estado === "carrinho_salvo" ? "inventario_reservado" : existente.checkout_estado,
         inventario_hold_id: holdId,
+        lote_comercial_id: loteComercialRetomado?.id || existente.lote_comercial_id || null,
         atualizado_em: agora,
       }).where(eq(reservas.id, existente.id));
       const atualizada = (await tx.select().from(reservas).where(eq(reservas.id, existente.id)).limit(1))[0] || existente;
@@ -449,6 +458,7 @@ export class PacoteService {
     if (!evento?.ativo) throw new Error("Evento não encontrado ou inativo");
 
     let valorBase = new Decimal(lote.valor_base.toString());
+    let loteComercialAtivo: Awaited<ReturnType<typeof LoteComercialService.obterStatus>>["lote"] = null;
     let pacoteSelecionado: typeof pacotes.$inferSelect | undefined;
     let formaSelecionada: string | undefined;
     if (config.pacote_id) {
@@ -461,6 +471,17 @@ export class PacoteService {
       if (periodosAtivos.length > 0 && !config.periodo_id) throw new Error("Escolha o período da viagem para continuar");
       if (config.periodo_id && !periodosAtivos.some((periodo) => periodo.id === config.periodo_id)) throw new Error("O período escolhido não pertence a este pacote ou está indisponível");
       valorBase = new Decimal(pacoteSelecionado.valor_total.toString());
+      const formaComercial = normalizarFormaLote(formaSelecionada || pacoteSelecionado.forma_contratacao);
+      const statusComercial = await LoteComercialService.obterStatus(pacoteSelecionado.id, config.periodo_id || null, formaComercial);
+      if (statusComercial.configurado) {
+        if (statusComercial.status === "aguardando") throw new Error("O próximo lote ainda não iniciou. Aguarde a abertura da pré-venda.");
+        if (statusComercial.status === "esgotado" || !statusComercial.lote) throw new Error("Os lotes comerciais deste pacote, período e forma de contratação estão esgotados.");
+        if (config.lote_comercial_id && config.lote_comercial_id !== statusComercial.lote.id) throw new Error("O lote comercial mudou. Atualize a página para continuar com a condição vigente.");
+        loteComercialAtivo = statusComercial.lote;
+        valorBase = new Decimal(statusComercial.lote.valor);
+      } else if (config.lote_comercial_id) {
+        throw new Error("O lote comercial selecionado não está mais disponível para este pacote e período.");
+      }
     }
 
     const itensValidados: ItemSelecionado[] = [];
@@ -483,6 +504,7 @@ export class PacoteService {
         eq(cupons.evento_id, lote.evento_id),
         eq(cupons.ativo, true),
         or(isNull(cupons.pacote_id), config.pacote_id ? eq(cupons.pacote_id, config.pacote_id) : isNull(cupons.pacote_id)),
+        or(isNull(cupons.lote_comercial_id), loteComercialAtivo ? eq(cupons.lote_comercial_id, loteComercialAtivo.id) : isNull(cupons.lote_comercial_id)),
         or(isNull(cupons.vendedor_id), config.vendedor_id ? eq(cupons.vendedor_id, config.vendedor_id) : isNull(cupons.vendedor_id)),
       )).limit(1))[0];
       if (!cupom) throw new Error("Cupom inválido para este evento");
@@ -516,6 +538,9 @@ export class PacoteService {
       pacote_nome: pacoteSelecionado?.nome,
       modalidade_hospedagem: pacoteSelecionado?.modalidade_hospedagem || undefined,
       forma_contratacao: formaSelecionada,
+      lote_comercial_id: loteComercialAtivo?.id,
+      lote_comercial_nome: loteComercialAtivo?.nome,
+      lote_comercial_valor: loteComercialAtivo ? Number(loteComercialAtivo.valor) : undefined,
       cupom_id: cupomId,
     };
   }
@@ -540,6 +565,13 @@ export class PacoteService {
         if (config.periodo_id && !periodosAtivos.some((periodo) => periodo.id === config.periodo_id)) throw new Error("O período escolhido não pertence a este pacote ou está indisponível");
       } else if (config.periodo_id) {
         throw new Error("O período só pode ser escolhido junto com um pacote");
+      }
+      const formaComercial = normalizarFormaLote(calculo.forma_contratacao || pacoteOperacional?.forma_contratacao);
+      const loteComercial = pacoteOperacional
+        ? await LoteComercialService.reservarNaTransacao(tx, pacoteOperacional.id, config.periodo_id || null, formaComercial, quantidadePessoas, config.lote_comercial_id ? Number(calculo.valor_base) : undefined)
+        : null;
+      if (config.lote_comercial_id && (!loteComercial || loteComercial.id !== config.lote_comercial_id)) {
+        throw new Error("O lote comercial mudou. Atualize a página para continuar com a condição vigente.");
       }
       const responsavel = (await tx.select({ nome: usuarios.nome, cpf: usuarios.cpf, data_nascimento: usuarios.data_nascimento, telefone: usuarios.telefone, email: usuarios.email, sexo: usuarios.sexo }).from(usuarios).where(eq(usuarios.id, usuario_id)).limit(1))[0];
       const grupoHospedagem = normalizarGrupoHospedagem(responsavel?.sexo) || normalizarGrupoHospedagem(config.grupo_hospedagem);
@@ -587,6 +619,7 @@ export class PacoteService {
         lote_id,
         pacote_id: config.pacote_id || null,
         periodo_id: config.periodo_id || null,
+        lote_comercial_id: loteComercial?.id || null,
         status: "pacote_montado",
         checkout_estado: "inventario_reservado",
         // A FK aponta para inventario_holds, que referencia esta reserva.
@@ -659,7 +692,7 @@ export class PacoteService {
         ...calculo.itens_selecionados.map((item) => ({ tipo: "adicional", codigo: item.id, descricao: item.nome, quantidade: item.quantidade, valor_unitario_centavos: Math.round(item.valor * 100), valor_total_centavos: Math.round(item.valor * item.quantidade * 100) })),
         ...(calculo.desconto_cupom > 0 ? [{ tipo: "cupom", codigo: calculo.cupom_id, descricao: "Desconto de cupom", quantidade: quantidadePessoas, valor_unitario_centavos: -Math.round(calculo.desconto_cupom * 100), valor_total_centavos: -Math.round(calculo.desconto_cupom * 100 * quantidadePessoas) }] : []),
       ];
-      await tx.insert(precosLedger).values(linhasLedger.map((linha) => ({ id: createId(), reserva_id: novaReserva.id, ...linha, criado_em: agora, metadados: { fonte: "PacoteService.calcularValorPacote", preco_versao: "2026.1" } })));
+      await tx.insert(precosLedger).values(linhasLedger.map((linha) => ({ id: createId(), reserva_id: novaReserva.id, ...linha, criado_em: agora, metadados: { fonte: "PacoteService.calcularValorPacote", preco_versao: "2026.1", lote_comercial_id: loteComercial?.id || null, lote_comercial_nome: loteComercial?.nome || null } })));
       return { reserva: novaReserva, operacao };
     });
     const calculoGrupo = quantidadePessoas === 1 ? calculo : {

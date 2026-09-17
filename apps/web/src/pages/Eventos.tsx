@@ -26,8 +26,11 @@ type Periodo = {
   data_inicio: string;
   data_fim: string;
   descricao?: string | null;
-  disponibilidade?: 'disponivel' | 'ultimas_vagas' | 'esgotado' | string | null;
+  disponibilidade?: 'disponivel' | 'ultimas_vagas' | 'esgotado' | 'aguardando' | string | null;
   vagas_disponiveis?: number;
+  valor_total?: string | number | null;
+  lote_comercial_nome?: string | null;
+  lote_comercial_data_fim?: string | null;
 };
 
 type Foto = {
@@ -81,6 +84,7 @@ function itensInclusos(valor: unknown): string[] {
 
 function statusOferta(disponibilidade?: string | null) {
   if (disponibilidade === 'esgotado') return { label: 'Esgotado', classe: 'bg-[#182D3B] text-white' };
+  if (disponibilidade === 'aguardando') return { label: 'Próximo lote', classe: 'bg-[#E6EFF8] text-[#244D72]' };
   if (disponibilidade === 'ultimas_vagas') return { label: 'Últimas vagas', classe: 'bg-[#F6E8C9] text-[#6B4D14]' };
   return { label: 'Disponível', classe: 'bg-[#E9F1EB] text-[#365B41]' };
 }
@@ -90,6 +94,7 @@ function disponibilidadeModalidade(modalidade: Modalidade) {
   if (!periodos.length) return modalidade.disponibilidade;
   if (periodos.some((periodo) => periodo.disponibilidade === 'disponivel')) return 'disponivel';
   if (periodos.some((periodo) => periodo.disponibilidade === 'ultimas_vagas')) return 'ultimas_vagas';
+  if (periodos.some((periodo) => periodo.disponibilidade === 'aguardando')) return 'aguardando';
   return 'esgotado';
 }
 
@@ -266,15 +271,15 @@ export default function Eventos() {
                                   <h4 className="font-editorial mt-5 text-xl font-bold leading-tight text-[#182D3B]">{modalidade.nome}</h4>
                                   {(modalidade.destaque_titulo || modalidade.destaque_subtitulo || modalidade.destaque_texto) && <div className="mt-3 rounded-xl border border-[#851F32]/15 bg-[#F8F0F1] px-3 py-2.5"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">{modalidade.destaque_subtitulo || 'Destaque'}</p>{modalidade.destaque_titulo && <p className="mt-1 text-sm font-extrabold text-[#182D3B]">{modalidade.destaque_titulo}</p>}{modalidade.destaque_texto && <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#5F7079]">{modalidade.destaque_texto}</p>}</div>}
                                   {modalidade.descricao && <p className="mt-2 line-clamp-3 text-sm leading-6 text-[#182D3B]/60">{modalidade.descricao}</p>}
-                                  <div className="mt-4 rounded-xl border border-[#182D3B]/10 bg-[#FCFAF7] p-3"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">Períodos disponíveis</p>{periodos.length > 0 ? <div className="mt-2 space-y-2">{periodos.map((periodo) => { const periodoStatus = statusOferta(periodo.disponibilidade); return <div key={periodo.id} className="flex items-start justify-between gap-3 rounded-lg bg-white px-2.5 py-2"><span><strong className="block text-sm font-extrabold text-[#182D3B]">{periodo.nome}</strong><span className="text-xs font-semibold text-[#60717B]">{formatarData(periodo.data_inicio)} a {formatarData(periodo.data_fim)}</span></span><span className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${periodoStatus.classe}`}>{periodoStatus.label}</span></div>; })}</div> : <p className="mt-1 text-xs font-semibold text-[#60717B]">{formatarData(lote.data_inicio)} a {formatarData(lote.data_fim)}</p>}</div>
+                                  <div className="mt-4 rounded-xl border border-[#182D3B]/10 bg-[#FCFAF7] p-3"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">Períodos disponíveis</p>{periodos.length > 0 ? <div className="mt-2 space-y-2">{periodos.map((periodo) => { const periodoStatus = statusOferta(periodo.disponibilidade); return <div key={periodo.id} className="flex items-start justify-between gap-3 rounded-lg bg-white px-2.5 py-2"><span><strong className="block text-sm font-extrabold text-[#182D3B]">{periodo.nome}</strong><span className="text-xs font-semibold text-[#60717B]">{formatarData(periodo.data_inicio)} a {formatarData(periodo.data_fim)}</span>{periodo.lote_comercial_nome && <small className="mt-0.5 block text-[10px] font-semibold text-[#851F32]">{periodo.lote_comercial_nome}{periodo.lote_comercial_data_fim ? ` · até ${formatarData(periodo.lote_comercial_data_fim)}` : ''}</small>}</span><span className="shrink-0 text-right"><strong className="block text-xs font-extrabold text-[#182D3B]">{periodo.valor_total ? formatarMoeda(periodo.valor_total) : 'Consultar'}</strong><span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${periodoStatus.classe}`}>{periodoStatus.label}</span></span></div>; })}</div> : <p className="mt-1 text-xs font-semibold text-[#60717B]">{formatarData(lote.data_inicio)} a {formatarData(lote.data_fim)}</p>}</div>
                                   {inclusos.length > 0 && (
                                     <ul className="mt-4 space-y-2 text-xs text-[#182D3B]/68">
                                       {inclusos.slice(0, 3).map((item) => <li key={item} className="flex gap-2"><Check size={14} className="mt-0.5 shrink-0 text-[#851F32]" /><span>{item}</span></li>)}
                                     </ul>
                                   )}
                                   <div className="mt-auto pt-6">
-                                    <p className="text-[11px] font-bold uppercase tracking-[0.13em] text-[#182D3B]/45">Valor publicado</p>
-                                    <p className="mt-1 text-2xl font-extrabold text-[#182D3B]">{formatarMoeda(modalidade.valor_total)} <span className="text-xs font-semibold text-[#182D3B]/50">por pessoa</span></p>
+                                    <p className="text-[11px] font-bold uppercase tracking-[0.13em] text-[#182D3B]/45">Valor publicado a partir de</p>
+                                    <p className="mt-1 text-2xl font-extrabold text-[#182D3B]">{formatarMoeda(periodos.map((periodo) => Number(periodo.valor_total)).filter((valor) => Number.isFinite(valor) && valor > 0).sort((a, b) => a - b)[0] || modalidade.valor_total)} <span className="text-xs font-semibold text-[#182D3B]/50">por pessoa</span></p>
                                     {esgotado ? (
                                       <WhatsAppCTA mensagem={`Olá! Quero saber sobre lista de espera para ${modalidade.nome} — ${lote.nome}.`} label="Consultar lista de espera" size="sm" className="mt-4 w-full" />
                                     ) : (

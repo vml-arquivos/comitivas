@@ -50,8 +50,11 @@ type Periodo = {
   data_inicio: string;
   data_fim: string;
   descricao?: string | null;
-  disponibilidade?: 'disponivel' | 'ultimas_vagas' | 'esgotado' | string | null;
+  disponibilidade?: 'disponivel' | 'ultimas_vagas' | 'esgotado' | 'aguardando' | string | null;
   vagas_disponiveis?: number;
+  valor_total?: string | number | null;
+  lote_comercial_nome?: string | null;
+  lote_comercial_data_fim?: string | null;
 };
 
 type Lote = {
@@ -189,13 +192,20 @@ function disponibilidadeOferta(oferta: Oferta) {
   if (!periodos.length) return oferta.pacote.disponibilidade;
   if (periodos.some((periodo) => periodo.disponibilidade === 'disponivel')) return 'disponivel';
   if (periodos.some((periodo) => periodo.disponibilidade === 'ultimas_vagas')) return 'ultimas_vagas';
+  if (periodos.some((periodo) => periodo.disponibilidade === 'aguardando')) return 'aguardando';
   return 'esgotado';
 }
 
 function statusOferta(disponibilidade?: string | null) {
   if (disponibilidade === 'esgotado') return { label: 'Esgotado', classe: 'bg-slate-900 text-white' };
+  if (disponibilidade === 'aguardando') return { label: 'Próximo lote', classe: 'bg-blue-100 text-blue-900' };
   if (disponibilidade === 'ultimas_vagas') return { label: 'Últimas vagas', classe: 'bg-amber-100 text-amber-900' };
   return { label: 'Disponível', classe: 'bg-emerald-100 text-emerald-900' };
+}
+
+function precoOferta(oferta: Oferta) {
+  const precos = periodosOferta(oferta).map((periodo) => Number(periodo.valor_total)).filter((valor) => Number.isFinite(valor) && valor > 0);
+  return formatarMoeda(precos.length ? Math.min(...precos) : oferta.pacote.valor_total);
 }
 
 export default function Home() {
@@ -408,8 +418,8 @@ export default function Home() {
                   <p className="mt-3 text-sm font-bold text-[#334A58]">{ofertaAtiva.pacote.nome}</p>
                   {(ofertaAtiva.pacote.destaque_titulo || ofertaAtiva.pacote.destaque_subtitulo || ofertaAtiva.pacote.destaque_texto) && <div className="mt-3 rounded-xl border border-[#851F32]/15 bg-[#F8F0F1] px-3 py-2.5"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">{ofertaAtiva.pacote.destaque_subtitulo || 'Destaque'}</p>{ofertaAtiva.pacote.destaque_titulo && <p className="mt-1 text-sm font-extrabold text-[#182D3B]">{ofertaAtiva.pacote.destaque_titulo}</p>}{ofertaAtiva.pacote.destaque_texto && <p className="mt-1 text-xs leading-5 text-[#5F7079]">{ofertaAtiva.pacote.destaque_texto}</p>}</div>}
                   <div className="mt-4 border-y border-[#182D3B]/10 py-4 text-xs text-[#60717B]">
-                    <div className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 font-black uppercase tracking-[.12em] text-[#851F32]"><Calendar size={14} />Períodos disponíveis</span><span className="font-extrabold text-[#182D3B]">{formatarMoeda(ofertaAtiva.pacote.valor_total) || 'Valor no configurador'}</span></div>
-                    {periodosAtivos.length > 0 ? <div className="mt-3 max-h-28 space-y-2 overflow-y-auto pr-1">{periodosAtivos.map((periodo) => <div key={periodo.id} className="flex items-start justify-between gap-3 rounded-lg bg-[#FCFAF7] px-2.5 py-2"><span><strong className="block text-[#182D3B]">{periodo.nome}</strong><span>{formatarData(periodo.data_inicio, true)} a {formatarData(periodo.data_fim, true)}</span></span><span className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${statusOferta(periodo.disponibilidade).classe}`}>{statusOferta(periodo.disponibilidade).label}</span></div>)}</div> : <p className="mt-2">Datas da excursão apresentadas no configurador.</p>}
+                    <div className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 font-black uppercase tracking-[.12em] text-[#851F32]"><Calendar size={14} />Períodos disponíveis</span><span className="font-extrabold text-[#182D3B]">{precoOferta(ofertaAtiva) || 'Valor no configurador'}</span></div>
+                    {periodosAtivos.length > 0 ? <div className="mt-3 max-h-36 space-y-2 overflow-y-auto pr-1">{periodosAtivos.map((periodo) => <div key={periodo.id} className="flex items-start justify-between gap-3 rounded-lg bg-[#FCFAF7] px-2.5 py-2"><span><strong className="block text-[#182D3B]">{periodo.nome}</strong><span>{formatarData(periodo.data_inicio, true)} a {formatarData(periodo.data_fim, true)}</span>{periodo.lote_comercial_nome && <small className="mt-0.5 block text-[10px] font-semibold text-[#851F32]">{periodo.lote_comercial_nome}{periodo.lote_comercial_data_fim ? ` · até ${formatarData(periodo.lote_comercial_data_fim, true)}` : ''}</small>}</span><span className="shrink-0 text-right"><strong className="block text-[11px] text-[#182D3B]">{formatarMoeda(periodo.valor_total) || 'Consultar'}</strong><span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${statusOferta(periodo.disponibilidade).classe}`}>{statusOferta(periodo.disponibilidade).label}</span></span></div>)}</div> : <p className="mt-2">Datas da excursão apresentadas no configurador.</p>}
                   </div>
                   {itensAtivos.length > 0 && <p className="mt-4 line-clamp-2 text-xs leading-5 text-[#687882]">{itensAtivos.join(' · ')}</p>}
                   <Link to={linkPacote(ofertaAtiva)} className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[#851F32] px-5 text-sm font-extrabold text-white transition hover:bg-[#6f1929]">
@@ -485,9 +495,9 @@ export default function Home() {
                     <h3 className="font-editorial mt-4 text-2xl leading-tight text-[#182D3B]">{oferta.pacote.nome}</h3>
                     {(oferta.pacote.destaque_titulo || oferta.pacote.destaque_subtitulo || oferta.pacote.destaque_texto) && <div className="mt-3 rounded-xl border border-[#851F32]/15 bg-[#F8F0F1] px-3 py-2.5"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">{oferta.pacote.destaque_subtitulo || 'Destaque'}</p>{oferta.pacote.destaque_titulo && <p className="mt-1 text-sm font-extrabold text-[#182D3B]">{oferta.pacote.destaque_titulo}</p>}{oferta.pacote.destaque_texto && <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#5F7079]">{oferta.pacote.destaque_texto}</p>}</div>}
                     <p className="mt-2 line-clamp-2 min-h-10 text-sm leading-5 text-[#6B7C85]">{oferta.pacote.descricao || oferta.lote.descricao || 'Detalhes completos disponíveis no configurador.'}</p>
-                    <div className="mt-5 border-y border-[#182D3B]/10 py-4 text-xs text-[#60717B]"><div className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 font-black uppercase tracking-[.12em] text-[#851F32]"><Calendar size={14} />Períodos disponíveis</span><span className="inline-flex items-center gap-1.5"><MapPin size={14} className="text-[#851F32]" />{oferta.evento.local}</span></div>{periodos.length > 0 ? <div className="mt-3 space-y-2">{periodos.map((periodo) => <div key={periodo.id} className="flex items-start justify-between gap-3 rounded-lg bg-[#FCFAF7] px-2.5 py-2"><span><strong className="block text-[#182D3B]">{periodo.nome}</strong><span>{formatarData(periodo.data_inicio, true)} a {formatarData(periodo.data_fim, true)}</span></span><span className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${statusOferta(periodo.disponibilidade).classe}`}>{statusOferta(periodo.disponibilidade).label}</span></div>)}</div> : <p className="mt-2">Datas da excursão apresentadas no configurador.</p>}</div>
+                    <div className="mt-5 border-y border-[#182D3B]/10 py-4 text-xs text-[#60717B]"><div className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 font-black uppercase tracking-[.12em] text-[#851F32]"><Calendar size={14} />Períodos disponíveis</span><span className="inline-flex items-center gap-1.5"><MapPin size={14} className="text-[#851F32]" />{oferta.evento.local}</span></div>{periodos.length > 0 ? <div className="mt-3 space-y-2">{periodos.map((periodo) => <div key={periodo.id} className="flex items-start justify-between gap-3 rounded-lg bg-[#FCFAF7] px-2.5 py-2"><span><strong className="block text-[#182D3B]">{periodo.nome}</strong><span>{formatarData(periodo.data_inicio, true)} a {formatarData(periodo.data_fim, true)}</span>{periodo.lote_comercial_nome && <small className="mt-0.5 block text-[10px] font-semibold text-[#851F32]">{periodo.lote_comercial_nome}{periodo.lote_comercial_data_fim ? ` · até ${formatarData(periodo.lote_comercial_data_fim, true)}` : ''}</small>}</span><span className="shrink-0 text-right"><strong className="block text-[11px] text-[#182D3B]">{formatarMoeda(periodo.valor_total) || 'Consultar'}</strong><span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${statusOferta(periodo.disponibilidade).classe}`}>{statusOferta(periodo.disponibilidade).label}</span></span></div>)}</div> : <p className="mt-2">Datas da excursão apresentadas no configurador.</p>}</div>
                     {itens.length > 0 && <ul className="mt-4 space-y-2">{itens.map((item) => <li key={item} className="flex items-start gap-2 text-xs leading-5 text-[#5F7079]"><Check size={14} className="mt-0.5 shrink-0 text-[#851F32]" />{item}</li>)}</ul>}
-                    <div className="mt-auto pt-6"><p className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#88949B]">Valor publicado</p><p className="font-editorial mt-1 text-2xl text-[#182D3B]">{formatarMoeda(oferta.pacote.valor_total) || 'Consultar'}</p><Link to={linkPacote(oferta)} className={`mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full px-5 text-sm font-extrabold transition ${disponibilidadeOferta(oferta) === 'esgotado' ? 'pointer-events-none bg-slate-100 text-slate-400' : 'bg-[#851F32] text-white hover:bg-[#6f1929]'}`} aria-disabled={disponibilidadeOferta(oferta) === 'esgotado'}>{disponibilidadeOferta(oferta) === 'esgotado' ? 'Pacote esgotado' : 'Escolher pacote e período'}{disponibilidadeOferta(oferta) !== 'esgotado' && <ArrowRight size={16} />}</Link></div>
+                    <div className="mt-auto pt-6"><p className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#88949B]">Valor publicado a partir de</p><p className="font-editorial mt-1 text-2xl text-[#182D3B]">{precoOferta(oferta) || 'Consultar'}</p><Link to={linkPacote(oferta)} className={`mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full px-5 text-sm font-extrabold transition ${disponibilidadeOferta(oferta) === 'esgotado' ? 'pointer-events-none bg-slate-100 text-slate-400' : 'bg-[#851F32] text-white hover:bg-[#6f1929]'}`} aria-disabled={disponibilidadeOferta(oferta) === 'esgotado'}>{disponibilidadeOferta(oferta) === 'esgotado' ? 'Pacote esgotado' : 'Escolher pacote e período'}{disponibilidadeOferta(oferta) !== 'esgotado' && <ArrowRight size={16} />}</Link></div>
                   </article>
                 );
               })}

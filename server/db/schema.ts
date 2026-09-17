@@ -154,6 +154,30 @@ export const pacotePeriodos = pgTable("pacote_periodos", {
   ativoIdx: index("pacote_periodos_ativo_idx").on(table.pacote_id, table.ativo, table.ordem),
 }));
 
+// Lotes comerciais controlam preço, vagas e janela de venda por pacote/período.
+// O lote histórico continua sendo a unidade de inventário da excursão.
+export const pacoteLotesComerciais = pgTable("pacote_lotes_comerciais", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  pacote_id: text("pacote_id").notNull().references(() => pacotes.id),
+  periodo_id: text("periodo_id").references(() => pacotePeriodos.id),
+  forma_contratacao: varchar("forma_contratacao", { length: 32 }).notNull().default("onibus_hospedagem"),
+  nome: varchar("nome", { length: 255 }).notNull(),
+  descricao: text("descricao"),
+  ordem: integer("ordem").notNull().default(0),
+  vagas_totais: integer("vagas_totais").notNull(),
+  vagas_disponiveis: integer("vagas_disponiveis").notNull(),
+  valor: decimal("valor", { precision: 12, scale: 2 }).notNull(),
+  data_inicio: timestamp("data_inicio").notNull(),
+  data_fim: timestamp("data_fim"),
+  saldo_migrado_em: timestamp("saldo_migrado_em"),
+  ativo: boolean("ativo").notNull().default(true),
+  criado_em: timestamp("criado_em").defaultNow().notNull(),
+  atualizado_em: timestamp("atualizado_em").defaultNow().notNull(),
+}, (table) => ({
+  pacotePeriodoIdx: index("pacote_lotes_comerciais_pacote_periodo_idx").on(table.pacote_id, table.periodo_id, table.forma_contratacao, table.ativo, table.ordem),
+  vendaIdx: index("pacote_lotes_comerciais_venda_idx").on(table.data_inicio, table.data_fim, table.ativo),
+}));
+
 export const itens_addon = pgTable("itens_addon", {
   id: text("id").primaryKey().$defaultFn(() => createId()),
   lote_id: text("lote_id").notNull().references(() => lotes.id),
@@ -188,6 +212,7 @@ export const cupons = pgTable("cupons", {
   uso_maximo: integer("uso_maximo"),
   limite_por_cliente: integer("limite_por_cliente"),
   pacote_id: text("pacote_id"),
+  lote_comercial_id: text("lote_comercial_id").references(() => pacoteLotesComerciais.id),
   vendedor_id: text("vendedor_id"),
   campanha: varchar("campanha", { length: 120 }),
   valor_minimo: decimal("valor_minimo", { precision: 12, scale: 2 }),
@@ -206,6 +231,7 @@ export const reservas = pgTable("reservas", {
   lote_id: text("lote_id").notNull().references(() => lotes.id),
   pacote_id: text("pacote_id").references(() => pacotes.id),
   periodo_id: text("periodo_id").references(() => pacotePeriodos.id),
+  lote_comercial_id: text("lote_comercial_id").references(() => pacoteLotesComerciais.id),
   status: reservaStatusEnum("status").default("visitante"),
   checkout_estado: varchar("checkout_estado", { length: 40 }).notNull().default("rascunho"),
   inventario_hold_id: text("inventario_hold_id"),

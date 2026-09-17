@@ -51,6 +51,22 @@ type PeriodoPacote = {
   ativo: boolean;
 };
 
+type LoteComercial = {
+  id: string;
+  pacote_id: string;
+  periodo_id?: string | null;
+  forma_contratacao: FormaContratacaoConfiguravel;
+  nome: string;
+  descricao?: string | null;
+  ordem: number;
+  vagas_totais: number;
+  vagas_disponiveis: number;
+  valor: string;
+  data_inicio: string;
+  data_fim?: string | null;
+  ativo: boolean;
+};
+
 type Modalidade = 'camping' | 'quarto_ventilador' | 'quarto_ar_condicionado';
 type Disponibilidade = 'disponivel' | 'ultimas_vagas' | 'esgotado';
 type FormaContratacao = 'onibus' | 'hospedagem' | 'onibus_hospedagem' | 'livre';
@@ -177,6 +193,7 @@ const vazioPacote = {
   destaqueTitulo: '', destaqueSubtitulo: '', destaqueTexto: '',
 };
 const vazioPeriodo = { nome: '', descricao: '', dataInicio: '', dataFim: '', dataEmbarque: '', dataRetorno: '', ordem: '' };
+const vazioLoteComercial = { periodoId: '', formaContratacao: 'onibus_hospedagem' as FormaContratacaoConfiguravel, nome: '', descricao: '', ordem: '', vagas: '', valor: '', dataInicio: '', dataFim: '' };
 
 export default function EventosAdmin() {
   const [eventos, setEventos] = useState<Evento[]>([]);
@@ -185,12 +202,15 @@ export default function EventosAdmin() {
   const [fotosPorEvento, setFotosPorEvento] = useState<Record<string, Foto[]>>({});
   const [fotosPorPacote, setFotosPorPacote] = useState<Record<string, Foto[]>>({});
   const [periodosPorPacote, setPeriodosPorPacote] = useState<Record<string, PeriodoPacote[]>>({});
+  const [lotesComerciaisPorPacote, setLotesComerciaisPorPacote] = useState<Record<string, LoteComercial[]>>({});
   const [expandido, setExpandido] = useState<string | null>(null);
   const [loteAberto, setLoteAberto] = useState<string | null>(null);
   const [pacotesAbertos, setPacotesAbertos] = useState<string | null>(null);
   const [galeriaPacoteAberta, setGaleriaPacoteAberta] = useState<string | null>(null);
   const [periodosPacoteAberto, setPeriodosPacoteAberto] = useState<string | null>(null);
+  const [lotesComerciaisPacoteAberto, setLotesComerciaisPacoteAberto] = useState<string | null>(null);
   const [periodoEditando, setPeriodoEditando] = useState<string | null>(null);
+  const [loteComercialEditando, setLoteComercialEditando] = useState<string | null>(null);
   const [mostrarFormEvento, setMostrarFormEvento] = useState(false);
   const [eventoEditando, setEventoEditando] = useState<string | null>(null);
   const [loteEditando, setLoteEditando] = useState<string | null>(null);
@@ -199,6 +219,7 @@ export default function EventosAdmin() {
   const [loteForm, setLoteForm] = useState(vazioLote);
   const [pacoteForm, setPacoteForm] = useState(vazioPacote);
   const [periodoForm, setPeriodoForm] = useState(vazioPeriodo);
+  const [loteComercialForm, setLoteComercialForm] = useState(vazioLoteComercial);
   const [fotoEvento, setFotoEvento] = useState<{ arquivo: File | null; legenda: string }>({ arquivo: null, legenda: '' });
   const [fotoPacote, setFotoPacote] = useState<{ pacoteId: string; arquivo: File | null; legenda: string }>({ pacoteId: '', arquivo: null, legenda: '' });
   const [fotoEventoKey, setFotoEventoKey] = useState(0);
@@ -257,6 +278,11 @@ export default function EventosAdmin() {
   const carregarPeriodosPacote = async (pacoteId: string) => {
     const resposta = await api.get(`/pacotes/${pacoteId}/periodos`);
     setPeriodosPorPacote((atual) => ({ ...atual, [pacoteId]: resposta.data.periodos || [] }));
+  };
+
+  const carregarLotesComerciais = async (pacoteId: string) => {
+    const resposta = await api.get(`/pacotes/${pacoteId}/lotes-comerciais`);
+    setLotesComerciaisPorPacote((atual) => ({ ...atual, [pacoteId]: resposta.data.lotes || [] }));
   };
 
   const alternarEvento = async (eventoId: string) => {
@@ -320,6 +346,7 @@ export default function EventosAdmin() {
     setPacotesAbertos(loteId);
     setPacoteEditando(null);
     setPeriodosPacoteAberto(null);
+    setLotesComerciaisPacoteAberto(null);
     setPacoteForm(vazioPacote);
     try { await carregarPacotes(loteId); }
     catch (err: any) { setErro(erroDaApi(err, 'Não foi possível carregar os pacotes.')); }
@@ -411,6 +438,58 @@ export default function EventosAdmin() {
       await carregarPeriodosPacote(pacoteId);
       setMensagem(resposta.data.mensagem || 'Período removido.');
     } catch (err: any) { setErro(erroDaApi(err, 'Não foi possível excluir o período.')); }
+  };
+
+  const abrirLotesComerciais = async (pacoteId: string) => {
+    limparFeedback();
+    const abrir = lotesComerciaisPacoteAberto !== pacoteId;
+    setLotesComerciaisPacoteAberto(abrir ? pacoteId : null);
+    setLoteComercialEditando(null);
+    setLoteComercialForm(vazioLoteComercial);
+    if (abrir) {
+      try { await carregarLotesComerciais(pacoteId); }
+      catch (err: any) { setErro(erroDaApi(err, 'Não foi possível carregar os lotes comerciais.')); }
+    }
+  };
+
+  const salvarLoteComercial = async (e: FormEvent, pacote: Pacote) => {
+    e.preventDefault();
+    limparFeedback();
+    const periodos = periodosPorPacote[pacote.id] || pacote.periodos || [];
+    if (periodos.length > 0 && !loteComercialForm.periodoId) { setErro('Selecione o período deste lote comercial.'); return; }
+    if (!loteComercialForm.nome.trim() || !loteComercialForm.vagas || !loteComercialForm.valor || !loteComercialForm.dataInicio) { setErro('Informe nome, vagas, preço e início da venda.'); return; }
+    if (loteComercialForm.dataFim && loteComercialForm.dataInicio > loteComercialForm.dataFim) { setErro('O início da venda deve ser anterior ao fim.'); return; }
+    const vagas = Number(loteComercialForm.vagas);
+    const valor = Number(loteComercialForm.valor);
+    if (!Number.isInteger(vagas) || vagas < 1 || !Number.isFinite(valor) || valor < 0) { setErro('Informe vagas inteiras e um preço válido.'); return; }
+    setSalvando(true);
+    try {
+      const payload = {
+        periodo_id: loteComercialForm.periodoId || null,
+        forma_contratacao: pacote.modalidade_hospedagem === 'camping' ? 'onibus' : loteComercialForm.formaContratacao,
+        nome: loteComercialForm.nome.trim(), descricao: loteComercialForm.descricao.trim() || null,
+        ordem: loteComercialForm.ordem ? Number(loteComercialForm.ordem) : undefined,
+        vagas_totais: vagas, valor, data_inicio: dataSaoPauloIso(loteComercialForm.dataInicio),
+        data_fim: loteComercialForm.dataFim ? dataSaoPauloIso(loteComercialForm.dataFim, true) : null,
+      };
+      if (loteComercialEditando) await api.put(`/pacotes/${pacote.id}/lotes-comerciais/${loteComercialEditando}`, payload);
+      else await api.post(`/pacotes/${pacote.id}/lotes-comerciais`, payload);
+      await carregarLotesComerciais(pacote.id);
+      setLoteComercialForm(vazioLoteComercial); setLoteComercialEditando(null);
+      setMensagem(loteComercialEditando ? 'Lote comercial atualizado.' : 'Lote comercial criado.');
+    } catch (err: any) { setErro(erroDaApi(err, 'Não foi possível salvar o lote comercial.')); }
+    finally { setSalvando(false); }
+  };
+
+  const editarLoteComercial = (lote: LoteComercial) => {
+    setLoteComercialEditando(lote.id);
+    setLoteComercialForm({ periodoId: lote.periodo_id || '', formaContratacao: lote.forma_contratacao, nome: lote.nome, descricao: lote.descricao || '', ordem: String(lote.ordem ?? ''), vagas: String(lote.vagas_totais), valor: String(lote.valor), dataInicio: paraDataInput(lote.data_inicio), dataFim: paraDataInput(lote.data_fim) });
+  };
+
+  const excluirLoteComercial = async (pacoteId: string, loteId: string) => {
+    if (!window.confirm('Excluir este lote comercial? Se houver vendas ou contratos, ele será arquivado.')) return;
+    try { limparFeedback(); const resposta = await api.delete(`/pacotes/${pacoteId}/lotes-comerciais/${loteId}`); await carregarLotesComerciais(pacoteId); setMensagem(resposta.data.mensagem || 'Lote comercial removido.'); }
+    catch (err: any) { setErro(erroDaApi(err, 'Não foi possível excluir o lote comercial.')); }
   };
 
   const editarEvento = (evento: Evento) => {
@@ -516,6 +595,39 @@ export default function EventosAdmin() {
       <form onSubmit={(e) => void enviarFotoPacote(e, pacote.id)} className="mt-3 grid gap-2 md:grid-cols-[1.2fr_1fr_auto] md:items-end"><div><label htmlFor={`foto-pacote-${pacote.id}`} className="mb-1 block text-xs font-semibold text-slate-600">Imagem</label><input key={fotoPacoteKey} id={`foto-pacote-${pacote.id}`} type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => setFotoPacote({ pacoteId: pacote.id, arquivo: e.target.files?.[0] || null, legenda: fotoPacote.legenda })} className="block h-9 w-full rounded-md border border-slate-300 bg-white text-xs file:mr-2 file:h-full file:border-0 file:bg-slate-100 file:px-2" /></div><Input label="Legenda" value={fotoPacote.pacoteId === pacote.id ? fotoPacote.legenda : ''} onChange={(e) => setFotoPacote({ ...fotoPacote, pacoteId: pacote.id, legenda: e.target.value })} placeholder="Ex.: Quarto" /><Button type="submit" variant="outline" disabled={salvando || fotos.length >= 5}>{salvando ? 'Enviando...' : fotos.length >= 5 ? 'Limite atingido' : 'Adicionar'}</Button></form>
       {fotos.length > 0 && <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-5">{fotos.map((foto) => <figure key={foto.id} className="relative overflow-hidden rounded-lg border border-slate-200 bg-white"><img src={foto.url_foto} alt={foto.alt_text || foto.legenda || 'Imagem do pacote'} className="h-20 w-full object-cover" /><button type="button" onClick={() => void removerFotoPacote(pacote.id, foto.id)} className="absolute right-1 top-1 rounded-full bg-white/95 p-1 text-slate-500 shadow hover:text-red-600" aria-label="Remover imagem"><Trash2 size={12} /></button></figure>)}</div>}
     </div>;
+  };
+
+  const renderLotesComerciais = (pacote: Pacote) => {
+    const periodos = periodosPorPacote[pacote.id] || pacote.periodos || [];
+    const lotes = lotesComerciaisPorPacote[pacote.id] || [];
+    const formas = pacote.modalidade_hospedagem === 'camping' ? ['onibus' as FormaContratacaoConfiguravel] : (pacote.formas_contratacao?.length ? pacote.formas_contratacao : [pacote.forma_contratacao]).filter((forma): forma is FormaContratacaoConfiguravel => forma !== 'livre');
+    const fechar = () => { setLotesComerciaisPacoteAberto(null); setLoteComercialEditando(null); setLoteComercialForm(vazioLoteComercial); };
+    const novo = () => { setLoteComercialEditando(null); setLoteComercialForm({ ...vazioLoteComercial, formaContratacao: formas[0] || 'onibus_hospedagem' }); };
+    return (
+      <AdminModal aberto={lotesComerciaisPacoteAberto === pacote.id} titulo={`Lotes comerciais · ${pacote.nome}`} descricao="Defina preço, vagas e janela de venda para cada período e forma de contratação. Quando um lote terminar, o saldo remanescente migra uma única vez para o próximo lote." fechar={fechar} largura="ampla">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(280px,.95fr)]">
+          <form onSubmit={(e) => void salvarLoteComercial(e, pacote)} className="space-y-4">
+            <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[.16em] text-[#C94F38]">{loteComercialEditando ? 'Editar lote' : 'Novo lote'}</p><h3 className="mt-1 text-xl font-black text-[#073F50]">Condição comercial</h3><p className="mt-1 text-sm leading-6 text-slate-500">A condição é aplicada somente à combinação de pacote, período e forma selecionada.</p></div><button type="button" onClick={novo} className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-[#073F50]"><Plus size={14} className="mr-1 inline" />Novo</button></div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Input label="Nome do lote" value={loteComercialForm.nome} onChange={(e) => setLoteComercialForm({ ...loteComercialForm, nome: e.target.value })} placeholder="1º lote · pré-venda" required />
+                <div><label className="mb-1.5 block text-sm font-semibold text-[#334A58]">Forma de contratação</label><select value={loteComercialForm.formaContratacao} disabled={pacote.modalidade_hospedagem === 'camping'} onChange={(e) => setLoteComercialForm({ ...loteComercialForm, formaContratacao: e.target.value as FormaContratacaoConfiguravel })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm">{formas.map((forma) => <option key={forma} value={forma}>{formaLabels[forma]}</option>)}</select></div>
+                <div><label className="mb-1.5 block text-sm font-semibold text-[#334A58]">Período</label><select required={periodos.length > 0} value={loteComercialForm.periodoId} onChange={(e) => setLoteComercialForm({ ...loteComercialForm, periodoId: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"><option value="">{periodos.length ? 'Selecione o período' : 'Datas do lote histórico'}</option>{periodos.map((periodo) => <option key={periodo.id} value={periodo.id}>{periodo.nome} · {dataInputBr(paraDataInput(periodo.data_inicio))} a {dataInputBr(paraDataInput(periodo.data_fim))}</option>)}</select></div>
+                <Input label="Preço por pessoa (R$)" type="number" min={0} step="0.01" value={loteComercialForm.valor} onChange={(e) => setLoteComercialForm({ ...loteComercialForm, valor: e.target.value })} placeholder="2600,00" required />
+                <Input label="Vagas deste lote" type="number" min={1} value={loteComercialForm.vagas} onChange={(e) => setLoteComercialForm({ ...loteComercialForm, vagas: e.target.value })} placeholder="50" required />
+                <Input label="Ordem de progressão" type="number" min={0} value={loteComercialForm.ordem} onChange={(e) => setLoteComercialForm({ ...loteComercialForm, ordem: e.target.value })} placeholder="1" />
+                <Input label="Início da venda" type="date" value={loteComercialForm.dataInicio} onChange={(e) => setLoteComercialForm({ ...loteComercialForm, dataInicio: e.target.value })} onFocus={abrirCalendario} required />
+                <Input label="Fim da venda (opcional)" type="date" min={loteComercialForm.dataInicio || undefined} value={loteComercialForm.dataFim} onChange={(e) => setLoteComercialForm({ ...loteComercialForm, dataFim: e.target.value })} onFocus={abrirCalendario} />
+              </div>
+              <label className="mt-4 block text-sm font-semibold text-[#334A58]">Descrição da condição <span className="font-normal text-slate-400">(opcional)</span><textarea value={loteComercialForm.descricao} onChange={(e) => setLoteComercialForm({ ...loteComercialForm, descricao: e.target.value })} rows={3} maxLength={2000} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" placeholder="Ex.: pré-venda para clientes da edição anterior." /></label>
+              <div className="mt-4 flex flex-wrap gap-3 border-t border-slate-100 pt-4"><Button type="submit" disabled={salvando}>{salvando ? 'Salvando...' : loteComercialEditando ? 'Salvar lote' : 'Adicionar lote'}</Button>{loteComercialEditando && <Button type="button" variant="outline" onClick={novo}>Cancelar edição</Button>}</div>
+            </div>
+          </form>
+          <aside className="h-fit rounded-2xl border border-[#C94F38]/20 bg-[#fff8f4] p-4 sm:p-5 lg:sticky lg:top-24"><p className="text-xs font-black uppercase tracking-[.14em] text-[#C94F38]">Regra automática</p><h3 className="mt-2 text-lg font-black text-[#073F50]">Preço e vagas por etapa</h3><p className="mt-2 text-sm leading-6 text-slate-600">O sistema vende o primeiro lote aberto. Ao encerrar por data ou esgotamento, o saldo que restar é transferido uma única vez para o lote seguinte, que passa a usar o próprio preço.</p><div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs leading-5 text-emerald-800">Reservas já criadas mantêm o nome, preço e lote comercial originais no histórico.</div></aside>
+        </div>
+        <section className="mt-7 border-t border-slate-200 pt-6"><div className="flex items-center justify-between gap-3"><div><h3 className="text-lg font-black text-[#073F50]">Lotes configurados</h3><p className="mt-1 text-sm text-slate-500">Cada combinação de período e forma pode ter sua própria progressão.</p></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{lotes.length} {lotes.length === 1 ? 'lote' : 'lotes'}</span></div>{lotes.length === 0 ? <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-500">Nenhum lote comercial configurado. Sem lotes comerciais, o pacote continua usando o preço legado até você publicar a primeira condição.</div> : <div className="mt-4 space-y-3">{lotes.map((lote) => { const periodo = periodos.find((item) => item.id === lote.periodo_id); return <article key={lote.id} className={`rounded-2xl border bg-white p-4 shadow-sm ${lote.ativo ? 'border-slate-200' : 'border-amber-200 bg-amber-50/60'}`}><div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between"><div><div className="flex flex-wrap items-center gap-2"><h4 className="font-black text-[#073F50]">{lote.nome}</h4><span className="rounded-full bg-[#F8F0F1] px-2 py-1 text-[10px] font-black uppercase text-[#851F32]">{formaLabels[lote.forma_contratacao]}</span>{!lote.ativo && <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-black uppercase text-amber-700">Arquivado</span>}</div><p className="mt-2 text-sm font-semibold text-[#C94F38]">{periodo?.nome || 'Datas do lote histórico'} · {moeda.format(Number(lote.valor))}</p><p className="mt-1 text-xs text-slate-500">{lote.vagas_disponiveis}/{lote.vagas_totais} vagas · venda de {dataInputBr(paraDataInput(lote.data_inicio))}{lote.data_fim ? ` até ${dataInputBr(paraDataInput(lote.data_fim))}` : ' em aberto'}</p>{lote.descricao && <p className="mt-2 text-sm leading-5 text-slate-600">{lote.descricao}</p>}</div><div className="flex shrink-0 gap-1"><button type="button" onClick={() => editarLoteComercial(lote)} className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500 hover:border-[#C94F38]/40 hover:text-[#C94F38]" title="Editar lote comercial"><Pencil size={15} /></button><button type="button" onClick={() => void excluirLoteComercial(pacote.id, lote.id)} className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500 hover:border-red-200 hover:text-red-600" title="Excluir lote comercial"><Trash2 size={15} /></button></div></div></article>; })}</div>}</section>
+      </AdminModal>
+    );
   };
 
   const renderPeriodosPacote = (pacote: Pacote) => {
@@ -663,7 +775,7 @@ export default function EventosAdmin() {
               <div className="mt-5 space-y-3">{lotes.map((lote) => <div key={lote.id} className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><div className="flex items-center gap-2"><h4 className="font-bold text-slate-900">{lote.nome}</h4><span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">{lote.vagas_disponíveis}/{lote.vagas_totais} vagas</span></div><p className="mt-1 text-sm text-slate-500">{new Date(lote.data_inicio).toLocaleDateString('pt-BR')} a {new Date(lote.data_fim).toLocaleDateString('pt-BR')}</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => editarLote(evento.id, lote)} className="rounded p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-800" title="Editar lote"><Pencil size={16} /></button><Button variant="outline" onClick={() => void abrirPacotes(lote.id)}><PackagePlus size={15} className="mr-2" />{pacotesAbertos === lote.id ? 'Fechar pacotes' : 'Configurar Pacotes'}</Button><button type="button" onClick={() => void excluirLote(evento.id, lote.id)} className="rounded p-2 text-slate-400 hover:bg-red-50 hover:text-red-600" title="Excluir lote"><Trash2 size={16} /></button></div></div>
             {pacotesAbertos === lote.id && <div className="mt-4 flex flex-col border-t border-slate-100 pt-4"><div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><h4 className="font-bold text-slate-900">Pacotes deste lote</h4><p className="mt-1 text-xs text-slate-500">Cada pacote tem seu próprio preço, modalidade, contratação e galeria.</p></div><Button variant="outline" onClick={() => { setPacoteEditando(null); setPacoteForm(vazioPacote); }}><Plus size={15} className="mr-2" />Criar novo pacote</Button></div>
               <form id={`config-pacote-${lote.id}`} onSubmit={(e) => void salvarPacote(e, lote.id)} className={`rounded-xl border border-[#C94F38]/20 bg-[#fffaf7] p-4 ${pacoteEditando ? 'order-2' : 'order-1'}`}><div className="mb-3"><h5 className="font-bold text-slate-900">{pacoteEditando ? 'Editar pacote' : 'Novo pacote'}</h5><p className="mt-1 text-xs text-slate-500">Campos essenciais ficam aqui. Regras de pagamento e operação estão em configurações avançadas.</p></div><div className="grid gap-3 md:grid-cols-4"><Input label="Nome do pacote" value={pacoteForm.nome} onChange={(e) => setPacoteForm({ ...pacoteForm, nome: e.target.value })} placeholder="Quarto com ar-condicionado" /><Input label="Preço por pessoa (R$)" type="number" min={0.01} step="0.01" value={pacoteForm.valorTotal} onChange={(e) => setPacoteForm({ ...pacoteForm, valorTotal: e.target.value })} placeholder="2600" /><div><label className="mb-1 block text-sm font-medium text-slate-700">Modalidade</label><select value={pacoteForm.modalidade} onChange={(e) => { const modalidade = e.target.value as Modalidade; setPacoteForm({ ...pacoteForm, modalidade, formaContratacao: modalidade === 'camping' ? 'onibus' : pacoteForm.formaContratacao, formasContratacao: modalidade === 'camping' ? ['onibus'] : pacoteForm.formasContratacao.filter((forma) => forma !== 'onibus' || pacoteForm.formasContratacao.includes('onibus')) }); }} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"><option value="camping">Camping</option><option value="quarto_ventilador">Quarto com ventilador</option><option value="quarto_ar_condicionado">Quarto com ar-condicionado</option></select></div><div><label className="mb-1 block text-sm font-medium text-slate-700">Disponibilidade</label><select value={pacoteForm.disponibilidade} onChange={(e) => setPacoteForm({ ...pacoteForm, disponibilidade: e.target.value as Disponibilidade })} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"><option value="disponivel">Disponível</option><option value="ultimas_vagas">Últimas vagas</option><option value="esgotado">Esgotado</option></select></div></div><div className="mt-3 grid gap-3 md:grid-cols-2"><div><label className="mb-1 block text-sm font-medium text-slate-700">Formas de contratação habilitadas</label><div className="space-y-2 rounded-md border border-slate-300 bg-white p-3">{([['onibus_hospedagem', 'Transporte + hospedagem'], ['hospedagem', 'Somente hospedagem'], ['onibus', 'Somente transporte']] as const).map(([forma, titulo]) => <label key={forma} className="flex items-start gap-2 text-sm text-slate-700"><input type="checkbox" checked={pacoteForm.modalidade === 'camping' ? forma === 'onibus' : pacoteForm.formasContratacao.includes(forma)} disabled={pacoteForm.modalidade === 'camping'} onChange={(e) => { const formas = e.target.checked ? Array.from(new Set([...pacoteForm.formasContratacao, forma])) : pacoteForm.formasContratacao.filter((item) => item !== forma); setPacoteForm({ ...pacoteForm, formasContratacao: formas, formaContratacao: (formas[0] || pacoteForm.formaContratacao) as FormaContratacao }); }} /><span><strong>{titulo}</strong><small className="mt-0.5 block text-xs text-slate-500">{forma === 'onibus_hospedagem' ? 'Reserva transporte e hospedagem.' : forma === 'hospedagem' ? 'Reserva apenas a hospedagem.' : 'Reserva apenas o transporte.'}</small></span></label>)}</div>{pacoteForm.modalidade === 'camping' && <p className="mt-1 text-xs text-slate-500">Camping utiliza somente o contrato de transporte.</p>}<p className="mt-1 text-xs text-slate-500">O cliente escolherá uma dessas opções no checkout; a disponibilidade será validada para a forma escolhida.</p></div><Input label="Descrição (opcional)" value={pacoteForm.descricao} onChange={(e) => setPacoteForm({ ...pacoteForm, descricao: e.target.value })} placeholder="Descreva o que o cliente encontrará." /></div><div className="mt-4 rounded-xl border border-[#C94F38]/15 bg-white p-3"><p className="text-sm font-bold text-slate-800">Destaque comercial na vitrine <span className="font-normal text-slate-400">(opcional)</span></p><p className="mt-1 text-xs leading-5 text-slate-500">Use este espaço para comunicar pré-venda, lote esgotando ou uma condição especial do pacote.</p><div className="mt-3 grid gap-3 md:grid-cols-2"><Input label="Título do destaque" value={pacoteForm.destaqueTitulo} onChange={(e) => setPacoteForm({ ...pacoteForm, destaqueTitulo: e.target.value })} maxLength={160} placeholder="Ex.: Pré-venda aberta" /><Input label="Subtítulo" value={pacoteForm.destaqueSubtitulo} onChange={(e) => setPacoteForm({ ...pacoteForm, destaqueSubtitulo: e.target.value })} maxLength={255} placeholder="Ex.: 1º lote até 30/09" /></div><label className="mt-3 block text-sm font-medium text-slate-700">Texto do destaque<textarea value={pacoteForm.destaqueTexto} onChange={(e) => setPacoteForm({ ...pacoteForm, destaqueTexto: e.target.value })} maxLength={4000} rows={2} className="mt-1 w-full rounded-md border border-slate-300 p-2 text-sm" placeholder="Ex.: Garanta sua vaga antes da virada de lote." /></label></div><details className="mt-4 rounded-xl border border-slate-200 bg-white p-3"><summary className="cursor-pointer text-sm font-bold text-slate-800">Configurações avançadas</summary><div className="mt-4 grid gap-3 md:grid-cols-4"><div className="md:col-span-4 flex flex-wrap gap-3 text-xs text-slate-600"><strong>Pagamento:</strong>{['pix', 'boleto', 'credito', 'debito'].map((forma) => <label key={forma} className="flex items-center gap-1"><input type="checkbox" checked={pacoteForm.formasPagamento.includes(forma)} onChange={(e) => setPacoteForm({ ...pacoteForm, formasPagamento: e.target.checked ? [...pacoteForm.formasPagamento, forma] : pacoteForm.formasPagamento.filter((item) => item !== forma) })} />{forma === 'pix' ? 'PIX' : forma === 'boleto' ? 'Boleto' : forma === 'credito' ? 'Cartão de crédito' : 'Cartão de débito'}</label>)}</div><Input label="Limite dos boletos" type="date" value={pacoteForm.dataLimitePagamento} onChange={(e) => setPacoteForm({ ...pacoteForm, dataLimitePagamento: e.target.value })} /><Input label="Máx. parcelas boleto" type="number" min={1} max={36} value={pacoteForm.boletoParcelas} onChange={(e) => setPacoteForm({ ...pacoteForm, boletoParcelas: e.target.value })} /><Input label="Máx. parcelas cartão" type="number" min={1} max={24} value={pacoteForm.creditoParcelas} onChange={(e) => setPacoteForm({ ...pacoteForm, creditoParcelas: e.target.value })} /><Input label="Taxa do cartão (%)" type="number" min={0} max={100} step="0.01" value={pacoteForm.creditoTaxa} onChange={(e) => setPacoteForm({ ...pacoteForm, creditoTaxa: e.target.value })} /><Input label="Juros cartão / mês (%)" type="number" min={0} max={20} step="0.01" value={pacoteForm.creditoJurosMensal} onChange={(e) => setPacoteForm({ ...pacoteForm, creditoJurosMensal: e.target.value })} /><Input label="Segurança antes da viagem (dias)" type="number" min={0} max={365} value={pacoteForm.prazoSegurancaDias} onChange={(e) => setPacoteForm({ ...pacoteForm, prazoSegurancaDias: e.target.value })} /><Input label="Multa por atraso (%)" type="number" min={0} max={100} step="0.01" value={pacoteForm.multaAtraso} onChange={(e) => setPacoteForm({ ...pacoteForm, multaAtraso: e.target.value })} /><Input label="Juros de mora / mês (%)" type="number" min={0} max={20} step="0.01" value={pacoteForm.jurosMoraMensal} onChange={(e) => setPacoteForm({ ...pacoteForm, jurosMoraMensal: e.target.value })} />{pacoteForm.formasContratacao.some((forma) => forma.includes('onibus')) && <><Input label="Quantidade de ônibus" type="number" min={1} max={50} value={pacoteForm.quantidadeOnibus} onChange={(e) => setPacoteForm({ ...pacoteForm, quantidadeOnibus: e.target.value })} /><Input label="Lugares por ônibus" type="number" min={1} max={100} value={pacoteForm.capacidadeOnibus} onChange={(e) => setPacoteForm({ ...pacoteForm, capacidadeOnibus: e.target.value })} /></>}</div></details><div className="mt-4 flex flex-wrap gap-2"><Button type="submit" disabled={salvando}>{salvando ? 'Salvando...' : pacoteEditando ? 'Salvar pacote' : 'Criar pacote'}</Button>{pacoteEditando && <Button type="button" variant="outline" onClick={() => { setPacoteEditando(null); setPacoteForm(vazioPacote); }}>Cancelar edição</Button>}</div></form>
-              <div className={`mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3 ${pacoteEditando ? 'order-1' : 'order-2'}`}>{(pacotesPorLote[lote.id] || []).map((pacote) => <article key={pacote.id} className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex gap-3">{(fotosPorPacote[pacote.id] || [])[0] && <img src={(fotosPorPacote[pacote.id] || [])[0].url_foto} alt="" className="h-16 w-16 shrink-0 rounded-lg object-cover" />}<div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><div><p className="font-bold text-slate-900">{pacote.nome}</p><p className="text-xs font-medium text-[#C94F38]">{modalidades[pacote.modalidade_hospedagem]?.titulo || pacote.modalidade_hospedagem}</p></div><div className="flex gap-1"><button type="button" onClick={() => editarPacote(lote.id, pacote)} className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-800" title="Editar pacote"><Pencil size={15} /></button><button type="button" onClick={() => void excluirPacote(lote.id, pacote.id)} className="rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600" title="Excluir pacote"><Trash2 size={15} /></button></div></div><span className={`mt-2 inline-block rounded-full px-2 py-1 text-[10px] font-bold uppercase ${pacote.disponibilidade === 'esgotado' ? 'bg-slate-800 text-white' : pacote.disponibilidade === 'ultimas_vagas' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{disponibilidadeLabel(pacote.disponibilidade)}</span></div></div><p className="mt-3 text-xl font-black text-slate-900">{moeda.format(Number(pacote.valor_total))}</p><p className="mt-1 text-xs text-slate-500">{formasConfiguradasLabel(pacote)}</p><div className="mt-3 flex flex-wrap gap-3"><button type="button" onClick={() => { setGaleriaPacoteAberta(galeriaPacoteAberta === pacote.id ? null : pacote.id); if (galeriaPacoteAberta !== pacote.id) void carregarFotosPacote(pacote.id); }} className="text-xs font-bold text-[#851F32]">{galeriaPacoteAberta === pacote.id ? 'Fechar imagens' : `Imagens (${(fotosPorPacote[pacote.id] || []).length}/5)`}</button><button type="button" onClick={() => void abrirPeriodosPacote(pacote.id)} className="text-xs font-bold text-[#851F32]">{periodosPacoteAberto === pacote.id ? 'Fechar períodos' : `Períodos (${(periodosPorPacote[pacote.id] || pacote.periodos || []).length})`}</button></div>{galeriaPacoteAberta === pacote.id && renderGaleriaPacote(pacote)}{periodosPacoteAberto === pacote.id && renderPeriodosPacote(pacote)}</article>)}</div>
+              <div className={`mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3 ${pacoteEditando ? 'order-1' : 'order-2'}`}>{(pacotesPorLote[lote.id] || []).map((pacote) => <article key={pacote.id} className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex gap-3">{(fotosPorPacote[pacote.id] || [])[0] && <img src={(fotosPorPacote[pacote.id] || [])[0].url_foto} alt="" className="h-16 w-16 shrink-0 rounded-lg object-cover" />}<div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><div><p className="font-bold text-slate-900">{pacote.nome}</p><p className="text-xs font-medium text-[#C94F38]">{modalidades[pacote.modalidade_hospedagem]?.titulo || pacote.modalidade_hospedagem}</p></div><div className="flex gap-1"><button type="button" onClick={() => editarPacote(lote.id, pacote)} className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-800" title="Editar pacote"><Pencil size={15} /></button><button type="button" onClick={() => void excluirPacote(lote.id, pacote.id)} className="rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600" title="Excluir pacote"><Trash2 size={15} /></button></div></div><span className={`mt-2 inline-block rounded-full px-2 py-1 text-[10px] font-bold uppercase ${pacote.disponibilidade === 'esgotado' ? 'bg-slate-800 text-white' : pacote.disponibilidade === 'ultimas_vagas' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{disponibilidadeLabel(pacote.disponibilidade)}</span></div></div><p className="mt-3 text-xl font-black text-slate-900">{moeda.format(Number(pacote.valor_total))}</p><p className="mt-1 text-xs text-slate-500">{formasConfiguradasLabel(pacote)}</p><div className="mt-3 flex flex-wrap gap-3"><button type="button" onClick={() => { setGaleriaPacoteAberta(galeriaPacoteAberta === pacote.id ? null : pacote.id); if (galeriaPacoteAberta !== pacote.id) void carregarFotosPacote(pacote.id); }} className="text-xs font-bold text-[#851F32]">{galeriaPacoteAberta === pacote.id ? 'Fechar imagens' : `Imagens (${(fotosPorPacote[pacote.id] || []).length}/5)`}</button><button type="button" onClick={() => void abrirPeriodosPacote(pacote.id)} className="text-xs font-bold text-[#851F32]">{periodosPacoteAberto === pacote.id ? 'Fechar períodos' : `Períodos (${(periodosPorPacote[pacote.id] || pacote.periodos || []).length})`}</button><button type="button" onClick={() => void abrirLotesComerciais(pacote.id)} className="text-xs font-bold text-[#851F32]">{lotesComerciaisPacoteAberto === pacote.id ? 'Fechar lotes' : `Lotes comerciais (${(lotesComerciaisPorPacote[pacote.id] || []).length})`}</button></div>{galeriaPacoteAberta === pacote.id && renderGaleriaPacote(pacote)}{periodosPacoteAberto === pacote.id && renderPeriodosPacote(pacote)}{lotesComerciaisPacoteAberto === pacote.id && renderLotesComerciais(pacote)}</article>)}</div>
             </div>}
           </div>)}
           </div>

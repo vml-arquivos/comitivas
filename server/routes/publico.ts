@@ -6,6 +6,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { AuthService } from "../services/authService.js";
 import { PacoteService } from "../services/pacoteService.js";
 import { normalizarFormasContratacao } from "../services/contratacaoRecursos.js";
+import { LoteComercialService, normalizarFormaLote, statusComercialPublico } from "../services/loteComercialService.js";
 
 const router = Router();
 
@@ -117,14 +118,19 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
           .where(and(eq(pacotes.lote_id, lote.id), eq(pacotes.ativo, true)));
         const modalidades = await Promise.all(modalidadesBase.map(async (modalidade) => {
           const formasContratacao = normalizarFormasContratacao(modalidade.formas_contratacao, modalidade.forma_contratacao, modalidade.modalidade_hospedagem);
-          const capacidadeBasePorForma = await Promise.all(formasContratacao.map((forma) => PacoteService.obterDisponibilidadeFisica({
+          const pacoteFisico = {
             id: modalidade.id,
             lote_id: modalidade.lote_id,
             forma_contratacao: modalidade.forma_contratacao,
             formas_contratacao: modalidade.formas_contratacao,
             modalidade_hospedagem: modalidade.modalidade_hospedagem,
             disponibilidade: modalidade.disponibilidade,
-          }, null, forma)));
+          } as const;
+          const capacidadeBasePorForma = await Promise.all(formasContratacao.map((forma) => PacoteService.obterDisponibilidadeFisica(pacoteFisico, null, forma)));
+          const comercialBasePorForma = await Promise.all(formasContratacao.map(async (forma) => [forma, await LoteComercialService.obterStatus(modalidade.id, null, normalizarFormaLote(forma))] as const));
+          const comercialBaseAtivo = comercialBasePorForma.map(([, status]) => status.lote).filter(Boolean).sort((a, b) => Number(a!.valor) - Number(b!.valor))[0] || null;
+          const comercialBaseConfigurado = comercialBasePorForma.some(([, status]) => status.configurado);
+          const comercialBaseAguardando = comercialBasePorForma.some(([, status]) => status.status === "aguardando");
           const capacidadeBase = capacidadeBasePorForma.reduce((melhor, atual) => atual.vagas_disponiveis > melhor.vagas_disponiveis ? atual : melhor, capacidadeBasePorForma[0] || await PacoteService.obterDisponibilidadeFisica({
             id: modalidade.id, lote_id: modalidade.lote_id, forma_contratacao: modalidade.forma_contratacao, formas_contratacao: modalidade.formas_contratacao,
             modalidade_hospedagem: modalidade.modalidade_hospedagem, disponibilidade: modalidade.disponibilidade,
@@ -138,27 +144,31 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
             .where(and(eq(pacotePeriodos.pacote_id, modalidade.id), eq(pacotePeriodos.ativo, true)))
             .orderBy(pacotePeriodos.ordem, pacotePeriodos.data_inicio);
           const periodos = await Promise.all(periodosBase.map(async (periodo) => {
-            const capacidades = await Promise.all(formasContratacao.map((forma) => PacoteService.obterDisponibilidadeFisica({
-              id: modalidade.id,
-              lote_id: modalidade.lote_id,
-              forma_contratacao: modalidade.forma_contratacao,
-              formas_contratacao: modalidade.formas_contratacao,
-              modalidade_hospedagem: modalidade.modalidade_hospedagem,
-              disponibilidade: modalidade.disponibilidade,
-            }, periodo.id, forma)));
+            const capacidades = await Promise.all(formasContratacao.map((forma) => PacoteService.obterDisponibilidadeFisica(pacoteFisico, periodo.id, forma)));
+            const comerciais = await Promise.all(formasContratacao.map(async (forma) => [forma, await LoteComercialService.obterStatus(modalidade.id, periodo.id, normalizarFormaLote(forma))] as const));
+            const lotesComerciais = (await Promise.all(formasContratacao.map((forma) => LoteComercialService.listar(modalidade.id, periodo.id, normalizarFormaLote(forma))))).flat();
+            const loteAtivo = comerciais.map(([, status]) => status.lote).filter(Boolean).sort((a, b) => Number(a!.valor) - Number(b!.valor))[0] || null;
+            const configurado = comerciais.some(([, status]) => status.configurado);
+            const aguardando = comerciais.some(([, status]) => status.status === "aguardando");
             const capacidade = capacidades.reduce((melhor, atual) => atual.vagas_disponiveis > melhor.vagas_disponiveis ? atual : melhor, capacidades[0] || capacidadeBase);
+            const comercialPublico = statusComercialPublico(comerciais.find(([, status]) => status.lote?.id === loteAtivo?.id)?.[1] || { status: configurado ? (aguardando ? "aguardando" : "esgotado") : "disponivel", lote: loteAtivo, proximos: [], configurado });
             return {
               ...periodo,
-              disponibilidade: capacidade.disponibilidade,
+              valor_total: loteAtivo?.valor || modalidade.valor_total,
+              ...comercialPublico,
+              disponibilidade: capacidade.disponibilidade === "esgotado" ? "esgotado" : loteAtivo ? (loteAtivo.vagas_disponiveis <= 5 ? "ultimas_vagas" : "disponivel") : configurado ? (aguardando ? "aguardando" : "esgotado") : capacidade.disponibilidade,
               vagas_disponiveis: capacidade.vagas_disponiveis,
+              lotes_comerciais: lotesComerciais,
             };
           }));
 
+          const comercialPublicoBase = statusComercialPublico(comercialBasePorForma.find(([, status]) => status.lote?.id === comercialBaseAtivo?.id)?.[1] || { status: comercialBaseConfigurado ? (comercialBaseAguardando ? "aguardando" : "esgotado") : "disponivel", lote: comercialBaseAtivo, proximos: [], configurado: comercialBaseConfigurado });
           return {
             ...modalidade,
             forma_contratacao: modalidade.modalidade_hospedagem === "camping" ? "onibus" : modalidade.forma_contratacao,
             formas_contratacao: formasContratacao,
-            disponibilidade: capacidadeBase.disponibilidade,
+            ...comercialPublicoBase,
+            disponibilidade: capacidadeBase.disponibilidade === "esgotado" ? "esgotado" : comercialBaseAtivo ? (comercialBaseAtivo.vagas_disponiveis <= 5 ? "ultimas_vagas" : "disponivel") : comercialBaseConfigurado ? (comercialBaseAguardando ? "aguardando" : "esgotado") : capacidadeBase.disponibilidade,
             fotos: await db.select({ id: fotosPacote.id, url_foto: fotosPacote.url_foto, legenda: fotosPacote.legenda, alt_text: fotosPacote.alt_text, ordem: fotosPacote.ordem, capa: fotosPacote.capa })
               .from(fotosPacote)
               .where(eq(fotosPacote.pacote_id, modalidade.id))

@@ -11,7 +11,8 @@ export type ContratoModeloSnapshot = {
   modelo_oficial?: "hospedagem" | "transporte" | "hospedagem_transporte";
   evento?: { nome?: string; local?: string; data_inicio?: string | null; data_fim?: string | null };
   lote?: { nome?: string; descricao?: string | null };
-  pacote?: { nome?: string; descricao?: string | null; valor_total?: string | null };
+  lote_comercial?: { nome?: string; descricao?: string | null; forma_contratacao?: string | null; valor?: string | null; data_inicio?: string | null; data_fim?: string | null } | null;
+  pacote?: { nome?: string; descricao?: string | null; valor_total?: string | null; forma_contratacao?: string | null };
   cliente: Record<string, unknown>;
   vendedor?: { nome?: string; email?: string } | null;
   periodo: { nome?: string | null; check_in: string; check_out: string };
@@ -197,6 +198,9 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
   const loteNome = valueOrBlank(snapshot.lote?.nome, "Período contratado");
   const periodoNome = valueOrBlank(snapshot.periodo?.nome, loteNome);
   const pacoteNome = valueOrBlank(snapshot.pacote?.nome, "Pacote contratado");
+  const formaContratacao = snapshot.lote_comercial?.forma_contratacao || snapshot.pacote?.forma_contratacao;
+  const formaContratacaoNome = formaContratacao === "onibus" ? "Somente transporte" : formaContratacao === "hospedagem" ? "Somente hospedagem" : formaContratacao === "onibus_hospedagem" ? "Transporte + hospedagem" : null;
+  const loteComercialNome = snapshot.lote_comercial?.nome || null;
   const checkin = formatDate(snapshot.periodo?.check_in);
   const checkout = formatDate(snapshot.periodo?.check_out);
   const localHospedagem = valueOrBlank(h.local, "Chácara Recanto Novo Encantado ou Santa Thereza");
@@ -305,6 +309,8 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
     <p><strong>Período:</strong> ${escapeHtml(periodoNome)}</p>
     <p><strong>Datas:</strong> ${escapeHtml(checkin)} a ${escapeHtml(checkout)}</p>
     <p><strong>Pacote:</strong> ${escapeHtml(pacoteNome)}</p>
+    ${loteComercialNome ? `<p><strong>Condição comercial:</strong> ${escapeHtml(loteComercialNome)}</p>` : ""}
+    ${formaContratacaoNome ? `<p><strong>Forma contratada:</strong> ${escapeHtml(formaContratacaoNome)}</p>` : ""}
     <p><strong>Valor contratado:</strong> ${escapeHtml(totalMoney)}</p>
     <p><strong>Pagamento:</strong> ${escapeHtml(valueOrBlank(f.forma_pagamento, "A definir"))} · ${escapeHtml(f.parcelas || 1)} parcela(s)</p>
     <p><strong>Reserva:</strong> ${escapeHtml(reservaId)}</p>

@@ -25,8 +25,8 @@ interface PacotePublicado {
   modalidade_hospedagem: 'camping' | 'quarto_ventilador' | 'quarto_ar_condicionado';
   forma_contratacao: 'onibus' | 'hospedagem' | 'onibus_hospedagem' | 'livre';
   formas_contratacao?: FormaContratacaoPublica[];
-  disponibilidade_por_forma?: Partial<Record<FormaContratacaoPublica, { disponibilidade?: string; vagas_disponiveis?: number }>>;
-  disponibilidade: 'disponivel' | 'ultimas_vagas' | 'esgotado';
+  disponibilidade_por_forma?: Partial<Record<FormaContratacaoPublica, { disponibilidade?: string; vagas_disponiveis?: number; lote_comercial_id?: string | null }>>;
+  disponibilidade: 'disponivel' | 'ultimas_vagas' | 'esgotado' | 'aguardando' | string;
   formas_pagamento?: string[];
   boleto_parcelas_maximo?: number | null;
   configuracao_necessaria?: boolean;
@@ -34,6 +34,9 @@ interface PacotePublicado {
   destaque_titulo?: string | null;
   destaque_subtitulo?: string | null;
   destaque_texto?: string | null;
+  lote_comercial_id?: string | null;
+  lote_comercial_nome?: string | null;
+  lote_comercial_valor?: string | number | null;
 }
 
 interface PeriodoPublicado {
@@ -44,8 +47,12 @@ interface PeriodoPublicado {
   data_fim: string;
   data_embarque?: string | null;
   data_retorno?: string | null;
-  disponibilidade?: 'disponivel' | 'ultimas_vagas' | 'esgotado' | string | null;
+  disponibilidade?: 'disponivel' | 'ultimas_vagas' | 'esgotado' | 'aguardando' | string | null;
   vagas_disponiveis?: number;
+  valor_total?: string | number | null;
+  lote_comercial_id?: string | null;
+  lote_comercial_nome?: string | null;
+  lote_comercial_data_fim?: string | null;
 }
 
 const modalidadeMeta: Record<PacotePublicado['modalidade_hospedagem'], { label: string; icon: typeof TentTree; destaque: string }> = {
@@ -194,6 +201,7 @@ export default function ConfiguradorPacote() {
   const periodosDisponiveis = pacoteSelecionado?.periodos || [];
   const exigePeriodo = periodosDisponiveis.length > 0;
   const periodoSelecionado = periodosDisponiveis.find((periodo) => periodo.id === periodoId);
+  const loteComercialId = periodoSelecionado?.lote_comercial_id || pacoteSelecionado?.lote_comercial_id || undefined;
   useEffect(() => {
     if (isLoading || !loteId || !formaContratacao || (pacotes.length > 0 && !pacoteId) || (exigePeriodo && !periodoId)) {
       setCalculo(null);
@@ -202,7 +210,7 @@ export default function ConfiguradorPacote() {
     const timer = setTimeout(async () => {
       setIsCalculating(true);
       try {
-        const response = await api.post('/pacotes/calcular', { lote_id: loteId, pacote_id: pacoteId || undefined, periodo_id: periodoId || undefined, forma_contratacao: formaContratacao, itens: [] });
+        const response = await api.post('/pacotes/calcular', { lote_id: loteId, pacote_id: pacoteId || undefined, periodo_id: periodoId || undefined, lote_comercial_id: loteComercialId, forma_contratacao: formaContratacao, itens: [] });
         setCalculo(response.data);
       } catch (err: any) {
         setError(err.response?.data?.erro || 'Erro ao calcular o valor do pacote.');
@@ -212,7 +220,7 @@ export default function ConfiguradorPacote() {
       }
     }, 250);
     return () => clearTimeout(timer);
-  }, [loteId, pacoteId, periodoId, formaContratacao, pacotes.length, isLoading, exigePeriodo]);
+  }, [loteId, pacoteId, periodoId, loteComercialId, formaContratacao, pacotes.length, isLoading, exigePeriodo]);
 
   const selecionarFormaContratacao = (forma: FormaContratacaoPublica) => {
     if (formaContratacao !== forma) { setPacoteId(''); setPeriodoId(''); }
@@ -274,11 +282,11 @@ export default function ConfiguradorPacote() {
       setError('Escolha o período da viagem para continuar.');
       return;
     }
-    if (periodoSelecionado?.disponibilidade === 'esgotado') {
+    if (periodoSelecionado?.disponibilidade === 'esgotado' || periodoSelecionado?.disponibilidade === 'aguardando') {
       setError('Este período está esgotado. Escolha outra data para continuar.');
       return;
     }
-    if (pacoteSelecionado?.disponibilidade === 'esgotado') {
+      if (pacoteSelecionado?.disponibilidade === 'esgotado' || pacoteSelecionado?.disponibilidade === 'aguardando') {
       setError('Esta modalidade está esgotada. Escolha outra opção para continuar.');
       return;
     }
@@ -351,6 +359,7 @@ export default function ConfiguradorPacote() {
         lote_id: loteId,
         pacote_id: pacoteId || undefined,
         periodo_id: periodoId || undefined,
+        lote_comercial_id: loteComercialId,
         forma_contratacao: formaContratacao,
         itens: [],
         participantes,
@@ -430,10 +439,11 @@ export default function ConfiguradorPacote() {
                 const meta = modalidadeMeta[pacote.modalidade_hospedagem];
                 const Icon = meta?.icon || TentTree;
                 const selecionado = pacote.id === pacoteId;
-                const esgotado = pacote.disponibilidade === 'esgotado' || pacote.disponibilidade_por_forma?.[formaContratacao]?.disponibilidade === 'esgotado';
+                const aguardando = pacote.disponibilidade === 'aguardando' || pacote.disponibilidade_por_forma?.[formaContratacao]?.disponibilidade === 'aguardando';
+                const esgotado = pacote.disponibilidade === 'esgotado' || aguardando || pacote.disponibilidade_por_forma?.[formaContratacao]?.disponibilidade === 'esgotado';
                 return <button key={pacote.id} type="button" aria-pressed={selecionado} disabled={esgotado} onClick={() => selecionarPacote(pacote.id)} className={`relative rounded-2xl border p-4 text-left transition-all sm:p-5 disabled:cursor-not-allowed disabled:opacity-60 ${selecionado ? 'border-primary bg-primary/5 shadow-lg ring-2 ring-primary/20' : 'border-gray-200 bg-white hover:border-primary/40 hover:shadow-md'}`}>
                   {selecionado && <span className="absolute left-3 top-3 rounded-full bg-primary p-1 text-white"><Check size={14} /></span>}
-                  {pacote.disponibilidade !== 'disponivel' && <span className={`absolute right-3 top-3 rounded-full px-2 py-1 text-[10px] font-black uppercase ${esgotado ? 'bg-slate-800 text-white' : 'bg-amber-100 text-amber-800'}`}>{esgotado ? 'Esgotado' : 'Últimas vagas'}</span>}
+                  {pacote.disponibilidade !== 'disponivel' && <span className={`absolute right-3 top-3 rounded-full px-2 py-1 text-[10px] font-black uppercase ${aguardando ? 'bg-blue-100 text-blue-900' : esgotado ? 'bg-slate-800 text-white' : 'bg-amber-100 text-amber-800'}`}>{aguardando ? 'Próximo lote' : esgotado ? 'Esgotado' : 'Últimas vagas'}</span>}
                   <div className="mb-4 inline-flex rounded-xl bg-slate-100 p-3 text-primary"><Icon size={24} /></div>
                   <p className="text-xs font-bold uppercase tracking-wide text-primary">{formaContratacao === 'onibus' ? 'Transporte' : meta?.label}</p>
                   <h3 className="mt-1 font-bold text-slate-900">{pacote.nome}</h3>
@@ -450,7 +460,7 @@ export default function ConfiguradorPacote() {
 
         {pacoteSelecionado && exigePeriodo && <section className="rounded-2xl border border-[#C94F38]/20 bg-white p-5">
           <div className="mb-3"><h2 className="text-xl font-bold text-slate-900">Escolha o período</h2><p className="text-sm text-gray-500">Este pacote possui mais de uma data. Selecione exatamente o final de semana ou intervalo desejado.</p></div>
-          <div className="grid gap-3 sm:grid-cols-2">{periodosDisponiveis.map((periodo) => { const esgotado = periodo.disponibilidade === 'esgotado'; return <button key={periodo.id} type="button" aria-pressed={periodoId === periodo.id} disabled={esgotado} onClick={() => { setPeriodoId(periodo.id); setCalculo(null); setError(''); }} className={`rounded-xl border p-4 text-left transition-all disabled:cursor-not-allowed disabled:opacity-60 ${periodoId === periodo.id ? 'border-primary bg-primary/5 shadow-md ring-2 ring-primary/20' : 'border-slate-200 hover:border-primary/40'}`}><div className="flex items-start justify-between gap-3"><p className="font-bold text-slate-900">{periodo.nome}</p>{periodo.disponibilidade && <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${esgotado ? 'bg-slate-800 text-white' : periodo.disponibilidade === 'ultimas_vagas' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{esgotado ? 'Esgotado' : periodo.disponibilidade === 'ultimas_vagas' ? 'Últimas vagas' : 'Disponível'}</span>}</div><p className="mt-1 text-sm text-slate-600">{formatarPeriodo(periodo.data_inicio)} a {formatarPeriodo(periodo.data_fim)}</p>{periodo.descricao && <p className="mt-2 text-xs leading-5 text-slate-500">{periodo.descricao}</p>}{periodoId === periodo.id && <span className="mt-2 inline-block text-xs font-bold text-primary">Período selecionado</span>}</button>; })}</div>
+          <div className="grid gap-3 sm:grid-cols-2">{periodosDisponiveis.map((periodo) => { const aguardando = periodo.disponibilidade === 'aguardando'; const esgotado = periodo.disponibilidade === 'esgotado' || aguardando; return <button key={periodo.id} type="button" aria-pressed={periodoId === periodo.id} disabled={esgotado} onClick={() => { setPeriodoId(periodo.id); setCalculo(null); setError(''); }} className={`rounded-xl border p-4 text-left transition-all disabled:cursor-not-allowed disabled:opacity-60 ${periodoId === periodo.id ? 'border-primary bg-primary/5 shadow-md ring-2 ring-primary/20' : 'border-slate-200 hover:border-primary/40'}`}><div className="flex items-start justify-between gap-3"><p className="font-bold text-slate-900">{periodo.nome}</p>{periodo.disponibilidade && <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${aguardando ? 'bg-blue-100 text-blue-900' : esgotado ? 'bg-slate-800 text-white' : periodo.disponibilidade === 'ultimas_vagas' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{aguardando ? 'Próximo lote' : esgotado ? 'Esgotado' : periodo.disponibilidade === 'ultimas_vagas' ? 'Últimas vagas' : 'Disponível'}</span>}</div><p className="mt-1 text-sm text-slate-600">{formatarPeriodo(periodo.data_inicio)} a {formatarPeriodo(periodo.data_fim)}</p>{periodo.lote_comercial_nome && <p className="mt-1 text-xs font-semibold text-primary">{periodo.lote_comercial_nome}{periodo.lote_comercial_data_fim ? ` · até ${formatarPeriodo(periodo.lote_comercial_data_fim)}` : ''}</p>}{periodo.valor_total && <p className="mt-1 text-sm font-black text-slate-900">{formatarMoeda(periodo.valor_total)} por pessoa</p>}{periodo.descricao && <p className="mt-2 text-xs leading-5 text-slate-500">{periodo.descricao}</p>}{periodoId === periodo.id && <span className="mt-2 inline-block text-xs font-bold text-primary">Período selecionado</span>}</button>; })}</div>
         </section>}
 
         <section className="rounded-2xl border border-slate-200 bg-white p-5">
