@@ -390,8 +390,8 @@ export class PacoteService {
   }
 
   static async validarVagasDisponíveis(lote_id: string, quantidade = 1): Promise<boolean> {
-    const lote = (await db.select({ vagas: lotes.vagas_disponíveis, ativo: lotes.ativo }).from(lotes).where(eq(lotes.id, lote_id)).limit(1))[0];
-    return Boolean(lote?.ativo && Number(lote.vagas) >= quantidade);
+    const lote = (await db.select({ vagas: lotes.vagas_disponíveis, ativo: lotes.ativo, operacional: lotes.operacional_interno }).from(lotes).where(eq(lotes.id, lote_id)).limit(1))[0];
+    return Boolean(lote?.ativo && (lote.operacional || Number(lote.vagas) >= quantidade));
   }
 
   static async obterDisponibilidadeFisica(
@@ -402,8 +402,12 @@ export class PacoteService {
     const formas = normalizarFormasContratacao(pacote.formas_contratacao, pacote.forma_contratacao, pacote.modalidade_hospedagem);
     const forma = formaEscolhida || formas[0] || pacote.forma_contratacao;
     const recursos = resolverRecursosContratacao(forma, pacote.modalidade_hospedagem);
-    const lote = (await db.select({ vagas: lotes.vagas_disponíveis }).from(lotes).where(eq(lotes.id, pacote.lote_id)).limit(1))[0];
-    const vagasLote = Math.max(0, Number(lote?.vagas || 0));
+    const lote = (await db.select({ vagas: lotes.vagas_disponíveis, operacional: lotes.operacional_interno }).from(lotes).where(eq(lotes.id, pacote.lote_id)).limit(1))[0];
+    const vagasLote = lote?.operacional ? null : Math.max(0, Number(lote?.vagas || 0));
+    const planejamento = periodoId
+      ? (await db.select({ transporte: pacotePeriodos.capacidade_transporte_planejada, hospedagem: pacotePeriodos.capacidade_hospedagem_planejada })
+        .from(pacotePeriodos).where(and(eq(pacotePeriodos.id, periodoId), eq(pacotePeriodos.pacote_id, pacote.id))).limit(1))[0]
+      : undefined;
     let vagasTransporte: number | null = null;
     let vagasHospedagem: number | null = null;
     let vagasHospedagemPorGrupo: Record<GrupoHospedagem, number> | null = null;
@@ -418,6 +422,7 @@ export class PacoteService {
           AND NOT EXISTS (SELECT 1 FROM assento_alocacoes aa WHERE aa.assento_id = a.id AND aa.status = 'ativa')
           AND NOT EXISTS (SELECT 1 FROM assento_holds h WHERE h.assento_id = a.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP)`)).rows[0] as { total: number } | undefined;
       vagasTransporte = Math.max(0, Number(linha?.total || 0));
+      if (planejamento?.transporte !== null && planejamento?.transporte !== undefined) vagasTransporte = Math.min(vagasTransporte, Number(planejamento.transporte));
     }
 
     if (recursos.hospedagem && recursos.estrutura_quarto) {
@@ -434,6 +439,7 @@ export class PacoteService {
         if (linha.genero === "masculino" || linha.genero === "feminino") vagasHospedagemPorGrupo[linha.genero] = Math.max(0, Number(linha.total || 0));
       }
       vagasHospedagem = vagasHospedagemPorGrupo.masculino + vagasHospedagemPorGrupo.feminino;
+      if (planejamento?.hospedagem !== null && planejamento?.hospedagem !== undefined) vagasHospedagem = Math.min(vagasHospedagem, Number(planejamento.hospedagem));
     }
 
     const limites = [vagasLote, vagasTransporte, vagasHospedagem].filter((valor): valor is number => valor !== null);

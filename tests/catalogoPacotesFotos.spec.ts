@@ -10,8 +10,8 @@ describe("catálogo simples de excursões, lotes e pacotes", () => {
     const tela = ler("apps/web/src/pages/admin/Eventos.tsx");
     const lotes = ler("server/routes/lotes.ts");
     const pacotes = ler("server/routes/pacotes.ts");
+    expect(tela).toContain("A excursão não tem preço");
     expect(tela).toContain("Preço por pessoa (R$)");
-    expect(tela).toContain("O preço é cadastrado dentro do pacote");
     expect(tela).not.toContain("Valor-base");
     expect(lotes).not.toContain("valor_base === undefined) {");
     expect(lotes).toContain("valor_base === undefined || valor_base === null || valor_base === \"\"");
@@ -20,13 +20,13 @@ describe("catálogo simples de excursões, lotes e pacotes", () => {
 
   it("preserva a configuração de lotes opcionais para primeiro e segundo lote", () => {
     const tela = ler("apps/web/src/pages/admin/Eventos.tsx");
-    expect(tela).toContain("Configurar lotes");
-    expect(tela).toContain("Configurar Pacotes");
+    expect(tela).toContain("Configuração da excursão");
+    expect(tela).toContain("Configurar pacotes");
     expect(tela).not.toContain("Gerir pacotes");
-    expect(tela).toContain("1º lote");
-    expect(tela).toContain("2º lote");
+    expect(tela).toContain("Condição comercial");
+    expect(tela).toContain("Ordem de progressão");
     expect(tela).toContain("Criar novo pacote");
-    expect(tela).toContain("Configurar lote");
+    expect(tela).toContain("Lotes configurados");
     expect(tela).toContain("scrollIntoView");
     expect(tela).toContain("order-2");
   });

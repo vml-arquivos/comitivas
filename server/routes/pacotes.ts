@@ -7,7 +7,7 @@ import { GatewayConfigService } from "../services/gatewayConfigService.js";
 import { AuthService } from "../services/authService.js";
 import { db } from "../db/index.js";
 import { eventos, lotes, pacotes, pacotePeriodos, pacoteLotesComerciais, fotosPacote, itens_addon, reservas, usuarios, leads_origem, pagamentos, pagamentoParcelas, cupons, cuponsUtilizacoes, precosLedger, reservaParticipantes } from "../db/schema.js";
-import { eq, and, desc, inArray, isNull, or, sql } from "drizzle-orm";
+import { eq, and, desc, inArray, isNull, or, ne, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { CatalogoExclusaoService } from "../services/catalogoExclusaoService.js";
 import { ContratacaoIntegridadeService } from "../services/contratacaoIntegridadeService.js";
@@ -79,6 +79,13 @@ function dataPeriodo(valor: unknown, campo: string, obrigatoria = true): Date | 
 function validarIntervaloPeriodo(inicio: Date, fim: Date, embarque: Date | null, retorno: Date | null) {
   if (inicio.getTime() > fim.getTime()) throw new Error("A data inicial do período deve ser anterior à data final");
   if (embarque && retorno && embarque.getTime() > retorno.getTime()) throw new Error("A saída deve ocorrer antes do retorno");
+}
+
+function capacidadePlanejada(valor: unknown, campo: string): number | null {
+  if (valor === undefined || valor === null || valor === "") return null;
+  const numero = Number(valor);
+  if (!Number.isInteger(numero) || numero < 0 || numero > 100000) throw new Error(`${campo} deve ser um número inteiro entre 0 e 100.000`);
+  return numero;
 }
 
 function validarConfiguracaoComercial(body: any) {
@@ -169,6 +176,24 @@ function regrasDoPacote(pacote: any) {
     prazoSegurancaDias: Number.isInteger(Number(configuracao.prazo_seguranca_dias)) ? Math.max(0, Number(configuracao.prazo_seguranca_dias)) : 0,
     dataLimitePagamento: pacote?.data_limite_pagamento || null,
   };
+}
+
+async function validarCapacidadeComercialPeriodo(params: { pacoteId: string; periodoId: string | null; forma: string; vagas: number; ignorarId?: string }) {
+  if (!params.periodoId) return;
+  const periodo = (await db.select({ transporte: pacotePeriodos.capacidade_transporte_planejada, hospedagem: pacotePeriodos.capacidade_hospedagem_planejada })
+    .from(pacotePeriodos).where(and(eq(pacotePeriodos.id, params.periodoId), eq(pacotePeriodos.pacote_id, params.pacoteId))).limit(1))[0];
+  if (!periodo) throw new Error("O período informado não pertence a este pacote");
+  const forma = normalizarFormaLote(params.forma);
+  const limites = forma === "onibus" ? [periodo.transporte]
+    : forma === "hospedagem" ? [periodo.hospedagem]
+      : [periodo.transporte, periodo.hospedagem].filter((valor): valor is number => valor !== null && valor !== undefined);
+  const limite = limites.length ? Math.min(...limites.map(Number)) : null;
+  if (limite === null) return;
+  const condicoes = [eq(pacoteLotesComerciais.pacote_id, params.pacoteId), eq(pacoteLotesComerciais.periodo_id, params.periodoId), eq(pacoteLotesComerciais.forma_contratacao, forma), eq(pacoteLotesComerciais.ativo, true)];
+  if (params.ignorarId) condicoes.push(ne(pacoteLotesComerciais.id, params.ignorarId));
+  const soma = (await db.select({ total: sql<number>`COALESCE(SUM(${pacoteLotesComerciais.vagas_totais}), 0)` }).from(pacoteLotesComerciais).where(and(...condicoes)))[0]?.total;
+  const total = Number(soma || 0) + params.vagas;
+  if (total > limite) throw new Error(`As vagas dos lotes desta forma ultrapassam a capacidade planejada do período (${limite} vagas)`);
 }
 
 // Listar itens disponíveis de um lote
@@ -784,11 +809,14 @@ router.post("/:pacote_id/periodos", authMiddleware, requireRole("admin"), async 
     const fim = dataPeriodo(req.body?.data_fim, "A data final");
     const embarque = dataPeriodo(req.body?.data_embarque, "A data de embarque", false);
     const retorno = dataPeriodo(req.body?.data_retorno, "A data de retorno", false);
+    const capacidadeTransporte = capacidadePlanejada(req.body?.capacidade_transporte_planejada, "A capacidade planejada de transporte");
+    const capacidadeHospedagem = capacidadePlanejada(req.body?.capacidade_hospedagem_planejada, "A capacidade planejada de hospedagem");
     validarIntervaloPeriodo(inicio!, fim!, embarque, retorno);
     const existentes = await db.select({ id: pacotePeriodos.id }).from(pacotePeriodos).where(eq(pacotePeriodos.pacote_id, pacote.id));
     const criado = (await db.insert(pacotePeriodos).values({
       id: createId(), pacote_id: pacote.id, nome, descricao: String(req.body?.descricao || "").trim().slice(0, 2000) || null,
       data_inicio: inicio!, data_fim: fim!, data_embarque: embarque, data_retorno: retorno,
+      capacidade_transporte_planejada: capacidadeTransporte, capacidade_hospedagem_planejada: capacidadeHospedagem,
       ordem: Number.isInteger(Number(req.body?.ordem)) ? Number(req.body.ordem) : existentes.length,
       ativo: req.body?.ativo !== false, criado_em: new Date(), atualizado_em: new Date(),
     }).returning())[0];
@@ -807,11 +835,20 @@ router.put("/:pacote_id/periodos/:periodo_id", authMiddleware, requireRole("admi
     const fim = dataPeriodo(req.body?.data_fim ?? atual.data_fim, "A data final");
     const embarque = dataPeriodo(req.body?.data_embarque ?? atual.data_embarque, "A data de embarque", false);
     const retorno = dataPeriodo(req.body?.data_retorno ?? atual.data_retorno, "A data de retorno", false);
+    const capacidadeTransporte = req.body?.capacidade_transporte_planejada !== undefined ? capacidadePlanejada(req.body.capacidade_transporte_planejada, "A capacidade planejada de transporte") : atual.capacidade_transporte_planejada;
+    const capacidadeHospedagem = req.body?.capacidade_hospedagem_planejada !== undefined ? capacidadePlanejada(req.body.capacidade_hospedagem_planejada, "A capacidade planejada de hospedagem") : atual.capacidade_hospedagem_planejada;
+    const limitesComerciais = await db.select({ forma: pacoteLotesComerciais.forma_contratacao, total: sql<number>`COALESCE(SUM(${pacoteLotesComerciais.vagas_totais}), 0)` }).from(pacoteLotesComerciais)
+      .where(and(eq(pacoteLotesComerciais.periodo_id, atual.id), eq(pacoteLotesComerciais.ativo, true))).groupBy(pacoteLotesComerciais.forma_contratacao);
+    for (const linha of limitesComerciais) {
+      const limite = linha.forma === "onibus" ? capacidadeTransporte : linha.forma === "hospedagem" ? capacidadeHospedagem : [capacidadeTransporte, capacidadeHospedagem].filter((valor): valor is number => valor !== null && valor !== undefined).reduce((menor, valor) => Math.min(menor, valor), Number.POSITIVE_INFINITY);
+      if (limite !== null && limite !== Number.POSITIVE_INFINITY && Number(linha.total) > limite) throw new Error(`A nova capacidade não pode ser menor que as ${Number(linha.total)} vagas já configuradas em lotes comerciais`);
+    }
     validarIntervaloPeriodo(inicio!, fim!, embarque, retorno);
     const atualizado = (await db.update(pacotePeriodos).set({
       nome: req.body?.nome !== undefined ? String(req.body.nome).trim().slice(0, 255) : undefined,
       descricao: req.body?.descricao !== undefined ? String(req.body.descricao || "").trim().slice(0, 2000) || null : undefined,
       data_inicio: inicio!, data_fim: fim!, data_embarque: embarque, data_retorno: retorno,
+      capacidade_transporte_planejada: capacidadeTransporte, capacidade_hospedagem_planejada: capacidadeHospedagem,
       ordem: req.body?.ordem !== undefined ? Number(req.body.ordem) : undefined,
       ativo: req.body?.ativo !== undefined ? Boolean(req.body.ativo) : undefined,
       atualizado_em: new Date(),
@@ -874,6 +911,7 @@ router.post("/:pacote_id/lotes-comerciais", authMiddleware, requireRole("admin")
     if (!nome || !Number.isInteger(vagas) || vagas < 1) return res.status(400).json({ erro: "Informe nome e uma quantidade de vagas inteira maior que zero" });
     if (!Number.isFinite(valor) || valor < 0) return res.status(400).json({ erro: "Informe um preço válido para o lote" });
     if (fim && inicio && inicio.getTime() > fim.getTime()) return res.status(400).json({ erro: "A data inicial da venda deve ser anterior à data final" });
+    if (req.body?.ativo !== false) await validarCapacidadeComercialPeriodo({ pacoteId: pacote.id, periodoId, forma, vagas });
     const existentesComerciais = await db.select({ id: pacoteLotesComerciais.id }).from(pacoteLotesComerciais).where(and(eq(pacoteLotesComerciais.pacote_id, pacote.id), periodoId ? eq(pacoteLotesComerciais.periodo_id, periodoId) : isNull(pacoteLotesComerciais.periodo_id), eq(pacoteLotesComerciais.forma_contratacao, forma)));
     const ordem = Number.isInteger(Number(req.body?.ordem)) ? Number(req.body.ordem) : existentesComerciais.length;
     const criado = (await db.insert(pacoteLotesComerciais).values({
@@ -902,6 +940,8 @@ router.put("/:pacote_id/lotes-comerciais/:lote_comercial_id", authMiddleware, re
     const inicio = req.body?.data_inicio !== undefined ? dataPeriodo(req.body.data_inicio, "A data inicial da venda") : atual.data_inicio;
     const fim = req.body?.data_fim !== undefined ? dataPeriodo(req.body.data_fim, "A data final da venda", false) : atual.data_fim;
     if (fim && inicio && inicio.getTime() > fim.getTime()) return res.status(400).json({ erro: "A data inicial da venda deve ser anterior à data final" });
+    const ativoFinal = req.body?.ativo !== undefined ? Boolean(req.body.ativo) : Boolean(atual.ativo);
+    if (ativoFinal) await validarCapacidadeComercialPeriodo({ pacoteId: atual.pacote_id, periodoId: atual.periodo_id, forma: atual.forma_contratacao, vagas: total, ignorarId: atual.id });
     const atualizado = (await db.update(pacoteLotesComerciais).set({
       nome: req.body?.nome !== undefined ? String(req.body.nome).trim().slice(0, 255) : undefined,
       descricao: req.body?.descricao !== undefined ? String(req.body.descricao || "").trim().slice(0, 2000) || null : undefined,

@@ -92,6 +92,7 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
           vagas_disponiveis: lotes.vagas_disponíveis,
           data_inicio: lotes.data_inicio,
           data_fim: lotes.data_fim,
+          operacional_interno: lotes.operacional_interno,
         })
         .from(lotes)
         .where(and(eq(lotes.evento_id, evento.id), eq(lotes.ativo, true)))
@@ -177,15 +178,20 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
           };
         }));
 
+        const capacidadesPublicas = modalidades.flatMap((modalidade) => [
+          Number(modalidade.vagas_disponiveis || 0),
+          ...(modalidade.periodos || []).map((periodo) => Number(periodo.vagas_disponiveis || 0)),
+        ]);
+        const vagasOperacionais = capacidadesPublicas.length ? Math.max(...capacidadesPublicas) : 0;
         return {
           ...lote,
-          vagas_disponiveis: Number(lote.vagas_disponiveis),
-          vagas_totais: Number(lote.vagas_totais),
+          vagas_disponiveis: lote.operacional_interno ? vagasOperacionais : Number(lote.vagas_disponiveis),
+          vagas_totais: lote.operacional_interno ? vagasOperacionais : Number(lote.vagas_totais),
           modalidades,
         };
       }));
 
-      return { ...evento, fotos: fotosEvento, lotes: lotesComModalidades };
+      return { ...evento, fotos: fotosEvento, lotes: lotesComModalidades.filter((lote) => lote.modalidades.length > 0) };
     }));
 
     res.json({ eventos: ofertas });

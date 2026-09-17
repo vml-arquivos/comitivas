@@ -44,7 +44,7 @@ describe("seleção explícita do tipo de contratação", () => {
   it("permite ao admin habilitar formas de contratação no pacote", async () => {
     const admin = await fonte("../apps/web/src/pages/admin/Eventos.tsx");
     expect(admin).toContain("Formas de contratação habilitadas");
-    expect(admin).toContain("Cada pacote tem seu próprio preço, modalidade, contratação e galeria");
+    expect(admin).toContain("Cada pacote tem seus períodos, formas de contratação, operação e condições comerciais.");
     expect(admin).toContain("onibus_hospedagem");
     expect(admin).not.toContain('value="livre">Legado / livre');
     expect(admin).toContain("modeloContrato(pacoteForm.formaContratacao)");

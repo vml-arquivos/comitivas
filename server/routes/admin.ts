@@ -2562,8 +2562,12 @@ async function garantirInventarioBoletoManual(reserva: typeof reservas.$inferSel
 
     // Hold liberado (ou inexistente): a vaga já está disponível novamente e
     // precisa ser debitada uma única vez antes de converter/recriar o vínculo.
-    const vaga = await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = "vagas_disponíveis" - 1, atualizado_em = ${agora} WHERE id = ${reserva.lote_id} AND "vagas_disponíveis" > 0 RETURNING id`);
-    if (!vaga.rows.length) throw new Error("Não há vaga disponível para liberar o boleto desta reserva");
+    const lote = (await tx.execute(sql`SELECT operacional_interno FROM lotes WHERE id = ${reserva.lote_id} FOR UPDATE`)).rows[0] as { operacional_interno?: boolean } | undefined;
+    if (!lote) throw new Error("Lote da reserva não encontrado");
+    if (!lote.operacional_interno) {
+      const vaga = await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = "vagas_disponíveis" - 1, atualizado_em = ${agora} WHERE id = ${reserva.lote_id} AND "vagas_disponíveis" > 0 RETURNING id`);
+      if (!vaga.rows.length) throw new Error("Não há vaga disponível para liberar o boleto desta reserva");
+    }
 
     if (hold) {
       await tx.update(inventarioHolds).set({ status: "convertido", convertido_em: agora, liberado_em: null, motivo_liberacao: null, expira_em: agora }).where(eq(inventarioHolds.id, hold.id));

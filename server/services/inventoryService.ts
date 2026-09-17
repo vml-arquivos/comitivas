@@ -40,7 +40,7 @@ export class InventoryService {
       WHERE id = ${row.id} AND (status = 'ativo' OR (${incluirConvertido} AND status = 'convertido')) RETURNING id`);
     if (alterado.rows.length === 0) return false;
     await this.liberarRecursosFisicosNaTransacao(tx, reservaId, motivo, agora);
-    await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = LEAST("vagas_totais", "vagas_disponíveis" + ${Number(row.quantidade)}), atualizado_em = ${agora} WHERE id = ${row.lote_id}`);
+    await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = CASE WHEN operacional_interno THEN "vagas_disponíveis" ELSE LEAST("vagas_totais", "vagas_disponíveis" + ${Number(row.quantidade)}) END, atualizado_em = ${agora} WHERE id = ${row.lote_id}`);
     if (row.lote_comercial_id) await LoteComercialService.liberarNaTransacao(tx, row.lote_comercial_id, Number(row.quantidade));
     if (row.cupom_id) await tx.execute(sql`UPDATE cupons SET uso_atual = GREATEST(0, COALESCE(uso_atual, 0) - 1) WHERE id = ${row.cupom_id}`);
     await tx.update(reservas).set({ inventario_hold_id: null, atualizado_em: agora }).where(eq(reservas.id, reservaId));
@@ -82,7 +82,7 @@ export class InventoryService {
         const alterado = await tx.update(inventarioHolds).set({ status: "liberado", liberado_em: agora, motivo_liberacao: "Expiração do hold" }).where(and(eq(inventarioHolds.id, row.id), eq(inventarioHolds.status, "ativo"))).returning({ id: inventarioHolds.id });
         if (!alterado[0]) continue;
         await this.liberarRecursosFisicosNaTransacao(tx, row.reserva_id, "Expiração do checkout", agora);
-        await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = LEAST("vagas_totais", "vagas_disponíveis" + ${Number(row.quantidade)}), atualizado_em = ${agora} WHERE id = ${row.lote_id}`);
+        await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = CASE WHEN operacional_interno THEN "vagas_disponíveis" ELSE LEAST("vagas_totais", "vagas_disponíveis" + ${Number(row.quantidade)}) END, atualizado_em = ${agora} WHERE id = ${row.lote_id}`);
         if (row.lote_comercial_id) await LoteComercialService.liberarNaTransacao(tx, row.lote_comercial_id, Number(row.quantidade));
         if (row.cupom_id) {
           await tx.execute(sql`UPDATE cupons SET uso_atual = GREATEST(0, COALESCE(uso_atual, 0) - 1) WHERE id = ${row.cupom_id}`);

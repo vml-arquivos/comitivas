@@ -104,8 +104,12 @@ async function reservarOuConverterHold(tx: any, reservaId: string, reserva: any,
     return;
   }
 
-  const vaga = await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = "vagas_disponíveis" - 1, atualizado_em = ${agora} WHERE id = ${reserva.lote_id} AND "vagas_disponíveis" > 0 RETURNING id`);
-  if (!vaga.rows.length) throw new Error("LOTE_SEM_VAGAS");
+  const lote = (await tx.execute(sql`SELECT operacional_interno FROM lotes WHERE id = ${reserva.lote_id} FOR UPDATE`)).rows[0] as { operacional_interno?: boolean } | undefined;
+  if (!lote) throw new Error("LOTE_NAO_ENCONTRADO");
+  if (!lote.operacional_interno) {
+    const vaga = await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = "vagas_disponíveis" - 1, atualizado_em = ${agora} WHERE id = ${reserva.lote_id} AND "vagas_disponíveis" > 0 RETURNING id`);
+    if (!vaga.rows.length) throw new Error("LOTE_SEM_VAGAS");
+  }
 }
 
 async function reconciliarPagamento(pagamentoId: string): Promise<void> {

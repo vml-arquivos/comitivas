@@ -1,8 +1,8 @@
 import { Router, Request, Response, NextFunction, raw } from "express";
 import { authMiddleware, requireRole } from "../middleware/authMiddleware.js";
 import { db } from "../db/index.js";
-import { eventos, fotos_evento } from "../db/schema.js";
-import { eq, and } from "drizzle-orm";
+import { eventos, fotos_evento, lotes, pacotes } from "../db/schema.js";
+import { eq, and, desc } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -183,9 +183,9 @@ router.post("/", authMiddleware, requireRole("admin"), async (req: Request, res:
       return res.status(400).json({ erro: "Nome, data_inicio e data_fim são obrigatórios" });
     }
 
-    const novoEvento = await db
-      .insert(eventos)
-      .values({
+    const novoEvento = await db.transaction(async (tx) => {
+      const agora = new Date();
+      const evento = (await tx.insert(eventos).values({
         id: `evento-${Date.now()}`,
         nome,
         descricao: descricao || "",
@@ -193,10 +193,21 @@ router.post("/", authMiddleware, requireRole("admin"), async (req: Request, res:
         data_fim: new Date(data_fim),
         local: local || "",
         ativo: true,
-        criado_em: new Date(),
-        atualizado_em: new Date(),
-      })
-      .returning();
+        criado_em: agora,
+        atualizado_em: agora,
+      }).returning())[0];
+
+      // Compatibilidade estrutural: o administrador configura apenas pacote,
+      // período, operação e lote comercial. Esta linha não é um lote de venda.
+      await tx.insert(lotes).values({
+        id: createId(), evento_id: evento.id, nome: nome.trim(),
+        descricao: "Estrutura operacional interna da excursão",
+        vagas_totais: 0, "vagas_disponíveis": 0, operacional_interno: true,
+        data_inicio: new Date(data_inicio), data_fim: new Date(data_fim),
+        valor_base: "0", ativo: true, criado_em: agora, atualizado_em: agora,
+      });
+      return [evento];
+    });
 
     res.status(201).json({
       mensagem: "Evento criado com sucesso",
@@ -208,25 +219,69 @@ router.post("/", authMiddleware, requireRole("admin"), async (req: Request, res:
   }
 });
 
+// Garante uma única estrutura operacional para excursões antigas que ainda
+// não possuem a linha técnica criada automaticamente nas novas excursões.
+router.post("/:evento_id/estrutura-operacional", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const evento = (await db.select().from(eventos).where(eq(eventos.id, req.params.evento_id)).limit(1))[0];
+    if (!evento) return res.status(404).json({ erro: "Excursão não encontrada" });
+
+    const interno = (await db.select().from(lotes)
+      .where(and(eq(lotes.evento_id, evento.id), eq(lotes.operacional_interno, true)))
+      .orderBy(desc(lotes.criado_em)).limit(1))[0];
+    if (interno) return res.json({ modo: "existente", lote: interno });
+
+    // Se a excursão já foi usada pelo modelo legado, reaproveita o lote que
+    // contém pacotes; não cria uma segunda estrutura nem altera dados antigos.
+    const loteComPacotes = (await db.select({ lote: lotes })
+      .from(lotes)
+      .innerJoin(pacotes, eq(pacotes.lote_id, lotes.id))
+      .where(and(eq(lotes.evento_id, evento.id), eq(lotes.ativo, true)))
+      .orderBy(desc(lotes.criado_em)).limit(1))[0]?.lote;
+    if (loteComPacotes) return res.json({ modo: "legado", lote: loteComPacotes });
+
+    const agora = new Date();
+    const criado = (await db.insert(lotes).values({
+      id: createId(), evento_id: evento.id, nome: evento.nome,
+      descricao: "Estrutura operacional interna da excursão",
+      vagas_totais: 0, "vagas_disponíveis": 0, operacional_interno: true,
+      data_inicio: evento.data_inicio, data_fim: evento.data_fim,
+      valor_base: "0", ativo: true, criado_em: agora, atualizado_em: agora,
+    }).returning())[0];
+    return res.status(201).json({ modo: "criado", lote: criado });
+  } catch (error) {
+    console.error("[EVENTOS] Erro ao garantir estrutura operacional:", error);
+    return res.status(500).json({ erro: "Não foi possível preparar a estrutura operacional da excursão" });
+  }
+});
+
 // Atualizar evento (admin)
 router.put("/:evento_id", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
   try {
     const { evento_id } = req.params;
     const { nome, descricao, data_inicio, data_fim, local, ativo } = req.body;
 
-    const eventoAtualizado = await db
-      .update(eventos)
-      .set({
+    const eventoAtualizado = await db.transaction(async (tx) => {
+      const agora = new Date();
+      const atualizado = await tx.update(eventos).set({
         nome: nome || undefined,
         descricao: descricao !== undefined ? descricao : undefined,
         data_inicio: data_inicio ? new Date(data_inicio) : undefined,
         data_fim: data_fim ? new Date(data_fim) : undefined,
         local: local !== undefined ? local : undefined,
         ativo: ativo !== undefined ? ativo : undefined,
-        atualizado_em: new Date(),
-      })
-      .where(eq(eventos.id, evento_id))
-      .returning();
+        atualizado_em: agora,
+      }).where(eq(eventos.id, evento_id)).returning();
+      if (atualizado[0]) {
+        await tx.update(lotes).set({
+          nome: nome || undefined,
+          data_inicio: data_inicio ? new Date(data_inicio) : undefined,
+          data_fim: data_fim ? new Date(data_fim) : undefined,
+          atualizado_em: agora,
+        }).where(and(eq(lotes.evento_id, evento_id), eq(lotes.operacional_interno, true)));
+      }
+      return atualizado;
+    });
 
     if (eventoAtualizado.length === 0) {
       return res.status(404).json({ erro: "Evento não encontrado" });

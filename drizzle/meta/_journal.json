@@ -211,6 +211,20 @@
       "when": 1789500005000,
       "tag": "0029_lotes_comerciais_por_pacote",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "5",
+      "when": 1789500006000,
+      "tag": "0030_lote_operacional_interno",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "5",
+      "when": 1789500007000,
+      "tag": "0031_capacidade_planejada_periodos",
+      "breakpoints": true
     }
   ]
 }
