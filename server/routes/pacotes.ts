@@ -99,10 +99,10 @@ function validarConfiguracaoComercial(body: any) {
   if (formasContratacao.length === 0) throw new Error("Habilite ao menos uma forma de contratação");
   const formaContratacao = formasContratacao.includes(formaSolicitada) ? formaSolicitada : formasContratacao[0];
 
+  // O pacote define apenas o escopo contratado. Ônibus e quartos físicos
+  // pertencem ao período e são cadastrados nas telas operacionais próprias.
+  // Mantemos a leitura do campo legado para não perder configurações antigas.
   const onibusConfig = Array.isArray(body.onibus_config) ? body.onibus_config : [];
-  if (formasContratacao.some((forma) => forma.includes("onibus")) && onibusConfig.length === 0) {
-    throw new Error("Configure ao menos um ônibus para esta forma de contratação");
-  }
   const onibusNormalizados = onibusConfig.map((item: any, indice: number) => {
     const capacidade = Number(item?.capacidade ?? item?.vagas ?? 0);
     if (!Number.isInteger(capacidade) || capacidade < 1 || capacidade > 100) throw new Error(`Capacidade inválida no ônibus ${indice + 1}`);

@@ -139,7 +139,6 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
           const periodosBase = await db.select({
             id: pacotePeriodos.id, nome: pacotePeriodos.nome, descricao: pacotePeriodos.descricao,
             data_inicio: pacotePeriodos.data_inicio, data_fim: pacotePeriodos.data_fim,
-            data_embarque: pacotePeriodos.data_embarque, data_retorno: pacotePeriodos.data_retorno,
             ordem: pacotePeriodos.ordem,
           }).from(pacotePeriodos)
             .where(and(eq(pacotePeriodos.pacote_id, modalidade.id), eq(pacotePeriodos.ativo, true)))
