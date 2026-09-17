@@ -54,6 +54,7 @@ describe("períodos múltiplos dentro do pacote", () => {
     const migrationOnibus = ler("drizzle/0027_periodo_por_onibus.sql");
     const schema = ler("server/db/schema.ts");
     const onibus = ler("server/services/operacaoOnibusService.ts");
+    const periodoOperacional = ler("server/services/periodoOperacional.ts");
     const hospedagem = ler("server/services/hospedagemService.ts");
     const integridade = ler("server/services/contratacaoIntegridadeService.ts");
     const vendas = ler("apps/web/src/pages/admin/Vendas.tsx");
@@ -66,10 +67,13 @@ describe("períodos múltiplos dentro do pacote", () => {
     expect(onibus).toContain("s.periodo_id");
     expect(onibus).toContain("o.periodo_id");
     expect(onibus).toContain("periodo_nome");
-    expect(onibus).toContain("mesmo período específico da saída");
+    expect(onibus).toContain("mesmo período de calendário da saída");
+    expect(onibus).toContain("periodoOperacionalCompativel");
+    expect(periodoOperacional).toContain("DATE(periodo_solicitado.data_inicio)");
+    expect(periodoOperacional).toContain("periodoReservadoColunaCompativel");
     expect(hospedagem).toContain("q.periodo_id");
     expect(hospedagem).toContain("const periodoId = texto(input?.periodo_id");
-    expect(integridade).toContain("COALESCE(o.periodo_id, s.periodo_id)");
+    expect(integridade).toContain("periodoOperacionalCompativel");
     expect(integridade).toContain("q.periodo_id = ${reserva.periodo_id}");
     expect(vendas).toContain("periodo_id: periodoId || undefined");
     expect(vendas).toContain("Período da viagem");

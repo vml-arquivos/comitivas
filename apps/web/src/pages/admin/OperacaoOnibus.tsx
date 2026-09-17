@@ -147,8 +147,16 @@ export default function OperacaoOnibus() {
       return;
     }
     const resposta = await api.get(`/pacotes/lotes/${loteId}/pacotes`);
-    const lista = (resposta.data.pacotes || []).flatMap((pacote: any) => pacote.periodos || []).filter((periodo: any, indice: number, itens: any[]) => itens.findIndex((item) => item.id === periodo.id) === indice);
-    setPeriodos(lista);
+    const periodosPorCalendario = new Map<string, any>();
+    for (const periodo of (resposta.data.pacotes || []).flatMap((pacote: any) => pacote.periodos || [])) {
+      const inicio = String(periodo.data_inicio || "").slice(0, 10);
+      const fim = String(periodo.data_fim || "").slice(0, 10);
+      const chave = `${inicio}:${fim}`;
+      if (inicio && fim && !periodosPorCalendario.has(chave)) {
+        periodosPorCalendario.set(chave, { ...periodo, chave_operacional: chave });
+      }
+    }
+    setPeriodos(Array.from(periodosPorCalendario.values()));
   };
 
   const carregarMapa = async (id = saidaId) => {
@@ -795,7 +803,7 @@ export default function OperacaoOnibus() {
       <AdminModal aberto={modal === "saida"} titulo="Nova saída operacional" descricao="Vincule a operação a uma viagem e lote já cadastrados." fechar={() => setModal(null)} largura="ampla">
         <form onSubmit={criarSaida} className="grid gap-4 md:grid-cols-2">
           <div className="md:col-span-2"><label className="mb-1 block text-sm font-medium">Viagem e lote</label><select required value={saidaForm.lote_id} onChange={(e) => { const lote = lotesComEvento.find((item) => item.id === e.target.value); setSaidaForm({ lote_id: e.target.value, periodo_id: "", nome: lote ? `${lote.evento_nome} — ${lote.nome}` : "", data_partida: dataParaInput(lote?.data_embarque), data_retorno: dataParaInput(lote?.data_retorno) }); void carregarPeriodos(e.target.value).catch(() => setPeriodos([])); }} className={inputClass}><option value="">Selecione</option>{lotesComEvento.map((lote) => <option key={lote.id} value={lote.id}>{lote.evento_nome} · {lote.nome}</option>)}</select></div>
-          <div className="md:col-span-2"><label className="mb-1 block text-sm font-medium">Período operacional (opcional)</label><select value={saidaForm.periodo_id} onChange={(e) => setSaidaForm({ ...saidaForm, periodo_id: e.target.value })} className={inputClass} disabled={!saidaForm.lote_id || periodos.length === 0}><option value="">Todos os períodos do lote</option>{periodos.map((periodo) => <option key={periodo.id} value={periodo.id}>{periodo.nome} · {new Date(periodo.data_inicio).toLocaleDateString("pt-BR")} a {new Date(periodo.data_fim).toLocaleDateString("pt-BR")}</option>)}</select></div>
+          <div className="md:col-span-2"><label className="mb-1 block text-sm font-medium">Período operacional compartilhado (opcional)</label><select value={saidaForm.periodo_id} onChange={(e) => setSaidaForm({ ...saidaForm, periodo_id: e.target.value })} className={inputClass} disabled={!saidaForm.lote_id || periodos.length === 0}><option value="">Todos os períodos do lote</option>{periodos.map((periodo) => <option key={periodo.chave_operacional || periodo.id} value={periodo.id}>{periodo.nome} · {new Date(periodo.data_inicio).toLocaleDateString("pt-BR")} a {new Date(periodo.data_fim).toLocaleDateString("pt-BR")}</option>)}</select><p className="mt-1 text-xs text-slate-500">Um mesmo período de calendário é compartilhado automaticamente entre Camping e os pacotes com quarto, mesmo que cada pacote tenha um ID próprio.</p></div>
           <div className="md:col-span-2"><Input required label="Nome da saída" value={saidaForm.nome} onChange={(e) => setSaidaForm({ ...saidaForm, nome: e.target.value })} /></div>
           <Input label="Partida" type="datetime-local" value={saidaForm.data_partida} onChange={(e) => setSaidaForm({ ...saidaForm, data_partida: e.target.value })} />
           <Input label="Retorno" type="datetime-local" value={saidaForm.data_retorno} onChange={(e) => setSaidaForm({ ...saidaForm, data_retorno: e.target.value })} />
@@ -807,7 +815,7 @@ export default function OperacaoOnibus() {
         <form onSubmit={salvarOnibus} className="grid gap-4 sm:grid-cols-2">
           <Input required label="Nome / identificação" value={onibusForm.nome} onChange={(e) => setOnibusForm({ ...onibusForm, nome: e.target.value })} />
           <Input required label="Quantidade de lugares" type="number" min={1} max={100} value={onibusForm.capacidade} onChange={(e) => setOnibusForm({ ...onibusForm, capacidade: e.target.value })} />
-          <div className="sm:col-span-2"><label className="mb-1 block text-sm font-medium">Período atendido</label><select value={onibusForm.periodo_id} onChange={(e) => setOnibusForm({ ...onibusForm, periodo_id: e.target.value })} className={inputClass} disabled={periodos.length === 0}><option value="">Ônibus geral da saída</option>{periodos.map((periodo) => <option key={periodo.id} value={periodo.id}>{periodo.nome} · {new Date(periodo.data_inicio).toLocaleDateString("pt-BR")} a {new Date(periodo.data_fim).toLocaleDateString("pt-BR")}</option>)}</select><p className="mt-1 text-xs text-slate-500">Escolha um período para ligar este ônibus às vagas corretas; deixe geral para atender o lote inteiro.</p></div>
+          <div className="sm:col-span-2"><label className="mb-1 block text-sm font-medium">Período atendido</label><select value={onibusForm.periodo_id} onChange={(e) => setOnibusForm({ ...onibusForm, periodo_id: e.target.value })} className={inputClass} disabled={periodos.length === 0}><option value="">Ônibus geral da saída</option>{periodos.map((periodo) => <option key={periodo.chave_operacional || periodo.id} value={periodo.id}>{periodo.nome} · {new Date(periodo.data_inicio).toLocaleDateString("pt-BR")} a {new Date(periodo.data_fim).toLocaleDateString("pt-BR")}</option>)}</select><p className="mt-1 text-xs text-slate-500">O ônibus fica compartilhado entre todos os pacotes do mesmo lote que tenham estas mesmas datas. Deixe geral para atender todos os períodos do lote.</p></div>
           <Input label="Prefixo / referência" value={onibusForm.identificacao} onChange={(e) => setOnibusForm({ ...onibusForm, identificacao: e.target.value })} />
           <Input label="Placa, quando aplicável" value={onibusForm.placa} onChange={(e) => setOnibusForm({ ...onibusForm, placa: e.target.value })} />
           <Input label="Motorista / condutor" value={onibusForm.motorista_nome} onChange={(e) => setOnibusForm({ ...onibusForm, motorista_nome: e.target.value })} />

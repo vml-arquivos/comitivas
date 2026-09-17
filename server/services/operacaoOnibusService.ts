@@ -2,6 +2,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { resolverRecursosContratacao } from "./contratacaoRecursos.js";
+import { periodoOperacionalCompativel, periodoReservadoColunaCompativel } from "./periodoOperacional.js";
 
 export type AssentoLayout = { numero: number; fileira: number; posicao: "A" | "B" | "C" | "D" };
 export type StatusFilaOnibus = "em_venda" | "aguardando" | "esgotado";
@@ -65,7 +66,7 @@ export class OperacaoOnibusService {
         JOIN onibus_operacionais o ON o.saida_id = s.id AND o.ativo = true
         JOIN assentos_onibus a ON a.onibus_id = o.id AND a.status = 'disponivel'
         WHERE s.lote_id = ${loteId} AND s.ativa = true
-          AND (${periodoId || null}::text IS NULL OR COALESCE(o.periodo_id, s.periodo_id) IS NULL OR COALESCE(o.periodo_id, s.periodo_id) = ${periodoId || null})
+          AND ${periodoOperacionalCompativel(periodoId)}
           AND NOT EXISTS (SELECT 1 FROM assento_alocacoes aa WHERE aa.assento_id = a.id AND aa.status = 'ativa')
           AND NOT EXISTS (SELECT 1 FROM assento_holds h WHERE h.assento_id = a.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP)
         ORDER BY CASE WHEN COALESCE(o.periodo_id, s.periodo_id) = ${periodoId || null} THEN 0 WHEN COALESCE(o.periodo_id, s.periodo_id) IS NULL THEN 1 ELSE 2 END, o.venda_ordem, o.criado_em, a.numero LIMIT 1`))[0];
@@ -177,13 +178,25 @@ export class OperacaoOnibusService {
       if (periodoId) {
         const periodo = linhas(await tx.execute(sql`SELECT pp.id FROM pacote_periodos pp JOIN pacotes p ON p.id = pp.pacote_id WHERE pp.id = ${periodoId} AND pp.ativo = true AND p.lote_id = ${saida.lote_id}`))[0];
         if (!periodo) throw new Error("Período inválido para o lote desta saída");
-        if (saida.periodo_id && saida.periodo_id !== periodoId) throw new Error("O ônibus deve usar o mesmo período específico da saída");
+        if (saida.periodo_id && saida.periodo_id !== periodoId) {
+          const periodoCompativel = linhas(await tx.execute(sql`SELECT 1
+            FROM pacote_periodos periodo_saida
+            JOIN pacote_periodos periodo_informado
+              ON periodo_informado.id = ${periodoId}
+            WHERE periodo_saida.id = ${saida.periodo_id}
+              AND periodo_saida.ativo = true
+              AND periodo_informado.ativo = true
+              AND DATE(periodo_saida.data_inicio) = DATE(periodo_informado.data_inicio)
+              AND DATE(periodo_saida.data_fim) = DATE(periodo_informado.data_fim)
+            LIMIT 1`))[0];
+          if (!periodoCompativel) throw new Error("O ônibus deve usar o mesmo período de calendário da saída");
+        }
       }
       const proximaOrdem = Number(linhas(await tx.execute(sql`SELECT COALESCE(MAX(venda_ordem), 0)::int + 1 AS ordem FROM onibus_operacionais WHERE saida_id = ${saidaId} AND ativo = true`))[0]?.ordem || 1);
       const id = createId();
       const onibus = linhas(await tx.execute(sql`INSERT INTO onibus_operacionais
         (id, saida_id, periodo_id, nome, identificacao, placa, capacidade, venda_ordem, motorista_nome, motorista_telefone, responsavel_nome, status, ativo, criado_em, atualizado_em)
-        VALUES (${id}, ${saidaId}, ${periodoId || saida.periodo_id || null}, ${nome}, ${texto(input?.identificacao, 120) || null}, ${texto(input?.placa, 12).toUpperCase() || null}, ${capacidade}, ${proximaOrdem},
+        VALUES (${id}, ${saidaId}, ${saida.periodo_id || periodoId || null}, ${nome}, ${texto(input?.identificacao, 120) || null}, ${texto(input?.placa, 12).toUpperCase() || null}, ${capacidade}, ${proximaOrdem},
           ${texto(input?.motorista_nome, 160) || null}, ${texto(input?.motorista_telefone, 20) || null}, ${texto(input?.responsavel_nome, 160) || null},
           'planejamento', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING *`))[0];
       for (const assento of layout) {
@@ -207,10 +220,22 @@ export class OperacaoOnibusService {
       if (periodoInformado) {
         const periodo = linhas(await tx.execute(sql`SELECT pp.id FROM pacote_periodos pp JOIN pacotes p ON p.id = pp.pacote_id WHERE pp.id = ${periodoInformado} AND pp.ativo = true AND p.lote_id = ${antes.lote_id}`))[0];
         if (!periodo) throw new Error("Período inválido para o lote deste ônibus");
-        if (antes.periodo_saida_id && antes.periodo_saida_id !== periodoInformado) throw new Error("O ônibus deve usar o mesmo período específico da saída");
+        if (antes.periodo_saida_id && antes.periodo_saida_id !== periodoInformado) {
+          const periodoCompativel = linhas(await tx.execute(sql`SELECT 1
+            FROM pacote_periodos periodo_saida
+            JOIN pacote_periodos periodo_informado
+              ON periodo_informado.id = ${periodoInformado}
+            WHERE periodo_saida.id = ${antes.periodo_saida_id}
+              AND periodo_saida.ativo = true
+              AND periodo_informado.ativo = true
+              AND DATE(periodo_saida.data_inicio) = DATE(periodo_informado.data_inicio)
+              AND DATE(periodo_saida.data_fim) = DATE(periodo_informado.data_fim)
+            LIMIT 1`))[0];
+          if (!periodoCompativel) throw new Error("O ônibus deve usar o mesmo período de calendário da saída");
+        }
       }
       const periodoAnterior = antes.periodo_id || antes.periodo_saida_id || null;
-      const periodoFinal = periodoInformado === undefined ? periodoAnterior : periodoInformado || antes.periodo_saida_id || null;
+      const periodoFinal = antes.periodo_saida_id || (periodoInformado === undefined ? periodoAnterior : periodoInformado || null);
       if (periodoInformado !== undefined && periodoFinal !== periodoAnterior) {
         const usoPeriodo = linhas(await tx.execute(sql`SELECT
           COUNT(*) FILTER (WHERE aa.status = 'ativa')::int AS ocupadas,
@@ -375,7 +400,7 @@ export class OperacaoOnibusService {
       FROM reservas r JOIN usuarios u ON u.id = r.usuario_id AND u.tipo = 'cliente'
       LEFT JOIN pacotes p ON p.id = r.pacote_id
       WHERE r.lote_id = ${saida.lote_id} AND r.status <> 'abandonado'
-        AND (${saida.periodo_id || null}::text IS NULL OR r.periodo_id = ${saida.periodo_id})
+        AND ${periodoReservadoColunaCompativel(sql.raw("r.periodo_id"), saida.periodo_id)}
         AND (SELECT COUNT(*) FROM assento_alocacoes aa WHERE aa.reserva_id = r.id AND aa.status = 'ativa')
           < GREATEST(1, (SELECT COUNT(*) FROM reserva_participantes rp WHERE rp.reserva_id = r.id OR rp.grupo_id = r.grupo_id))
         AND (
@@ -418,7 +443,19 @@ export class OperacaoOnibusService {
         FROM reservas r JOIN usuarios u ON u.id = r.usuario_id LEFT JOIN pacotes p ON p.id = r.pacote_id
         WHERE r.id = ${reservaId} FOR UPDATE OF r`))[0];
       if (!reserva || reserva.tipo !== "cliente" || reserva.lote_id !== alvo.lote_id || reserva.status === "abandonado") throw new Error("A reserva não pertence a esta saída ou não está disponível");
-      if (alvo.periodo_id && reserva.periodo_id !== alvo.periodo_id) throw new Error("A reserva pertence a outro período desta viagem");
+      if (alvo.periodo_id && reserva.periodo_id !== alvo.periodo_id) {
+        const periodoCompativel = linhas(await tx.execute(sql`SELECT 1
+          FROM pacote_periodos periodo_reserva
+          JOIN pacote_periodos periodo_operacional
+            ON periodo_operacional.id = ${alvo.periodo_id}
+          WHERE periodo_reserva.id = ${reserva.periodo_id}
+            AND periodo_reserva.ativo = true
+            AND periodo_operacional.ativo = true
+            AND DATE(periodo_reserva.data_inicio) = DATE(periodo_operacional.data_inicio)
+            AND DATE(periodo_reserva.data_fim) = DATE(periodo_operacional.data_fim)
+          LIMIT 1`))[0];
+        if (!periodoCompativel) throw new Error("A reserva pertence a outro período desta viagem");
+      }
       const recursosRegistrados = reserva.recursos_contratados;
       const recursos = typeof recursosRegistrados?.transporte === "boolean" && typeof recursosRegistrados?.hospedagem === "boolean"
         ? recursosRegistrados
@@ -447,7 +484,7 @@ export class OperacaoOnibusService {
         FROM onibus_operacionais o
         JOIN saidas_operacionais so ON so.id = o.saida_id
         WHERE o.saida_id = ${alvo.saida_id} AND o.ativo = true
-          AND (${alvo.periodo_id || null}::text IS NULL OR COALESCE(o.periodo_id, so.periodo_id) IS NULL OR COALESCE(o.periodo_id, so.periodo_id) = ${alvo.periodo_id})
+          AND ${periodoOperacionalCompativel(alvo.periodo_id, "so", "o")}
           AND EXISTS (
             SELECT 1 FROM assentos_onibus livre
             WHERE livre.onibus_id = o.id AND livre.status = 'disponivel'

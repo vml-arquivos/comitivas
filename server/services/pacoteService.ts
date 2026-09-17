@@ -6,6 +6,7 @@ import Decimal from "decimal.js";
 import { normalizarGrupoHospedagem, normalizarFormasContratacao, resolverRecursosContratacao, type GrupoHospedagem, type RecursosContratados } from "./contratacaoRecursos.js";
 import { InventoryService } from "./inventoryService.js";
 import { LoteComercialService, normalizarFormaLote } from "./loteComercialService.js";
+import { periodoOperacionalCompativel } from "./periodoOperacional.js";
 
 export interface ItemSelecionado { id: string; nome: string; tipo: string; valor: number; quantidade: number; }
 export interface ParticipantePacote { nome_completo: string; cpf?: string; data_nascimento?: string; telefone?: string; email?: string; sexo_operacional?: GrupoHospedagem; }
@@ -126,7 +127,7 @@ async function alocarRecursosNaTransacao(
       JOIN onibus_operacionais o ON o.saida_id = s.id AND o.ativo = true
       JOIN assentos_onibus a ON a.onibus_id = o.id AND a.status = 'disponivel' AND a.numero <= o.capacidade
       WHERE s.lote_id = ${loteId} AND s.ativa = true
-        AND (${periodoId || null}::text IS NULL OR COALESCE(o.periodo_id, s.periodo_id) IS NULL OR COALESCE(o.periodo_id, s.periodo_id) = ${periodoId || null})
+        AND ${periodoOperacionalCompativel(periodoId)}
         AND NOT EXISTS (SELECT 1 FROM assento_alocacoes aa WHERE aa.assento_id = a.id AND aa.status = 'ativa')
         AND NOT EXISTS (SELECT 1 FROM assento_holds h WHERE h.assento_id = a.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP)
       ORDER BY CASE WHEN COALESCE(o.periodo_id, s.periodo_id) = ${periodoId || null} THEN 0 WHEN COALESCE(o.periodo_id, s.periodo_id) IS NULL THEN 1 ELSE 2 END,
@@ -426,7 +427,7 @@ export class PacoteService {
         JOIN onibus_operacionais o ON o.saida_id = s.id AND o.ativo = true
         JOIN assentos_onibus a ON a.onibus_id = o.id
         WHERE s.lote_id = ${pacote.lote_id} AND s.ativa = true
-          AND (${periodoId || null}::text IS NULL OR COALESCE(o.periodo_id, s.periodo_id) IS NULL OR COALESCE(o.periodo_id, s.periodo_id) = ${periodoId || null})`)).rows[0] as { total: number; configurado: number } | undefined;
+          AND ${periodoOperacionalCompativel(periodoId)}`)).rows[0] as { total: number; configurado: number } | undefined;
       vagasTransporte = Math.max(0, Number(linha?.total || 0));
       transporteConfigurado = Number(linha?.configurado || 0) > 0;
       if (planejamento?.transporte !== null && planejamento?.transporte !== undefined) vagasTransporte = Math.min(vagasTransporte, Number(planejamento.transporte));

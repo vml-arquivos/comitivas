@@ -2,6 +2,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { resolverRecursosContratacao, normalizarGrupoHospedagem, type GrupoHospedagem, type RecursosContratados } from "./contratacaoRecursos.js";
+import { periodoOperacionalCompativel } from "./periodoOperacional.js";
 
 const HOLD_DURATION_MS = 30 * 60 * 1000;
 
@@ -300,7 +301,7 @@ export class ContratacaoIntegridadeService {
             JOIN onibus_operacionais o ON o.id = a.onibus_id
             JOIN saidas_operacionais s ON s.id = o.saida_id
                WHERE aa.reserva_id = ${reserva.id} AND aa.status = 'ativa'
-                 AND (${reserva.periodo_id}::text IS NULL OR COALESCE(o.periodo_id, s.periodo_id) IS NULL OR COALESCE(o.periodo_id, s.periodo_id) = ${reserva.periodo_id})
+                 AND ${periodoOperacionalCompativel(reserva.periodo_id)}
            ORDER BY aa.alocado_em, aa.id
            FOR UPDATE OF aa
         `)).rows as Array<{ alocacao_id: string; assento_id: string; numero: number; onibus_id: string; onibus_nome: string; saida_id: string }>;
@@ -318,7 +319,7 @@ export class ContratacaoIntegridadeService {
                 JOIN onibus_operacionais o ON o.saida_id = s.id AND o.ativo = true
                 JOIN assentos_onibus a ON a.onibus_id = o.id AND a.status = 'disponivel' AND a.numero <= o.capacidade
                WHERE s.lote_id = ${reserva.lote_id} AND s.ativa = true
-                 AND (${reserva.periodo_id}::text IS NULL OR COALESCE(o.periodo_id, s.periodo_id) IS NULL OR COALESCE(o.periodo_id, s.periodo_id) = ${reserva.periodo_id})
+                 AND ${periodoOperacionalCompativel(reserva.periodo_id)}
                  AND NOT EXISTS (SELECT 1 FROM assento_alocacoes aa WHERE aa.assento_id = a.id AND aa.status = 'ativa')
                  AND NOT EXISTS (SELECT 1 FROM assento_holds ah WHERE ah.assento_id = a.id AND ah.status = 'ativo' AND ah.expira_em > CURRENT_TIMESTAMP)
                ORDER BY CASE WHEN s.id = ${saidaPreferida} THEN 0 ELSE 1 END,
