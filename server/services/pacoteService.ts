@@ -480,7 +480,7 @@ export class PacoteService {
       const formaComercial = normalizarFormaLote(formaSelecionada || pacoteSelecionado.forma_contratacao);
       const statusComercial = await LoteComercialService.obterStatus(pacoteSelecionado.id, config.periodo_id || null, formaComercial);
       if (statusComercial.configurado) {
-        if (statusComercial.status === "aguardando") throw new Error("O próximo lote ainda não iniciou. Aguarde a abertura da pré-venda.");
+        if (statusComercial.status === "aguardando") throw new Error("Nenhuma condição comercial está disponível no momento. Verifique a data de início da venda.");
         if (statusComercial.status === "esgotado" || !statusComercial.lote) throw new Error("Os lotes comerciais deste pacote, período e forma de contratação estão esgotados.");
         if (config.lote_comercial_id && config.lote_comercial_id !== statusComercial.lote.id) throw new Error("O lote comercial mudou. Atualize a página para continuar com a condição vigente.");
         loteComercialAtivo = statusComercial.lote;

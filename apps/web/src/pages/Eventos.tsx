@@ -74,7 +74,8 @@ function formatarData(valor: string) {
 }
 
 function formatarMoeda(valor: string | number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor) || 0);
+  const numero = Number(valor);
+  return Number.isFinite(numero) && numero > 0 ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(numero) : 'Consultar';
 }
 
 function itensInclusos(valor: unknown): string[] {
@@ -84,7 +85,7 @@ function itensInclusos(valor: unknown): string[] {
 
 function statusOferta(disponibilidade?: string | null) {
   if (disponibilidade === 'esgotado') return { label: 'Esgotado', classe: 'bg-[#182D3B] text-white' };
-  if (disponibilidade === 'aguardando') return { label: 'Próximo lote', classe: 'bg-[#E6EFF8] text-[#244D72]' };
+  if (disponibilidade === 'aguardando') return { label: 'Indisponível', classe: 'bg-slate-100 text-slate-700' };
   if (disponibilidade === 'ultimas_vagas') return { label: 'Últimas vagas', classe: 'bg-[#F6E8C9] text-[#6B4D14]' };
   return { label: 'Disponível', classe: 'bg-[#E9F1EB] text-[#365B41]' };
 }
@@ -253,13 +254,15 @@ export default function Eventos() {
                           </span>
                         </div>
 
-                        {lote.modalidades.filter((m) => (filtroModalidade === 'todas' || m.modalidade_hospedagem === filtroModalidade) && (!somenteDisponiveis || disponibilidadeModalidade(m) !== 'esgotado')).length > 0 ? (
+                        {lote.modalidades.filter((m) => (filtroModalidade === 'todas' || m.modalidade_hospedagem === filtroModalidade) && (!somenteDisponiveis || !['esgotado', 'aguardando'].includes(String(disponibilidadeModalidade(m))))).length > 0 ? (
                           <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                            {lote.modalidades.filter((m) => (filtroModalidade === 'todas' || m.modalidade_hospedagem === filtroModalidade) && (!somenteDisponiveis || disponibilidadeModalidade(m) !== 'esgotado')).map((modalidade) => {
+                            {lote.modalidades.filter((m) => (filtroModalidade === 'todas' || m.modalidade_hospedagem === filtroModalidade) && (!somenteDisponiveis || !['esgotado', 'aguardando'].includes(String(disponibilidadeModalidade(m))))).map((modalidade) => {
                               const periodos = modalidade.periodos || [];
                               const inclusos = itensInclusos(modalidade.itens_inclusos);
                               const status = statusOferta(disponibilidadeModalidade(modalidade));
-                              const esgotado = disponibilidadeModalidade(modalidade) === 'esgotado';
+                              const disponibilidade = disponibilidadeModalidade(modalidade);
+                              const esgotado = disponibilidade === 'esgotado';
+                              const bloqueado = esgotado || disponibilidade === 'aguardando';
                               const pacoteLink = `/pacote/${lote.id}?pacote=${encodeURIComponent(modalidade.id)}${ref ? `&ref=${encodeURIComponent(ref)}` : ''}`;
 
                               return (
@@ -271,7 +274,7 @@ export default function Eventos() {
                                   <h4 className="font-editorial mt-5 text-xl font-bold leading-tight text-[#182D3B]">{modalidade.nome}</h4>
                                   {(modalidade.destaque_titulo || modalidade.destaque_subtitulo || modalidade.destaque_texto) && <div className="mt-3 rounded-xl border border-[#851F32]/15 bg-[#F8F0F1] px-3 py-2.5"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">{modalidade.destaque_subtitulo || 'Destaque'}</p>{modalidade.destaque_titulo && <p className="mt-1 text-sm font-extrabold text-[#182D3B]">{modalidade.destaque_titulo}</p>}{modalidade.destaque_texto && <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#5F7079]">{modalidade.destaque_texto}</p>}</div>}
                                   {modalidade.descricao && <p className="mt-2 line-clamp-3 text-sm leading-6 text-[#182D3B]/60">{modalidade.descricao}</p>}
-                                  <div className="mt-4 rounded-xl border border-[#182D3B]/10 bg-[#FCFAF7] p-3"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">Períodos disponíveis</p>{periodos.length > 0 ? <div className="mt-2 space-y-2">{periodos.map((periodo) => { const periodoStatus = statusOferta(periodo.disponibilidade); return <div key={periodo.id} className="flex items-start justify-between gap-3 rounded-lg bg-white px-2.5 py-2"><span><strong className="block text-sm font-extrabold text-[#182D3B]">{periodo.nome}</strong><span className="text-xs font-semibold text-[#60717B]">{formatarData(periodo.data_inicio)} a {formatarData(periodo.data_fim)}</span>{periodo.lote_comercial_nome && <small className="mt-0.5 block text-[10px] font-semibold text-[#851F32]">{periodo.lote_comercial_nome}{periodo.lote_comercial_data_fim ? ` · até ${formatarData(periodo.lote_comercial_data_fim)}` : ''}</small>}</span><span className="shrink-0 text-right"><strong className="block text-xs font-extrabold text-[#182D3B]">{periodo.valor_total ? formatarMoeda(periodo.valor_total) : 'Consultar'}</strong><span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${periodoStatus.classe}`}>{periodoStatus.label}</span></span></div>; })}</div> : <p className="mt-1 text-xs font-semibold text-[#60717B]">{formatarData(lote.data_inicio)} a {formatarData(lote.data_fim)}</p>}</div>
+                                  <div className="mt-4 rounded-xl border border-[#182D3B]/10 bg-[#FCFAF7] p-3"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">Períodos</p>{periodos.length > 0 ? <div className="mt-2 space-y-2">{periodos.map((periodo) => { const periodoStatus = statusOferta(periodo.disponibilidade); return <div key={periodo.id} className="flex items-start justify-between gap-3 rounded-lg bg-white px-2.5 py-2"><span><strong className="block text-sm font-extrabold text-[#182D3B]">{periodo.nome}</strong><span className="text-xs font-semibold text-[#60717B]">{formatarData(periodo.data_inicio)} a {formatarData(periodo.data_fim)}</span>{periodo.lote_comercial_nome && <small className="mt-0.5 block text-[10px] font-semibold text-[#851F32]">{periodo.lote_comercial_nome}{periodo.lote_comercial_data_fim ? ` · até ${formatarData(periodo.lote_comercial_data_fim)}` : ''}</small>}</span><span className="shrink-0 text-right"><strong className="block text-xs font-extrabold text-[#182D3B]">{periodo.valor_total ? formatarMoeda(periodo.valor_total) : 'Consultar'}</strong><span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${periodoStatus.classe}`}>{periodoStatus.label}</span></span></div>; })}</div> : <p className="mt-1 text-xs font-semibold text-[#60717B]">{formatarData(lote.data_inicio)} a {formatarData(lote.data_fim)}</p>}</div>
                                   {inclusos.length > 0 && (
                                     <ul className="mt-4 space-y-2 text-xs text-[#182D3B]/68">
                                       {inclusos.slice(0, 3).map((item) => <li key={item} className="flex gap-2"><Check size={14} className="mt-0.5 shrink-0 text-[#851F32]" /><span>{item}</span></li>)}
@@ -282,6 +285,8 @@ export default function Eventos() {
                                     <p className="mt-1 text-2xl font-extrabold text-[#182D3B]">{formatarMoeda(periodos.map((periodo) => Number(periodo.valor_total)).filter((valor) => Number.isFinite(valor) && valor > 0).sort((a, b) => a - b)[0] || modalidade.valor_total)} <span className="text-xs font-semibold text-[#182D3B]/50">por pessoa</span></p>
                                     {esgotado ? (
                                       <WhatsAppCTA mensagem={`Olá! Quero saber sobre lista de espera para ${modalidade.nome} — ${lote.nome}.`} label="Consultar lista de espera" size="sm" className="mt-4 w-full" />
+                                    ) : bloqueado ? (
+                                      <span className="mt-4 inline-flex min-h-[46px] w-full items-center justify-center rounded-full bg-slate-100 px-4 text-sm font-extrabold text-slate-500">Indisponível no momento</span>
                                     ) : (
                                       <Link to={pacoteLink} className="mt-4 inline-flex min-h-[46px] w-full items-center justify-center gap-2 rounded-full bg-[#851F32] px-4 text-sm font-extrabold text-white transition hover:bg-[#6f1929]">
                                         Escolher pacote e período <ArrowRight size={16} />

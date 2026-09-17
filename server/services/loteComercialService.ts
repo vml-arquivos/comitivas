@@ -59,30 +59,33 @@ function mapear(row: any): LoteComercial {
   };
 }
 
-async function consultar(executor: Executor, pacoteId: string, periodoId: string | null, forma: FormaLoteComercial, bloquear = false): Promise<LoteComercial[]> {
+// A condição comercial pertence ao pacote e ao período. A forma de contratação
+// é escolhida no checkout; o campo legado continua sendo lido para não quebrar
+// registros antigos, mas não participa mais da seleção do lote.
+async function consultar(executor: Executor, pacoteId: string, periodoId: string | null, _forma?: FormaLoteComercial, bloquear = false): Promise<LoteComercial[]> {
   const lock = bloquear ? sql` FOR UPDATE` : sql``;
   const rows = periodoId
     ? await executor.execute(sql`
         SELECT id, pacote_id, periodo_id, forma_contratacao, nome, descricao, ordem, vagas_totais, vagas_disponiveis,
                valor, data_inicio, data_fim, saldo_migrado_em, ativo, criado_em, atualizado_em
           FROM pacote_lotes_comerciais
-         WHERE pacote_id = ${pacoteId} AND periodo_id = ${periodoId} AND forma_contratacao = ${forma} AND ativo = true
+         WHERE pacote_id = ${pacoteId} AND periodo_id = ${periodoId} AND ativo = true
          ORDER BY ordem ASC, data_inicio ASC, criado_em ASC, id ASC${lock}`)
     : await executor.execute(sql`
         SELECT id, pacote_id, periodo_id, forma_contratacao, nome, descricao, ordem, vagas_totais, vagas_disponiveis,
                valor, data_inicio, data_fim, saldo_migrado_em, ativo, criado_em, atualizado_em
           FROM pacote_lotes_comerciais
-         WHERE pacote_id = ${pacoteId} AND periodo_id IS NULL AND forma_contratacao = ${forma} AND ativo = true
+         WHERE pacote_id = ${pacoteId} AND periodo_id IS NULL AND ativo = true
          ORDER BY ordem ASC, data_inicio ASC, criado_em ASC, id ASC${lock}`);
   return (rows.rows || []).map(mapear);
 }
 
-async function consultarCandidatos(executor: Executor, pacoteId: string, periodoId: string | null, forma: FormaLoteComercial, bloquear = false): Promise<LoteComercial[]> {
+async function consultarCandidatos(executor: Executor, pacoteId: string, periodoId: string | null, _forma?: FormaLoteComercial, bloquear = false): Promise<LoteComercial[]> {
   if (periodoId) {
-    const exatos = await consultar(executor, pacoteId, periodoId, forma, bloquear);
+    const exatos = await consultar(executor, pacoteId, periodoId, _forma, bloquear);
     if (exatos.length > 0) return exatos;
   }
-  return consultar(executor, pacoteId, null, forma, bloquear);
+  return consultar(executor, pacoteId, null, _forma, bloquear);
 }
 
 function estaAberto(lote: LoteComercial, agora: Date) {
@@ -118,18 +121,18 @@ async function migrarSaldoEncerradoNaTransacao(tx: any, lotes: LoteComercial[], 
 }
 
 export class LoteComercialService {
-  static async listar(pacoteId: string, periodoId?: string | null, forma?: FormaLoteComercial) {
-    if (forma) return consultarCandidatos(db, pacoteId, periodoId || null, forma);
+  static async listar(pacoteId: string, periodoId?: string | null) {
+    const filtroPeriodo = periodoId ? sql` AND periodo_id = ${periodoId}` : sql``;
     const rows = await db.execute(sql`
       SELECT id, pacote_id, periodo_id, forma_contratacao, nome, descricao, ordem, vagas_totais, vagas_disponiveis,
              valor, data_inicio, data_fim, saldo_migrado_em, ativo, criado_em, atualizado_em
         FROM pacote_lotes_comerciais
-       WHERE pacote_id = ${pacoteId} AND ativo = true
-       ORDER BY periodo_id NULLS FIRST, forma_contratacao, ordem, data_inicio, criado_em, id`);
+       WHERE pacote_id = ${pacoteId} AND ativo = true${filtroPeriodo}
+       ORDER BY periodo_id NULLS FIRST, ordem, data_inicio, criado_em, id`);
     return (rows.rows || []).map(mapear);
   }
 
-  static async obterStatus(pacoteId: string, periodoId: string | null | undefined, forma: FormaLoteComercial, agora = new Date()): Promise<StatusComercial> {
+  static async obterStatus(pacoteId: string, periodoId: string | null | undefined, forma?: FormaLoteComercial, agora = new Date()): Promise<StatusComercial> {
     return db.transaction(async (tx) => {
     const candidatos = await consultarCandidatos(tx, pacoteId, periodoId || null, forma, true);
     if (candidatos.length === 0) return { status: "disponivel", lote: null, proximos: [], configurado: false };
@@ -166,8 +169,8 @@ export class LoteComercialService {
                    valor, data_inicio, data_fim, saldo_migrado_em, ativo, criado_em, atualizado_em`);
       if (atualizado.rows?.length) return mapear(atualizado.rows[0]);
     }
-    if (encontrouFuturo) throw new Error("O próximo lote ainda não iniciou. Aguarde a abertura da pré-venda.");
-    throw new Error("Os lotes comerciais deste pacote, período e forma de contratação estão esgotados.");
+    if (encontrouFuturo) throw new Error("Nenhuma condição comercial está disponível no momento. Verifique a data de início da venda.");
+    throw new Error("Os lotes comerciais deste pacote e período estão esgotados.");
   }
 
   static async renovarNaTransacao(tx: any, loteId: string, quantidade: number): Promise<LoteComercial> {
@@ -195,7 +198,9 @@ export function statusComercialPublico(status: StatusComercial) {
   return {
     disponibilidade: status.status,
     lote_comercial_id: status.lote?.id || null,
-    lote_comercial_nome: status.lote?.nome || status.proximos[0]?.nome || null,
+    // Nunca antecipa uma promoção que ainda não está aberta. O cliente vê
+    // somente o lote efetivamente disponível neste instante.
+    lote_comercial_nome: status.lote?.nome || null,
     lote_comercial_valor: status.lote?.valor || null,
     lote_comercial_data_fim: status.lote?.data_fim?.toISOString() || null,
     vagas_disponiveis: status.lote?.vagas_disponiveis ?? null,

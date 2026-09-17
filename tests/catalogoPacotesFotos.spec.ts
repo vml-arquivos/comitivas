@@ -24,7 +24,7 @@ describe("catálogo simples de excursões, lotes e pacotes", () => {
     expect(tela).toContain("Configurar pacotes");
     expect(tela).not.toContain("Gerir pacotes");
     expect(tela).toContain("Condição comercial");
-    expect(tela).toContain("Ordem de progressão");
+    expect(tela).toContain("Crie quantas condições quiser para o mesmo pacote e período.");
     expect(tela).toContain("Criar novo pacote");
     expect(tela).toContain("Lotes configurados");
     expect(tela).toContain("scrollIntoView");
@@ -78,7 +78,7 @@ describe("catálogo simples de excursões, lotes e pacotes", () => {
     expect(home).toContain("fotoEventoAtiva");
     expect(home).toContain("periodosOferta");
     expect(home).toContain("destaque_titulo");
-    expect(eventos).toContain("Períodos disponíveis");
+    expect(eventos).toContain("Períodos");
     expect(eventos).not.toContain("flatMap((modalidade)");
     expect(configurador).toContain("pacote.destaque_titulo");
     expect(configurador).toContain("periodoSolicitado");

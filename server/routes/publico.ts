@@ -146,7 +146,7 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
           const periodos = await Promise.all(periodosBase.map(async (periodo) => {
             const capacidades = await Promise.all(formasContratacao.map((forma) => PacoteService.obterDisponibilidadeFisica(pacoteFisico, periodo.id, forma)));
             const comerciais = await Promise.all(formasContratacao.map(async (forma) => [forma, await LoteComercialService.obterStatus(modalidade.id, periodo.id, normalizarFormaLote(forma))] as const));
-            const lotesComerciais = (await Promise.all(formasContratacao.map((forma) => LoteComercialService.listar(modalidade.id, periodo.id, normalizarFormaLote(forma))))).flat();
+            const lotesComerciais = await LoteComercialService.listar(modalidade.id, periodo.id);
             const loteAtivo = comerciais.map(([, status]) => status.lote).filter(Boolean).sort((a, b) => Number(a!.valor) - Number(b!.valor))[0] || null;
             const configurado = comerciais.some(([, status]) => status.configurado);
             const aguardando = comerciais.some(([, status]) => status.status === "aguardando");
@@ -154,7 +154,7 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
             const comercialPublico = statusComercialPublico(comerciais.find(([, status]) => status.lote?.id === loteAtivo?.id)?.[1] || { status: configurado ? (aguardando ? "aguardando" : "esgotado") : "disponivel", lote: loteAtivo, proximos: [], configurado });
             return {
               ...periodo,
-              valor_total: loteAtivo?.valor || modalidade.valor_total,
+              valor_total: configurado ? (loteAtivo?.valor || null) : modalidade.valor_total,
               ...comercialPublico,
               disponibilidade: capacidade.disponibilidade === "esgotado" ? "esgotado" : loteAtivo ? (loteAtivo.vagas_disponiveis <= 5 ? "ultimas_vagas" : "disponivel") : configurado ? (aguardando ? "aguardando" : "esgotado") : capacidade.disponibilidade,
               vagas_disponiveis: capacidade.vagas_disponiveis,
@@ -165,6 +165,7 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
           const comercialPublicoBase = statusComercialPublico(comercialBasePorForma.find(([, status]) => status.lote?.id === comercialBaseAtivo?.id)?.[1] || { status: comercialBaseConfigurado ? (comercialBaseAguardando ? "aguardando" : "esgotado") : "disponivel", lote: comercialBaseAtivo, proximos: [], configurado: comercialBaseConfigurado });
           return {
             ...modalidade,
+            valor_total: comercialBaseConfigurado ? (comercialBaseAtivo?.valor || null) : modalidade.valor_total,
             forma_contratacao: modalidade.modalidade_hospedagem === "camping" ? "onibus" : modalidade.forma_contratacao,
             formas_contratacao: formasContratacao,
             ...comercialPublicoBase,

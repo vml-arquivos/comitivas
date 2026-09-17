@@ -58,10 +58,10 @@ type LoteComercial = {
   id: string;
   pacote_id: string;
   periodo_id?: string | null;
-  forma_contratacao: FormaContratacaoConfiguravel;
+  forma_contratacao?: FormaContratacaoConfiguravel;
   nome: string;
   descricao?: string | null;
-  ordem: number;
+  ordem?: number;
   vagas_totais: number;
   vagas_disponiveis: number;
   valor: string;
@@ -196,7 +196,7 @@ const vazioPacote = {
   destaqueTitulo: '', destaqueSubtitulo: '', destaqueTexto: '',
 };
 const vazioPeriodo = { nome: '', descricao: '', dataInicio: '', dataFim: '', dataEmbarque: '', dataRetorno: '', capacidadeTransporte: '', capacidadeHospedagem: '', ordem: '' };
-const vazioLoteComercial = { periodoId: '', formaContratacao: 'onibus_hospedagem' as FormaContratacaoConfiguravel, nome: '', descricao: '', ordem: '', vagas: '', valor: '', dataInicio: '', dataFim: '' };
+const vazioLoteComercial = { periodoId: '', nome: '', descricao: '', vagas: '', valor: '', dataInicio: '', dataFim: '' };
 
 export default function EventosAdmin() {
   const [eventos, setEventos] = useState<Evento[]>([]);
@@ -487,9 +487,7 @@ export default function EventosAdmin() {
     try {
       const payload = {
         periodo_id: loteComercialForm.periodoId || null,
-        forma_contratacao: pacote.modalidade_hospedagem === 'camping' ? 'onibus' : loteComercialForm.formaContratacao,
         nome: loteComercialForm.nome.trim(), descricao: loteComercialForm.descricao.trim() || null,
-        ordem: loteComercialForm.ordem ? Number(loteComercialForm.ordem) : undefined,
         vagas_totais: vagas, valor, data_inicio: dataSaoPauloIso(loteComercialForm.dataInicio),
         data_fim: loteComercialForm.dataFim ? dataSaoPauloIso(loteComercialForm.dataFim, true) : null,
       };
@@ -504,7 +502,7 @@ export default function EventosAdmin() {
 
   const editarLoteComercial = (lote: LoteComercial) => {
     setLoteComercialEditando(lote.id);
-    setLoteComercialForm({ periodoId: lote.periodo_id || '', formaContratacao: lote.forma_contratacao, nome: lote.nome, descricao: lote.descricao || '', ordem: String(lote.ordem ?? ''), vagas: String(lote.vagas_totais), valor: String(lote.valor), dataInicio: paraDataInput(lote.data_inicio), dataFim: paraDataInput(lote.data_fim) });
+    setLoteComercialForm({ periodoId: lote.periodo_id || '', nome: lote.nome, descricao: lote.descricao || '', vagas: String(lote.vagas_totais), valor: String(lote.valor), dataInicio: paraDataInput(lote.data_inicio), dataFim: paraDataInput(lote.data_fim) });
   };
 
   const excluirLoteComercial = async (pacoteId: string, loteId: string) => {
@@ -621,22 +619,21 @@ export default function EventosAdmin() {
   const renderLotesComerciais = (pacote: Pacote) => {
     const periodos = periodosPorPacote[pacote.id] || pacote.periodos || [];
     const lotes = lotesComerciaisPorPacote[pacote.id] || [];
-    const formas = pacote.modalidade_hospedagem === 'camping' ? ['onibus' as FormaContratacaoConfiguravel] : (pacote.formas_contratacao?.length ? pacote.formas_contratacao : [pacote.forma_contratacao]).filter((forma): forma is FormaContratacaoConfiguravel => forma !== 'livre');
     const fechar = () => { setLotesComerciaisPacoteAberto(null); setLoteComercialEditando(null); setLoteComercialForm(vazioLoteComercial); };
-    const novo = () => { setLoteComercialEditando(null); setLoteComercialForm({ ...vazioLoteComercial, formaContratacao: formas[0] || 'onibus_hospedagem' }); };
+    const novo = () => { setLoteComercialEditando(null); setLoteComercialForm(vazioLoteComercial); };
     return (
-      <AdminModal aberto={lotesComerciaisPacoteAberto === pacote.id} titulo={`Lotes comerciais · ${pacote.nome}`} descricao="Defina preço, vagas e janela de venda para cada período e forma de contratação. Quando um lote terminar, o saldo remanescente migra uma única vez para o próximo lote." fechar={fechar} largura="ampla">
+      <AdminModal aberto={lotesComerciaisPacoteAberto === pacote.id} titulo={`Lotes comerciais · ${pacote.nome}`} descricao="Defina o preço, as vagas e a janela de venda de cada período. A forma de contratação será escolhida no checkout." fechar={fechar} largura="ampla">
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(280px,.95fr)]">
           <form onSubmit={(e) => void salvarLoteComercial(e, pacote)} className="space-y-4">
-            <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[.16em] text-[#C94F38]">{loteComercialEditando ? 'Editar lote' : 'Novo lote'}</p><h3 className="mt-1 text-xl font-black text-[#073F50]">Condição comercial</h3><p className="mt-1 text-sm leading-6 text-slate-500">A condição é aplicada somente à combinação de pacote, período e forma selecionada.</p></div><button type="button" onClick={novo} className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-[#073F50]"><Plus size={14} className="mr-1 inline" />Novo</button></div>
+            <div className="rounded-2xl border border-[#C94F38]/20 bg-[#fff8f4] p-4 sm:p-5"><p className="text-xs font-black uppercase tracking-[.14em] text-[#C94F38]">Pacote selecionado</p><p className="mt-1 text-lg font-black text-[#073F50]">{pacote.nome}</p><p className="mt-1 text-sm leading-6 text-slate-600">Este lote define a promoção, o preço e a quantidade de vagas do pacote no período escolhido. Transporte, hospedagem ou os dois são escolhidos na finalização.</p></div>
+            <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[.16em] text-[#C94F38]">{loteComercialEditando ? 'Editar lote' : 'Novo lote'}</p><h3 className="mt-1 text-xl font-black text-[#073F50]">Condição comercial</h3><p className="mt-1 text-sm leading-6 text-slate-500">Crie quantas condições quiser para o mesmo pacote e período.</p></div><button type="button" onClick={novo} className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-[#073F50]"><Plus size={14} className="mr-1 inline" />Novo</button></div>
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
               <div className="grid gap-4 sm:grid-cols-2">
                 <Input label="Nome do lote" value={loteComercialForm.nome} onChange={(e) => setLoteComercialForm({ ...loteComercialForm, nome: e.target.value })} placeholder="1º lote · pré-venda" required />
-                <div><label className="mb-1.5 block text-sm font-semibold text-[#334A58]">Forma de contratação</label><select value={loteComercialForm.formaContratacao} disabled={pacote.modalidade_hospedagem === 'camping'} onChange={(e) => setLoteComercialForm({ ...loteComercialForm, formaContratacao: e.target.value as FormaContratacaoConfiguravel })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm">{formas.map((forma) => <option key={forma} value={forma}>{formaLabels[forma]}</option>)}</select></div>
                 <div><label className="mb-1.5 block text-sm font-semibold text-[#334A58]">Período</label><select required={periodos.length > 0} value={loteComercialForm.periodoId} onChange={(e) => setLoteComercialForm({ ...loteComercialForm, periodoId: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"><option value="">{periodos.length ? 'Selecione o período' : 'Datas do lote histórico'}</option>{periodos.map((periodo) => <option key={periodo.id} value={periodo.id}>{periodo.nome} · {dataInputBr(paraDataInput(periodo.data_inicio))} a {dataInputBr(paraDataInput(periodo.data_fim))}</option>)}</select></div>
+                <div className="sm:col-span-2"><label className="mb-1.5 block text-sm font-semibold text-[#334A58]">Período</label><select required={periodos.length > 0} value={loteComercialForm.periodoId} onChange={(e) => setLoteComercialForm({ ...loteComercialForm, periodoId: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"><option value="">{periodos.length ? 'Selecione o período' : 'Datas do lote histórico'}</option>{periodos.map((periodo) => <option key={periodo.id} value={periodo.id}>{periodo.nome} · {dataInputBr(paraDataInput(periodo.data_inicio))} a {dataInputBr(paraDataInput(periodo.data_fim))}</option>)}</select><p className="mt-1.5 text-xs text-slate-500">O preço e as vagas abaixo serão usados somente para este período.</p></div>
                 <Input label="Preço por pessoa (R$)" type="number" min={0} step="0.01" value={loteComercialForm.valor} onChange={(e) => setLoteComercialForm({ ...loteComercialForm, valor: e.target.value })} placeholder="2600,00" required />
                 <Input label="Vagas deste lote" type="number" min={1} value={loteComercialForm.vagas} onChange={(e) => setLoteComercialForm({ ...loteComercialForm, vagas: e.target.value })} placeholder="50" required />
-                <Input label="Ordem de progressão" type="number" min={0} value={loteComercialForm.ordem} onChange={(e) => setLoteComercialForm({ ...loteComercialForm, ordem: e.target.value })} placeholder="1" />
                 <Input label="Início da venda" type="date" value={loteComercialForm.dataInicio} onChange={(e) => setLoteComercialForm({ ...loteComercialForm, dataInicio: e.target.value })} onFocus={abrirCalendario} required />
                 <Input label="Fim da venda (opcional)" type="date" min={loteComercialForm.dataInicio || undefined} value={loteComercialForm.dataFim} onChange={(e) => setLoteComercialForm({ ...loteComercialForm, dataFim: e.target.value })} onFocus={abrirCalendario} />
               </div>
@@ -644,9 +641,9 @@ export default function EventosAdmin() {
               <div className="mt-4 flex flex-wrap gap-3 border-t border-slate-100 pt-4"><Button type="submit" disabled={salvando}>{salvando ? 'Salvando...' : loteComercialEditando ? 'Salvar lote' : 'Adicionar lote'}</Button>{loteComercialEditando && <Button type="button" variant="outline" onClick={novo}>Cancelar edição</Button>}</div>
             </div>
           </form>
-          <aside className="h-fit rounded-2xl border border-[#C94F38]/20 bg-[#fff8f4] p-4 sm:p-5 lg:sticky lg:top-24"><p className="text-xs font-black uppercase tracking-[.14em] text-[#C94F38]">Regra automática</p><h3 className="mt-2 text-lg font-black text-[#073F50]">Preço e vagas por etapa</h3><p className="mt-2 text-sm leading-6 text-slate-600">O sistema vende o primeiro lote aberto. Ao encerrar por data ou esgotamento, o saldo que restar é transferido uma única vez para o lote seguinte, que passa a usar o próprio preço.</p><div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs leading-5 text-emerald-800">Reservas já criadas mantêm o nome, preço e lote comercial originais no histórico.</div></aside>
+          <aside className="h-fit rounded-2xl border border-[#C94F38]/20 bg-[#fff8f4] p-4 sm:p-5 lg:sticky lg:top-24"><p className="text-xs font-black uppercase tracking-[.14em] text-[#C94F38]">Regra automática</p><h3 className="mt-2 text-lg font-black text-[#073F50]">Condição vigente</h3><p className="mt-2 text-sm leading-6 text-slate-600">O sistema usa o primeiro lote deste pacote e período que estiver aberto e tiver vagas. Ao terminar, o saldo remanescente segue uma única vez para a próxima condição cadastrada.</p><div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs leading-5 text-emerald-800">A forma escolhida no checkout e as reservas já criadas ficam registradas no histórico do contrato.</div></aside>
         </div>
-        <section className="mt-7 border-t border-slate-200 pt-6"><div className="flex items-center justify-between gap-3"><div><h3 className="text-lg font-black text-[#073F50]">Lotes configurados</h3><p className="mt-1 text-sm text-slate-500">Cada combinação de período e forma pode ter sua própria progressão.</p></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{lotes.length} {lotes.length === 1 ? 'lote' : 'lotes'}</span></div>{lotes.length === 0 ? <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-500">Nenhum lote comercial configurado. Sem lotes comerciais, o pacote continua usando o preço legado até você publicar a primeira condição.</div> : <div className="mt-4 space-y-3">{lotes.map((lote) => { const periodo = periodos.find((item) => item.id === lote.periodo_id); return <article key={lote.id} className={`rounded-2xl border bg-white p-4 shadow-sm ${lote.ativo ? 'border-slate-200' : 'border-amber-200 bg-amber-50/60'}`}><div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between"><div><div className="flex flex-wrap items-center gap-2"><h4 className="font-black text-[#073F50]">{lote.nome}</h4><span className="rounded-full bg-[#F8F0F1] px-2 py-1 text-[10px] font-black uppercase text-[#851F32]">{formaLabels[lote.forma_contratacao]}</span>{!lote.ativo && <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-black uppercase text-amber-700">Arquivado</span>}</div><p className="mt-2 text-sm font-semibold text-[#C94F38]">{periodo?.nome || 'Datas do lote histórico'} · {moeda.format(Number(lote.valor))}</p><p className="mt-1 text-xs text-slate-500">{lote.vagas_disponiveis}/{lote.vagas_totais} vagas · venda de {dataInputBr(paraDataInput(lote.data_inicio))}{lote.data_fim ? ` até ${dataInputBr(paraDataInput(lote.data_fim))}` : ' em aberto'}</p>{lote.descricao && <p className="mt-2 text-sm leading-5 text-slate-600">{lote.descricao}</p>}</div><div className="flex shrink-0 gap-1"><button type="button" onClick={() => editarLoteComercial(lote)} className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500 hover:border-[#C94F38]/40 hover:text-[#C94F38]" title="Editar lote comercial"><Pencil size={15} /></button><button type="button" onClick={() => void excluirLoteComercial(pacote.id, lote.id)} className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500 hover:border-red-200 hover:text-red-600" title="Excluir lote comercial"><Trash2 size={15} /></button></div></div></article>; })}</div>}</section>
+        <section className="mt-7 border-t border-slate-200 pt-6"><div className="flex items-center justify-between gap-3"><div><h3 className="text-lg font-black text-[#073F50]">Lotes configurados</h3><p className="mt-1 text-sm text-slate-500">Cada lote abaixo pertence ao pacote e ao período exibidos no próprio registro.</p></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{lotes.length} {lotes.length === 1 ? 'lote' : 'lotes'}</span></div>{lotes.length === 0 ? <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-500">Nenhum lote comercial configurado. O preço do pacote só será publicado depois que uma condição for cadastrada.</div> : <div className="mt-4 space-y-3">{lotes.map((lote) => { const periodo = periodos.find((item) => item.id === lote.periodo_id); return <article key={lote.id} className={`rounded-2xl border bg-white p-4 shadow-sm ${lote.ativo ? 'border-slate-200' : 'border-amber-200 bg-amber-50/60'}`}><div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between"><div><div className="flex flex-wrap items-center gap-2"><h4 className="font-black text-[#073F50]">{lote.nome}</h4>{!lote.ativo && <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-black uppercase text-amber-700">Arquivado</span>}</div><p className="mt-2 text-sm font-semibold text-[#C94F38]">{pacote.nome} · {periodo?.nome || 'Datas do lote histórico'}</p><p className="mt-1 text-xs text-slate-500">{moeda.format(Number(lote.valor))} · {lote.vagas_disponiveis}/{lote.vagas_totais} vagas · venda de {dataInputBr(paraDataInput(lote.data_inicio))}{lote.data_fim ? ` até ${dataInputBr(paraDataInput(lote.data_fim))}` : ' em aberto'}</p>{lote.descricao && <p className="mt-2 text-sm leading-5 text-slate-600">{lote.descricao}</p>}</div><div className="flex shrink-0 gap-1"><button type="button" onClick={() => editarLoteComercial(lote)} className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500 hover:border-[#C94F38]/40 hover:text-[#C94F38]" title="Editar lote comercial"><Pencil size={15} /></button><button type="button" onClick={() => void excluirLoteComercial(pacote.id, lote.id)} className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500 hover:border-red-200 hover:text-red-600" title="Excluir lote comercial"><Trash2 size={15} /></button></div></div></article>; })}</div>}</section>
       </AdminModal>
     );
   };
@@ -809,7 +806,7 @@ export default function EventosAdmin() {
               <div>
                 <p className="text-xs font-black uppercase tracking-[.14em] text-[#C94F38]">Configuração da excursão</p>
                 <h3 className="mt-1 text-lg font-black text-[#073F50]">Pacotes, períodos e operação</h3>
-                <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">Primeiro configure o pacote. Dentro dele, cadastre os períodos e vincule transporte e hospedagem. Só depois crie os lotes comerciais com preço e vagas para cada pacote, período e forma de contratação.</p>
+                <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">Primeiro configure o pacote. Dentro dele, cadastre os períodos e vincule transporte e hospedagem. Só depois crie os lotes comerciais com preço e vagas para cada pacote e período; a forma de contratação é escolhida no checkout.</p>
               </div>
               <Button variant="outline" disabled={!loteOperacional} onClick={() => { if (loteOperacional) void abrirPacotes(loteOperacional.id); }}>
                 <PackagePlus size={15} className="mr-2" />{loteOperacional && pacotesAbertos === loteOperacional.id ? 'Fechar configuração' : 'Configurar pacotes'}

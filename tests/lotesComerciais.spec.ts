@@ -3,7 +3,7 @@ import fs from 'node:fs';
 
 const ler = (caminho: string) => fs.readFileSync(caminho, 'utf8');
 
-describe('lotes comerciais por pacote, período e forma', () => {
+describe('lotes comerciais por pacote e período', () => {
   it('tem migration forward-only com preço, vagas, janela e saldo migrado', () => {
     const migration = ler('drizzle/0029_lotes_comerciais_por_pacote.sql');
     expect(migration).toContain('CREATE TABLE IF NOT EXISTS pacote_lotes_comerciais');
@@ -18,7 +18,8 @@ describe('lotes comerciais por pacote, período e forma', () => {
     const service = ler('server/services/loteComercialService.ts');
     expect(service).toContain('migrarSaldoEncerradoNaTransacao');
     expect(service).toContain('saldo_migrado_em IS NULL');
-    expect(service).toContain('O próximo lote ainda não iniciou');
+    expect(service).toContain('Nenhuma condição comercial está disponível no momento');
+    expect(service).not.toContain('Próximo lote');
     expect(service).toContain('O preço do lote mudou');
     expect(service).toContain('vagas_disponiveis - ${quantidadeInteira}');
   });

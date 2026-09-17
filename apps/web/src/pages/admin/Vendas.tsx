@@ -69,7 +69,7 @@ type Venda = {
 };
 type Vendedor = { id: string; nome: string; email: string };
 
-const dinheiro = (valor: number | string | undefined) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor || 0));
+const dinheiro = (valor: number | string | undefined) => { const numero = Number(valor); return Number.isFinite(numero) && numero > 0 ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(numero) : 'Consultar'; };
 const formaLabels: Record<string, string> = { onibus_hospedagem: 'Transporte + hospedagem', hospedagem: 'Somente hospedagem', onibus: 'Somente transporte' };
 const formasDoPacote = (pacote?: Pacote) => pacote?.modalidade_hospedagem === 'camping' ? ['onibus' as const] : (pacote?.formas_contratacao?.length ? pacote.formas_contratacao : pacote?.forma_contratacao && pacote.forma_contratacao !== 'livre' ? [pacote.forma_contratacao as 'onibus' | 'hospedagem' | 'onibus_hospedagem'] : []);
 const statusLabel: Record<string, string> = {
@@ -282,7 +282,7 @@ export default function Vendas() {
       return;
     }
     if (periodoSelecionado?.disponibilidade === 'esgotado' || periodoSelecionado?.disponibilidade === 'aguardando') {
-      setErro(periodoSelecionado.disponibilidade === 'aguardando' ? 'O próximo lote deste período ainda não iniciou.' : 'O período selecionado está esgotado.');
+      setErro(periodoSelecionado.disponibilidade === 'aguardando' ? 'Nenhuma condição comercial está disponível para este período no momento.' : 'O período selecionado está esgotado.');
       return;
     }
     if (pacoteEscolhido?.periodos?.length && !periodoId) {
@@ -628,7 +628,7 @@ export default function Vendas() {
                     .filter((item) => item.ativo)
                     .map((item) => (
                       <option key={item.id} value={item.id} disabled={item.disponibilidade === 'esgotado' || item.disponibilidade === 'aguardando'}>
-                        {item.nome} — {dinheiro(item.lote_comercial_valor || item.valor_total)} · {item.lote_comercial_nome ? `${item.lote_comercial_nome} · ` : ''}{item.disponibilidade === 'esgotado' ? 'Esgotado' : item.disponibilidade === 'aguardando' ? 'Próximo lote' : item.disponibilidade === 'ultimas_vagas' ? 'Últimas vagas' : 'Disponível'}
+                        {item.nome} — {dinheiro(item.lote_comercial_valor || item.valor_total)} · {item.lote_comercial_nome ? `${item.lote_comercial_nome} · ` : ''}{item.disponibilidade === 'esgotado' ? 'Esgotado' : item.disponibilidade === 'aguardando' ? 'Indisponível' : item.disponibilidade === 'ultimas_vagas' ? 'Últimas vagas' : 'Disponível'}
                       </option>
                     ))}
                 </select>
@@ -653,13 +653,13 @@ export default function Vendas() {
                 const pacoteSelecionado = pacotes.find((item) => item.id === pacoteId);
                 const formas = formasDoPacote(pacoteSelecionado);
                 if (!pacoteSelecionado || formas.length <= 1) return null;
-                return <div><label className="mb-1 block text-sm font-medium text-gray-700">Tipo de contratação</label><select required className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm" value={formaContratacao} onChange={(event) => void selecionarForma(event.target.value as 'onibus' | 'hospedagem' | 'onibus_hospedagem')}><option value="">Selecione a forma</option>{formas.map((forma) => { const status = pacoteSelecionado.disponibilidade_por_forma?.[forma]?.disponibilidade; return <option key={forma} value={forma} disabled={status === 'esgotado' || status === 'aguardando'}>{formaLabels[forma]}{status === 'esgotado' ? ' · Esgotado' : status === 'aguardando' ? ' · Próximo lote' : ''}</option>; })}</select><p className="mt-1 text-xs text-gray-500">A disponibilidade de transporte e hospedagem será validada para esta escolha.</p></div>;
+                return <div><label className="mb-1 block text-sm font-medium text-gray-700">Tipo de contratação</label><select required className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm" value={formaContratacao} onChange={(event) => void selecionarForma(event.target.value as 'onibus' | 'hospedagem' | 'onibus_hospedagem')}><option value="">Selecione a forma</option>{formas.map((forma) => { const status = pacoteSelecionado.disponibilidade_por_forma?.[forma]?.disponibilidade; return <option key={forma} value={forma} disabled={status === 'esgotado' || status === 'aguardando'}>{formaLabels[forma]}{status === 'esgotado' ? ' · Esgotado' : status === 'aguardando' ? ' · Indisponível' : ''}</option>; })}</select><p className="mt-1 text-xs text-gray-500">A disponibilidade de transporte e hospedagem será validada para esta escolha.</p></div>;
               })()}
               {pacoteId && (pacotes.find((item) => item.id === pacoteId)?.periodos || []).length > 0 && <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">Período da viagem</label>
                 <select required className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm" value={periodoId} onChange={(event) => void selecionarPeriodo(event.target.value)}>
                   <option value="">Selecione o período</option>
-                  {(pacotes.find((item) => item.id === pacoteId)?.periodos || []).map((periodo) => <option key={periodo.id} value={periodo.id} disabled={periodo.disponibilidade === 'esgotado' || periodo.disponibilidade === 'aguardando'}>{periodo.nome} · {new Date(periodo.data_inicio).toLocaleDateString('pt-BR')} a {new Date(periodo.data_fim).toLocaleDateString('pt-BR')} · {periodo.valor_total ? dinheiro(periodo.valor_total) : dinheiro(pacoteSelecionado?.valor_total)}{periodo.disponibilidade === 'esgotado' ? ' · Esgotado' : periodo.disponibilidade === 'aguardando' ? ' · Próximo lote' : ''}</option>)}
+                  {(pacotes.find((item) => item.id === pacoteId)?.periodos || []).map((periodo) => <option key={periodo.id} value={periodo.id} disabled={periodo.disponibilidade === 'esgotado' || periodo.disponibilidade === 'aguardando'}>{periodo.nome} · {new Date(periodo.data_inicio).toLocaleDateString('pt-BR')} a {new Date(periodo.data_fim).toLocaleDateString('pt-BR')} · {periodo.valor_total ? dinheiro(periodo.valor_total) : dinheiro(pacoteSelecionado?.valor_total)}{periodo.disponibilidade === 'esgotado' ? ' · Esgotado' : periodo.disponibilidade === 'aguardando' ? ' · Indisponível' : ''}</option>)}
                 </select>
               </div>}
             </section>
