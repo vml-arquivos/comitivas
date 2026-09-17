@@ -128,6 +128,16 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
             disponibilidade: modalidade.disponibilidade,
           } as const;
           const capacidadeBasePorForma = await Promise.all(formasContratacao.map((forma) => PacoteService.obterDisponibilidadeFisica(pacoteFisico, null, forma)));
+          const capacidadesBasePublicas = formasContratacao.map((forma, indice) => {
+            const capacidade = capacidadeBasePorForma[indice];
+            return {
+              forma,
+              disponibilidade: capacidade?.disponibilidade || "configuracao_pendente",
+              vagas_disponiveis: Number(capacidade?.vagas_disponiveis || 0),
+              vagas_transporte: capacidade?.vagas_transporte == null ? null : Number(capacidade.vagas_transporte),
+              vagas_hospedagem: capacidade?.vagas_hospedagem == null ? null : Number(capacidade.vagas_hospedagem),
+            };
+          });
           const comercialBasePorForma = await Promise.all(formasContratacao.map(async (forma) => [forma, await LoteComercialService.obterStatus(modalidade.id, null, normalizarFormaLote(forma))] as const));
           const comercialBaseAtivo = comercialBasePorForma.map(([, status]) => status.lote).filter(Boolean).sort((a, b) => Number(a!.valor) - Number(b!.valor))[0] || null;
           const comercialBaseConfigurado = comercialBasePorForma.some(([, status]) => status.configurado);
@@ -145,6 +155,16 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
             .orderBy(pacotePeriodos.ordem, pacotePeriodos.data_inicio);
           const periodos = await Promise.all(periodosBase.map(async (periodo) => {
             const capacidades = await Promise.all(formasContratacao.map((forma) => PacoteService.obterDisponibilidadeFisica(pacoteFisico, periodo.id, forma)));
+            const capacidadesPublicas = formasContratacao.map((forma, indice) => {
+              const capacidade = capacidades[indice];
+              return {
+                forma,
+                disponibilidade: capacidade?.disponibilidade || "configuracao_pendente",
+                vagas_disponiveis: Number(capacidade?.vagas_disponiveis || 0),
+                vagas_transporte: capacidade?.vagas_transporte == null ? null : Number(capacidade.vagas_transporte),
+                vagas_hospedagem: capacidade?.vagas_hospedagem == null ? null : Number(capacidade.vagas_hospedagem),
+              };
+            });
             const comerciais = await Promise.all(formasContratacao.map(async (forma) => [forma, await LoteComercialService.obterStatus(modalidade.id, periodo.id, normalizarFormaLote(forma))] as const));
             const lotesComerciais = await LoteComercialService.listar(modalidade.id, periodo.id);
             const loteAtivo = comerciais.map(([, status]) => status.lote).filter(Boolean).sort((a, b) => Number(a!.valor) - Number(b!.valor))[0] || null;
@@ -158,6 +178,7 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
               ...comercialPublico,
               disponibilidade: capacidade.disponibilidade === "configuracao_pendente" || !configurado ? "configuracao_pendente" : capacidade.disponibilidade === "esgotado" ? "esgotado" : loteAtivo ? (loteAtivo.vagas_disponiveis <= 5 ? "ultimas_vagas" : "disponivel") : aguardando ? "aguardando" : "esgotado",
               vagas_disponiveis: capacidade.vagas_disponiveis,
+              capacidades_por_forma: capacidadesPublicas,
               lotes_comerciais: lotesComerciais,
             };
           }));
@@ -170,6 +191,7 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
             formas_contratacao: formasContratacao,
             ...comercialPublicoBase,
             disponibilidade: capacidadeBase.disponibilidade === "configuracao_pendente" || !comercialBaseConfigurado ? "configuracao_pendente" : capacidadeBase.disponibilidade === "esgotado" ? "esgotado" : comercialBaseAtivo ? (comercialBaseAtivo.vagas_disponiveis <= 5 ? "ultimas_vagas" : "disponivel") : comercialBaseAguardando ? "aguardando" : "esgotado",
+            capacidades_por_forma: capacidadesBasePublicas,
             fotos: await db.select({ id: fotosPacote.id, url_foto: fotosPacote.url_foto, legenda: fotosPacote.legenda, alt_text: fotosPacote.alt_text, ordem: fotosPacote.ordem, capa: fotosPacote.capa })
               .from(fotosPacote)
               .where(eq(fotosPacote.pacote_id, modalidade.id))

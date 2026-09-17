@@ -31,5 +31,15 @@ describe("campos editoriais da excursão", () => {
     expect(publico).toContain("evento.subtitulo");
     expect(publico).toContain("evento.atracoes_programacao");
     expect(publico).toContain("evento.informacoes_praticas");
+    expect(publico).toContain("Detalhes da excursão");
+    expect(publico).toContain("object-contain");
+    expect(publico).toContain("CapacidadesResumo");
+    expect(publico).toContain("capacidades_por_forma");
+  });
+
+  it("permite abrir uma excursão pelo nome a partir da home", () => {
+    const home = ler("apps/web/src/pages/publico/Home.tsx");
+    expect(home).toContain("Ver detalhes da excursão");
+    expect(home).toContain("/excursao/${slugify(oferta.evento.nome)}");
   });
 });

@@ -85,6 +85,7 @@ describe("catálogo simples de excursões, lotes e pacotes", () => {
     expect(configurador).toContain("Este período está esgotado");
     expect(admin).toContain("Destaque comercial na vitrine");
     expect(publico).toContain("vagas_disponiveis: capacidade.vagas_disponiveis");
+    expect(publico).toContain("capacidades_por_forma");
     expect(home).not.toContain("params.set('periodo'");
   });
 

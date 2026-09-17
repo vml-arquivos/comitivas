@@ -190,6 +190,10 @@ function normalizarItens(valor: unknown): string[] {
     .slice(0, 3);
 }
 
+function slugify(valor: string) {
+  return valor.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+}
+
 function periodosOferta(oferta: Oferta) {
   return oferta.pacote.periodos || [];
 }
@@ -200,12 +204,14 @@ function disponibilidadeOferta(oferta: Oferta) {
   if (periodos.some((periodo) => periodo.disponibilidade === 'disponivel')) return 'disponivel';
   if (periodos.some((periodo) => periodo.disponibilidade === 'ultimas_vagas')) return 'ultimas_vagas';
   if (periodos.some((periodo) => periodo.disponibilidade === 'aguardando')) return 'aguardando';
+  if (periodos.some((periodo) => periodo.disponibilidade === 'configuracao_pendente')) return 'configuracao_pendente';
   return 'esgotado';
 }
 
 function statusOferta(disponibilidade?: string | null) {
   if (disponibilidade === 'esgotado') return { label: 'Esgotado', classe: 'bg-slate-900 text-white' };
   if (disponibilidade === 'aguardando') return { label: 'Indisponível', classe: 'bg-slate-100 text-slate-700' };
+  if (disponibilidade === 'configuracao_pendente') return { label: 'Em configuração', classe: 'bg-amber-100 text-amber-900' };
   if (disponibilidade === 'ultimas_vagas') return { label: 'Últimas vagas', classe: 'bg-amber-100 text-amber-900' };
   return { label: 'Disponível', classe: 'bg-emerald-100 text-emerald-900' };
 }
@@ -254,6 +260,8 @@ export default function Home() {
     if (refComercial) params.set('ref', refComercial);
     return `/pacote/${encodeURIComponent(oferta.lote.id)}?${params.toString()}`;
   };
+
+  const linkExcursao = (oferta: Oferta) => `/excursao/${slugify(oferta.evento.nome)}${refComercial ? `?ref=${encodeURIComponent(refComercial)}` : ''}`;
 
   useEffect(() => {
     const carregarDadosPublicos = async () => {
@@ -394,11 +402,11 @@ export default function Home() {
           </div>
 
           <div className="relative mx-auto w-full max-w-[720px] pb-8 lg:pb-16">
-            <div className="relative aspect-[1.14/1] overflow-hidden rounded-[2rem] bg-[#182D3B] shadow-[0_30px_80px_rgba(24,45,59,0.18)] sm:rounded-[2.5rem]">
+            <div className="relative aspect-[1.4/1] overflow-hidden rounded-[2rem] bg-[#EEF2F3] shadow-[0_30px_80px_rgba(24,45,59,0.18)] sm:rounded-[2.5rem]">
               <img
                 src={fotoEventoAtiva}
                 alt={ofertaAtiva?.evento.fotos?.[0]?.alt_text || ofertaAtiva?.evento.nome || 'Parque do Peão em Barretos'}
-                className="h-full w-full object-cover object-center"
+                className="h-full w-full object-contain object-center"
                 width="1280"
                 height="853"
                 fetchPriority="high"
@@ -502,7 +510,7 @@ export default function Home() {
                 const periodos = periodosOferta(oferta);
                 return (
                     <article key={`${oferta.lote.id}-${oferta.pacote.id}`} className="group flex min-h-[385px] min-w-0 flex-col rounded-[1.5rem] border border-[#182D3B]/10 bg-white p-6 shadow-[0_12px_35px_rgba(24,45,59,0.06)] transition hover:-translate-y-1 hover:shadow-[0_20px_45px_rgba(24,45,59,0.1)]">
-                    <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#851F32]">{oferta.evento.nome}</p>{oferta.evento.subtitulo && <p className="mt-1 text-xs font-semibold leading-5 text-[#60717B]">{oferta.evento.subtitulo}</p>}</div><span className={`shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase ${status.classe}`}>{status.label}</span></div>
+                    <div className="flex items-start justify-between gap-4"><div><Link to={linkExcursao(oferta)} className="text-[10px] font-black uppercase tracking-[0.18em] text-[#851F32] hover:text-[#6f1929]">{oferta.evento.nome}</Link>{oferta.evento.subtitulo && <p className="mt-1 text-xs font-semibold leading-5 text-[#60717B]">{oferta.evento.subtitulo}</p>}<Link to={linkExcursao(oferta)} className="mt-2 inline-flex items-center gap-1 text-[11px] font-extrabold text-[#851F32] hover:text-[#6f1929]">Ver detalhes da excursão <ChevronRight size={13} /></Link></div><span className={`shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase ${status.classe}`}>{status.label}</span></div>
                     <h3 className="font-editorial mt-4 text-2xl leading-tight text-[#182D3B]">{oferta.pacote.nome}</h3>
                     {(oferta.pacote.destaque_titulo || oferta.pacote.destaque_subtitulo || oferta.pacote.destaque_texto) && <div className="mt-3 rounded-xl border border-[#851F32]/15 bg-[#F8F0F1] px-3 py-2.5"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">{oferta.pacote.destaque_subtitulo || 'Destaque'}</p>{oferta.pacote.destaque_titulo && <p className="mt-1 text-sm font-extrabold text-[#182D3B]">{oferta.pacote.destaque_titulo}</p>}{oferta.pacote.destaque_texto && <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#5F7079]">{oferta.pacote.destaque_texto}</p>}</div>}
                     <p className="mt-2 line-clamp-2 min-h-10 text-sm leading-5 text-[#6B7C85]">{oferta.pacote.descricao || oferta.lote.descricao || 'Detalhes completos disponíveis no configurador.'}</p>
