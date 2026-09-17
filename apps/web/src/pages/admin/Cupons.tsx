@@ -17,6 +17,7 @@ interface Cupom {
   limite_por_cliente: number | null;
   pacote_id: string | null;
   lote_comercial_id: string | null;
+  modalidade_transporte: 'excursao' | 'proprio' | null;
   vendedor_id: string | null;
   campanha: string | null;
   uso_atual: number;
@@ -42,6 +43,7 @@ export default function Cupons() {
   const [limiteCliente, setLimiteCliente] = useState('');
   const [pacoteId, setPacoteId] = useState('');
   const [loteComercialId, setLoteComercialId] = useState('');
+  const [modalidadeTransporte, setModalidadeTransporte] = useState<'geral' | 'excursao' | 'proprio'>('geral');
   const [vendedorId, setVendedorId] = useState('');
   const [campanha, setCampanha] = useState('');
   const [valorMinimo, setValorMinimo] = useState('');
@@ -94,6 +96,7 @@ export default function Cupons() {
     setLimiteCliente('');
     setPacoteId('');
     setLoteComercialId('');
+    setModalidadeTransporte('geral');
     setVendedorId('');
     setCampanha('');
     setValorMinimo('');
@@ -112,6 +115,7 @@ export default function Cupons() {
     setLimiteCliente(cupom.limite_por_cliente == null ? '' : String(cupom.limite_por_cliente));
     setPacoteId(cupom.pacote_id || '');
     setLoteComercialId(cupom.lote_comercial_id || '');
+    setModalidadeTransporte(cupom.modalidade_transporte || 'geral');
     setVendedorId(cupom.vendedor_id || '');
     setCampanha(cupom.campanha || '');
     setValorMinimo(cupom.valor_minimo || '');
@@ -135,6 +139,7 @@ export default function Cupons() {
         uso_maximo: usoMaximo ? parseInt(usoMaximo) : null,
         limite_por_cliente: limiteCliente ? parseInt(limiteCliente) : null,
         pacote_id: pacoteId || null, lote_comercial_id: loteComercialId || null, vendedor_id: vendedorId || null,
+        modalidade_transporte: modalidadeTransporte === 'geral' ? null : modalidadeTransporte,
         campanha: campanha || null,
         valor_minimo: valorMinimo ? parseFloat(valorMinimo) : null,
         validade: validade || null,
@@ -264,6 +269,7 @@ export default function Cupons() {
                 <Input label="Valor mínimo (R$)" type="number" min="0" step="0.01" value={valorMinimo} onChange={(e) => setValorMinimo(e.target.value)} placeholder="Sem mínimo" />
                 <Input label="ID do pacote (opcional)" value={pacoteId} onChange={(e) => setPacoteId(e.target.value)} placeholder="Escopo por modalidade" />
                 <Input label="ID do lote comercial (opcional)" value={loteComercialId} onChange={(e) => setLoteComercialId(e.target.value)} placeholder="Escopo por pré-venda" />
+                <label className="text-sm font-medium text-gray-700">Aplicação do transporte (opcional)<select value={modalidadeTransporte} onChange={(e) => setModalidadeTransporte(e.target.value as 'geral' | 'excursao' | 'proprio')} className="mt-1 flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"><option value="geral">Qualquer deslocamento</option><option value="excursao">Transporte da excursão</option><option value="proprio">Por conta própria</option></select></label>
                 <label className="text-sm font-medium text-gray-700">Vendedor (opcional)<select value={vendedorId} onChange={(e) => setVendedorId(e.target.value)} className="mt-1 flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"><option value="">Qualquer origem</option>{vendedores.map((vendedor) => <option key={vendedor.id} value={vendedor.id}>{vendedor.nome}</option>)}</select></label>
               </div>
               <Button type="submit" disabled={salvando}>

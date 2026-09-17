@@ -282,7 +282,7 @@ router.post("/reservar", authMiddleware, async (req: Request, res: Response) => 
       if (leadDaConta[0]) origem = { lead_id: leadDaConta[0].id, vendedor_id: leadDaConta[0].vendedor_id || undefined, codigo_origem: leadDaConta[0].codigo_origem || undefined };
     }
 
-    const carrinhoExistente = await PacoteService.retomarCarrinho(req.usuario.id, config.lote_id, { pacote_id: config.pacote_id, periodo_id: config.periodo_id, forma_contratacao: config.forma_contratacao });
+    const carrinhoExistente = await PacoteService.retomarCarrinho(req.usuario.id, config.lote_id, { pacote_id: config.pacote_id, periodo_id: config.periodo_id, forma_contratacao: config.forma_contratacao, transporte_proprio: config.transporte_proprio });
     const resultado = carrinhoExistente || await PacoteService.reservarPacote(
         req.usuario.id,
         config.lote_id,
@@ -643,6 +643,7 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
   try {
     const periodoId = String(req.query.periodo_id || "").trim() || null;
     const formaSolicitada = String(req.query.forma_contratacao || "").trim().toLowerCase() || null;
+    const transporteProprioSolicitado = String(req.query.transporte_proprio || "").toLowerCase() === "true";
     const lote = (await db.select({ id: lotes.id }).from(lotes).where(eq(lotes.id, req.params.lote_id)).limit(1))[0];
     if (!lote) return res.status(404).json({ erro: "Lote não encontrado" });
     const lista = await db
@@ -655,7 +656,7 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
       const formasParaCalculo = formaSolicitada && formasContratacao.includes(formaSolicitada as typeof FORMAS_CONTRATACAO_VALIDAS[number])
         ? [formaSolicitada]
         : formasContratacao;
-      const capacidades = await Promise.all(formasParaCalculo.map(async (forma) => [forma, await PacoteService.obterDisponibilidadeFisica(pacote, periodoId, forma)] as const));
+      const capacidades = await Promise.all(formasParaCalculo.map(async (forma) => [forma, await PacoteService.obterDisponibilidadeFisica(pacote, periodoId, forma, transporteProprioSolicitado)] as const));
       const comerciais = await Promise.all(formasParaCalculo.map(async (forma) => [forma, await LoteComercialService.obterStatus(pacote.id, periodoId, normalizarFormaLote(forma))] as const));
       const porForma = new Map(comerciais);
       const combinarDisponibilidade = (fisica: string, comercial?: Awaited<ReturnType<typeof LoteComercialService.obterStatus>>) => {
@@ -665,7 +666,7 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
         return "disponivel";
       };
       const capacidadeEscolhida = formaSolicitada && capacidades.find(([forma]) => forma === formaSolicitada)?.[1];
-      const capacidadeFallback = capacidades[0]?.[1] || await PacoteService.obterDisponibilidadeFisica(pacote, periodoId);
+      const capacidadeFallback = capacidades[0]?.[1] || await PacoteService.obterDisponibilidadeFisica(pacote, periodoId, null, transporteProprioSolicitado);
       const capacidade = capacidadeEscolhida || capacidades.reduce((melhor, [, atual]) => atual.vagas_disponiveis > melhor.vagas_disponiveis ? atual : melhor, capacidadeFallback);
       const disponibilidadePorForma = Object.fromEntries(capacidades.map(([forma, resultado]) => { const comercial = statusComercialPublico(porForma.get(forma)!); return [forma, { ...comercial, disponibilidade: combinarDisponibilidade(resultado.disponibilidade, porForma.get(forma)), vagas_disponiveis: resultado.vagas_disponiveis, vagas_transporte: resultado.vagas_transporte, vagas_hospedagem: resultado.vagas_hospedagem }]; }));
       const regras = regrasDoPacote(pacote);
@@ -680,11 +681,11 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
         .where(and(eq(pacotePeriodos.pacote_id, pacote.id), eq(pacotePeriodos.ativo, true)))
         .orderBy(pacotePeriodos.ordem, pacotePeriodos.data_inicio);
       const periodos = await Promise.all(periodosBase.map(async (periodo) => {
-        const capacidadesPeriodo = await Promise.all(formasParaCalculo.map(async (forma) => PacoteService.obterDisponibilidadeFisica(pacote, periodo.id, forma)));
+        const capacidadesPeriodo = await Promise.all(formasParaCalculo.map(async (forma) => PacoteService.obterDisponibilidadeFisica(pacote, periodo.id, forma, transporteProprioSolicitado)));
         const comerciaisPeriodo = await Promise.all(formasParaCalculo.map(async (forma) => [forma, await LoteComercialService.obterStatus(pacote.id, periodo.id, normalizarFormaLote(forma))] as const));
         const porFormaPeriodo = new Map(comerciaisPeriodo);
         const capacidadePeriodo = capacidadeEscolhida
-          ? await PacoteService.obterDisponibilidadeFisica(pacote, periodo.id, formaSolicitada)
+          ? await PacoteService.obterDisponibilidadeFisica(pacote, periodo.id, formaSolicitada, transporteProprioSolicitado)
           : capacidadesPeriodo.reduce((melhor, atual) => atual.vagas_disponiveis > melhor.vagas_disponiveis ? atual : melhor, capacidadesPeriodo[0] || capacidade);
         const formaPeriodo = formaSolicitada || formasParaCalculo.find((forma) => porFormaPeriodo.get(forma)?.lote || porFormaPeriodo.get(forma)?.configurado) || formasParaCalculo[0];
         const comercialPeriodo = formaPeriodo ? porFormaPeriodo.get(formaPeriodo) : undefined;

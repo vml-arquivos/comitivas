@@ -17,6 +17,7 @@ export interface CheckoutIntent {
   pacoteId: string;
   periodoId?: string;
   formaContratacao?: 'onibus' | 'hospedagem' | 'onibus_hospedagem';
+  transporteProprio?: boolean;
   itensSelecionados?: Record<string, number>;
   grupoHospedagem?: 'masculino' | 'feminino';
   participantes?: ParticipanteCheckout[];

@@ -29,6 +29,8 @@ describe("capacidade integrada da contratação", () => {
     expect(resolverRecursosContratacao("hospedagem", "quarto_ventilador")).toEqual({ transporte: false, hospedagem: true, estrutura_quarto: "ventilador" });
     expect(resolverRecursosContratacao("onibus_hospedagem", "quarto_ar_condicionado")).toEqual({ transporte: true, hospedagem: true, estrutura_quarto: "ar_condicionado" });
     expect(resolverRecursosContratacao("onibus", "quarto_ar_condicionado")).toEqual({ transporte: true, hospedagem: false, estrutura_quarto: null });
+    expect(resolverRecursosContratacao("onibus", "camping", true)).toEqual({ transporte: false, hospedagem: false, estrutura_quarto: null, transporte_proprio: true });
+    expect(resolverRecursosContratacao("hospedagem", "quarto_ar_condicionado", true)).toEqual({ transporte: false, hospedagem: true, estrutura_quarto: "ar_condicionado", transporte_proprio: true });
   });
 
   it("mantém transporte isolado quando este é o tipo escolhido", () => {
@@ -71,5 +73,25 @@ describe("capacidade integrada da contratação", () => {
     expect(onibus).toContain("Fora da capacidade atual");
     expect(inventario).toContain("liberarRecursosFisicosNaTransacao");
     expect(inventario).toContain("UPDATE quarto_alocacoes SET status = 'cancelada'");
+  });
+
+  it("não reserva poltrona para transporte próprio e mantém ônibus compartilhado entre pacotes", async () => {
+    const pacote = await fonte("../server/services/pacoteService.ts");
+    expect(pacote).toContain("resolverRecursosContratacao(formaEscolhida || pacote.forma_contratacao, pacote.modalidade_hospedagem, transporteProprio)");
+    expect(pacote).toContain("WHERE s.lote_id = ${loteId} AND s.ativa = true");
+    expect(pacote).not.toContain("AND s.pacote_id = ${pacote?.id}");
+  });
+
+  it("explicita no contrato que o deslocamento próprio não ocupa ônibus", () => {
+    const html = renderizarContratoModeloPadrao({
+      reservaId: "reserva-propria",
+      snapshot: {
+        ...snapshot("hospedagem"),
+        transporte: { ...snapshot("hospedagem").transporte, rodoviario_incluido: false, por_conta_propria: true },
+        servicos_inclusos: ["Pacote de camping"],
+      } as any,
+    });
+    expect(html).toContain("DO DESLOCAMENTO POR CONTA PRÓPRIA");
+    expect(html).toContain("não inclui poltrona, embarque ou retorno");
   });
 });

@@ -52,7 +52,7 @@ describe("integridade operacional da contratação", () => {
     expect(pacote).toContain("pacoteDiferente");
     expect(pacote).toContain("snapshotDivergenteDoCatalogo");
     expect(pacote).toContain('checkout_estado: "troca_pacote_cliente"');
-    expect(rota).toContain("retomarCarrinho(req.usuario.id, config.lote_id, { pacote_id: config.pacote_id, periodo_id: config.periodo_id, forma_contratacao: config.forma_contratacao })");
+    expect(rota).toContain("retomarCarrinho(req.usuario.id, config.lote_id, { pacote_id: config.pacote_id, periodo_id: config.periodo_id, forma_contratacao: config.forma_contratacao, transporte_proprio: config.transporte_proprio })");
   });
 
   it("impede liberar recurso físico de contrato já assinado sem remanejamento/cancelamento", () => {

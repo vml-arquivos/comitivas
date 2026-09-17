@@ -9,8 +9,8 @@ import { LoteComercialService, normalizarFormaLote } from "./loteComercialServic
 
 export interface ItemSelecionado { id: string; nome: string; tipo: string; valor: number; quantidade: number; }
 export interface ParticipantePacote { nome_completo: string; cpf?: string; data_nascimento?: string; telefone?: string; email?: string; sexo_operacional?: GrupoHospedagem; }
-export interface ConfiguracaoPacote { lote_id: string; pacote_id?: string; periodo_id?: string; lote_comercial_id?: string; forma_contratacao?: 'onibus' | 'hospedagem' | 'onibus_hospedagem'; itens: ItemSelecionado[]; cupom_codigo?: string; usuario_id?: string; vendedor_id?: string; grupo_hospedagem?: GrupoHospedagem; participantes?: ParticipantePacote[]; }
-export interface ResultadoCalculo { valor_base: number; itens_selecionados: ItemSelecionado[]; subtotal: number; desconto_cupom: number; valor_total: number; pacote_id?: string; pacote_nome?: string; modalidade_hospedagem?: string; forma_contratacao?: string; lote_comercial_id?: string; lote_comercial_nome?: string; lote_comercial_valor?: number; cupom_id?: string; mensagem?: string; }
+export interface ConfiguracaoPacote { lote_id: string; pacote_id?: string; periodo_id?: string; lote_comercial_id?: string; forma_contratacao?: 'onibus' | 'hospedagem' | 'onibus_hospedagem'; transporte_proprio?: boolean; itens: ItemSelecionado[]; cupom_codigo?: string; usuario_id?: string; vendedor_id?: string; grupo_hospedagem?: GrupoHospedagem; participantes?: ParticipantePacote[]; }
+export interface ResultadoCalculo { valor_base: number; itens_selecionados: ItemSelecionado[]; subtotal: number; desconto_cupom: number; valor_total: number; pacote_id?: string; pacote_nome?: string; modalidade_hospedagem?: string; forma_contratacao?: string; transporte_proprio?: boolean; lote_comercial_id?: string; lote_comercial_nome?: string; lote_comercial_valor?: number; cupom_id?: string; mensagem?: string; }
 
 export interface OrigemReserva { lead_id?: string; vendedor_id?: string; codigo_origem?: string; }
 
@@ -103,9 +103,10 @@ async function alocarRecursosNaTransacao(
   periodoId: string | null | undefined,
   pessoas: PessoaAlocacao[],
   formaEscolhida?: string | null,
+  transporteProprio = false,
 ): Promise<{ recursos: RecursosContratados; assento_alocacao_id: string | null; quarto_alocacao_id: string | null }> {
   const recursos = pacote
-    ? resolverRecursosContratacao(formaEscolhida || pacote.forma_contratacao, pacote.modalidade_hospedagem)
+    ? resolverRecursosContratacao(formaEscolhida || pacote.forma_contratacao, pacote.modalidade_hospedagem, transporteProprio)
     : { transporte: false, hospedagem: false, estrutura_quarto: null };
   let assentoAlocacaoId: string | null = null;
   let quartoAlocacaoId: string | null = null;
@@ -201,14 +202,15 @@ async function alocarRecursosNaTransacao(
 }
 
 function recursosPersistidosOuPublicados(reserva: any, pacote: PacoteOperacional | undefined): RecursosContratados {
-  const derivados = pacote
-    ? resolverRecursosContratacao(pacote.forma_contratacao, pacote.modalidade_hospedagem)
+      const derivados = pacote
+    ? resolverRecursosContratacao(pacote.forma_contratacao, pacote.modalidade_hospedagem, Boolean((reserva?.recursos_contratados as any)?.transporte_proprio))
     : { transporte: false, hospedagem: false, estrutura_quarto: null };
   const salvos = reserva?.recursos_contratados && typeof reserva.recursos_contratados === "object" ? reserva.recursos_contratados : {};
   if (typeof salvos.transporte === "boolean" && typeof salvos.hospedagem === "boolean") {
     return {
       transporte: salvos.transporte,
       hospedagem: salvos.hospedagem,
+      ...(salvos.transporte_proprio === true ? { transporte_proprio: true } : {}),
       estrutura_quarto: salvos.hospedagem
         ? (salvos.estrutura_quarto === "ventilador" || salvos.estrutura_quarto === "ar_condicionado" ? salvos.estrutura_quarto : derivados.estrutura_quarto)
         : null,
@@ -218,7 +220,7 @@ function recursosPersistidosOuPublicados(reserva: any, pacote: PacoteOperacional
 }
 
 function recursosDivergem(a: RecursosContratados, b: RecursosContratados): boolean {
-  return a.transporte !== b.transporte || a.hospedagem !== b.hospedagem || (a.estrutura_quarto || null) !== (b.estrutura_quarto || null);
+  return a.transporte !== b.transporte || a.hospedagem !== b.hospedagem || Boolean(a.transporte_proprio) !== Boolean(b.transporte_proprio) || (a.estrutura_quarto || null) !== (b.estrutura_quarto || null);
 }
 
 export class PacoteService {
@@ -228,7 +230,7 @@ export class PacoteService {
    * um hold expirado é renovado com nova reserva de inventário, sem duplicar a
    * reserva, o contrato ou a comissão.
    */
-  static async retomarCarrinho(usuario_id: string, lote_id: string, esperado?: Pick<ConfiguracaoPacote, "pacote_id" | "periodo_id" | "forma_contratacao">) {
+  static async retomarCarrinho(usuario_id: string, lote_id: string, esperado?: Pick<ConfiguracaoPacote, "pacote_id" | "periodo_id" | "forma_contratacao" | "transporte_proprio">) {
     return db.transaction(async (tx) => {
       const existente = (await tx.execute(sql`
         SELECT *
@@ -256,7 +258,7 @@ export class PacoteService {
         const formaEsperada = esperado.forma_contratacao ? String(esperado.forma_contratacao) : null;
         const formasPublicadas = pacote ? formasContratacaoPublicas(pacote) : [];
         const recursosEsperados = pacote && formaEsperada
-          ? resolverRecursosContratacao(formaEsperada, pacote.modalidade_hospedagem)
+          ? resolverRecursosContratacao(formaEsperada, pacote.modalidade_hospedagem, esperado.transporte_proprio)
           : recursosPublicados;
         const formaDiferente = Boolean(formaEsperada && !formasPublicadas.includes(formaEsperada as typeof formasPublicadas[number]));
         const snapshotDivergenteDoCatalogo = Boolean(pacote && formaEsperada && recursosDivergem(recursos, recursosEsperados));
@@ -349,9 +351,9 @@ export class PacoteService {
         await InventoryService.liberarReservaNaTransacao(tx, existente.id, "Renovação do carrinho", false);
       }
 
-      const lote = (await tx.execute(sql`SELECT id, "vagas_disponíveis" FROM lotes WHERE id = ${lote_id} FOR UPDATE`)).rows[0] as { id: string; vagas_disponíveis: number } | undefined;
-      if (!lote || Number(lote.vagas_disponíveis) < quantidadePessoas) throw new Error("A excursão ficou sem vagas para retomar este carrinho");
-      const baixa = await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = "vagas_disponíveis" - ${quantidadePessoas}, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${lote_id} AND "vagas_disponíveis" >= ${quantidadePessoas} RETURNING id`);
+      const lote = (await tx.execute(sql`SELECT id, "vagas_disponíveis", operacional_interno FROM lotes WHERE id = ${lote_id} FOR UPDATE`)).rows[0] as { id: string; vagas_disponíveis: number; operacional_interno: boolean } | undefined;
+      if (!lote || (!lote.operacional_interno && Number(lote.vagas_disponíveis) < quantidadePessoas)) throw new Error("A excursão ficou sem vagas para retomar este carrinho");
+      const baixa = await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = CASE WHEN operacional_interno THEN "vagas_disponíveis" ELSE "vagas_disponíveis" - ${quantidadePessoas} END, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${lote_id} AND (operacional_interno OR "vagas_disponíveis" >= ${quantidadePessoas}) RETURNING id`);
       if (!baixa.rows.length) throw new Error("A excursão ficou sem vagas para retomar este carrinho");
 
       const formaRetomada = String((recursos as any).forma_contratacao || esperado?.forma_contratacao || pacote?.forma_contratacao || "");
@@ -362,7 +364,7 @@ export class PacoteService {
         const novoLoteComercial = await LoteComercialService.reservarNaTransacao(tx, pacote.id, existente.periodo_id, normalizarFormaLote(formaRetomada), quantidadePessoas);
         loteComercialRetomado = novoLoteComercial ? { id: novoLoteComercial.id, nome: novoLoteComercial.nome } : null;
       }
-      const operacao = await alocarRecursosNaTransacao(tx, pacote, existente.id, usuario_id, lote_id, existente.periodo_id, pessoas, formaRetomada);
+      const operacao = await alocarRecursosNaTransacao(tx, pacote, existente.id, usuario_id, lote_id, existente.periodo_id, pessoas, formaRetomada, Boolean((recursos as any).transporte_proprio));
       const holdId = hold?.id || createId();
       const agora = new Date();
       if (hold) {
@@ -398,10 +400,11 @@ export class PacoteService {
     pacote: Pick<typeof pacotes.$inferSelect, 'id' | 'lote_id' | 'forma_contratacao' | 'formas_contratacao' | 'modalidade_hospedagem' | 'disponibilidade'>,
     periodoId?: string | null,
     formaEscolhida?: string | null,
+    transporteProprio = false,
   ) {
     const formas = normalizarFormasContratacao(pacote.formas_contratacao, pacote.forma_contratacao, pacote.modalidade_hospedagem);
     const forma = formaEscolhida || formas[0] || pacote.forma_contratacao;
-    const recursos = resolverRecursosContratacao(forma, pacote.modalidade_hospedagem);
+    const recursos = resolverRecursosContratacao(forma, pacote.modalidade_hospedagem, transporteProprio);
     const lote = (await db.select({ vagas: lotes.vagas_disponíveis, operacional: lotes.operacional_interno }).from(lotes).where(eq(lotes.id, pacote.lote_id)).limit(1))[0];
     const vagasLote = lote?.operacional ? null : Math.max(0, Number(lote?.vagas || 0));
     const planejamento = periodoId
@@ -467,10 +470,10 @@ export class PacoteService {
     let loteComercialAtivo: Awaited<ReturnType<typeof LoteComercialService.obterStatus>>["lote"] = null;
     let pacoteSelecionado: typeof pacotes.$inferSelect | undefined;
     let formaSelecionada: string | undefined;
+    const transporteProprio = config.transporte_proprio === true;
     if (config.pacote_id) {
       pacoteSelecionado = (await db.select().from(pacotes).where(and(eq(pacotes.id, config.pacote_id), eq(pacotes.lote_id, config.lote_id), eq(pacotes.ativo, true))).limit(1))[0];
       if (!pacoteSelecionado) throw new Error("Pacote selecionado não encontrado, incompatível com o lote ou inativo");
-      if (pacoteSelecionado.disponibilidade === "esgotado") throw new Error("Esta modalidade está esgotada");
       formaSelecionada = validarFormaContratacaoSelecionada(config, pacoteSelecionado) || undefined;
       const periodosAtivos = await db.select({ id: pacotePeriodos.id }).from(pacotePeriodos)
         .where(and(eq(pacotePeriodos.pacote_id, pacoteSelecionado.id), eq(pacotePeriodos.ativo, true)));
@@ -511,6 +514,7 @@ export class PacoteService {
         eq(cupons.ativo, true),
         or(isNull(cupons.pacote_id), config.pacote_id ? eq(cupons.pacote_id, config.pacote_id) : isNull(cupons.pacote_id)),
         or(isNull(cupons.lote_comercial_id), loteComercialAtivo ? eq(cupons.lote_comercial_id, loteComercialAtivo.id) : isNull(cupons.lote_comercial_id)),
+        or(isNull(cupons.modalidade_transporte), eq(cupons.modalidade_transporte, transporteProprio ? "proprio" : "excursao")),
         or(isNull(cupons.vendedor_id), config.vendedor_id ? eq(cupons.vendedor_id, config.vendedor_id) : isNull(cupons.vendedor_id)),
       )).limit(1))[0];
       if (!cupom) throw new Error("Cupom inválido para este evento");
@@ -544,6 +548,7 @@ export class PacoteService {
       pacote_nome: pacoteSelecionado?.nome,
       modalidade_hospedagem: pacoteSelecionado?.modalidade_hospedagem || undefined,
       forma_contratacao: formaSelecionada,
+      transporte_proprio: transporteProprio,
       lote_comercial_id: loteComercialAtivo?.id,
       lote_comercial_nome: loteComercialAtivo?.nome,
       lote_comercial_valor: loteComercialAtivo ? Number(loteComercialAtivo.valor) : undefined,
@@ -557,9 +562,9 @@ export class PacoteService {
     const quantidadePessoas = participantes.length + 1;
     const calculo = await this.calcularValorPacote({ ...config, usuario_id, vendedor_id: origem.vendedor_id });
     const resultadoTransacao = await db.transaction(async (tx) => {
-      const loteLock = await tx.execute(sql`SELECT id, "vagas_disponíveis" FROM lotes WHERE id = ${lote_id} FOR UPDATE`);
-      const lote = loteLock.rows[0] as { id: string; vagas_disponíveis: number } | undefined;
-      if (!lote || Number(lote.vagas_disponíveis) < quantidadePessoas) throw new Error("Não há vagas suficientes para todas as pessoas adicionadas");
+      const loteLock = await tx.execute(sql`SELECT id, "vagas_disponíveis", operacional_interno FROM lotes WHERE id = ${lote_id} FOR UPDATE`);
+      const lote = loteLock.rows[0] as { id: string; vagas_disponíveis: number; operacional_interno: boolean } | undefined;
+      if (!lote || (!lote.operacional_interno && Number(lote.vagas_disponíveis) < quantidadePessoas)) throw new Error("Não há vagas suficientes para todas as pessoas adicionadas");
       const pacoteOperacional = config.pacote_id
         ? (await tx.execute(sql`SELECT id, lote_id, forma_contratacao, formas_contratacao, modalidade_hospedagem
           FROM pacotes WHERE id = ${config.pacote_id} AND lote_id = ${lote_id} AND ativo = true FOR SHARE`)).rows[0] as PacoteOperacional | undefined
@@ -582,13 +587,13 @@ export class PacoteService {
       const responsavel = (await tx.select({ nome: usuarios.nome, cpf: usuarios.cpf, data_nascimento: usuarios.data_nascimento, telefone: usuarios.telefone, email: usuarios.email, sexo: usuarios.sexo }).from(usuarios).where(eq(usuarios.id, usuario_id)).limit(1))[0];
       const grupoHospedagem = normalizarGrupoHospedagem(responsavel?.sexo) || normalizarGrupoHospedagem(config.grupo_hospedagem);
       const recursosPacote = pacoteOperacional
-        ? resolverRecursosContratacao(calculo.forma_contratacao || pacoteOperacional.forma_contratacao, pacoteOperacional.modalidade_hospedagem)
+        ? resolverRecursosContratacao(calculo.forma_contratacao || pacoteOperacional.forma_contratacao, pacoteOperacional.modalidade_hospedagem, config.transporte_proprio)
         : { transporte: false, hospedagem: false, estrutura_quarto: null };
       if (recursosPacote.hospedagem && (!grupoHospedagem || participantes.some((participante) => !participante.sexo_operacional))) {
         throw new Error("Informe o sexo de todas as pessoas para direcionar a hospedagem");
       }
       await bloquearDuplicidadePorCpf(tx, lote_id, usuario_id, participantes);
-      const baixa = await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = "vagas_disponíveis" - ${quantidadePessoas}, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${lote_id} AND "vagas_disponíveis" >= ${quantidadePessoas} RETURNING id`);
+      const baixa = await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = CASE WHEN operacional_interno THEN "vagas_disponíveis" ELSE "vagas_disponíveis" - ${quantidadePessoas} END, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${lote_id} AND (operacional_interno OR "vagas_disponíveis" >= ${quantidadePessoas}) RETURNING id`);
       if (baixa.rows.length === 0) throw new Error("Vagas indisponíveis");
 
       if (calculo.cupom_id) {
@@ -684,7 +689,7 @@ export class PacoteService {
         participanteId: participante.id,
         grupoHospedagem: normalizarGrupoHospedagem(participante.sexo_operacional),
       }));
-      const operacao = await alocarRecursosNaTransacao(tx, pacoteOperacional, novaReserva.id, usuario_id, lote_id, config.periodo_id, pessoas, calculo.forma_contratacao || pacoteOperacional?.forma_contratacao);
+      const operacao = await alocarRecursosNaTransacao(tx, pacoteOperacional, novaReserva.id, usuario_id, lote_id, config.periodo_id, pessoas, calculo.forma_contratacao || pacoteOperacional?.forma_contratacao, Boolean(config.transporte_proprio));
       if (calculo.cupom_id && usuario_id) {
         await tx.insert(cuponsUtilizacoes).values({ id: createId(), cupom_id: calculo.cupom_id, usuario_id, reserva_id: novaReserva.id });
       }

@@ -12,6 +12,13 @@ function numeroOpcional(valor: unknown): number | null {
   return Number.isFinite(numero) ? numero : null;
 }
 
+function modalidadeTransporte(valor: unknown): "excursao" | "proprio" | null {
+  if (valor === undefined || valor === null || valor === "") return null;
+  const normalizado = String(valor).trim().toLowerCase();
+  if (normalizado !== "excursao" && normalizado !== "proprio") throw new Error("modalidade_transporte inválida");
+  return normalizado;
+}
+
 // Listar cupons de um evento (admin)
 router.get("/evento/:evento_id", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
   try {
@@ -36,7 +43,7 @@ router.get("/evento/:evento_id", authMiddleware, requireRole("admin"), async (re
 // Criar cupom (admin)
 router.post("/criar", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
   try {
-    const { evento_id, codigo, desconto_percentual, desconto_fixo, uso_maximo, limite_por_cliente, pacote_id, lote_comercial_id, vendedor_id, campanha, valor_minimo, validade } = req.body;
+    const { evento_id, codigo, desconto_percentual, desconto_fixo, uso_maximo, limite_por_cliente, pacote_id, lote_comercial_id, modalidade_transporte, vendedor_id, campanha, valor_minimo, validade } = req.body;
 
     if (!evento_id || !codigo) {
       return res.status(400).json({ erro: "evento_id e codigo são obrigatórios" });
@@ -44,6 +51,7 @@ router.post("/criar", authMiddleware, requireRole("admin"), async (req: Request,
 
     const percentual = numeroOpcional(desconto_percentual);
     const fixo = numeroOpcional(desconto_fixo);
+    const modo = modalidadeTransporte(modalidade_transporte);
     if ((percentual === null && fixo === null) || (percentual !== null && fixo !== null)) {
       return res.status(400).json({ erro: "Forneça desconto_percentual ou desconto_fixo" });
     }
@@ -73,6 +81,7 @@ router.post("/criar", authMiddleware, requireRole("admin"), async (req: Request,
         limite_por_cliente: limite_por_cliente || null,
         pacote_id: pacote_id || null,
         lote_comercial_id: lote_comercial_id || null,
+        modalidade_transporte: modo,
         vendedor_id: vendedor_id || null,
         campanha: campanha ? String(campanha).trim().slice(0, 120) : null,
         valor_minimo: valor_minimo !== undefined && valor_minimo !== null ? String(valor_minimo) : null,
@@ -95,7 +104,7 @@ router.post("/criar", authMiddleware, requireRole("admin"), async (req: Request,
 router.put("/:cupom_id", authMiddleware, requireRole("admin"), async (req: Request, res: Response) => {
   try {
     const { cupom_id } = req.params;
-    const { desconto_percentual, desconto_fixo, uso_maximo, limite_por_cliente, pacote_id, lote_comercial_id, vendedor_id, campanha, valor_minimo, validade, ativo } = req.body;
+    const { desconto_percentual, desconto_fixo, uso_maximo, limite_por_cliente, pacote_id, lote_comercial_id, modalidade_transporte, vendedor_id, campanha, valor_minimo, validade, ativo } = req.body;
 
     // Buscar cupom
     const cupomResult = await db
@@ -110,6 +119,7 @@ router.put("/:cupom_id", authMiddleware, requireRole("admin"), async (req: Reque
 
     const percentual = numeroOpcional(desconto_percentual);
     const fixo = numeroOpcional(desconto_fixo);
+    const modo = modalidade_transporte !== undefined ? modalidadeTransporte(modalidade_transporte) : undefined;
     if (percentual !== null && (percentual <= 0 || percentual > 100)) return res.status(400).json({ erro: "desconto_percentual deve estar entre 0 e 100" });
     if (fixo !== null && fixo <= 0) return res.status(400).json({ erro: "desconto_fixo deve ser maior que zero" });
 
@@ -123,6 +133,7 @@ router.put("/:cupom_id", authMiddleware, requireRole("admin"), async (req: Reque
         limite_por_cliente: limite_por_cliente !== undefined ? limite_por_cliente : undefined,
         pacote_id: pacote_id !== undefined ? (pacote_id || null) : undefined,
         lote_comercial_id: lote_comercial_id !== undefined ? (lote_comercial_id || null) : undefined,
+        modalidade_transporte: modo,
         vendedor_id: vendedor_id !== undefined ? (vendedor_id || null) : undefined,
         campanha: campanha !== undefined ? (campanha ? String(campanha).trim().slice(0, 120) : null) : undefined,
         valor_minimo: valor_minimo !== undefined ? (valor_minimo === null || valor_minimo === "" ? null : String(valor_minimo)) : undefined,

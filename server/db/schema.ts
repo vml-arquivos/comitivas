@@ -216,6 +216,7 @@ export const cupons = pgTable("cupons", {
   limite_por_cliente: integer("limite_por_cliente"),
   pacote_id: text("pacote_id"),
   lote_comercial_id: text("lote_comercial_id").references(() => pacoteLotesComerciais.id),
+  modalidade_transporte: varchar("modalidade_transporte", { length: 20 }),
   vendedor_id: text("vendedor_id"),
   campanha: varchar("campanha", { length: 120 }),
   valor_minimo: decimal("valor_minimo", { precision: 12, scale: 2 }),

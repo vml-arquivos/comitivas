@@ -33,6 +33,7 @@ export type ContratoModeloSnapshot = {
   };
   transporte: {
     rodoviario_incluido: boolean;
+    por_conta_propria?: boolean;
     local_embarque: string | null;
     ponto_referencia: string | null;
     data_saida: string | null;
@@ -162,7 +163,7 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
   const c = snapshot.cliente || {};
   const h = snapshot.hospedagem || { modalidade: null, local: "" };
   const f = snapshot.financeiro || { total: "", desconto_pagamento: "", forma_pagamento: null, parcelas: 1, cronograma: [] };
-  const t = snapshot.transporte || { rodoviario_incluido: false, local_embarque: null, ponto_referencia: null, data_saida: null, data_retorno: null, horario_saida: null, horario_retorno: null, veiculo: null };
+  const t = snapshot.transporte || { rodoviario_incluido: false, por_conta_propria: false, local_embarque: null, ponto_referencia: null, data_saida: null, data_retorno: null, horario_saida: null, horario_retorno: null, veiculo: null };
   const bagagem = snapshot.bagagem || { limite_kg: null };
   const seguro = snapshot.seguro || { seguradora: null, apolice: null, cobertura: null, telefone: null };
   const usoImagem = snapshot.uso_imagem || { autorizado: true, prazo_anos: 3 };
@@ -245,6 +246,9 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
 <p><strong>10.2.</strong> O transporte será realizado por empresa regularmente habilitada junto aos órgãos competentes, especialmente à Agência Nacional de Transportes Terrestres – ANTT, observadas as normas de segurança e a legislação vigente.</p>
 <p><strong>10.3.</strong> As informações referentes ao transporte</p>
 <ul class="model-list"><li>• Local de embarque: ${transportValue(t.local_embarque, "SAMAMBAIA AO LADO DO MERCADO DIA A DIA, ESTACIONAMENTO DO POSTO IPIRANGA.")}</li><li>• PONTO DE REFERÊNCIA: ${transportValue(t.ponto_referencia, "DISTRIBUIDORA ROIAL-SAIDA DA BR 060")}</li><li>• Data da saída: ${escapeHtml(formatDate(t.data_saida))}</li></ul><ul class="model-list"><li>• Horário previsto da saída: ${escapeHtml(valueOrBlank(t.horario_saida, "___/___/____"))}</li><li>• Data prevista para retorno: ${escapeHtml(formatDate(t.data_retorno))}</li><li>• Horário previsto do retorno: ${escapeHtml(valueOrBlank(t.horario_retorno, "___/___/____"))}</li><li>• Tipo do veículo:</li>${vehicle(t.veiculo, "Ônibus", "Ônibus")}${vehicle(t.veiculo, "Micro-ônibus", "Micro-ônibus")}${vehicle(t.veiculo, "Van", "Van")}${identificacaoOnibus ? `<li>• Veículo designado: ${escapeHtml(identificacaoOnibus)}</li>` : ""}${poltronaRegistrada ? `<li>• Poltrona designada: ${escapeHtml(t.poltrona)}</li>` : ""}</ul>` : "";
+  const blocoTransporteProprio = t.por_conta_propria ? `<h2>CLÁUSULA DÉCIMA<br/>DO DESLOCAMENTO POR CONTA PRÓPRIA</h2>
+<p><strong>10.1.</strong> O CONTRATANTE declara que realizará o deslocamento até o destino por conta própria. Esta contratação não inclui poltrona, embarque ou retorno no transporte rodoviário da excursão.</p>
+<p><strong>10.2.</strong> Os custos, horários, segurança e responsabilidades do deslocamento próprio são de responsabilidade exclusiva do CONTRATANTE, sem prejuízo dos serviços de camping ou hospedagem expressamente contratados.</p>` : "";
   const blocoHospedagem = temHospedagem ? `<h2>CLÁUSULA SEGUNDA<br/>DOS DADOS DA HOSPEDAGEM</h2>
 <p>Check-in: ${escapeHtml(checkin)}.<br/>Check-out: ${escapeHtml(checkout)}.<br/>Os horários poderão sofrer pequenos ajustes por necessidade operacional.</p>
 
@@ -363,7 +367,7 @@ ${servicosInclusosHtml}
 ${blocoDanos}
 <p><strong>9.3.</strong> A apuração dos danos será realizada mediante vistoria, registro fotográfico, orçamento ou documento equivalente emitido pelo proprietário do estabelecimento ou fornecedor responsável, sendo assegurado ao <strong>CONTRATANTE</strong> o direito de ciência quanto aos prejuízos apurados.</p>
 <p><strong>9.4.</strong> O ressarcimento dos danos deverá ser efetuado pelo <strong>CONTRATANTE</strong> no prazo de até 10 (dez) dias úteis contados da apresentação da comprovação do prejuízo, sem prejuízo das medidas judiciais cabíveis em caso de inadimplemento.</p>
-${blocoTransporte}${t.rodoviario_incluido ? `
+${blocoTransporte}${blocoTransporteProprio}${t.rodoviario_incluido ? `
 <h2>CLÁUSULA DÉCIMA PRIMEIRA<br/>DO EMBARQUE</h2>
 <p><strong>11.1.</strong> O <strong>CONTRATANTE</strong> deverá comparecer ao local de embarque com antecedência mínima de 30 (trinta) minutos do horário previsto para saída do veículo, portando documento oficial de identificação com foto.</p>
 <p><strong>11.2.</strong> O atraso do <strong>CONTRATANTE</strong> que impossibilite seu embarque será considerado de sua exclusiva responsabilidade, não gerando direito a reembolso, remarcação da viagem ou qualquer indenização.</p>
