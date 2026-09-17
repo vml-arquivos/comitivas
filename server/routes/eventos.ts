@@ -37,6 +37,12 @@ function caminhoFoto(eventoId: string, fotoId: string, mime: string): string {
   return path.resolve(base, "eventos", eventoId, `${fotoId}${extensao}`);
 }
 
+function campoTextoOpcional(valor: unknown, limite: number): string | null | undefined {
+  if (valor === undefined) return undefined;
+  const texto = String(valor ?? "").trim().slice(0, limite);
+  return texto || null;
+}
+
 // Listar todos os eventos (público)
 router.get("/", async (req: Request, res: Response) => {
   try {
@@ -228,11 +234,16 @@ router.post("/", authMiddleware, requireRole("admin"), async (req: Request, res:
       const agora = new Date();
       const evento = (await tx.insert(eventos).values({
         id: `evento-${Date.now()}`,
-        nome,
-        descricao: descricao || "",
+        nome: String(nome).trim().slice(0, 255),
+        descricao: campoTextoOpcional(descricao, 10000) || "",
+        subtitulo: campoTextoOpcional(req.body?.subtitulo, 255),
+        destaque_titulo: campoTextoOpcional(req.body?.destaque_titulo, 160),
+        destaque_texto: campoTextoOpcional(req.body?.destaque_texto, 10000),
+        informacoes_praticas: campoTextoOpcional(req.body?.informacoes_praticas, 10000),
+        atracoes_programacao: campoTextoOpcional(req.body?.atracoes_programacao, 10000),
         data_inicio: new Date(data_inicio),
         data_fim: new Date(data_fim),
-        local: local || "",
+        local: String(local || "").trim().slice(0, 255),
         ativo: true,
         criado_em: agora,
         atualizado_em: agora,
@@ -305,11 +316,16 @@ router.put("/:evento_id", authMiddleware, requireRole("admin"), async (req: Requ
     const eventoAtualizado = await db.transaction(async (tx) => {
       const agora = new Date();
       const atualizado = await tx.update(eventos).set({
-        nome: nome || undefined,
-        descricao: descricao !== undefined ? descricao : undefined,
+        nome: nome !== undefined ? String(nome).trim().slice(0, 255) : undefined,
+        descricao: campoTextoOpcional(descricao, 10000),
+        subtitulo: campoTextoOpcional(req.body?.subtitulo, 255),
+        destaque_titulo: campoTextoOpcional(req.body?.destaque_titulo, 160),
+        destaque_texto: campoTextoOpcional(req.body?.destaque_texto, 10000),
+        informacoes_praticas: campoTextoOpcional(req.body?.informacoes_praticas, 10000),
+        atracoes_programacao: campoTextoOpcional(req.body?.atracoes_programacao, 10000),
         data_inicio: data_inicio ? new Date(data_inicio) : undefined,
         data_fim: data_fim ? new Date(data_fim) : undefined,
-        local: local !== undefined ? local : undefined,
+        local: local !== undefined ? String(local).trim().slice(0, 255) : undefined,
         ativo: ativo !== undefined ? ativo : undefined,
         atualizado_em: agora,
       }).where(eq(eventos.id, evento_id)).returning();

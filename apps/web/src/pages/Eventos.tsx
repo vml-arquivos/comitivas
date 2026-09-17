@@ -58,6 +58,11 @@ type Evento = {
   id: string;
   nome: string;
   descricao?: string | null;
+  subtitulo?: string | null;
+  destaque_titulo?: string | null;
+  destaque_texto?: string | null;
+  informacoes_praticas?: string | null;
+  atracoes_programacao?: string | null;
   local: string;
   data_inicio: string;
   data_fim: string;
@@ -237,6 +242,7 @@ export default function Eventos() {
                     <div className="absolute inset-x-0 bottom-0 p-6 text-white sm:p-8">
                       <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-white/70">Excursão publicada</p>
                       <h2 className="font-editorial mt-3 text-3xl font-bold leading-tight sm:text-4xl">{evento.nome}</h2>
+                      {evento.subtitulo && <p className="mt-2 max-w-md text-sm font-semibold leading-6 text-white/85">{evento.subtitulo}</p>}
                       <div className="mt-5 space-y-2 text-sm text-white/85">
                         <p className="flex items-start gap-2"><MapPin size={16} className="mt-0.5 shrink-0 text-[#E3AAB4]" />{evento.local}</p>
                         <p className="flex items-start gap-2"><Calendar size={16} className="mt-0.5 shrink-0 text-[#E3AAB4]" />{formatarData(evento.data_inicio)} a {formatarData(evento.data_fim)}</p>
@@ -246,6 +252,7 @@ export default function Eventos() {
 
                   <div className="p-5 sm:p-8 lg:p-10">
                     {evento.descricao && <p className="max-w-3xl text-sm leading-7 text-[#182D3B]/66">{evento.descricao}</p>}
+                    {(evento.destaque_titulo || evento.destaque_texto || evento.atracoes_programacao || evento.informacoes_praticas) && <div className="mt-6 grid gap-3 md:grid-cols-2"><div className="rounded-2xl border border-[#851F32]/15 bg-[#F8F0F1] p-4 md:col-span-2">{evento.destaque_titulo && <h3 className="font-editorial text-2xl font-bold text-[#182D3B]">{evento.destaque_titulo}</h3>}{evento.destaque_texto && <p className="mt-2 whitespace-pre-line text-sm leading-6 text-[#5F7079]">{evento.destaque_texto}</p>}</div>{evento.atracoes_programacao && <div className="rounded-2xl border border-[#182D3B]/10 bg-[#FCFAF7] p-4"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">Atrações e programação</p><p className="mt-2 whitespace-pre-line text-sm leading-6 text-[#5F7079]">{evento.atracoes_programacao}</p></div>}{evento.informacoes_praticas && <div className="rounded-2xl border border-[#182D3B]/10 bg-[#FCFAF7] p-4"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">Informações práticas</p><p className="mt-2 whitespace-pre-line text-sm leading-6 text-[#5F7079]">{evento.informacoes_praticas}</p></div>}</div>}
                     <div className={`${evento.descricao ? 'mt-7' : ''} flex flex-col justify-between gap-3 border-b border-[#182D3B]/10 pb-5 sm:flex-row sm:items-end`}>
                       <div>
                         <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#851F32]">Pacotes publicados</p>

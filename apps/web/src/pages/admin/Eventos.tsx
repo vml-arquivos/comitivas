@@ -8,6 +8,11 @@ interface Evento {
   id: string;
   nome: string;
   descricao: string;
+  subtitulo?: string | null;
+  destaque_titulo?: string | null;
+  destaque_texto?: string | null;
+  informacoes_praticas?: string | null;
+  atracoes_programacao?: string | null;
   data_inicio: string;
   data_fim: string;
   local: string;
@@ -204,7 +209,7 @@ function modeloContrato(forma: FormaContratacao) {
   return 'auto';
 }
 
-const vazioEvento = { nome: '', descricao: '', dataInicio: '', dataFim: '', local: '' };
+const vazioEvento = { nome: '', descricao: '', subtitulo: '', destaqueTitulo: '', destaqueTexto: '', informacoesPraticas: '', atracoesProgramacao: '', dataInicio: '', dataFim: '', local: '' };
 const vazioLote = {
   nome: '', descricao: '', vagas: '', dataInicio: '', dataFim: '', dataEmbarque: '', dataRetorno: '',
   localEmbarque: '', localHospedagem: '',
@@ -348,7 +353,7 @@ export default function EventosAdmin() {
     if (eventoForm.dataInicio > eventoForm.dataFim) { setErro('A data de saída deve ser anterior à data de retorno.'); return; }
     setSalvando(true);
     try {
-      const payload = { nome: eventoForm.nome.trim(), descricao: eventoForm.descricao.trim(), local: eventoForm.local.trim(), data_inicio: dataSaoPauloIso(eventoForm.dataInicio), data_fim: dataSaoPauloIso(eventoForm.dataFim, true) };
+      const payload = { nome: eventoForm.nome.trim(), descricao: eventoForm.descricao.trim(), subtitulo: eventoForm.subtitulo.trim(), destaque_titulo: eventoForm.destaqueTitulo.trim(), destaque_texto: eventoForm.destaqueTexto.trim(), informacoes_praticas: eventoForm.informacoesPraticas.trim(), atracoes_programacao: eventoForm.atracoesProgramacao.trim(), local: eventoForm.local.trim(), data_inicio: dataSaoPauloIso(eventoForm.dataInicio), data_fim: dataSaoPauloIso(eventoForm.dataFim, true) };
       const resposta = eventoEditando ? await api.put(`/eventos/${eventoEditando}`, payload) : await api.post('/eventos', payload);
       if (eventoEditando) setEventos((atual) => atual.map((item) => item.id === eventoEditando ? resposta.data.evento : item));
       else setEventos((atual) => [resposta.data.evento, ...atual]);
@@ -602,7 +607,7 @@ export default function EventosAdmin() {
   };
 
   const editarEvento = (evento: Evento) => {
-    limparFeedback(); setEventoEditando(evento.id); setEventoForm({ nome: evento.nome, descricao: evento.descricao || '', dataInicio: paraDataInput(evento.data_inicio), dataFim: paraDataInput(evento.data_fim), local: evento.local }); setMostrarFormEvento(true); window.scrollTo({ top: 0, behavior: 'smooth' });
+    limparFeedback(); setEventoEditando(evento.id); setEventoForm({ nome: evento.nome, descricao: evento.descricao || '', subtitulo: evento.subtitulo || '', destaqueTitulo: evento.destaque_titulo || '', destaqueTexto: evento.destaque_texto || '', informacoesPraticas: evento.informacoes_praticas || '', atracoesProgramacao: evento.atracoes_programacao || '', dataInicio: paraDataInput(evento.data_inicio), dataFim: paraDataInput(evento.data_fim), local: evento.local }); setMostrarFormEvento(true); window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const editarLote = (eventoId: string, lote: Lote) => {
@@ -910,7 +915,7 @@ export default function EventosAdmin() {
     {erro && <div className="rounded-lg bg-red-50 p-4 text-sm text-red-700">{erro}</div>}
     {mensagem && <div className="rounded-lg bg-emerald-50 p-4 text-sm text-emerald-800">{mensagem}</div>}
 
-    {mostrarFormEvento && <Card className="border-[#C94F38]/20 shadow-sm"><CardContent className="p-6"><form onSubmit={(e) => void salvarEvento(e)} className="space-y-4"><div><h2 className="text-lg font-bold text-slate-900">{eventoEditando ? 'Editar excursão' : 'Nova excursão'}</h2><p className="mt-1 text-sm text-slate-500">Cadastre apenas a experiência: nome, destino e período. A excursão não tem preço.</p></div><div className="grid gap-4 md:grid-cols-2"><Input label="Nome da excursão" value={eventoForm.nome} onChange={(e) => setEventoForm({ ...eventoForm, nome: e.target.value })} placeholder="Ex.: Barretos 2027" /><Input label="Destino / local" value={eventoForm.local} onChange={(e) => setEventoForm({ ...eventoForm, local: e.target.value })} placeholder="Barretos — SP" /><Input label="Data de saída" type="date" value={eventoForm.dataInicio} onChange={(e) => setEventoForm({ ...eventoForm, dataInicio: e.target.value })} /><Input label="Data de retorno" type="date" value={eventoForm.dataFim} onChange={(e) => setEventoForm({ ...eventoForm, dataFim: e.target.value })} /></div><div><label className="mb-1 block text-sm font-medium text-slate-700">Descrição da experiência <span className="font-normal text-slate-400">(opcional)</span></label><textarea value={eventoForm.descricao} onChange={(e) => setEventoForm({ ...eventoForm, descricao: e.target.value })} rows={3} className="w-full rounded-md border border-slate-300 p-3 text-sm" placeholder="Apresente a excursão para a vitrine." /></div><Button type="submit" disabled={salvando}>{salvando ? 'Salvando...' : eventoEditando ? 'Salvar excursão' : 'Criar excursão'}</Button></form></CardContent></Card>}
+    {mostrarFormEvento && <Card className="border-[#C94F38]/20 shadow-sm"><CardContent className="p-6"><form onSubmit={(e) => void salvarEvento(e)} className="space-y-4"><div><h2 className="text-lg font-bold text-slate-900">{eventoEditando ? 'Editar excursão' : 'Nova excursão'}</h2><p className="mt-1 text-sm text-slate-500">Cadastre apenas a experiência: nome, destino e período. A excursão não tem preço.</p></div><div className="grid gap-4 md:grid-cols-2"><Input label="Nome da excursão" value={eventoForm.nome} onChange={(e) => setEventoForm({ ...eventoForm, nome: e.target.value })} placeholder="Ex.: Barretos 2027" /><Input label="Destino / local" value={eventoForm.local} onChange={(e) => setEventoForm({ ...eventoForm, local: e.target.value })} placeholder="Barretos — SP" /><Input label="Data de saída" type="date" value={eventoForm.dataInicio} onChange={(e) => setEventoForm({ ...eventoForm, dataInicio: e.target.value })} /><Input label="Data de retorno" type="date" value={eventoForm.dataFim} onChange={(e) => setEventoForm({ ...eventoForm, dataFim: e.target.value })} /><Input label="Subtítulo da excursão" value={eventoForm.subtitulo} onChange={(e) => setEventoForm({ ...eventoForm, subtitulo: e.target.value })} maxLength={255} placeholder="Ex.: Rodeio, música e tradição em Barretos" /></div><div><label className="mb-1 block text-sm font-medium text-slate-700">Descrição da experiência <span className="font-normal text-slate-400">(opcional)</span></label><textarea value={eventoForm.descricao} onChange={(e) => setEventoForm({ ...eventoForm, descricao: e.target.value })} rows={4} maxLength={10000} className="w-full rounded-md border border-slate-300 p-3 text-sm" placeholder="Apresente a excursão para a vitrine." /></div><div className="rounded-2xl border border-[#C94F38]/20 bg-[#fff8f4] p-4"><div className="mb-3"><p className="text-sm font-bold text-[#073F50]">Conteúdo de destaque para a vitrine <span className="font-normal text-slate-400">(opcional)</span></p><p className="mt-1 text-xs leading-5 text-slate-600">Use estes campos para destacar a experiência, informar o cliente e apresentar atrações sem misturar preço ou disponibilidade.</p></div><div className="grid gap-4 md:grid-cols-2"><Input label="Título de destaque" value={eventoForm.destaqueTitulo} onChange={(e) => setEventoForm({ ...eventoForm, destaqueTitulo: e.target.value })} maxLength={160} placeholder="Ex.: Viva Barretos por inteiro" /><label className="block text-sm font-medium text-slate-700">Atrações e programação<textarea value={eventoForm.atracoesProgramacao} onChange={(e) => setEventoForm({ ...eventoForm, atracoesProgramacao: e.target.value })} rows={4} maxLength={10000} className="mt-1 w-full rounded-md border border-slate-300 p-3 text-sm" placeholder="Rodeio, música, tradição e atrações confirmadas..." /></label><label className="block text-sm font-medium text-slate-700">Texto de destaque<textarea value={eventoForm.destaqueTexto} onChange={(e) => setEventoForm({ ...eventoForm, destaqueTexto: e.target.value })} rows={4} maxLength={10000} className="mt-1 w-full rounded-md border border-slate-300 p-3 text-sm" placeholder="Uma chamada curta para despertar o interesse." /></label><label className="block text-sm font-medium text-slate-700">Informações práticas<textarea value={eventoForm.informacoesPraticas} onChange={(e) => setEventoForm({ ...eventoForm, informacoesPraticas: e.target.value })} rows={4} maxLength={10000} className="mt-1 w-full rounded-md border border-slate-300 p-3 text-sm" placeholder="Local, período, orientações e informações úteis ao cliente." /></label></div></div><Button type="submit" disabled={salvando}>{salvando ? 'Salvando...' : eventoEditando ? 'Salvar excursão' : 'Criar excursão'}</Button></form></CardContent></Card>}
 
     {carregando && <p className="text-sm text-slate-500">Carregando excursões...</p>}
     {!carregando && eventos.length === 0 && <div className="rounded-xl border border-dashed border-slate-300 p-10 text-center text-sm text-slate-500">Nenhuma excursão cadastrada.</div>}

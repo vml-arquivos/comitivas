@@ -74,6 +74,11 @@ type Evento = {
   id: string;
   nome: string;
   descricao?: string | null;
+  subtitulo?: string | null;
+  destaque_titulo?: string | null;
+  destaque_texto?: string | null;
+  informacoes_praticas?: string | null;
+  atracoes_programacao?: string | null;
   local: string;
   data_inicio: string;
   data_fim: string;
@@ -411,6 +416,7 @@ export default function Home() {
                   <h2 className="font-editorial mt-2 text-2xl leading-tight text-[#182D3B]">
                     {ofertaAtiva ? ofertaAtiva.evento.nome : 'Vamos encontrar sua excursão?'}
                   </h2>
+                  {ofertaAtiva?.evento.subtitulo && <p className="mt-2 text-sm font-semibold leading-5 text-[#5F7079]">{ofertaAtiva.evento.subtitulo}</p>}
                 </div>
                 {ofertaAtiva && <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${statusAtivo.classe}`}>{statusAtivo.label}</span>}
               </div>
@@ -420,6 +426,7 @@ export default function Home() {
               ) : ofertaAtiva ? (
                 <>
                   <p className="mt-3 text-sm font-bold text-[#334A58]">{ofertaAtiva.pacote.nome}</p>
+                  {(ofertaAtiva.evento.destaque_titulo || ofertaAtiva.evento.destaque_texto) && <div className="mt-3 rounded-xl border border-[#851F32]/15 bg-[#F8F0F1] px-3 py-2.5"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">{ofertaAtiva.evento.destaque_titulo || 'Destaque da excursão'}</p>{ofertaAtiva.evento.destaque_texto && <p className="mt-1 line-clamp-3 whitespace-pre-line text-xs leading-5 text-[#5F7079]">{ofertaAtiva.evento.destaque_texto}</p>}</div>}
                   {(ofertaAtiva.pacote.destaque_titulo || ofertaAtiva.pacote.destaque_subtitulo || ofertaAtiva.pacote.destaque_texto) && <div className="mt-3 rounded-xl border border-[#851F32]/15 bg-[#F8F0F1] px-3 py-2.5"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">{ofertaAtiva.pacote.destaque_subtitulo || 'Destaque'}</p>{ofertaAtiva.pacote.destaque_titulo && <p className="mt-1 text-sm font-extrabold text-[#182D3B]">{ofertaAtiva.pacote.destaque_titulo}</p>}{ofertaAtiva.pacote.destaque_texto && <p className="mt-1 text-xs leading-5 text-[#5F7079]">{ofertaAtiva.pacote.destaque_texto}</p>}</div>}
                   <div className="mt-4 border-y border-[#182D3B]/10 py-4 text-xs text-[#60717B]">
                     <div className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 font-black uppercase tracking-[.12em] text-[#851F32]"><Calendar size={14} />Períodos</span><span className="font-extrabold text-[#182D3B]">{precoOferta(ofertaAtiva) || 'Valor no configurador'}</span></div>
@@ -495,7 +502,7 @@ export default function Home() {
                 const periodos = periodosOferta(oferta);
                 return (
                     <article key={`${oferta.lote.id}-${oferta.pacote.id}`} className="group flex min-h-[385px] min-w-0 flex-col rounded-[1.5rem] border border-[#182D3B]/10 bg-white p-6 shadow-[0_12px_35px_rgba(24,45,59,0.06)] transition hover:-translate-y-1 hover:shadow-[0_20px_45px_rgba(24,45,59,0.1)]">
-                    <div className="flex items-start justify-between gap-4"><p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#851F32]">{oferta.evento.nome}</p><span className={`shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase ${status.classe}`}>{status.label}</span></div>
+                    <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#851F32]">{oferta.evento.nome}</p>{oferta.evento.subtitulo && <p className="mt-1 text-xs font-semibold leading-5 text-[#60717B]">{oferta.evento.subtitulo}</p>}</div><span className={`shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase ${status.classe}`}>{status.label}</span></div>
                     <h3 className="font-editorial mt-4 text-2xl leading-tight text-[#182D3B]">{oferta.pacote.nome}</h3>
                     {(oferta.pacote.destaque_titulo || oferta.pacote.destaque_subtitulo || oferta.pacote.destaque_texto) && <div className="mt-3 rounded-xl border border-[#851F32]/15 bg-[#F8F0F1] px-3 py-2.5"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">{oferta.pacote.destaque_subtitulo || 'Destaque'}</p>{oferta.pacote.destaque_titulo && <p className="mt-1 text-sm font-extrabold text-[#182D3B]">{oferta.pacote.destaque_titulo}</p>}{oferta.pacote.destaque_texto && <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#5F7079]">{oferta.pacote.destaque_texto}</p>}</div>}
                     <p className="mt-2 line-clamp-2 min-h-10 text-sm leading-5 text-[#6B7C85]">{oferta.pacote.descricao || oferta.lote.descricao || 'Detalhes completos disponíveis no configurador.'}</p>
