@@ -72,7 +72,7 @@ function slugify(valor: string) {
 function formatarData(valor: string) {
   const data = new Date(valor);
   if (Number.isNaN(data.getTime())) return valor;
-  return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }).format(data);
+  return new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: 'short', year: 'numeric' }).format(data);
 }
 
 function formatarMoeda(valor: string | number) {
