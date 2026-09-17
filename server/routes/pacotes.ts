@@ -660,6 +660,7 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
       const comerciais = await Promise.all(formasParaCalculo.map(async (forma) => [forma, await LoteComercialService.obterStatus(pacote.id, periodoId, normalizarFormaLote(forma))] as const));
       const porForma = new Map(comerciais);
       const combinarDisponibilidade = (fisica: string, comercial?: Awaited<ReturnType<typeof LoteComercialService.obterStatus>>) => {
+        if (fisica === "configuracao_pendente" || !comercial?.configurado) return "configuracao_pendente";
         if (comercial?.configurado && (comercial.status === "esgotado" || comercial.status === "aguardando")) return comercial.status;
         if (fisica === "esgotado") return fisica;
         if (fisica === "ultimas_vagas" || comercial?.status === "ultimas_vagas") return "ultimas_vagas";

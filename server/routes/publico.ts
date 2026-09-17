@@ -154,9 +154,9 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
             const comercialPublico = statusComercialPublico(comerciais.find(([, status]) => status.lote?.id === loteAtivo?.id)?.[1] || { status: configurado ? (aguardando ? "aguardando" : "esgotado") : "disponivel", lote: loteAtivo, proximos: [], configurado });
             return {
               ...periodo,
-              valor_total: configurado ? (loteAtivo?.valor || null) : modalidade.valor_total,
+              valor_total: configurado ? (loteAtivo?.valor || null) : null,
               ...comercialPublico,
-              disponibilidade: capacidade.disponibilidade === "esgotado" ? "esgotado" : loteAtivo ? (loteAtivo.vagas_disponiveis <= 5 ? "ultimas_vagas" : "disponivel") : configurado ? (aguardando ? "aguardando" : "esgotado") : capacidade.disponibilidade,
+              disponibilidade: capacidade.disponibilidade === "configuracao_pendente" || !configurado ? "configuracao_pendente" : capacidade.disponibilidade === "esgotado" ? "esgotado" : loteAtivo ? (loteAtivo.vagas_disponiveis <= 5 ? "ultimas_vagas" : "disponivel") : aguardando ? "aguardando" : "esgotado",
               vagas_disponiveis: capacidade.vagas_disponiveis,
               lotes_comerciais: lotesComerciais,
             };
@@ -165,11 +165,11 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
           const comercialPublicoBase = statusComercialPublico(comercialBasePorForma.find(([, status]) => status.lote?.id === comercialBaseAtivo?.id)?.[1] || { status: comercialBaseConfigurado ? (comercialBaseAguardando ? "aguardando" : "esgotado") : "disponivel", lote: comercialBaseAtivo, proximos: [], configurado: comercialBaseConfigurado });
           return {
             ...modalidade,
-            valor_total: comercialBaseConfigurado ? (comercialBaseAtivo?.valor || null) : modalidade.valor_total,
+            valor_total: comercialBaseConfigurado ? (comercialBaseAtivo?.valor || null) : null,
             forma_contratacao: modalidade.modalidade_hospedagem === "camping" ? "onibus" : modalidade.forma_contratacao,
             formas_contratacao: formasContratacao,
             ...comercialPublicoBase,
-            disponibilidade: capacidadeBase.disponibilidade === "esgotado" ? "esgotado" : comercialBaseAtivo ? (comercialBaseAtivo.vagas_disponiveis <= 5 ? "ultimas_vagas" : "disponivel") : comercialBaseConfigurado ? (comercialBaseAguardando ? "aguardando" : "esgotado") : capacidadeBase.disponibilidade,
+            disponibilidade: capacidadeBase.disponibilidade === "configuracao_pendente" || !comercialBaseConfigurado ? "configuracao_pendente" : capacidadeBase.disponibilidade === "esgotado" ? "esgotado" : comercialBaseAtivo ? (comercialBaseAtivo.vagas_disponiveis <= 5 ? "ultimas_vagas" : "disponivel") : comercialBaseAguardando ? "aguardando" : "esgotado",
             fotos: await db.select({ id: fotosPacote.id, url_foto: fotosPacote.url_foto, legenda: fotosPacote.legenda, alt_text: fotosPacote.alt_text, ordem: fotosPacote.ordem, capa: fotosPacote.capa })
               .from(fotosPacote)
               .where(eq(fotosPacote.pacote_id, modalidade.id))

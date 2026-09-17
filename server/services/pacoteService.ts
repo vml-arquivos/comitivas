@@ -414,21 +414,32 @@ export class PacoteService {
     let vagasTransporte: number | null = null;
     let vagasHospedagem: number | null = null;
     let vagasHospedagemPorGrupo: Record<GrupoHospedagem, number> | null = null;
+    let transporteConfigurado = !recursos.transporte;
+    let hospedagemConfigurada = !recursos.hospedagem;
 
     if (recursos.transporte) {
-      const linha = (await db.execute(sql`SELECT COUNT(*)::int AS total
+      const linha = (await db.execute(sql`SELECT COUNT(*) FILTER (WHERE a.status = 'disponivel' AND a.numero <= o.capacidade
+          AND NOT EXISTS (SELECT 1 FROM assento_alocacoes aa WHERE aa.assento_id = a.id AND aa.status = 'ativa')
+          AND NOT EXISTS (SELECT 1 FROM assento_holds h WHERE h.assento_id = a.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP))::int AS total,
+        COUNT(*)::int AS configurado
         FROM saidas_operacionais s
         JOIN onibus_operacionais o ON o.saida_id = s.id AND o.ativo = true
-        JOIN assentos_onibus a ON a.onibus_id = o.id AND a.status = 'disponivel' AND a.numero <= o.capacidade
+        JOIN assentos_onibus a ON a.onibus_id = o.id
         WHERE s.lote_id = ${pacote.lote_id} AND s.ativa = true
-          AND (${periodoId || null}::text IS NULL OR COALESCE(o.periodo_id, s.periodo_id) IS NULL OR COALESCE(o.periodo_id, s.periodo_id) = ${periodoId || null})
-          AND NOT EXISTS (SELECT 1 FROM assento_alocacoes aa WHERE aa.assento_id = a.id AND aa.status = 'ativa')
-          AND NOT EXISTS (SELECT 1 FROM assento_holds h WHERE h.assento_id = a.id AND h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP)`)).rows[0] as { total: number } | undefined;
+          AND (${periodoId || null}::text IS NULL OR COALESCE(o.periodo_id, s.periodo_id) IS NULL OR COALESCE(o.periodo_id, s.periodo_id) = ${periodoId || null})`)).rows[0] as { total: number; configurado: number } | undefined;
       vagasTransporte = Math.max(0, Number(linha?.total || 0));
+      transporteConfigurado = Number(linha?.configurado || 0) > 0;
       if (planejamento?.transporte !== null && planejamento?.transporte !== undefined) vagasTransporte = Math.min(vagasTransporte, Number(planejamento.transporte));
     }
 
     if (recursos.hospedagem && recursos.estrutura_quarto) {
+      const quartos = (await db.execute(sql`SELECT COUNT(*)::int AS total
+        FROM quartos_hospedagem q
+        WHERE q.lote_id = ${pacote.lote_id} AND q.ativo = true
+          AND q.estrutura = ${recursos.estrutura_quarto}
+          AND (q.pacote_id IS NULL OR q.pacote_id = ${pacote.id})
+          AND (${periodoId || null}::text IS NULL OR q.periodo_id IS NULL OR q.periodo_id = ${periodoId || null})`)).rows[0] as { total: number } | undefined;
+      hospedagemConfigurada = Number(quartos?.total || 0) > 0;
       const linhasGrupo = (await db.execute(sql`SELECT q.genero,
           COALESCE(SUM(q.capacidade - (SELECT COUNT(*) FROM quarto_alocacoes qa WHERE qa.quarto_id = q.id AND qa.status = 'ativa')), 0)::int AS total
         FROM quartos_hospedagem q
@@ -447,8 +458,11 @@ export class PacoteService {
 
     const limites = [vagasLote, vagasTransporte, vagasHospedagem].filter((valor): valor is number => valor !== null);
     const vagasDisponiveis = Math.max(0, Math.min(...limites));
-    const disponibilidade = pacote.disponibilidade === "esgotado" || vagasDisponiveis === 0
+    const configuracaoPendente = (recursos.transporte && !transporteConfigurado) || (recursos.hospedagem && !hospedagemConfigurada);
+    const disponibilidade = pacote.disponibilidade === "esgotado"
       ? "esgotado"
+      : configuracaoPendente ? "configuracao_pendente"
+      : vagasDisponiveis === 0 ? "esgotado"
       : vagasDisponiveis <= 5 ? "ultimas_vagas" : pacote.disponibilidade || "disponivel";
     return {
       recursos,
@@ -456,6 +470,7 @@ export class PacoteService {
       vagas_transporte: vagasTransporte,
       vagas_hospedagem: vagasHospedagem,
       vagas_hospedagem_por_grupo: vagasHospedagemPorGrupo,
+      configuracao_pendente: configuracaoPendente,
       disponibilidade,
     };
   }
