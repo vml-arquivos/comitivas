@@ -288,7 +288,7 @@ export default function Eventos() {
             const pacotesFiltrados = pacotes.filter(({ modalidade }) => (filtroModalidade === 'todas' || modalidade.modalidade_hospedagem === filtroModalidade) && (!somenteDisponiveis || !['esgotado', 'aguardando'].includes(String(disponibilidadeModalidade(modalidade)))));
             return (
               <article key={evento.id} className="overflow-hidden rounded-[2rem] border border-[#182D3B]/10 bg-white shadow-[0_18px_50px_rgba(24,45,59,0.08)]">
-                <div className="border-b border-[#182D3B]/10 bg-white p-5 sm:p-8 lg:p-10">
+                {!identificadorEvento && <div className="border-b border-[#182D3B]/10 bg-white p-5 sm:p-8 lg:p-10">
                   <div className="grid gap-8 xl:grid-cols-[minmax(0,1.08fr)_minmax(320px,.92fr)] xl:items-start">
                     <div>
                       <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-[#851F32]">Experiência publicada</p>
@@ -313,7 +313,7 @@ export default function Eventos() {
                     {evento.atracoes_programacao && <div className="rounded-2xl border border-[#182D3B]/10 bg-[#FCFAF7] p-5"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">Atrações e programação</p><p className="mt-3 whitespace-pre-line text-sm leading-7 text-[#5F7079]">{evento.atracoes_programacao}</p></div>}
                     {evento.informacoes_praticas && <div className="rounded-2xl border border-[#182D3B]/10 bg-[#FCFAF7] p-5"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">Informações práticas</p><p className="mt-3 whitespace-pre-line text-sm leading-7 text-[#5F7079]">{evento.informacoes_praticas}</p></div>}
                   </div>}
-                </div>
+                </div>}
 
                 <div className="p-5 sm:p-8 lg:p-10">
                   <div className="flex flex-col justify-between gap-5 border-b border-[#182D3B]/10 pb-7 md:flex-row md:items-end">

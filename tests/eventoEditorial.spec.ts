@@ -35,6 +35,8 @@ describe("campos editoriais da excursão", () => {
     expect(publico).toContain("object-contain");
     expect(publico).toContain("CapacidadesResumo");
     expect(publico).toContain("capacidades_por_forma");
+    expect(publico).toContain("!identificadorEvento && <div className=\"border-b");
+    expect(publico.match(/Experiência publicada/g)).toHaveLength(1);
   });
 
   it("permite abrir uma excursão pelo nome a partir da home", () => {
