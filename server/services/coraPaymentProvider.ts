@@ -205,7 +205,9 @@ export class CoraPaymentProvider {
       status: String(data?.status || "OPEN"),
       metodo: input.metodo,
       totalAmount: Number(data?.total_amount || cents(input.valor)),
-      qrCode: stringValue(bankSlip.url) || stringValue(pix.qr_code),
+      // A Cora documenta `pix.emv` como o conteúdo do QR Code Pix. A URL
+      // de `bank_slip` é um PDF e não pode ser apresentada como QR Code.
+      qrCode: stringValue(pix.qr_code) || stringValue(pix.emv),
       pixCopiaECola: stringValue(pix.emv) || stringValue(pix.copia_e_cola),
       boletoUrl: stringValue(bankSlip.url),
       barcode: stringValue(bankSlip.barcode),

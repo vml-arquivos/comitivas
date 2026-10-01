@@ -2,7 +2,7 @@ import { describe, expect, it, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { PaymentGatewayAdapter } from "../server/services/paymentGatewayAdapter.js";
+import { metodoCora, PaymentGatewayAdapter } from "../server/services/paymentGatewayAdapter.js";
 
 const nomes = ["NODE_ENV", "PAYMENT_GATEWAY", "CORA_CLIENT_ID", "CORA_CERT_PATH", "CORA_PRIVATE_KEY_PATH", "CORA_WEBHOOK_PUBLIC_URL", "OTP_PEPPER"];
 const ambienteOriginal = Object.fromEntries(nomes.map((nome) => [nome, process.env[nome]]));
@@ -50,6 +50,12 @@ describe("PaymentGatewayAdapter.validarConfiguracaoSegura", () => {
     const { readFile } = await import("node:fs/promises");
     const fonte = await readFile(new URL("../server/services/paymentGatewayAdapter.ts", import.meta.url), "utf8");
     expect(fonte).toContain('case "PAID_OUT": return "aprovado";');
+  });
+
+  it("respeita boleto à vista e reserva PIX combinado para o fluxo explicitamente combinado", () => {
+    expect(metodoCora("boleto", 1)).toBe("boleto");
+    expect(metodoCora("boleto", 2)).toBe("carne");
+    expect(metodoCora("pix", 1)).toBe("pix");
   });
 
   it("mantém certificados e chaves fora do frontend e do cofre de produção", async () => {

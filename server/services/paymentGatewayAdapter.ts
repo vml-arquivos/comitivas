@@ -44,9 +44,11 @@ function statusCoraParaLocal(status: unknown): "pendente" | "processando" | "apr
   }
 }
 
-function metodoCora(metodo: CriarPagamentoRequest["metodo"], parcelas: number): CoraMetodo {
+export function metodoCora(metodo: CriarPagamentoRequest["metodo"], parcelas: number): CoraMetodo {
   if (metodo === "pix") return "pix";
-  return parcelas > 1 ? "carne" : "boleto_pix";
+  // Boleto à vista deve respeitar a escolha do cliente e não exigir uma
+  // chave Pix na conta Cora. O carnê continua sendo usado para parcelas.
+  return parcelas > 1 ? "carne" : "boleto";
 }
 
 function asNumber(valor: unknown): number {
