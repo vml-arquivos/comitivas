@@ -126,4 +126,15 @@ describe("catálogo simples de excursões, lotes e pacotes", () => {
     expect(comercial).toContain("lote_comercial_descricao: status.lote?.descricao || null");
     expect(modalComercial).toBe(1);
   });
+
+  it("mantém fotos destacadas administráveis na home sem remover o fallback local", () => {
+    const home = ler("apps/web/src/pages/publico/Home.tsx");
+    const publico = ler("server/routes/publico.ts");
+    const admin = ler("apps/web/src/pages/admin/Conteudo.tsx");
+    expect(publico).toContain("fotos_evento.destaque");
+    expect(publico).toContain("limit(12)");
+    expect(admin).toContain("Marcar como destaque");
+    expect(home).toContain("return GALERIA_BARRETOS");
+    expect(home).toContain("fotosDestaque.slice(0, 8)");
+  });
 });

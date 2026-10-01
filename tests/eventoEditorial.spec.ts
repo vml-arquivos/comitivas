@@ -44,4 +44,22 @@ describe("campos editoriais da excursão", () => {
     expect(home).toContain("Ver detalhes da excursão");
     expect(home).toContain("/excursao/${slugify(oferta.evento.nome)}");
   });
+
+  it("mantém o editor de conteúdo sincronizado com a galeria pública", () => {
+    const admin = ler("apps/web/src/pages/admin/Conteudo.tsx");
+    const rotasAdmin = ler("server/routes/admin.ts");
+    const rotasEvento = ler("server/routes/eventos.ts");
+    const rotasPublicas = ler("server/routes/publico.ts");
+    const home = ler("apps/web/src/pages/publico/Home.tsx");
+    expect(admin).toContain("/admin/fotos/${editandoFoto.id}");
+    expect(admin).toContain("/admin/videos/${editandoVideo.id}");
+    expect(admin).toContain("Usar na galeria principal da home");
+    expect(rotasAdmin).toContain('router.patch("/fotos/:id"');
+    expect(rotasAdmin).toContain('router.patch("/videos/:id"');
+    expect(rotasEvento).toContain('x-file-featured');
+    expect(rotasEvento).toContain('x-file-cover');
+    expect(rotasPublicas).toContain('router.get("/fotos"');
+    expect(home).toContain("api.get('/publico/fotos')");
+    expect(home).toContain("galeriaDestaques");
+  });
 });

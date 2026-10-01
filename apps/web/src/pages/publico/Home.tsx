@@ -44,6 +44,14 @@ type Foto = {
   capa?: boolean;
 };
 
+type FotoGaleria = {
+  src: string;
+  alt: string;
+  legenda: string;
+  width?: number;
+  height?: number;
+};
+
 type Periodo = {
   id: string;
   nome: string;
@@ -113,7 +121,7 @@ const SCHEMA_ORGANIZATION = {
   },
 };
 
-const GALERIA_BARRETOS = [
+const GALERIA_BARRETOS: FotoGaleria[] = [
   {
     src: '/images/hero-parque-peao.jpg',
     alt: 'Vista do Parque do Peão com a estátua de Barretos em primeiro plano',
@@ -228,6 +236,7 @@ export default function Home() {
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [avaliacoes, setAvaliacoes] = useState<any[]>([]);
   const [videos, setVideos] = useState<any[]>([]);
+  const [fotosDestaque, setFotosDestaque] = useState<Foto[]>([]);
   const [videoAtivo, setVideoAtivo] = useState<string | null>(null);
   const [stats, setStats] = useState<{ clientes: number | null; edicoes: number | null; nota: number | null }>({
     clientes: null,
@@ -237,7 +246,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true);
   const [erroOfertas, setErroOfertas] = useState('');
   const [indiceOferta, setIndiceOferta] = useState(0);
-  const [imagemSelecionada, setImagemSelecionada] = useState<typeof GALERIA_BARRETOS[number] | null>(null);
+  const [imagemSelecionada, setImagemSelecionada] = useState<FotoGaleria | null>(null);
   const fecharModalRef = useRef<HTMLButtonElement>(null);
   const ultimoFocoRef = useRef<HTMLElement | null>(null);
 
@@ -248,6 +257,19 @@ export default function Home() {
       (lote.modalidades || []).map((pacote) => ({ evento, lote, pacote })))), [eventos]);
 
   const ofertaAtiva = ofertas.length > 0 ? ofertas[Math.min(indiceOferta, ofertas.length - 1)] : null;
+
+  const galeriaDestaques = useMemo<FotoGaleria[]>(() => {
+    if (fotosDestaque.length > 0) {
+      return fotosDestaque.slice(0, 8).map((foto) => ({
+        src: foto.url_foto,
+        alt: foto.alt_text || foto.legenda || 'Imagem da Excursão das Comitivas',
+        legenda: foto.legenda || 'Momentos da Excursão das Comitivas',
+        width: 1200,
+        height: 800,
+      }));
+    }
+    return GALERIA_BARRETOS;
+  }, [fotosDestaque]);
 
   const linkEventos = useMemo(() => {
     if (!refComercial) return '/eventos';
@@ -265,11 +287,12 @@ export default function Home() {
 
   useEffect(() => {
     const carregarDadosPublicos = async () => {
-      const [ofertasResultado, avaliacoesResultado, statsResultado, videosResultado] = await Promise.allSettled([
+      const [ofertasResultado, avaliacoesResultado, statsResultado, videosResultado, fotosResultado] = await Promise.allSettled([
         api.get('/publico/ofertas'),
         api.get('/publico/avaliacoes'),
         api.get('/publico/stats'),
         api.get('/publico/videos'),
+        api.get('/publico/fotos'),
       ]);
 
       if (ofertasResultado.status === 'fulfilled') {
@@ -287,6 +310,10 @@ export default function Home() {
 
       if (videosResultado.status === 'fulfilled') {
         setVideos((videosResultado.value.data.videos || []).filter((video: any) => video.youtube_id).slice(0, 3));
+      }
+
+      if (fotosResultado.status === 'fulfilled') {
+        setFotosDestaque((fotosResultado.value.data.fotos || []).filter((foto: Foto) => foto.url_foto));
       }
 
       if (statsResultado.status === 'fulfilled') {
@@ -336,7 +363,7 @@ export default function Home() {
     };
   }, [imagemSelecionada]);
 
-  const abrirImagem = (foto: typeof GALERIA_BARRETOS[number], gatilho: HTMLElement) => {
+  const abrirImagem = (foto: FotoGaleria, gatilho: HTMLElement) => {
     ultimoFocoRef.current = gatilho;
     setImagemSelecionada(foto);
   };
@@ -542,7 +569,7 @@ export default function Home() {
           </div>
 
           <div className="mt-12 grid auto-rows-[180px] grid-cols-2 gap-3 sm:auto-rows-[230px] lg:grid-cols-4">
-            {GALERIA_BARRETOS.map((foto, index) => (
+            {galeriaDestaques.map((foto, index) => (
               <button
                 key={foto.src}
                 type="button"

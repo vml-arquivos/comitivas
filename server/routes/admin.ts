@@ -1910,6 +1910,10 @@ router.post("/videos", requireRole("admin"), async (req: Request, res: Response)
   try {
     const youtubeId = extrairYoutubeId(req.body?.url);
     if (!youtubeId || !req.body?.evento_id) return res.status(400).json({ erro: "Informe URL do YouTube válida e evento" });
+    const evento = (await db.select({ id: eventos.id }).from(eventos).where(eq(eventos.id, String(req.body.evento_id))).limit(1))[0];
+    if (!evento) return res.status(404).json({ erro: "Excursão não encontrada" });
+    const ordem = req.body?.ordem === undefined || req.body.ordem === "" ? 0 : Number(req.body.ordem);
+    if (!Number.isInteger(ordem) || ordem < 0) return res.status(400).json({ erro: "A ordem do vídeo deve ser um número inteiro maior ou igual a zero" });
     const video = (await db.insert(videosEvento).values({ id: randomUUID(), evento_id: String(req.body.evento_id), url: String(req.body.url), youtube_id: youtubeId, titulo: req.body.titulo ? String(req.body.titulo).slice(0, 255) : null, descricao: req.body.descricao ? String(req.body.descricao) : null, ordem: Number(req.body.ordem || 0), ativo: req.body.ativo !== false, destaque: req.body.destaque === true }).returning())[0];
     return res.status(201).json({ video });
   } catch (error: any) { console.error("[ADMIN] Erro ao criar vídeo:", error); return res.status(400).json({ erro: "Não foi possível salvar o vídeo" }); }
@@ -1919,7 +1923,9 @@ router.patch("/videos/:id", requireRole("admin"), async (req: Request, res: Resp
   try {
     const youtubeId = req.body?.url ? extrairYoutubeId(req.body.url) : undefined;
     if (req.body?.url && !youtubeId) return res.status(400).json({ erro: "URL do YouTube inválida" });
-    const video = (await db.update(videosEvento).set({ ...(youtubeId ? { url: String(req.body.url), youtube_id: youtubeId } : {}), ...(req.body.titulo !== undefined ? { titulo: String(req.body.titulo).slice(0, 255) } : {}), ...(req.body.descricao !== undefined ? { descricao: String(req.body.descricao) } : {}), ...(req.body.ordem !== undefined ? { ordem: Number(req.body.ordem) } : {}), ...(req.body.ativo !== undefined ? { ativo: Boolean(req.body.ativo) } : {}), ...(req.body.destaque !== undefined ? { destaque: Boolean(req.body.destaque) } : {}), atualizado_em: new Date() }).where(eq(videosEvento.id, req.params.id)).returning())[0];
+    const ordem = req.body?.ordem === undefined || req.body.ordem === "" ? undefined : Number(req.body.ordem);
+    if (ordem !== undefined && (!Number.isInteger(ordem) || ordem < 0)) return res.status(400).json({ erro: "A ordem do vídeo deve ser um número inteiro maior ou igual a zero" });
+    const video = (await db.update(videosEvento).set({ ...(youtubeId ? { url: String(req.body.url), youtube_id: youtubeId } : {}), ...(req.body.titulo !== undefined ? { titulo: String(req.body.titulo).slice(0, 255) || null } : {}), ...(req.body.descricao !== undefined ? { descricao: String(req.body.descricao) || null } : {}), ...(ordem !== undefined ? { ordem } : {}), ...(req.body.ativo !== undefined ? { ativo: Boolean(req.body.ativo) } : {}), ...(req.body.destaque !== undefined ? { destaque: Boolean(req.body.destaque) } : {}), atualizado_em: new Date() }).where(eq(videosEvento.id, req.params.id)).returning())[0];
     if (!video) return res.status(404).json({ erro: "Vídeo não encontrado" });
     return res.json({ video });
   } catch (error) { console.error("[ADMIN] Erro ao atualizar vídeo:", error); return res.status(400).json({ erro: "Não foi possível atualizar o vídeo" }); }
@@ -1941,6 +1947,10 @@ router.post("/fotos", requireRole("admin"), async (req: Request, res: Response) 
     const url = String(req.body?.url_foto || req.body?.url || "").trim();
     if (!req.body?.evento_id || !url || !req.body?.alt_text?.trim()) return res.status(400).json({ erro: "evento_id, url e alt_text são obrigatórios" });
     if (!url.startsWith("/") && !url.toLowerCase().startsWith("https://")) return res.status(400).json({ erro: "A URL da foto deve usar HTTPS" });
+    const evento = (await db.select({ id: eventos.id }).from(eventos).where(eq(eventos.id, String(req.body.evento_id))).limit(1))[0];
+    if (!evento) return res.status(404).json({ erro: "Excursão não encontrada" });
+    const ordem = req.body?.ordem === undefined || req.body.ordem === "" ? 0 : Number(req.body.ordem);
+    if (!Number.isInteger(ordem) || ordem < 0) return res.status(400).json({ erro: "A ordem da foto deve ser um número inteiro maior ou igual a zero" });
     const foto = (await db.insert(fotos_evento).values({ id: randomUUID(), evento_id: String(req.body.evento_id), url_foto: url, legenda: req.body.legenda ? String(req.body.legenda).slice(0, 500) : null, alt_text: String(req.body.alt_text).slice(0, 500), categoria: req.body.categoria ? String(req.body.categoria).slice(0, 80) : "evento", destaque: req.body.destaque === true, capa: req.body.capa === true, formato: req.body.formato ? String(req.body.formato).slice(0, 30) : null, ordem: Number(req.body.ordem || 0) }).returning())[0];
     return res.status(201).json({ foto });
   } catch (error) { console.error("[ADMIN] Erro ao criar foto:", error); return res.status(400).json({ erro: "Não foi possível salvar a foto" }); }
@@ -1948,14 +1958,30 @@ router.post("/fotos", requireRole("admin"), async (req: Request, res: Response) 
 
 router.patch("/fotos/:id", requireRole("admin"), async (req: Request, res: Response) => {
   try {
-    const foto = (await db.update(fotos_evento).set({ ...(req.body?.url_foto || req.body?.url ? { url_foto: String(req.body.url_foto || req.body.url) } : {}), ...(req.body?.legenda !== undefined ? { legenda: String(req.body.legenda).slice(0, 500) } : {}), ...(req.body?.alt_text !== undefined ? { alt_text: String(req.body.alt_text).slice(0, 500) } : {}), ...(req.body?.categoria !== undefined ? { categoria: String(req.body.categoria).slice(0, 80) } : {}), ...(req.body?.destaque !== undefined ? { destaque: Boolean(req.body.destaque) } : {}), ...(req.body?.capa !== undefined ? { capa: Boolean(req.body.capa) } : {}), ...(req.body?.ordem !== undefined ? { ordem: Number(req.body.ordem) } : {}), ...(req.body?.formato !== undefined ? { formato: String(req.body.formato).slice(0, 30) } : {}) }).where(eq(fotos_evento.id, req.params.id)).returning())[0];
+    const url = req.body?.url_foto || req.body?.url;
+    if (url !== undefined && (!String(url).startsWith("/") && !String(url).toLowerCase().startsWith("https://"))) return res.status(400).json({ erro: "A URL da foto deve usar HTTPS" });
+    if (req.body?.alt_text !== undefined && !String(req.body.alt_text).trim()) return res.status(400).json({ erro: "O texto alternativo é obrigatório" });
+    const ordem = req.body?.ordem === undefined || req.body.ordem === "" ? undefined : Number(req.body.ordem);
+    if (ordem !== undefined && (!Number.isInteger(ordem) || ordem < 0)) return res.status(400).json({ erro: "A ordem da foto deve ser um número inteiro maior ou igual a zero" });
+    const foto = (await db.update(fotos_evento).set({ ...(url !== undefined ? { url_foto: String(url).trim() } : {}), ...(req.body?.legenda !== undefined ? { legenda: String(req.body.legenda).slice(0, 500) || null } : {}), ...(req.body?.alt_text !== undefined ? { alt_text: String(req.body.alt_text).slice(0, 500).trim() } : {}), ...(req.body?.categoria !== undefined ? { categoria: String(req.body.categoria).slice(0, 80) || null } : {}), ...(req.body?.destaque !== undefined ? { destaque: Boolean(req.body.destaque) } : {}), ...(req.body?.capa !== undefined ? { capa: Boolean(req.body.capa) } : {}), ...(ordem !== undefined ? { ordem } : {}), ...(req.body?.formato !== undefined ? { formato: String(req.body.formato).slice(0, 30) || null } : {}) }).where(eq(fotos_evento.id, req.params.id)).returning())[0];
     if (!foto) return res.status(404).json({ erro: "Foto não encontrada" });
     return res.json({ foto });
   } catch (error) { console.error("[ADMIN] Erro ao atualizar foto:", error); return res.status(400).json({ erro: "Não foi possível atualizar a foto" }); }
 });
 
 router.delete("/fotos/:id", requireRole("admin"), async (req: Request, res: Response) => {
-  try { const removida = await db.delete(fotos_evento).where(eq(fotos_evento.id, req.params.id)).returning({ id: fotos_evento.id }); if (!removida[0]) return res.status(404).json({ erro: "Foto não encontrada" }); return res.status(204).send(); }
+  try {
+    const existente = (await db.select({ id: fotos_evento.id, evento_id: fotos_evento.evento_id, formato: fotos_evento.formato, url_foto: fotos_evento.url_foto }).from(fotos_evento).where(eq(fotos_evento.id, req.params.id)).limit(1))[0];
+    if (!existente) return res.status(404).json({ erro: "Foto não encontrada" });
+    await db.delete(fotos_evento).where(eq(fotos_evento.id, req.params.id));
+    if (existente.url_foto.startsWith("/api/eventos/") && existente.formato?.startsWith("image/")) {
+      const base = nodePath.resolve(process.env.STORAGE_PATH || "./uploads");
+      const extensao = existente.formato === "image/png" ? ".png" : existente.formato === "image/webp" ? ".webp" : ".jpg";
+      const arquivo = nodePath.resolve(base, "eventos", existente.evento_id, `${existente.id}${extensao}`);
+      if (arquivo.startsWith(`${base}${nodePath.sep}`)) await fs.unlink(arquivo).catch(() => undefined);
+    }
+    return res.status(204).send();
+  }
   catch (error) { console.error("[ADMIN] Erro ao remover foto:", error); return res.status(400).json({ erro: "Não foi possível remover a foto" }); }
 });
 

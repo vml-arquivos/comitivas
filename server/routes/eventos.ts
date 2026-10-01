@@ -142,6 +142,11 @@ router.post("/:evento_id/fotos", authMiddleware, requireRole("admin"), uploadFot
     if (mimeInformado && mimeInformado !== mime) return res.status(415).json({ erro: "Tipo da foto inconsistente com o arquivo enviado" });
     const legenda = decodeURIComponent(String(req.get("x-file-caption") || "")).trim().slice(0, 500);
     const textoAlternativo = decodeURIComponent(String(req.get("x-file-alt") || "")).trim().slice(0, 500);
+    const ordemInformada = String(req.get("x-file-order") || "").trim();
+    const ordemSolicitada = ordemInformada === "" ? null : Number(ordemInformada);
+    if (ordemSolicitada !== null && (!Number.isInteger(ordemSolicitada) || ordemSolicitada < 0)) return res.status(400).json({ erro: "A ordem da foto deve ser um número inteiro maior ou igual a zero" });
+    const destaque = String(req.get("x-file-featured") || "").toLowerCase() === "true";
+    const capa = String(req.get("x-file-cover") || "").toLowerCase() === "true";
 
     const evento = await db.select({ id: eventos.id })
       .from(eventos)
@@ -170,7 +175,9 @@ router.post("/:evento_id/fotos", authMiddleware, requireRole("admin"), uploadFot
       legenda: legenda || null,
       alt_text: textoAlternativo || legenda || `Foto de ${req.params.evento_id}`,
       formato: mime,
-      ordem: proximaOrdem,
+      ordem: ordemSolicitada ?? proximaOrdem,
+      destaque,
+      capa,
     }).returning();
 
     res.status(201).json({ mensagem: "Foto enviada com sucesso", foto: criada[0] });
