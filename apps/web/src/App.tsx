@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import { lazy, Suspense, useEffect } from 'react';
 import { Helmet, HelmetProvider } from 'react-helmet-async';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -134,6 +134,10 @@ function AppRoutes() {
             <DadosCadastrais />
           </ProtectedRoute>
         } />
+      </Route>
+
+      <Route path="*" element={<MainLayout />}>
+        <Route path="*" element={<div className="mx-auto max-w-xl px-6 py-20 text-center"><h1 className="text-2xl font-bold text-secondary">Página não encontrada</h1><p className="my-5 text-gray-600">Continue pelas excursões disponíveis ou acompanhe sua contratação em Minha Conta.</p><div className="flex flex-wrap justify-center gap-4"><Link className="rounded-xl bg-primary px-5 py-3 font-bold text-white" to="/eventos">Ver excursões</Link><Link className="rounded-xl border px-5 py-3 font-bold text-secondary" to="/minha-conta">Minha Conta</Link></div></div>} />
       </Route>
 
       {/* Rotas Administrativas */}

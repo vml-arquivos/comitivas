@@ -1013,35 +1013,11 @@ router.post("/logout", (_req: Request, res: Response) => {
   return res.json({ ok: true });
 });
 
-router.post("/refresh", (req: Request, res: Response) => {
-  try {
-    const bearer = AuthService.extractTokenFromHeader(req.headers.authorization);
-    const cookie = req.headers.cookie || "";
-    const cookiePart = cookie.split(";").map((item) => item.trim()).find((item) => item.startsWith(`${AUTH_COOKIE}=`));
-    const token = bearer || (cookiePart ? decodeURIComponent(cookiePart.slice(`${AUTH_COOKIE}=`.length)) : null);
-
-    if (!token) {
-      return res.status(401).json({ erro: "Token não fornecido" });
-    }
-
-    const payload = AuthService.verifyToken(token);
-    if (!payload) {
-      return res.status(401).json({ erro: "Token inválido" });
-    }
-
-    const novoToken = AuthService.generateToken({
-      id: payload.id,
-      email: payload.email,
-      tipo: payload.tipo,
-      session_version: Number(payload.session_version || 1),
-    });
-
-    definirCookieAuth(res, novoToken);
-    res.json({ mensagem: "Sessão renovada" });
-  } catch (error) {
-    console.error("[AUTH] Erro ao renovar token:", error);
-    res.status(500).json({ erro: "Erro interno do servidor" });
-  }
+router.post("/refresh", authMiddleware, (req: Request, res: Response) => {
+  if (!req.usuario) return res.status(401).json({ erro: "Sessão inválida" });
+  const novoToken = AuthService.generateToken({ id: req.usuario.id, email: req.usuario.email, tipo: req.usuario.tipo, session_version: req.usuario.session_version });
+  definirCookieAuth(res, novoToken);
+  return res.json({ mensagem: "Sessão renovada" });
 });
 
 export default router;

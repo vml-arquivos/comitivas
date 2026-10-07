@@ -4,7 +4,7 @@ import path from "node:path";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { contratoEventos, contratoValidacoes, contratosDocumentos, notificacoesOutbox, otpDesafios, reservas, usuarios } from "../db/schema.js";
-import { ContratoService } from "./contratoService.js";
+import { ContratoService, conferirHashSnapshot } from "./contratoService.js";
 import { ContratacaoIntegridadeService } from "./contratacaoIntegridadeService.js";
 import { maskDestination, providerFor, NotificationChannel } from "./notificationProvider.js";
 
@@ -33,9 +33,6 @@ function userAgentData(userAgent: string | undefined) {
     navegador: /Edg/i.test(valor) ? "Edge" : /Chrome/i.test(valor) ? "Chrome" : /Firefox/i.test(valor) ? "Firefox" : /Safari/i.test(valor) ? "Safari" : "Outro",
     sistema_operacional: /Windows/i.test(valor) ? "Windows" : /Android/i.test(valor) ? "Android" : /iPhone|iPad/i.test(valor) ? "iOS" : /Mac OS/i.test(valor) ? "macOS" : /Linux/i.test(valor) ? "Linux" : "Outro",
   };
-}
-function eventoHash(metadados: unknown, anterior?: string | null): string {
-  return createHash("sha256").update(`${anterior || ""}:${JSON.stringify(metadados)}`, "utf8").digest("hex");
 }
 
 export function dataBancoOuNula(valor: unknown): Date | null {
@@ -102,7 +99,7 @@ export class OtpService {
       solicitado_em: agora,
     }).returning())[0];
     if (!desafio) throw new Error("Não foi possível criar o desafio de validação");
-    await db.insert(contratoEventos).values({ id: `evt-${randomUUID()}`, contrato_id: documento.id, reserva_id: input.reserva_id, tipo: "otp_solicitado", criado_em: agora, ator_id: input.usuario_id, metadados: { desafio_id: desafio.id, canal: input.canal, destinatario_mascarado: masked }, hash_evento: eventoHash({ desafio_id: desafio.id, canal: input.canal, destinatario_mascarado: masked }) });
+    await ContratoService.registrarEvento({ id: `evt-${randomUUID()}`, contrato_id: documento.id, reserva_id: input.reserva_id, tipo: "otp_solicitado", criado_em: agora, ator_id: input.usuario_id, metadados: { desafio_id: desafio.id, canal: input.canal, destinatario_mascarado: masked } });
 
     let resultado: Awaited<ReturnType<ReturnType<typeof providerFor>["sendOtp"]>>;
     try {
@@ -114,14 +111,14 @@ export class OtpService {
       const falhouEm = new Date();
       await db.update(otpDesafios).set({ status_envio: "falhou", falhou_em: falhouEm, erro_envio: resultado.reason || "Falha no envio" }).where(eq(otpDesafios.id, desafio.id));
       const metadados = { desafio_id: desafio.id, canal: input.canal, destinatario_mascarado: masked, motivo: resultado.reason || "Falha no envio" };
-      await db.insert(contratoEventos).values({ id: `evt-${randomUUID()}`, contrato_id: documento.id, reserva_id: input.reserva_id, tipo: "otp_envio_falhou", criado_em: falhouEm, ator_id: input.usuario_id, metadados, hash_evento: eventoHash(metadados) });
+      await ContratoService.registrarEvento({ id: `evt-${randomUUID()}`, contrato_id: documento.id, reserva_id: input.reserva_id, tipo: "otp_envio_falhou", criado_em: falhouEm, ator_id: input.usuario_id, metadados });
       return { enviado: false, motivo: resultado.reason, desafio_id: desafio.id, canal: input.canal, destinatario: masked, expira_em: desafio.expira_em };
     }
     const enviadoEm = resultado.sentAt || new Date();
     await db.update(otpDesafios).set({ status_envio: "enviado", message_id: resultado.messageId || null, enviado_em: enviadoEm }).where(eq(otpDesafios.id, desafio.id));
     await db.update(reservas).set({ checkout_estado: "otp_enviado", atualizado_em: enviadoEm }).where(eq(reservas.id, input.reserva_id));
     const metadados = { desafio_id: desafio.id, canal: input.canal, destinatario_mascarado: masked, message_id: resultado.messageId || null };
-    await db.insert(contratoEventos).values({ id: `evt-${randomUUID()}`, contrato_id: documento.id, reserva_id: input.reserva_id, tipo: "otp_enviado", criado_em: enviadoEm, ator_id: input.usuario_id, metadados, hash_evento: eventoHash(metadados) });
+    await ContratoService.registrarEvento({ id: `evt-${randomUUID()}`, contrato_id: documento.id, reserva_id: input.reserva_id, tipo: "otp_enviado", criado_em: enviadoEm, ator_id: input.usuario_id, metadados });
     return { enviado: true, desafio_id: desafio.id, canal: input.canal, destinatario: masked, expira_em: desafio.expira_em, message_id: resultado.messageId, enviado_em: enviadoEm };
   }
 
@@ -131,6 +128,7 @@ export class OtpService {
     let arquivoCriado: string | undefined;
     try {
       const resultado = await db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`contrato:${input.reserva_id}`}))`);
         const desafios = await tx.execute(sql`
           SELECT * FROM otp_desafios
           WHERE usuario_id = ${input.usuario_id} AND reserva_id = ${input.reserva_id}
@@ -167,6 +165,7 @@ export class OtpService {
         const agora = new Date();
         const protocoloValidacao = protocolo();
         const snapshot = documento.snapshot as any;
+        conferirHashSnapshot(snapshot, documento.snapshot_sha256);
         const pdf = await ContratoService.gerarContratoPDF({
           reserva_id: input.reserva_id,
           contrato_id: documento.id,
@@ -238,7 +237,7 @@ export class OtpService {
           proxima_tentativa: agora,
         }).onConflictDoNothing({ target: notificacoesOutbox.chave_idempotente });
         const metadados = { protocolo: protocoloValidacao, snapshot_sha256: documento.snapshot_sha256, pdf_sha256: pdfHash, canal: String(desafio.canal) };
-        await tx.insert(contratoEventos).values({ id: `evt-${randomUUID()}`, contrato_id: documento.id, reserva_id: input.reserva_id, tipo: "assinatura_concluida", criado_em: agora, ator_id: input.usuario_id, ip: input.ip || null, user_agent: input.userAgent || null, metadados, hash_evento: eventoHash(metadados) });
+        await ContratoService.registrarEvento({ id: `evt-${randomUUID()}`, contrato_id: documento.id, reserva_id: input.reserva_id, tipo: "assinatura_concluida", criado_em: agora, ator_id: input.usuario_id, ip: input.ip || null, user_agent: input.userAgent || null, metadados }, tx);
         return { protocolo: validacao.protocolo, contrato_id: documento.id, versao: documento.versao, arquivo: arquivoCriado, pdf_sha256: pdfHash, confirmado_em: agora };
       });
       if ("erro" in resultado) throw new Error(resultado.erro);

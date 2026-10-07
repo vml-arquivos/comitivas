@@ -112,13 +112,13 @@ async function reservarOuConverterHold(tx: any, reservaId: string, reserva: any,
   }
 }
 
-async function reconciliarPagamento(pagamentoId: string): Promise<void> {
-  await db.transaction(async (tx) => {
+async function reconciliarPagamento(pagamentoId: string, transacao?: any): Promise<void> {
+  const executar = async (tx: any) => {
     const pagamento = (await tx.select().from(pagamentos).where(eq(pagamentos.id, pagamentoId)).limit(1))[0];
     if (!pagamento) throw new Error("Pagamento não encontrado");
     const reserva = (await tx.select().from(reservas).where(eq(reservas.id, pagamento.reserva_id)).limit(1))[0];
     if (!reserva) throw new Error("Reserva não encontrada para o pagamento");
-    const parcelas = await tx.select().from(pagamentoParcelas).where(eq(pagamentoParcelas.pagamento_id, pagamento.id));
+    const parcelas: Array<typeof pagamentoParcelas.$inferSelect> = await tx.select().from(pagamentoParcelas).where(eq(pagamentoParcelas.pagamento_id, pagamento.id));
     const totalCentavos = Number(pagamento.valor_centavos || centavos(pagamento.valor));
     const pagoCentavos = parcelas.length
       ? parcelas.filter((parcela) => parcela.status === "aprovado").reduce((total, parcela) => total + Number(parcela.valor_pago_centavos || parcela.valor_centavos || centavos(parcela.valor)), 0)
@@ -135,7 +135,8 @@ async function reconciliarPagamento(pagamentoId: string): Promise<void> {
     await tx.update(reservas).set({ status: quitado ? "cliente_confirmado" : "aguardando_pagamento", checkout_estado: quitado ? "quitado" : "primeira_parcela_confirmada", atualizado_em: agora }).where(eq(reservas.id, reserva.id));
     await tx.update(leads_origem).set({ status: quitado ? "cliente_confirmado" : "pagamento_parcial", atualizado_em: agora }).where(eq(leads_origem.usuario_id, reserva.usuario_id));
     if (quitado) await tx.update(comissoes).set({ status: "elegivel", atualizado_em: agora }).where(eq(comissoes.reserva_id, reserva.id));
-  });
+  };
+  if (transacao) await executar(transacao); else await db.transaction(executar);
 }
 
 router.post("/criar", authMiddleware, async (req: Request, res: Response) => {
@@ -172,7 +173,7 @@ router.post("/criar", authMiddleware, async (req: Request, res: Response) => {
       const regras = pacote?.configuracao_pagamento && typeof pacote.configuracao_pagamento === "object" ? pacote.configuracao_pagamento as Record<string, unknown> : {};
       const tetoPacote = Number(regras.boleto_parcelas_maximo);
       const prazoSeguranca = Number.isInteger(Number(regras.prazo_seguranca_dias)) ? Math.max(0, Number(regras.prazo_seguranca_dias)) : 0;
-      const dataLimite = ContratoService.calcularDataLimiteEfetiva(pacote?.data_limite_pagamento, lote?.data_embarque || lote?.data_inicio, prazoSeguranca);
+      const dataLimite = ContratoService.calcularDataLimiteEfetiva(pacote?.data_limite_pagamento, await ContratoService.obterDataViagemReserva(reserva, lote), prazoSeguranca);
       const tetoAtual = Math.min(
         ContratoService.calcularParcelasMaximasBoleto(dataLimite, new Date(), configuracoes.boleto_meses_maximo_antecedencia),
         Number.isInteger(tetoPacote) && tetoPacote > 0 ? tetoPacote : Number.MAX_SAFE_INTEGER,
@@ -181,9 +182,14 @@ router.post("/criar", authMiddleware, async (req: Request, res: Response) => {
     }
 
     // Boleto manual: o cliente já concluiu a assinatura eletrônica, mas nenhuma
-    // cobrança é criada no gateway. Após a assinatura eletrônica e a aprovação automática do cadastro,
-    // o controle segue para preparação operacional dos boletos, sem aprovação manual.
+    // cobrança é criada no gateway. A assinatura conclui a etapa do cliente;
+    // a preparação e o envio dependem da aprovação registrada pela equipe.
     if (metodo === "boleto" && configuracoes.boleto_modo === "manual") {
+      const vigente = await ContratoService.obterContratoVigente(reserva.id);
+      if (vigente?.status !== "aprovado_admin" || !vigente.aprovado_admin_em || !vigente.aprovado_admin_por) {
+        return res.json({ reserva_id: reserva.id, modo: "manual", boleto_modo: "manual", metodo: "boleto", status: "aguardando_aprovacao_boleto", checkout_estado: "aguardando_aprovacao_boleto", mensagem: "Seu contrato foi validado. A equipe fará a conferência e enviará seus boletos.", parcelas: [] });
+      }
+      await ContratoService.exigirAprovacaoFinanceira(reserva.id);
       const agora = new Date();
       const controle = await db.transaction(async (tx) => {
         await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`boleto-manual:${reserva.id}`}))`);
@@ -330,7 +336,7 @@ router.get("/status/:reserva_id", authMiddleware, async (req: Request, res: Resp
       return res.json({
         reserva_id: req.params.reserva_id,
         checkout_estado: reserva.checkout_estado,
-        status: reserva.forma_pagamento === "boleto" && config.boleto_modo === "manual" ? "boleto_manual" : "sem_cobranca",
+        status: reserva.forma_pagamento === "boleto" && config.boleto_modo === "manual" ? "aguardando_aprovacao_boleto" : "sem_cobranca",
         boleto_modo: config.boleto_modo,
         pagamento: null,
         parcelas: [],
@@ -387,50 +393,77 @@ router.get("/status/:reserva_id", authMiddleware, async (req: Request, res: Resp
   }
 });
 
+export function transicaoCoraVerificada(statusRemoto: unknown, statusLocal: string | null): "aprovado" | "cancelado" | "atrasado" | null {
+  const remoto = String(statusRemoto || "").toUpperCase();
+  if (statusLocal === "reembolsado") return null;
+  if (["PAID", "PAID_OUT"].includes(remoto)) return "aprovado";
+  // Uma notificação tardia nunca desfaz uma quitação local.
+  if (["aprovado", "quitado", "reembolsado"].includes(String(statusLocal || ""))) return null;
+  if (["CANCELED", "CANCELLED"].includes(remoto)) return "cancelado";
+  if (["OVERDUE", "LATE"].includes(remoto)) return "atrasado";
+  return null;
+}
+
+export async function processarEventoCora(eventoId: string): Promise<{ ok: boolean; duplicado?: boolean; processando?: boolean }> {
+  let reservaQuitada: string | undefined;
+  try {
+    const resultado = await db.transaction(async tx => {
+      const lock = await tx.execute(sql`SELECT pg_try_advisory_xact_lock(hashtext(${`webhook-cora:${eventoId}`})) AS adquirido`);
+      if (!(lock.rows[0] as any)?.adquirido) return { ok: true, processando: true };
+      const evento = (await tx.select().from(webhookEventos).where(eq(webhookEventos.evento_id, eventoId)).for("update").limit(1))[0];
+      if (!evento || evento.processado_em) return { ok: true, duplicado: true };
+      await tx.update(webhookEventos).set({ tentativas: sql`tentativas + 1` }).where(eq(webhookEventos.id, evento.id));
+      const recursoId = evento.recurso_id;
+      if (recursoId) {
+        let pagamento = (await tx.select().from(pagamentos).where(eq(pagamentos.gateway_id, recursoId)).for("update").limit(1))[0];
+        const parcela = !pagamento ? (await tx.select().from(pagamentoParcelas).where(eq(pagamentoParcelas.cora_id, recursoId)).for("update").limit(1))[0] : undefined;
+        if (parcela) pagamento = (await tx.select().from(pagamentos).where(eq(pagamentos.id, parcela.pagamento_id)).for("update").limit(1))[0];
+        if (!pagamento) throw new Error("Cobrança ainda não localizada; o evento será reprocessado.");
+        // O tipo informado no webhook não autoriza nenhuma mudança financeira.
+        const remoto = await PaymentGatewayAdapter.consultarPagamento(recursoId);
+        const transicao = transicaoCoraVerificada(remoto?.status, parcela?.status || pagamento.status_reconciliado || pagamento.status);
+        if (transicao === "aprovado") {
+          if (parcela) await tx.update(pagamentoParcelas).set({ status: "aprovado", valor_pago_centavos: parcela.valor_centavos || centavos(parcela.valor), atualizado_em: new Date() }).where(eq(pagamentoParcelas.id, parcela.id));
+          else await tx.update(pagamentos).set({ status: "aprovado", atualizado_em: new Date() }).where(eq(pagamentos.id, pagamento.id));
+          await reconciliarPagamento(pagamento.id, tx);
+          const atualizado = (await tx.select({ status_reconciliado: pagamentos.status_reconciliado }).from(pagamentos).where(eq(pagamentos.id, pagamento.id)).limit(1))[0];
+          if (atualizado?.status_reconciliado === "quitado") reservaQuitada = pagamento.reserva_id;
+        } else if (transicao === "cancelado") {
+          if (parcela) await tx.update(pagamentoParcelas).set({ status: "cancelado", atualizado_em: new Date() }).where(eq(pagamentoParcelas.id, parcela.id));
+          else await tx.update(pagamentos).set({ status: "cancelado", status_reconciliado: "cancelado", atualizado_em: new Date() }).where(eq(pagamentos.id, pagamento.id));
+        } else if (transicao === "atrasado" && parcela) {
+          await tx.update(pagamentoParcelas).set({ status: "atrasado", atualizado_em: new Date() }).where(eq(pagamentoParcelas.id, parcela.id));
+        }
+      }
+      await tx.update(webhookEventos).set({ processado_em: new Date(), ultimo_erro: null, proxima_tentativa: null }).where(eq(webhookEventos.id, evento.id));
+      return { ok: true };
+    });
+    if (reservaQuitada) await enfileirarPagamentoQuitado(reservaQuitada).catch(error => console.error("[WEBHOOK CORA] Falha na notificação:", error?.message));
+    return resultado;
+  } catch (error: any) {
+    await db.update(webhookEventos).set({ tentativas: sql`tentativas + 1`, ultimo_erro: error?.message || "Falha de integração", proxima_tentativa: new Date(Date.now() + 5 * 60 * 1000) }).where(and(eq(webhookEventos.evento_id, eventoId), isNull(webhookEventos.processado_em)));
+    throw error;
+  }
+}
+
+export async function reprocessarWebhooksCora(): Promise<void> {
+  const pendentes = (await db.select({ evento_id: webhookEventos.evento_id }).from(webhookEventos).where(and(isNull(webhookEventos.processado_em), sql`tentativas < 20`, sql`proxima_tentativa IS NULL OR proxima_tentativa <= CURRENT_TIMESTAMP`)).orderBy(webhookEventos.criado_em).limit(25));
+  for (const evento of pendentes) await processarEventoCora(evento.evento_id).catch(error => console.error("[WEBHOOK CORA] Reprocessamento pendente:", error?.message));
+}
+
 router.post("/webhook/cora", async (req: Request, res: Response) => {
   const payload = req.body || {};
   const raw = JSON.stringify(payload);
   const eventoId = header(req, "webhook-event-id") || String(payload.event_id || payload.eventId || createHash("sha256").update(raw).digest("hex"));
   const eventoTipo = header(req, "webhook-event-type") || String(payload.event_type || payload.eventType || payload.type || payload.event || "invoice.unknown");
   const recursoId = header(req, "webhook-resource-id") || String(payload.resource_id || payload.resourceId || payload.invoice_id || payload.id || payload.resource?.id || "");
-
+  if (eventoId.length > 255 || eventoTipo.length > 120 || recursoId.length > 255) return res.status(400).json({ erro: "Evento inválido" });
   try {
-    // A Cora documenta os headers webhook-event-id, webhook-event-type e
-    // webhook-resource-id, mas não documenta assinatura HMAC. O evento é
-    // deduplicado pelo ID e o estado financeiro é confirmado pela API Cora
-    // autenticada antes de qualquer alteração local.
     await db.insert(webhookEventos).values({ id: createId(), evento_id: eventoId, tipo: eventoTipo, recurso_id: recursoId || null, payload, tentativas: 0 }).onConflictDoNothing();
-    const claim = await db.update(webhookEventos).set({ tentativas: sql`tentativas + 1` }).where(and(eq(webhookEventos.evento_id, eventoId), isNull(webhookEventos.processado_em))).returning({ id: webhookEventos.id });
-    if (!claim[0]) return res.json({ ok: true, duplicado: true });
-
-    const tipo = eventoTipo.toLowerCase();
-    if (recursoId) {
-      let pagamento = (await db.select().from(pagamentos).where(eq(pagamentos.gateway_id, recursoId)).limit(1))[0];
-      const parcela = !pagamento ? (await db.select().from(pagamentoParcelas).where(eq(pagamentoParcelas.cora_id, recursoId)).limit(1))[0] : undefined;
-      if (parcela) pagamento = (await db.select().from(pagamentos).where(eq(pagamentos.id, parcela.pagamento_id)).limit(1))[0];
-      if (pagamento && (tipo.includes("paid") || tipo.includes("canceled") || tipo.includes("cancelled") || tipo.includes("overdue") || tipo.includes("late"))) {
-        const remoto = await PaymentGatewayAdapter.consultarPagamento(recursoId);
-        const remotoStatus = String(remoto?.status || "").toUpperCase();
-        if (tipo.includes("paid") && ["PAID", "PAID_OUT"].includes(remotoStatus)) {
-          if (parcela) await db.update(pagamentoParcelas).set({ status: "aprovado", valor_pago_centavos: parcela.valor_centavos || centavos(parcela.valor), atualizado_em: new Date() }).where(eq(pagamentoParcelas.id, parcela.id));
-          else await db.update(pagamentos).set({ status: "aprovado", atualizado_em: new Date() }).where(eq(pagamentos.id, pagamento.id));
-          await reconciliarPagamento(pagamento.id);
-          const quitado = (await db.select({ status_reconciliado: pagamentos.status_reconciliado }).from(pagamentos).where(eq(pagamentos.id, pagamento.id)).limit(1))[0]?.status_reconciliado === "quitado";
-          if (quitado) await enfileirarPagamentoQuitado(pagamento.reserva_id).catch((error) => console.error("[WEBHOOK CORA] Falha ao enfileirar confirmação:", error?.message || "erro"));
-        } else if (tipo.includes("canceled") || tipo.includes("cancelled")) {
-          if (parcela) await db.update(pagamentoParcelas).set({ status: "cancelado", atualizado_em: new Date() }).where(eq(pagamentoParcelas.id, parcela.id));
-          else await db.update(pagamentos).set({ status: "cancelado", status_reconciliado: "cancelado", atualizado_em: new Date() }).where(eq(pagamentos.id, pagamento.id));
-        } else if (parcela) {
-          await db.update(pagamentoParcelas).set({ status: "atrasado", atualizado_em: new Date() }).where(eq(pagamentoParcelas.id, parcela.id));
-        }
-      }
-    }
-    await db.update(webhookEventos).set({ processado_em: new Date(), ultimo_erro: null, proxima_tentativa: null }).where(eq(webhookEventos.evento_id, eventoId));
-    return res.json({ ok: true });
+    return res.json(await processarEventoCora(eventoId));
   } catch (error: any) {
-    console.error("[WEBHOOK CORA] Erro ao processar evento:", error?.message || "falha não detalhada");
-    await db.update(webhookEventos).set({ ultimo_erro: error?.message || "falha não detalhada", proxima_tentativa: new Date(Date.now() + 5 * 60 * 1000) }).where(eq(webhookEventos.evento_id, eventoId)).catch(() => undefined);
-    return res.status(500).json({ erro: "Evento recebido, mas ainda não processado" });
+    console.error("[WEBHOOK CORA] Evento pendente:", error?.message);
+    return res.status(503).json({ erro: "Evento registrado e aguardando reprocessamento" });
   }
 });
 

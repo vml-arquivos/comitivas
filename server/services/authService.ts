@@ -45,7 +45,9 @@ export class AuthService {
 
   static verifyToken(token: string): JWTPayload | null {
     try {
-      return jwt.verify(token, obterJwtSecret()) as JWTPayload;
+      const payload = jwt.verify(token, obterJwtSecret(), { algorithms: ["HS256"] }) as JWTPayload & { purpose?: string };
+      if (typeof payload !== "object" || !payload || payload.purpose || typeof payload.id !== "string" || !payload.id || typeof payload.email !== "string" || !["cliente", "vendedor", "admin", "dev"].includes(payload.tipo)) return null;
+      return payload;
     } catch (error) {
       console.error("[AuthService] Token inválido:", error);
       return null;

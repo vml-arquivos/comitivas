@@ -27,10 +27,10 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
   if (!payload) return res.status(401).json({ erro: "Sessão inválida ou expirada" });
 
   try {
-    const usuario = (await db.select({ ativo: usuarios.ativo, session_version: usuarios.session_version }).from(usuarios).where(eq(usuarios.id, payload.id)).limit(1))[0];
+    const usuario = (await db.select({ ativo: usuarios.ativo, session_version: usuarios.session_version, tipo: usuarios.tipo, email: usuarios.email }).from(usuarios).where(eq(usuarios.id, payload.id)).limit(1))[0];
     if (!usuario || !usuario.ativo) return res.status(401).json({ erro: "Sessão inválida" });
-    if (payload.session_version !== undefined && Number(usuario.session_version || 1) !== Number(payload.session_version)) return res.status(401).json({ erro: "Sessão revogada; faça login novamente" });
-    req.usuario = payload;
+    if (Number(usuario.session_version || 1) !== Number(payload.session_version || 1)) return res.status(401).json({ erro: "Sessão revogada; faça login novamente" });
+    req.usuario = { ...payload, tipo: (usuario.tipo || payload.tipo) as UsuarioPayload["tipo"], email: usuario.email || payload.email, session_version: Number(usuario.session_version || 1) };
     return next();
   } catch {
     console.error("[AUTH] Falha ao validar sessão");

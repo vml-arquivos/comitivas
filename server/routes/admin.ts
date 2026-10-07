@@ -469,7 +469,7 @@ router.get("/dashboard", requireRole("admin", "vendedor"), async (req: Request, 
           : 0,
       },
       financeiro: { contratado_centavos: contratadoCentavos, recebido_centavos: recebidoCentavos, a_receber_centavos: Math.max(0, contratadoCentavos - recebidoCentavos), vencido_centavos: valorVencidoCentavos, parcelas_vencidas: vencidas.length },
-      contratos: { total: contratosGerados.length, aguardando_cliente: aguardandoCliente, aguardando_admin: 0, aprovados: contratosGerados.filter((contrato) => ["validado", "aprovado_admin", "aguardando_aprovacao_admin"].includes(contrato.status)).length },
+      contratos: { total: contratosGerados.length, aguardando_cliente: aguardandoCliente, aguardando_admin: contratosGerados.filter((contrato) => ["validado", "aguardando_aprovacao_admin"].includes(contrato.status)).length, aprovados: contratosGerados.filter((contrato) => contrato.status === "aprovado_admin").length },
       serie_vendas: serieVendas,
       funil: [
         { label: "Contatos", valor: totalLeads.length },
@@ -2056,6 +2056,8 @@ router.post("/reservas/:reserva_id/desconto", requireRole("admin"), async (req: 
 
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
+    const contratoVigente = await ContratoService.obterContratoVigente(reserva.id);
+    if (contratoVigente?.validado_em) return res.status(409).json({ erro: "O valor do contrato assinado não pode ser alterado. Abra uma solicitação de mudança de pacote." });
     const pagamentoExistente = (await db.select({ id: pagamentos.id }).from(pagamentos).where(eq(pagamentos.reserva_id, reserva.id)).limit(1))[0];
     if (pagamentoExistente) return res.status(409).json({ erro: "Não é permitido alterar o total depois de criar uma cobrança" });
     const subtotalOriginal = new Decimal(reserva.valor_total.toString());
@@ -2065,6 +2067,12 @@ router.post("/reservas/:reserva_id/desconto", requireRole("admin"), async (req: 
     const totalFinal = subtotalOriginal.minus(valorDesconto).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
     const resultado = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`contrato:${reserva.id}`}))`);
+      const atual = (await tx.select().from(reservas).where(eq(reservas.id, reserva.id)).for("update").limit(1))[0];
+      if (!atual || new Decimal(atual.valor_total).toFixed(2) !== subtotalOriginal.toFixed(2)) throw new Error("O valor da reserva mudou. Atualize a página antes de aplicar o desconto.");
+      if ((await tx.select({ id: pagamentos.id }).from(pagamentos).where(eq(pagamentos.reserva_id, reserva.id)).limit(1))[0]) throw new Error("Já existe uma cobrança para a reserva; o valor foi preservado.");
+      if ((await ContratoService.obterContratoVigente(reserva.id, tx))?.validado_em) throw new Error("O contrato já foi assinado; o valor foi preservado.");
+      await tx.update(contratosDocumentos).set({ status: "invalidado", invalidado_em: new Date(), motivo_invalidacao: "Desconto administrativo alterou a minuta" }).where(and(eq(contratosDocumentos.reserva_id, reserva.id), sql`status IN ('rascunho', 'aguardando_validacao', 'preparado')`));
       const atualizado = await tx.update(reservas).set({ valor_total: totalFinal.toFixed(2), valor_total_centavos: totalFinal.times(100).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toNumber(), atualizado_em: new Date() }).where(and(eq(reservas.id, reserva.id), sql`${reservas.status} IN ('pacote_montado', 'checkout_iniciado', 'contrato_gerado')`)).returning({ id: reservas.id, valor_total: reservas.valor_total, valor_total_centavos: reservas.valor_total_centavos });
       if (!atualizado[0]) throw new Error("A reserva não está em uma etapa que permita desconto");
       const registro = await tx.insert(descontosAdministrativos).values({ reserva_id: reserva.id, administrador_id: req.usuario!.id, motivo, tipo, valor_informado: informado.toFixed(2), subtotal_original: subtotalOriginal.toFixed(2), valor_desconto: valorDesconto.toFixed(2), total_final: totalFinal.toFixed(2) }).returning();
@@ -2306,6 +2314,8 @@ router.post("/contratos/gerar/:reserva_id", async (req: Request, res: Response) 
     }
     const reserva = reservaResult[0];
     if (!(await vendedorPodeOperarReserva(req, reserva))) return res.status(403).json({ erro: "Reserva fora da sua carteira" });
+    const vigente = await ContratoService.obterContratoVigente(reserva.id);
+    if (vigente?.validado_em) return res.json({ mensagem: "O contrato já está validado e foi preservado", reserva_id, status: vigente.status, reutilizado: true });
     const cliente = (await db.select({ ativo: usuarios.ativo, cadastro_status: usuarios.cadastro_status, aprovado_em: usuarios.aprovado_em, aprovado_por: usuarios.aprovado_por, nome: usuarios.nome, email: usuarios.email, cpf: usuarios.cpf, telefone: usuarios.telefone, sexo: usuarios.sexo, data_nascimento: usuarios.data_nascimento, endereco: usuarios.endereco, cep: usuarios.cep, logradouro: usuarios.logradouro, numero: usuarios.numero, bairro: usuarios.bairro, cidade: usuarios.cidade, estado: usuarios.estado }).from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0];
     if (!cadastroAprovadoComEvidencia(cliente)) return res.status(409).json({ erro: "O cadastro do cliente precisa de aprovação registrada antes da geração do contrato" });
     const faltantes = camposFaltantesCadastroMinimo(cliente, { exigirSexoEnderecoEstruturado: true });
@@ -2332,7 +2342,7 @@ router.post("/contratos/gerar/:reserva_id", async (req: Request, res: Response) 
       const formasPermitidas = Array.isArray(regrasPacote.formas_permitidas) ? regrasPacote.formas_permitidas.map(String) : ["pix", "boleto"];
       if (!formasPermitidas.includes(String(metodoPagamento))) throw new Error("A forma de pagamento não está disponível para este pacote");
       const prazoSegurancaDias = Number.isInteger(Number(regrasPacote.prazo_seguranca_dias)) ? Math.max(0, Number(regrasPacote.prazo_seguranca_dias)) : 0;
-      const dataLimitePagamento = ContratoService.calcularDataLimiteEfetiva(pacote?.data_limite_pagamento, loteResult[0]?.data_embarque || loteResult[0]?.data_inicio, prazoSegurancaDias);
+      const dataLimitePagamento = ContratoService.calcularDataLimiteEfetiva(pacote?.data_limite_pagamento, await ContratoService.obterDataViagemReserva(reserva, loteResult[0]), prazoSegurancaDias);
       const configPagamento = await ConfiguracaoService.obterConfiguracoesPagamento();
       const parcelasPorData = ContratoService.calcularParcelasMaximasBoleto(
         dataLimitePagamento,
@@ -2361,18 +2371,7 @@ router.post("/contratos/gerar/:reserva_id", async (req: Request, res: Response) 
       return res.status(400).json({ erro: error.message || "Condição de pagamento inválida" });
     }
 
-    await db
-      .update(reservas)
-      .set({
-        forma_pagamento: condicaoPagamento.forma_pagamento,
-        quantidade_parcelas: condicaoPagamento.quantidade_parcelas,
-        valor_parcela: condicaoPagamento.valor_parcela,
-        desconto_pagamento: condicaoPagamento.desconto_pagamento,
-        valor_total: condicaoPagamento.valor_total,
-        valor_total_centavos: Math.round(Number(condicaoPagamento.valor_total) * 100),
-        atualizado_em: new Date(),
-      })
-      .where(eq(reservas.id, reserva_id));
+    await ContratoService.salvarCondicaoPendente(reserva_id, condicaoPagamento, reserva);
 
     await ContratoService.registrarAceiteContrato(reserva_id, `gerado-pelo-admin:${req.usuario.id}`, req.body?.formulario, condicaoPagamento);
 
@@ -2394,7 +2393,7 @@ async function aprovarContratoAdministrativamente(contratoId: string, req: Reque
     const referencia = (await tx.select({ reserva_id: contratosDocumentos.reserva_id, perfil_cliente: usuarios.tipo }).from(contratosDocumentos).innerJoin(reservas, eq(contratosDocumentos.reserva_id, reservas.id)).innerJoin(usuarios, eq(reservas.usuario_id, usuarios.id)).where(eq(contratosDocumentos.id, contratoId)).limit(1))[0];
     if (!referencia) throw new Error("Contrato não encontrado");
     if (req.usuario!.tipo !== "dev" && referencia.perfil_cliente !== "cliente") throw new Error("Contrato não encontrado");
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`contrato-admin:${referencia.reserva_id}`}))`);
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`contrato:${referencia.reserva_id}`}))`);
 
     const contrato = (await tx.select().from(contratosDocumentos).where(eq(contratosDocumentos.id, contratoId)).for("update").limit(1))[0];
     if (!contrato || contrato.status === "invalidado") throw new Error("Contrato não encontrado");
@@ -2846,6 +2845,7 @@ router.post("/boletos/:reservaId/liberar", requireRole("admin"), async (req: Req
     const bloqueio = motivoBloqueioBoleto({ clienteAtivo: Boolean(cliente?.ativo), cadastroStatus: cliente?.cadastro_status, cadastroAprovadoComEvidencia: cadastroAprovadoComEvidencia(cliente), contratoExiste: Boolean(contrato), contratoValidado, contratoAprovadoAdmin, formaPagamento: reserva.forma_pagamento });
     if (bloqueio) return res.status(409).json({ erro: bloqueio });
 
+    await ContratoService.exigirAprovacaoFinanceira(reserva.id);
     await garantirInventarioBoletoManual(reserva);
     const liberacao = await db.transaction(async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`boleto-manual:${reserva.id}`}))`);
@@ -2894,6 +2894,7 @@ router.post("/boletos/:reservaId/parcelas/:parcelaId/arquivo", requireRole("admi
     const parcela = (await db.select().from(pagamentoParcelas).where(and(eq(pagamentoParcelas.id, req.params.parcelaId), eq(pagamentoParcelas.reserva_id, req.params.reservaId))).limit(1))[0];
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reservaId)).limit(1))[0];
     if (!parcela || !reserva || reserva.forma_pagamento !== "boleto" || !reserva.boleto_liberado_em) return res.status(404).json({ erro: "Parcela de boleto não liberada" });
+    await ContratoService.exigirAprovacaoFinanceira(reserva.id);
     const nomeOriginal = decodeURIComponent(String(req.get("x-file-name") || `boleto-parcela-${parcela.sequencia}.pdf`));
     const extensao = nodePath.extname(nomeOriginal).toLowerCase();
     if (extensao !== ".pdf" || detectarMimeDocumento(req.body, extensao) !== "application/pdf") return res.status(415).json({ erro: "Envie o boleto em PDF válido" });
@@ -2941,6 +2942,7 @@ router.post("/boletos/:reservaId/parcelas/:parcelaId/email", requireRole("admin"
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reservaId)).limit(1))[0];
     const cliente = reserva ? (await db.select().from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0] : null;
     if (!documento || !reserva || !cliente) return res.status(404).json({ erro: "Dados do boleto não encontrados" });
+    await ContratoService.exigirAprovacaoFinanceira(reserva.id);
     const enviado = await EmailService.enviarBoletoManual({ reserva_id: reserva.id, parcela: parcela.sequencia, vencimento: String(parcela.vencimento), valor: String(parcela.valor), arquivo: documento.arquivo, nomeArquivo: documento.nome_original, destinatario: cliente.email, clienteNome: cliente.nome });
     if (!enviado) return res.status(503).json({ erro: "O SMTP não confirmou o envio do boleto" });
     await db.update(pagamentoParcelas).set({ enviado_email_em: new Date(), atualizado_em: new Date() }).where(eq(pagamentoParcelas.id, parcela.id));
@@ -2959,6 +2961,7 @@ router.post("/boletos/:reservaId/parcelas/:parcelaId/whatsapp", requireRole("adm
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reservaId)).limit(1))[0];
     const cliente = reserva ? (await db.select().from(usuarios).where(eq(usuarios.id, reserva.usuario_id)).limit(1))[0] : null;
     if (!cliente?.telefone) return res.status(409).json({ erro: "Cliente sem WhatsApp cadastrado" });
+    await ContratoService.exigirAprovacaoFinanceira(reserva!.id);
     const telefone = String(cliente.telefone).replace(/\D/g, "");
     const mensagem = `Olá, ${cliente.nome}. Segue o boleto da parcela ${parcela.sequencia} da sua reserva ${reserva!.id}, no valor de R$ ${parcela.valor}, com vencimento em ${parcela.vencimento}. O PDF está disponível com a equipe da Excursão das Comitivas.`;
     const url = `https://wa.me/${telefone}?text=${encodeURIComponent(mensagem)}`;

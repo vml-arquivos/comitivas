@@ -107,7 +107,13 @@ async function documentoIdentidadeEnviado(reservaId: string): Promise<boolean> {
 }
 
 async function exigirDocumentoIdentidadeEnviado(reservaId: string, res: Response): Promise<boolean> {
-  if (await documentoIdentidadeEnviado(reservaId)) return true;
+  if (await documentoIdentidadeEnviado(reservaId)) {
+    if (!documentoIdentidadeBloqueiaContrato()) return true;
+    const documento = (await db.select({ validacao_status: clienteDocumentos.validacao_status }).from(reservas).innerJoin(clienteDocumentos, eq(reservas.usuario_id, clienteDocumentos.usuario_id)).where(and(eq(reservas.id, reservaId), eq(clienteDocumentos.categoria, "identidade"), isNull(clienteDocumentos.removido_em))).orderBy(desc(clienteDocumentos.criado_em)).limit(1))[0];
+    if (documento?.validacao_status === "aprovado") return true;
+    res.status(409).json({ erro: "Neste ambiente, aguarde a conferência do documento antes de validar o contrato." });
+    return false;
+  }
   res.status(409).json({ erro: "Envie um documento de identificação com foto antes de validar o contrato. A leitura será concluída em segundo plano e não bloqueará a contratação." });
   return false;
 }
@@ -169,8 +175,11 @@ router.post("/preparar/:reserva_id", authMiddleware, async (req: Request, res: R
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
     if (!reserva) return res.status(404).json({ erro: "Reserva não encontrada" });
     if (!(await podeAcessarReserva(req, reserva))) return res.status(403).json({ erro: "Acesso negado" });
+    const vigente = await ContratoService.obterContratoVigente(reserva.id);
+    if (vigente?.validado_em) return res.json({ documento: { ...vigente, reutilizado: true } });
     if (!(await emailConfirmado(reserva.id))) return res.status(409).json({ erro: "Confirme o e-mail do cliente antes de preparar o contrato" });
     if (cadastroAprovacaoObrigatoriaContrato() && !(await cadastroAprovado(reserva.id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes de preparar o contrato neste ambiente" });
+    if (!reserva.forma_pagamento) return res.status(409).json({ erro: "Selecione a forma de pagamento antes de preparar o contrato." });
     const faltantes = await camposCadastroFaltantes(reserva.id);
     if (faltantes.length) return res.status(409).json({ erro: `Complete os dados essenciais antes do contrato: ${faltantes.join(", ")}` });
     if (!(await exigirDocumentoIdentidadeEnviado(reserva.id, res))) return;
@@ -190,6 +199,8 @@ router.get("/regras-convivencia", (_req: Request, res: Response) => {
 router.post("/otp/solicitar/:reserva_id", authMiddleware, async (req: Request, res: Response) => {
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const reservaAlvo = (await db.select({ usuario_id: reservas.usuario_id }).from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
+    if (!reservaAlvo || reservaAlvo.usuario_id !== req.usuario.id) return res.status(403).json({ erro: "Acesso negado" });
     if (!(await emailConfirmado(req.params.reserva_id))) return res.status(409).json({ erro: "Confirme seu e-mail antes da validação contratual" });
     if (cadastroAprovacaoObrigatoriaContrato() && !(await cadastroAprovado(req.params.reserva_id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes da validação contratual neste ambiente" });
     if (!(await exigirDocumentoIdentidadeEnviado(req.params.reserva_id, res))) return;
@@ -206,6 +217,8 @@ router.post("/otp/solicitar/:reserva_id", authMiddleware, async (req: Request, r
 router.post("/otp/confirmar/:reserva_id", authMiddleware, async (req: Request, res: Response) => {
   try {
     if (!req.usuario) return res.status(401).json({ erro: "Não autenticado" });
+    const reservaAlvo = (await db.select({ usuario_id: reservas.usuario_id }).from(reservas).where(eq(reservas.id, req.params.reserva_id)).limit(1))[0];
+    if (!reservaAlvo || reservaAlvo.usuario_id !== req.usuario.id) return res.status(403).json({ erro: "Acesso negado" });
     if (!(await emailConfirmado(req.params.reserva_id))) return res.status(409).json({ erro: "Confirme seu e-mail antes da validação contratual" });
     if (cadastroAprovacaoObrigatoriaContrato() && !(await cadastroAprovado(req.params.reserva_id))) return res.status(409).json({ erro: "O cadastro do cliente precisa ser aprovado antes da validação contratual neste ambiente" });
     if (!(await exigirDocumentoIdentidadeEnviado(req.params.reserva_id, res))) return;
@@ -379,7 +392,7 @@ router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Re
       if (!regrasPacote.formasPermitidas.includes(String(metodoPagamento))) {
         throw new Error("A forma de pagamento não está disponível para este pacote");
       }
-      const dataViagem = loteResult[0]?.data_embarque || loteResult[0]?.data_inicio;
+      const dataViagem = await ContratoService.obterDataViagemReserva(reserva, loteResult[0]);
       const dataLimitePagamento = ContratoService.calcularDataLimiteEfetiva(regrasPacote.dataLimitePagamento, dataViagem, regrasPacote.prazoSegurancaDias);
       const configPagamento = await ConfiguracaoService.obterConfiguracoesPagamento();
       const parcelasPorData = ContratoService.calcularParcelasMaximasBoleto(
@@ -410,19 +423,7 @@ router.post("/aceitar/:reserva_id", authMiddleware, async (req: Request, res: Re
       return res.status(400).json({ erro: error.message || "Condição de pagamento inválida" });
     }
 
-    await db
-      .update(reservas)
-      .set({
-        forma_pagamento: condicaoPagamento.forma_pagamento,
-        quantidade_parcelas: condicaoPagamento.quantidade_parcelas,
-        valor_parcela: condicaoPagamento.valor_parcela,
-        desconto_pagamento: condicaoPagamento.desconto_pagamento,
-        valor_total: condicaoPagamento.valor_total,
-        valor_total_centavos: Math.round(Number(condicaoPagamento.valor_total) * 100),
-        checkout_estado: "contrato_preparado",
-        atualizado_em: new Date(),
-      })
-      .where(eq(reservas.id, reserva_id));
+    await ContratoService.salvarCondicaoPendente(reserva_id, condicaoPagamento, reserva);
 
     const documento = await ContratoService.prepararContrato(reserva_id, undefined, condicaoPagamento);
     res.json({

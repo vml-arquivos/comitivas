@@ -48,7 +48,7 @@ function normalizarParticipantes(valor: unknown): ParticipantePacote[] {
   })).filter((item) => item.nome_completo.length >= 3);
 }
 
-async function bloquearDuplicidadePorCpf(tx: any, loteId: string, usuarioId: string, participantes: ParticipantePacote[] = []): Promise<void> {
+async function bloquearDuplicidadePorCpf(tx: any, loteId: string, usuarioId: string, participantes: ParticipantePacote[] = [], periodoId: string | null = null, eventoPeriodoId: string | null = null): Promise<void> {
   const pessoa = (await tx.execute(sql`SELECT cpf FROM usuarios WHERE id = ${usuarioId} FOR SHARE`)).rows[0] as { cpf: string | null } | undefined;
   const cpfsInformados = [cpfNormalizado(pessoa?.cpf), ...participantes.map((participante) => cpfNormalizado(participante.cpf))]
     .filter((cpf) => cpf.length === 11);
@@ -62,6 +62,7 @@ async function bloquearDuplicidadePorCpf(tx: any, loteId: string, usuarioId: str
         FROM reservas r
         JOIN usuarios u ON u.id = r.usuario_id
        WHERE r.lote_id = ${loteId}
+         AND (${periodoId}::text IS NULL OR r.periodo_id IS NULL OR r.periodo_id = ${periodoId} OR (${eventoPeriodoId}::text IS NOT NULL AND r.evento_periodo_id = ${eventoPeriodoId}))
          AND (
            regexp_replace(COALESCE(u.cpf, ''), '[^0-9]', '', 'g') = ${cpf}
            OR EXISTS (
@@ -614,7 +615,7 @@ export class PacoteService {
       if (recursosPacote.hospedagem && (!grupoHospedagem || participantes.some((participante) => !participante.sexo_operacional))) {
         throw new Error("Informe o sexo de todas as pessoas para direcionar a hospedagem");
       }
-      await bloquearDuplicidadePorCpf(tx, lote_id, usuario_id, participantes);
+      await bloquearDuplicidadePorCpf(tx, lote_id, usuario_id, participantes, config.periodo_id || null, eventoPeriodo?.evento_periodo_id || null);
       const baixa = await tx.execute(sql`UPDATE lotes SET "vagas_disponíveis" = CASE WHEN operacional_interno THEN "vagas_disponíveis" ELSE "vagas_disponíveis" - ${quantidadePessoas} END, atualizado_em = CURRENT_TIMESTAMP WHERE id = ${lote_id} AND (operacional_interno OR "vagas_disponíveis" >= ${quantidadePessoas}) RETURNING id`);
       if (baixa.rows.length === 0) throw new Error("Vagas indisponíveis");
 
@@ -723,7 +724,7 @@ export class PacoteService {
       await tx.update(reservas).set({ inventario_hold_id: holdId, atualizado_em: agora }).where(eq(reservas.id, novaReserva.id));
       const linhasLedger = [
         { tipo: "pacote", codigo: calculo.pacote_id || "lote-base", descricao: calculo.pacote_nome || "Pacote base", quantidade: quantidadePessoas, valor_unitario_centavos: Math.round(calculo.valor_base * 100), valor_total_centavos: Math.round(calculo.valor_base * 100 * quantidadePessoas) },
-        ...calculo.itens_selecionados.map((item) => ({ tipo: "adicional", codigo: item.id, descricao: item.nome, quantidade: item.quantidade, valor_unitario_centavos: Math.round(item.valor * 100), valor_total_centavos: Math.round(item.valor * item.quantidade * 100) })),
+        ...calculo.itens_selecionados.map((item) => ({ tipo: "adicional", codigo: item.id, descricao: item.nome, quantidade: item.quantidade * quantidadePessoas, valor_unitario_centavos: Math.round(item.valor * 100), valor_total_centavos: Math.round(item.valor * item.quantidade * quantidadePessoas * 100) })),
         ...(calculo.desconto_cupom > 0 ? [{ tipo: "cupom", codigo: calculo.cupom_id, descricao: "Desconto de cupom", quantidade: quantidadePessoas, valor_unitario_centavos: -Math.round(calculo.desconto_cupom * 100), valor_total_centavos: -Math.round(calculo.desconto_cupom * 100 * quantidadePessoas) }] : []),
       ];
       await tx.insert(precosLedger).values(linhasLedger.map((linha) => ({ id: createId(), reserva_id: novaReserva.id, ...linha, criado_em: agora, metadados: { fonte: "PacoteService.calcularValorPacote", preco_versao: "2026.1", lote_comercial_id: loteComercial?.id || null, lote_comercial_nome: loteComercial?.nome || null } })));

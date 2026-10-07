@@ -19,8 +19,8 @@ const MODALIDADES: Record<string, { titulo: string; descricao: string; Icone: ty
     Icone: Wind,
   },
   quarto_ar_condicionado: {
-    titulo: 'Quarto com climatizador compartilhado',
-    descricao: 'Quarto compartilhado com climatizador',
+    titulo: 'Quarto com ar-condicionado compartilhado',
+    descricao: 'Quarto compartilhado com ar-condicionado',
     Icone: Snowflake,
   },
 };

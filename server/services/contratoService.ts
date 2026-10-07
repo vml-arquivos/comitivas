@@ -20,6 +20,8 @@ import {
   lotes,
   pacotes,
   pacotePeriodos,
+  eventoPeriodos,
+  contratoValidacoes,
   pacoteLotesComerciais,
   reservas,
   usuarios,
@@ -34,14 +36,14 @@ import {
 } from "../db/schema.js";
 
 export type FormaPagamentoContrato = "pix" | "boleto" | "credito";
-export const CONTRATO_TEMPLATE_VERSION = "2026.1-oficial";
+export const CONTRATO_TEMPLATE_VERSION = "2026.2-operacional";
 export const REGRAS_CONVIVENCIA_VERSION = regrasRuntime.versao;
 export const REGRAS_CONVIVENCIA_OFICIAIS = regrasRuntime.conteudo;
 
 const MODALIDADES_HOSPEDAGEM: Record<string, string> = {
   camping: "Camping",
   quarto_ventilador: "Quarto com ventilador compartilhado",
-  quarto_ar_condicionado: "Quarto com climatizador compartilhado",
+  quarto_ar_condicionado: "Quarto com ar-condicionado compartilhado",
 };
 
 const FORMAS_PAGAMENTO: Record<string, string> = {
@@ -113,7 +115,7 @@ export interface CondicaoPagamentoCalculada {
 type ItemContrato = { id?: string; codigo?: string; nome: string; tipo?: string; transporte_rodoviario?: boolean; quantidade: number; valor: Decimal };
 
 type SnapshotVenda = {
-  modelo_oficial: "hospedagem" | "transporte" | "hospedagem_transporte";
+  modelo_oficial: "hospedagem" | "transporte" | "hospedagem_transporte" | "servicos";
   cliente: Record<string, unknown>;
   vendedor?: { id: string; nome: string; email: string } | null;
   evento: Record<string, unknown>;
@@ -267,7 +269,10 @@ function canonizar(valor: unknown): unknown {
   }
   return valor;
 }
-function serializarSnapshot(snapshot: SnapshotVenda): string { return JSON.stringify(canonizar(snapshot)); }
+export function serializarSnapshot(snapshot: unknown): string { return JSON.stringify(canonizar(snapshot)); }
+export function conferirHashSnapshot(snapshot: unknown, esperado: string): void {
+  if (!esperado || sha256(serializarSnapshot(snapshot)) !== esperado) throw new Error("O conteúdo do contrato diverge da versão registrada. Solicite atendimento.");
+}
 function hashEvento(evento: unknown, hashAnterior?: string | null): string {
   return sha256(`${hashAnterior || ""}:${JSON.stringify(canonizar(evento))}`);
 }
@@ -411,6 +416,53 @@ export class ContratoService {
     return { forma_pagamento: forma, quantidade_parcelas: parcelas, valor_base: original.toFixed(2), valor_total: total.toFixed(2), valor_parcela: total.div(parcelas).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toFixed(2), desconto_pagamento: desconto.toFixed(2), taxa_pagamento: taxa.toFixed(2), juros_pagamento: juros.toFixed(2) };
   }
 
+  static async obterPeriodoContratacao(reserva: { periodo_id?: string | null; evento_periodo_id?: string | null; pacote_id?: string | null }) {
+    const espelho = reserva.periodo_id && reserva.pacote_id
+      ? (await db.select().from(pacotePeriodos).where(and(eq(pacotePeriodos.id, reserva.periodo_id), eq(pacotePeriodos.pacote_id, reserva.pacote_id))).limit(1))[0]
+      : undefined;
+    if (reserva.periodo_id && !espelho) throw new Error("O período da reserva não foi encontrado. Solicite atendimento.");
+    if (reserva.evento_periodo_id && espelho?.evento_periodo_id && reserva.evento_periodo_id !== espelho.evento_periodo_id) throw new Error("Os vínculos do período precisam ser conferidos pela equipe.");
+    const centralId = reserva.evento_periodo_id || espelho?.evento_periodo_id;
+    const central = centralId ? (await db.select().from(eventoPeriodos).where(eq(eventoPeriodos.id, centralId)).limit(1))[0] : undefined;
+    if (centralId && !central) throw new Error("O período da excursão não foi encontrado. Solicite atendimento.");
+    return central || espelho;
+  }
+
+  static async obterDataViagemReserva(reserva: { periodo_id?: string | null; evento_periodo_id?: string | null; pacote_id?: string | null }, lote: { data_embarque?: Date | null; data_inicio?: Date | null } | undefined) {
+    const periodo = await this.obterPeriodoContratacao(reserva);
+    return periodo?.data_embarque || periodo?.data_inicio || lote?.data_embarque || lote?.data_inicio;
+  }
+
+  static async salvarCondicaoPendente(reservaId: string, condicao: CondicaoPagamentoCalculada, esperado?: { valor_total: string; desconto_pagamento: string | null }): Promise<void> {
+    await db.transaction(async tx => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`contrato:${reservaId}`}))`);
+      const reserva = (await tx.select().from(reservas).where(eq(reservas.id, reservaId)).for("update").limit(1))[0];
+      if (!reserva || !["pacote_montado", "checkout_iniciado", "contrato_gerado"].includes(String(reserva.status))) throw new Error("Esta contratação já avançou. Acompanhe sua viagem em Minha Conta.");
+      if (esperado && (decimal(reserva.valor_total).toFixed(2) !== decimal(esperado.valor_total).toFixed(2) || decimal(reserva.desconto_pagamento).toFixed(2) !== decimal(esperado.desconto_pagamento).toFixed(2))) throw new Error("O valor da reserva mudou. Atualize a página para confirmar a condição vigente.");
+      const vigente = await this.obterContratoVigente(reservaId, tx);
+      if (vigente?.validado_em) throw new Error("O contrato já foi validado. A condição aceita foi preservada.");
+      const mudou = reserva.forma_pagamento !== condicao.forma_pagamento || reserva.quantidade_parcelas !== condicao.quantidade_parcelas || decimal(reserva.valor_total).toFixed(2) !== condicao.valor_total;
+      if (mudou && vigente) {
+        await tx.update(contratosDocumentos).set({ status: "invalidado", invalidado_em: new Date(), motivo_invalidacao: "Condição de pagamento atualizada antes da assinatura" }).where(and(eq(contratosDocumentos.reserva_id, reservaId), sql`status IN ('rascunho', 'aguardando_validacao', 'preparado')`));
+        await tx.update(otpDesafios).set({ expira_em: new Date(), status_envio: "invalidado" }).where(eq(otpDesafios.reserva_id, reservaId));
+      }
+      await tx.update(reservas).set({ forma_pagamento: condicao.forma_pagamento, quantidade_parcelas: condicao.quantidade_parcelas, valor_parcela: condicao.valor_parcela, desconto_pagamento: condicao.desconto_pagamento, valor_total: condicao.valor_total, valor_total_centavos: Math.round(Number(condicao.valor_total) * 100), checkout_estado: "contrato_preparado", atualizado_em: new Date() }).where(eq(reservas.id, reservaId));
+    });
+  }
+
+  static async obterContratoVigente(reservaId: string, banco: any = db) {
+    return (await banco.select().from(contratosDocumentos).where(and(eq(contratosDocumentos.reserva_id, reservaId), sql`status <> 'invalidado'`)).orderBy(desc(contratosDocumentos.versao)).limit(1))[0] as typeof contratosDocumentos.$inferSelect | undefined;
+  }
+
+  static async exigirAprovacaoFinanceira(reservaId: string, banco: any = db) {
+    const contrato = await this.obterContratoVigente(reservaId, banco);
+    if (!contrato?.validado_em || !["validado", "aprovado_admin"].includes(contrato.status)) throw new Error("O cliente precisa validar a versão vigente do contrato.");
+    const validacao = (await banco.select().from(contratoValidacoes).where(and(eq(contratoValidacoes.contrato_id, contrato.id), eq(contratoValidacoes.reserva_id, reservaId))).limit(1))[0];
+    if (!validacao?.aceite_contrato || !validacao.aceite_regras || validacao.snapshot_sha256 !== contrato.snapshot_sha256 || !contrato.pdf_sha256 || validacao.pdf_sha256 !== contrato.pdf_sha256) throw new Error("As evidências da assinatura precisam ser conferidas antes do envio do boleto.");
+    if (contrato.status !== "aprovado_admin" || !contrato.aprovado_admin_em || !contrato.aprovado_admin_por) throw new Error("O contrato precisa da aprovação da equipe antes do envio do boleto.");
+    return contrato;
+  }
+
   static async obterDadosBase(reservaId: string) {
     const reserva = (await db.select().from(reservas).where(eq(reservas.id, reservaId)).limit(1))[0];
     if (!reserva) throw new Error("Reserva não encontrada");
@@ -423,9 +475,7 @@ export class ContratoService {
     const pacote = reserva.pacote_id
       ? (await db.select().from(pacotes).where(and(eq(pacotes.id, reserva.pacote_id), eq(pacotes.lote_id, lote.id))).limit(1))[0]
       : undefined;
-    const periodo = reserva.periodo_id && reserva.pacote_id
-      ? (await db.select().from(pacotePeriodos).where(and(eq(pacotePeriodos.id, reserva.periodo_id), eq(pacotePeriodos.pacote_id, reserva.pacote_id))).limit(1))[0]
-      : undefined;
+    const periodo = await this.obterPeriodoContratacao(reserva);
     const vendedor = reserva.vendedor_id
       ? (await db.select({ id: usuarios.id, nome: usuarios.nome, email: usuarios.email }).from(usuarios).where(and(eq(usuarios.id, reserva.vendedor_id), eq(usuarios.tipo, "vendedor"))).limit(1))[0]
       : undefined;
@@ -440,9 +490,7 @@ export class ContratoService {
     const adicionais = normalizarItens(reserva.itens_selecionados);
     const descontoQuery: any = db.select({ valor_desconto: descontosAdministrativos.valor_desconto }).from(descontosAdministrativos).where(eq(descontosAdministrativos.reserva_id, reserva.id));
     const descontoAdministrativo = (await (typeof descontoQuery.orderBy === "function" ? descontoQuery.orderBy(desc(descontosAdministrativos.criado_em)) : descontoQuery).limit(1))[0];
-    const base = decimal(loteComercial?.valor ?? pacote?.valor_total ?? lote.valor_base);
-    const itens: ItemContrato[] = [{ id: pacote?.id, nome: pacote?.nome || `Pacote base — ${lote.nome}`, quantidade: 1, valor: base }, ...adicionais];
-    const subtotal = itens.reduce((total, item) => total.plus(item.valor.times(item.quantidade)), new Decimal(0)).toDecimalPlaces(2);
+
     const descontoCupom = decimal(reserva.desconto_aplicado);
     const descontoPagamento = decimal(reserva.desconto_pagamento);
     const total = decimal(reserva.valor_total);
@@ -459,6 +507,17 @@ export class ContratoService {
         .from(reservaParticipantes)
         .where(eq(reservaParticipantes.grupo_id, reserva.grupo_id))
       : [];
+    const quantidadePessoas = Math.max(1, participantes.length);
+    const descontoAdministrativoTotal = (await db.execute(sql`SELECT COALESCE(SUM(valor_desconto), 0)::text AS total FROM descontos_administrativos WHERE reserva_id = ${reserva.id}`)).rows[0] as { total?: string } | undefined;
+    const descontoAdmin = decimal(descontoAdministrativoTotal?.total ?? descontoAdministrativo?.valor_desconto);
+    const taxa = decimal(condicaoPagamento?.taxa_pagamento);
+    const juros = decimal(condicaoPagamento?.juros_pagamento);
+    const subtotal = total.plus(descontoCupom).plus(descontoPagamento).plus(descontoAdmin).minus(taxa).minus(juros).toDecimalPlaces(2);
+    const adicionaisGrupo = adicionais.map(item => ({ ...item, quantidade: item.quantidade * quantidadePessoas }));
+    const totalAdicionais = adicionaisGrupo.reduce((soma, item) => soma.plus(item.valor.times(item.quantidade)), new Decimal(0));
+    const basePersistida = subtotal.minus(totalAdicionais);
+    if (basePersistida.isNegative()) throw new Error("A composição do preço precisa ser conferida antes do contrato.");
+    const itens: ItemContrato[] = [{ id: pacote?.id, nome: pacote?.nome || `Pacote base — ${lote.nome}`, quantidade: quantidadePessoas, valor: basePersistida.div(quantidadePessoas) }, ...adicionaisGrupo];
     const recursosSalvos = reserva.recursos_contratados && typeof reserva.recursos_contratados === "object"
       ? reserva.recursos_contratados as Partial<RecursosContratados>
       : {};
@@ -493,8 +552,8 @@ export class ContratoService {
     const rodoviario = recursos.transporte;
     const modeloOficial: SnapshotVenda["modelo_oficial"] = rodoviario && recursos.hospedagem
       ? "hospedagem_transporte"
-      : rodoviario ? "transporte" : "hospedagem";
-    const localHospedagem = textoOpcional(hospedagemForm.local, textoOpcional(lote.local_hospedagem, "Chácara Recanto Novo Encantado ou Santa Thereza")) || "Chácara Recanto Novo Encantado ou Santa Thereza";
+      : rodoviario ? "transporte" : recursos.hospedagem ? "hospedagem" : "servicos";
+    const localHospedagem = textoOpcional(hospedagemForm.local, textoOpcional(lote.local_hospedagem, "Local a confirmar pela organização")) || "Local a confirmar pela organização";
     const modalidadeHospedagem = recursos.hospedagem
       ? textoOpcional(pacote?.modalidade_hospedagem, textoOpcional(hospedagemForm.modalidade))
       : null;
@@ -531,9 +590,14 @@ export class ContratoService {
       .where(and(eq(quartoAlocacoes.reserva_id, reserva.id), eq(quartoAlocacoes.status, "ativa")))
       .limit(1))[0];
     const dataLimite = this.calcularDataLimiteEfetiva(pacote?.data_limite_pagamento, periodo?.data_embarque || periodo?.data_inicio || lote.data_embarque || lote.data_inicio, prazoSegurancaDias);
-    const servicos = recursos.hospedagem
-      ? ["Hospedagem", "Café da manhã", "Almoço", "Open Bar das 09h às 19h", "Translado interno entre a hospedagem e o Parque do Peão"]
+    const inclusosPacote = Array.isArray(pacote?.itens_selecionados)
+      ? pacote.itens_selecionados.filter((item): item is string => typeof item === "string" && Boolean(item.trim())).map(item => item.trim())
       : [];
+    const servicos = inclusosPacote.length
+      ? inclusosPacote.filter(item => (recursos.transporte || !/transporte rodovi[aá]rio|interestadual/i.test(item)) && (recursos.hospedagem || !/hospedagem/i.test(item)))
+      : recursos.hospedagem
+        ? ["Hospedagem", "Café da manhã", "Almoço", "Open Bar das 09h às 19h", "Translado interno entre a hospedagem e o Parque do Peão"]
+        : [];
     if (pacote?.modalidade_hospedagem === "camping") servicos.unshift("Pacote de camping");
     if (rodoviario) servicos.unshift("Transporte rodoviário de ida e volta, conforme programação previamente divulgada pela CONTRATADA");
     if (recursos.transporte_proprio) servicos.unshift("Deslocamento até o destino por conta própria, sem reserva de poltrona no transporte da excursão");
@@ -545,21 +609,21 @@ export class ContratoService {
       evento: { id: evento.id, nome: evento.nome, local: evento.local, data_inicio: formatarDataISO(evento.data_inicio), data_fim: formatarDataISO(evento.data_fim) },
       lote: { id: lote.id, nome: lote.nome, descricao: lote.descricao },
       lote_comercial: loteComercial ? { id: loteComercial.id, nome: loteComercial.nome, descricao: loteComercial.descricao, forma_contratacao: (recursosSalvos as any).forma_contratacao || null, valor: loteComercial.valor, data_inicio: formatarDataISO(loteComercial.data_inicio), data_fim: formatarDataISO(loteComercial.data_fim), vagas_totais: loteComercial.vagas_totais } : null,
-      periodo: { nome: periodo?.nome || null, check_in: dataISOouNulo(hospedagemForm.check_in) || formatarDataISO(periodo?.data_inicio || lote.data_inicio) || "", check_out: dataISOouNulo(hospedagemForm.check_out) || formatarDataISO(periodo?.data_fim || lote.data_fim) || "" },
-      pacote: { id: pacote?.id || null, nome: pacote?.nome || null, descricao: pacote?.descricao || null, valor_total: base.toFixed(2), forma_contratacao: (recursosSalvos as any).forma_contratacao || pacote?.forma_contratacao || null },
+      periodo: { nome: periodo?.nome || null, check_in: formatarDataISO(periodo?.data_inicio) || dataISOouNulo(hospedagemForm.check_in) || formatarDataISO(lote.data_inicio) || "", check_out: formatarDataISO(periodo?.data_fim) || dataISOouNulo(hospedagemForm.check_out) || formatarDataISO(lote.data_fim) || "" },
+      pacote: { id: pacote?.id || null, nome: pacote?.nome || null, descricao: pacote?.descricao || null, valor_total: basePersistida.div(quantidadePessoas).toFixed(2), forma_contratacao: (recursosSalvos as any).forma_contratacao || pacote?.forma_contratacao || null },
       hospedagem: { modalidade: modalidadeHospedagem, modalidade_nome: modalidadeHospedagem ? MODALIDADES_HOSPEDAGEM[modalidadeHospedagem] || "Conforme contratação registrada" : "Não contratada", local: recursos.hospedagem ? localHospedagem : "", quarto: recursos.hospedagem ? quarto?.nome || null : null, grupo: recursos.hospedagem ? quarto?.genero || null : null, vaga: recursos.hospedagem ? quarto?.numero_vaga || null : null },
       servicos_inclusos: servicos,
-      adicionais: adicionais.map((item) => ({ id: item.id, codigo: item.codigo, nome: item.nome, tipo: item.tipo, transporte_rodoviario: item.transporte_rodoviario, quantidade: item.quantidade, valor_unitario: item.valor.toFixed(2) })),
-      quantidade: 1,
-      precos_unitarios: itens.map((item) => ({ nome: item.nome, quantidade: item.quantidade, valor_unitario: item.valor.toFixed(2), total: item.valor.times(item.quantidade).toFixed(2) })),
-      financeiro: { subtotal: subtotal.toFixed(2), valor_base: condicaoPagamento?.valor_base || subtotal.minus(descontoCupom).minus(decimal(descontoAdministrativo?.valor_desconto)).toFixed(2), cupom: descontoCupom.toFixed(2), desconto_pagamento: descontoPagamento.toFixed(2), taxa_pagamento: condicaoPagamento?.taxa_pagamento || "0.00", juros_pagamento: condicaoPagamento?.juros_pagamento || "0.00", multa_atraso_percentual: Number(configuracaoPagamento.multa_atraso_percentual ?? 2), juros_mora_mensal_percentual: Number(configuracaoPagamento.juros_mora_mensal_percentual ?? 1), desconto_administrativo: decimal(descontoAdministrativo?.valor_desconto).toFixed(2), total: total.toFixed(2), forma_pagamento: reserva.forma_pagamento, parcelas, valor_parcela: cronograma[0]?.valor || (reserva.valor_parcela ? decimal(reserva.valor_parcela).toFixed(2) : total.div(parcelas).toFixed(2)), vencimentos: cronograma.map((item) => item.vencimento), cronograma },
+      adicionais: adicionaisGrupo.map((item) => ({ id: item.id, codigo: item.codigo, nome: item.nome, tipo: item.tipo, transporte_rodoviario: item.transporte_rodoviario, quantidade: item.quantidade, valor_unitario: item.valor.toFixed(2) })),
+      quantidade: quantidadePessoas,
+      precos_unitarios: itens.map((item) => ({ nome: item.nome, quantidade: item.quantidade, valor_unitario: item.valor.toFixed(2), total: item.valor.times(item.quantidade).toFixed(2), ajuste_arredondamento: item.valor.times(item.quantidade).minus(item.valor.toDecimalPlaces(2).times(item.quantidade)).toFixed(2) })),
+      financeiro: { subtotal: subtotal.toFixed(2), valor_base: condicaoPagamento?.valor_base || subtotal.minus(descontoCupom).minus(descontoAdmin).toFixed(2), cupom: descontoCupom.toFixed(2), desconto_pagamento: descontoPagamento.toFixed(2), taxa_pagamento: condicaoPagamento?.taxa_pagamento || "0.00", juros_pagamento: condicaoPagamento?.juros_pagamento || "0.00", multa_atraso_percentual: Number(configuracaoPagamento.multa_atraso_percentual ?? 2), juros_mora_mensal_percentual: Number(configuracaoPagamento.juros_mora_mensal_percentual ?? 1), desconto_administrativo: descontoAdmin.toFixed(2), total: total.toFixed(2), forma_pagamento: reserva.forma_pagamento, parcelas, valor_parcela: cronograma[0]?.valor || (reserva.valor_parcela ? decimal(reserva.valor_parcela).toFixed(2) : total.div(parcelas).toFixed(2)), vencimentos: cronograma.map((item) => item.vencimento), cronograma },
       transporte: { rodoviario_incluido: rodoviario, por_conta_propria: Boolean(recursos.transporte_proprio), local_embarque: rodoviario ? textoOpcional(transporteForm.local_embarque, textoOpcional(alocacao?.ponto_embarque_endereco || alocacao?.ponto_embarque_nome || lote.local_embarque)) : null, ponto_referencia: rodoviario ? textoOpcional(transporteForm.ponto_referencia, textoOpcional(alocacao?.ponto_embarque_nome)) : null, data_saida: rodoviario ? dataISOouNulo(transporteForm.data_saida) || formatarDataISO(alocacao?.data_partida || periodo?.data_embarque || lote.data_embarque) : null, data_retorno: rodoviario ? dataISOouNulo(transporteForm.data_retorno) || formatarDataISO(alocacao?.data_retorno || periodo?.data_retorno || lote.data_retorno) : null, horario_saida: rodoviario ? textoOpcional(transporteForm.horario_saida, alocacao?.ponto_embarque_horario ? formatarDataHora(alocacao.ponto_embarque_horario) : alocacao?.data_partida ? formatarDataHora(alocacao.data_partida) : periodo?.data_embarque ? formatarDataHora(periodo.data_embarque) : lote.data_embarque ? formatarDataHora(lote.data_embarque) : null) : null, horario_retorno: rodoviario ? textoOpcional(transporteForm.horario_retorno, alocacao?.data_retorno ? formatarDataHora(alocacao.data_retorno) : periodo?.data_retorno ? formatarDataHora(periodo.data_retorno) : lote.data_retorno ? formatarDataHora(lote.data_retorno) : null) : null, veiculo: rodoviario ? textoOpcional(transporteForm.veiculo, alocacao ? "Ônibus" : null) : null, saida_id: alocacao?.saida_id || null, onibus_id: alocacao?.onibus_id || null, onibus_nome: alocacao?.onibus_nome || null, onibus_identificacao: alocacao?.onibus_identificacao || null, poltrona: alocacao?.poltrona || null, ponto_embarque_id: alocacao?.ponto_embarque_id || null },
       bagagem: { limite_kg: numeroOpcional(formulario.bagagem?.limite_kg) },
       seguro: { seguradora: textoOpcional(seguroForm.seguradora), apolice: textoOpcional(seguroForm.apolice), cobertura: textoOpcional(seguroForm.cobertura), telefone: textoOpcional(seguroForm.telefone) },
       participantes: participantes.map((participante) => ({ nome: participante.nome, cpf: participante.cpf, nascimento: dataISOouNulo(participante.nascimento), grupo: participante.grupo })),
       uso_imagem: { autorizado: formulario.uso_imagem?.autorizado === true, prazo_anos: Number(formulario.uso_imagem?.prazo_anos) > 0 ? Math.min(10, Math.round(Number(formulario.uso_imagem?.prazo_anos))) : 3 },
       observacoes_especificas: textoOpcional(formulario.observacoes_especificas),
-      politicas: { cancelamento: ["Superior a 90 dias: retenção de 10%", "Entre 80 e 60 dias: retenção de 20%", "Entre 50 e 30 dias: retenção de 30%", "Entre 20 e 15 dias: retenção de 50%", "Menos de 15 dias: retenção de 80%", "No-show ou abandono: retenção de 100%"], reembolso: "Até 30 dias da formalização do pedido" },
+      politicas: { cancelamento: ["Arrependimento legal em 7 dias: sem retenção, com devolução imediata", "Superior a 80 dias: retenção de 10%", "Entre 80 e 51 dias: retenção de 20%", "Entre 50 e 21 dias: retenção de 30%", "Entre 20 e 15 dias: retenção de 50%", "Menos de 15 dias: retenção de 80%", "No-show ou abandono: retenção de 100%"], reembolso: "Até 30 dias da formalização do pedido, exceto arrependimento legal, com devolução imediata" },
       regras: { versao: REGRAS_CONVIVENCIA_VERSION, conteudo: REGRAS_CONVIVENCIA_OFICIAIS, sha256: regrasHash },
       data_contrato: formatarData(aceite),
       versao_contratual: CONTRATO_TEMPLATE_VERSION,
@@ -572,14 +636,24 @@ export class ContratoService {
     return { ...documento, snapshot: documento.snapshot as SnapshotVenda };
   }
 
+  static async registrarEvento(dados: Omit<typeof contratoEventos.$inferInsert, "hash_evento" | "hash_anterior">, banco?: any): Promise<void> {
+    const gravar = async (tx: any) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`contrato:${dados.reserva_id}`}))`);
+      const anterior = (await tx.select({ hash_evento: contratoEventos.hash_evento, criado_em: contratoEventos.criado_em }).from(contratoEventos).where(eq(contratoEventos.contrato_id, dados.contrato_id)).orderBy(desc(contratoEventos.criado_em)).limit(1))[0];
+      const criado_em = new Date(Math.max(Date.now(), anterior ? new Date(anterior.criado_em).getTime() + 1 : 0));
+      await tx.insert(contratoEventos).values({ ...dados, criado_em, hash_anterior: anterior?.hash_evento || null, hash_evento: hashEvento(dados.metadados, anterior?.hash_evento) });
+    };
+    if (banco) await gravar(banco); else await db.transaction(gravar);
+  }
+
   static async marcarVisualizacao(contratoId: string, reservaId: string, atorId?: string, ip?: string, userAgent?: string): Promise<void> {
     const documento = await this.obterSnapshotPersistido(contratoId);
     const agora = new Date();
     await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`contrato:${reservaId}`}))`);
       await tx.update(contratosDocumentos).set({ visualizado_em: documento.status === "validado" ? undefined : agora }).where(and(eq(contratosDocumentos.id, contratoId), eq(contratosDocumentos.reserva_id, reservaId)));
-      const anterior = (await tx.select({ hash_evento: contratoEventos.hash_evento }).from(contratoEventos).where(eq(contratoEventos.contrato_id, contratoId)).orderBy(desc(contratoEventos.criado_em)).limit(1))[0];
       const metadados = { contrato_id: contratoId, versao: documento.versao };
-      await tx.insert(contratoEventos).values({ id: `evt-${randomUUID()}`, contrato_id: contratoId, reserva_id: reservaId, tipo: "visualizado", criado_em: agora, ator_id: atorId || null, ip: ip || null, user_agent: userAgent || null, metadados, hash_anterior: anterior?.hash_evento || null, hash_evento: hashEvento(metadados, anterior?.hash_evento) });
+      await this.registrarEvento({ id: `evt-${randomUUID()}`, contrato_id: contratoId, reserva_id: reservaId, tipo: "visualizado", criado_em: agora, ator_id: atorId || null, ip: ip || null, user_agent: userAgent || null, metadados }, tx);
     });
   }
 
@@ -596,7 +670,7 @@ export class ContratoService {
     const documento = await PDFDocument.load(base);
     const fonte = await documento.embedFont(StandardFonts.Helvetica);
     const fonteNegrito = await documento.embedFont(StandardFonts.HelveticaBold);
-    const pagina = documento.addPage([595.28, 841.89]);
+    let pagina = documento.addPage([595.28, 841.89]);
     const linhas = [
       "CERTIFICADO DE EVIDÊNCIAS DA ASSINATURA ELETRÔNICA",
       "Excursão das Comitivas — contratação 2026",
@@ -621,7 +695,28 @@ export class ContratoService {
     let y = 780;
     pagina.drawText(linhas[0], { x: 48, y, size: 14, font: fonteNegrito, color: rgb(0.5, 0.05, 0.05) });
     y -= 30;
-    linhas.slice(1).forEach((linha) => { pagina.drawText(linha.slice(0, 105), { x: 48, y, size: linha.startsWith("Hash") ? 9 : 10, font: linha.startsWith("CERTIFICADO") ? fonteNegrito : fonte, color: rgb(0.12, 0.16, 0.22) }); y -= 18; });
+    for (const linha of linhas.slice(1)) {
+      const size = linha.startsWith("Hash") ? 9 : 10;
+      let trecho = "";
+      const escrever = () => {
+        if (y < 48) { pagina = documento.addPage([595.28, 841.89]); y = 780; }
+        pagina.drawText(trecho, { x: 48, y, size, font: fonte, color: rgb(0.12, 0.16, 0.22) });
+        y -= 18;
+        trecho = "";
+      };
+      for (const palavra of linha.split(/\s+/)) {
+        if (trecho && fonte.widthOfTextAtSize(`${trecho} ${palavra}`, size) > 499) escrever();
+        // Identificadores excepcionalmente longos também precisam caber na página.
+        if (fonte.widthOfTextAtSize(palavra, size) > 499) {
+          if (trecho) escrever();
+          for (const caractere of palavra) {
+            if (fonte.widthOfTextAtSize(trecho + caractere, size) > 499) escrever();
+            trecho += caractere;
+          }
+        } else trecho += `${trecho ? " " : ""}${palavra}`;
+      }
+      escrever();
+    }
     return Buffer.from(await documento.save());
   }
 
@@ -635,11 +730,16 @@ export class ContratoService {
   }
 
   static async prepararContrato(reservaId: string, formulario?: ContratoFormulario, condicaoPagamento?: CondicaoPagamentoCalculada): Promise<{ id: string; versao: number; snapshot: SnapshotVenda; snapshot_sha256: string; status: string; reutilizado?: boolean }> {
-    const snapshot = await this.gerarSnapshot({ reserva_id: reservaId, formulario, condicao_pagamento: condicaoPagamento });
-    const hash = sha256(serializarSnapshot(snapshot));
     const agora = new Date();
     const resultado = await db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`contrato-preparar:${reservaId}`}))`);
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`contrato:${reservaId}`}))`);
+      await tx.execute(sql`SELECT id FROM reservas WHERE id = ${reservaId} FOR UPDATE`);
+      const vigente = await this.obterContratoVigente(reservaId, tx);
+      if (vigente?.validado_em) {
+        return { id: vigente.id, versao: vigente.versao, snapshot: vigente.snapshot as SnapshotVenda, snapshot_sha256: vigente.snapshot_sha256, status: vigente.status, reutilizado: true };
+      }
+      const snapshot = await this.gerarSnapshot({ reserva_id: reservaId, formulario, condicao_pagamento: condicaoPagamento });
+      const hash = sha256(serializarSnapshot(snapshot));
       const pendente = (await tx.select({ id: contratosDocumentos.id, versao: contratosDocumentos.versao, status: contratosDocumentos.status, snapshot: contratosDocumentos.snapshot, snapshot_sha256: contratosDocumentos.snapshot_sha256 })
         .from(contratosDocumentos)
         .where(and(eq(contratosDocumentos.reserva_id, reservaId), sql`status IN ('rascunho', 'aguardando_validacao', 'preparado')`))

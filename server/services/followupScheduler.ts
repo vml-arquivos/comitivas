@@ -5,6 +5,7 @@ import { reservas, emails_enviados, usuarios } from '../db/schema.js';
 import { eq, lt, and } from 'drizzle-orm';
 import { InventoryService } from './inventoryService.js';
 import { NotificationOutboxService } from './notificationOutboxService.js';
+import { reprocessarWebhooksCora } from '../routes/pagamentos.js';
 
 interface FollowupConfig {
   etapa: NonNullable<typeof reservas.$inferSelect.status>;
@@ -52,6 +53,7 @@ export class FollowupScheduler {
       const liberados = await InventoryService.liberarExpirados();
       if (liberados > 0) console.log(`[INVENTARIO] ${liberados} hold(s) expirado(s) liberado(s)`);
       await NotificationOutboxService.processarLote();
+      await reprocessarWebhooksCora();
       await this.checkAndSendFollowups();
     });
 

@@ -1,5 +1,5 @@
 import { Helmet } from 'react-helmet-async';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 
 const PAGINAS: Record<string, { titulo: string; descricao: string; secoes: Array<{ titulo: string; texto: string }> }> = {
   privacidade: {
@@ -16,8 +16,8 @@ const PAGINAS: Record<string, { titulo: string; descricao: string; secoes: Array
     titulo: 'Termos de Contratação',
     descricao: 'Regras gerais para montar, revisar e contratar um pacote da Excursão das Comitivas.',
     secoes: [
-      { titulo: 'Informação antes do aceite', texto: 'O cliente visualiza o resumo do pacote, valores, forma de pagamento e contrato individual antes da confirmação. O backend calcula e registra os valores; a tela não substitui o documento congelado.' },
-      { titulo: 'Assinatura eletrônica', texto: 'A confirmação ocorre por assinatura eletrônica com autenticação por código enviado ao canal configurado. O código é de uso único, possui validade limitada e gera protocolo e hashes verificáveis.' },
+      { titulo: 'Informação antes do aceite', texto: 'O cliente visualiza o resumo do pacote, valores, forma de pagamento e contrato individual antes da confirmação. Os valores e as condições ficam registrados no contrato aceito.' },
+      { titulo: 'Assinatura eletrônica', texto: 'A confirmação ocorre por assinatura eletrônica com autenticação por código enviado ao canal configurado. O código é de uso único, possui validade limitada e gera um protocolo de confirmação.' },
       { titulo: 'Pagamento', texto: 'A operação financeira de produção utiliza exclusivamente o Banco Cora. A confirmação da reserva depende da regra financeira indicada no contrato e os dados de cobrança devem ser conferidos antes do pagamento.' },
       { titulo: 'Regras da viagem', texto: 'As Regras de Convivência versão 2026.1 fazem parte da experiência da comitiva e devem ser lidas antes do aceite. Alterações materiais exigem nova versão e novo aceite.' },
     ],
@@ -27,7 +27,7 @@ const PAGINAS: Record<string, { titulo: string; descricao: string; secoes: Array
     descricao: 'Orientações para formalizar um pedido de cancelamento e consultar as condições do contrato.',
     secoes: [
       { titulo: 'Como solicitar', texto: 'Entre em Minha Conta, abra a viagem e escolha Cancelar contratação. Informe o motivo; o protocolo fica registrado para análise. Se não conseguir acessar, use o canal de atendimento informado nesta página.' },
-      { titulo: 'Condições aplicáveis', texto: 'As retenções e os prazos são os que constam no contrato individual aceito. A fonte contratual vigente possui intervalos de dias que dependem de aprovação jurídica e empresarial; nenhuma faixa não aprovada é preenchida automaticamente.' },
+      { titulo: 'Condições aplicáveis', texto: 'As retenções e os prazos são os que constam no contrato individual aceito. Os direitos previstos em lei são preservados. Nas hipóteses do art. 49 do Código de Defesa do Consumidor, o arrependimento pode ser exercido em sete dias, com devolução imediata dos valores pagos. Outras solicitações seguem as condições do contrato aceito e a análise das despesas comprovadas.' },
       { titulo: 'Prazo de resposta', texto: 'Após a formalização, a equipe informará o cálculo aplicável, os valores eventualmente devidos e o prazo de processamento, preservando os comprovantes e a trilha de atendimento.' },
       { titulo: 'Dúvidas', texto: 'Para atendimento rápido, fale com a equipe pelo WhatsApp (61) 99445-9086 ou pelo e-mail informado acima.' },
     ],
@@ -35,7 +35,8 @@ const PAGINAS: Record<string, { titulo: string; descricao: string; secoes: Array
 };
 
 export default function Legal() {
-  const { tipo = 'privacidade' } = useParams();
+  const { pathname } = useLocation();
+  const tipo = pathname.split('/').filter(Boolean)[0] || 'privacidade';
   const pagina = PAGINAS[tipo] || PAGINAS.privacidade;
   return (
     <div className="min-h-screen bg-[#fffdf9] py-14 sm:py-20">

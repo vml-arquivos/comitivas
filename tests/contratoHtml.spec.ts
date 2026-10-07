@@ -138,7 +138,7 @@ describe("ContratoService.gerarContratoHTML", () => {
     expect(html).toContain("CLÁUSULA VIGÉSIMA");
     expect(html).toContain("roupa de cama e os itens de higiene pessoal são de responsabilidade do hóspede");
     expect(html).toContain("( X ) QUARTO COM VENTILADOR COMPARTILHADO.");
-    expect(html).toContain("(  ) QUARTO COM CLIMATIZADOR COMPARTILHADO.");
+    expect(html).toContain("(  ) QUARTO COM AR-CONDICIONADO COMPARTILHADO.");
     expect(html).not.toContain("Serviço não contratado");
   });
 

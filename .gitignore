@@ -18,3 +18,10 @@ tmp/
 out/
 destrava-main/
 .env.local
+
+**/*.md
+**/*.txt
+!apps/web/public/robots.txt
+docs/
+_ENTREGA*/
+validacao/

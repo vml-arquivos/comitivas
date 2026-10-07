@@ -1,10 +1,13 @@
 import express from "express";
 import path from "path";
+import { promises as fs, constants as fsConstants } from "node:fs";
+import { sql } from "drizzle-orm";
+import type { Server } from "node:http";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import dotenv from "dotenv";
-import { initializeDatabase, closeDatabase } from "./db/index.js";
+import { initializeDatabase, closeDatabase, db } from "./db/index.js";
 import { authMiddleware, requireRole } from "./middleware/authMiddleware.js";
 import { followupScheduler } from "./services/followupScheduler.js";
 import { AuthService } from "./services/authService.js";
@@ -31,6 +34,7 @@ AuthService.validarConfiguracaoSegura();
 PaymentGatewayAdapter.validarConfiguracaoSegura({ strict: false });
 
 const app = express();
+let servidorHttp: Server | undefined;
 const PORT = process.env.PORT || 3000;
 const trustedProxyIps = new Set((process.env.TRUSTED_PROXY_IPS || "127.0.0.1,::1").split(",").map((value) => value.trim()).filter(Boolean));
 app.set("trust proxy", (ip: string) => trustedProxyIps.has(ip));
@@ -106,7 +110,7 @@ app.use(helmet({
       imgSrc: ["'self'", "data:", "https:"],
       fontSrc: ["'self'", "data:", "https:"],
       connectSrc: ["'self'", "https://api.cora.com.br", "https://matls-clients.api.cora.com.br"],
-      frameSrc: ["https://www.youtube-nocookie.com"],
+      frameSrc: ["'self'", "about:", "https://www.youtube-nocookie.com"],
     },
   },
   crossOriginEmbedderPolicy: false,
@@ -156,6 +160,17 @@ app.use("/api/publico", publicoRoutes);
 // Health check
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+// Readiness verifica dependências locais sem expor detalhes internos.
+app.get("/api/ready", async (_req, res) => {
+  try {
+    await db.execute(sql`SELECT 1`);
+    await fs.access(path.resolve(process.env.STORAGE_PATH || "./uploads"), fsConstants.R_OK | fsConstants.W_OK);
+    return res.json({ status: "ready" });
+  } catch {
+    return res.status(503).json({ status: "not_ready" });
+  }
 });
 
 // Área do cliente 360º (autenticada e sempre limitada ao próprio usuário)
@@ -242,7 +257,8 @@ async function start() {
     const followupInterval = parseInt(process.env.FOLLOWUP_CHECK_INTERVAL_MINUTOS || '5', 10);
     followupScheduler.start(followupInterval);
 
-    app.listen(PORT, () => {
+    await fs.mkdir(path.resolve(process.env.STORAGE_PATH || "./uploads"), { recursive: true });
+    servidorHttp = app.listen(PORT, () => {
       console.log(`[SERVER] Comitiva rodando em http://localhost:${PORT}`);
       console.log(`[SERVER] Follow-up scheduler ativo (intervalo: ${followupInterval} minutos)`);
     });
@@ -253,11 +269,20 @@ async function start() {
 }
 
 // Graceful shutdown
-process.on("SIGINT", async () => {
-  console.log("\n[SERVER] Encerrando...");
+let encerrando = false;
+async function encerrar() {
+  if (encerrando) return;
+  encerrando = true;
+  console.log("[SERVER] Encerrando conexões...");
   followupScheduler.stop();
+  const limite = setTimeout(() => process.exit(1), 25_000);
+  limite.unref();
+  if (servidorHttp) await new Promise<void>((resolve) => servidorHttp!.close(() => resolve()));
   await closeDatabase();
+  clearTimeout(limite);
   process.exit(0);
-});
+}
+process.on("SIGINT", encerrar);
+process.on("SIGTERM", encerrar);
 
 start();

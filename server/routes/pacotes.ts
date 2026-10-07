@@ -510,7 +510,7 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
       ? (await db.select({ codigo: cupons.codigo }).from(cupons).where(eq(cupons.id, reserva[0].cupom_id)).limit(1))[0]
       : undefined;
     const regrasPacote = regrasDoPacote(pacoteSelecionado[0] as any);
-    const dataViagem = periodoSelecionado[0]?.data_embarque || periodoSelecionado[0]?.data_inicio || loteResult[0]?.data_embarque || loteResult[0]?.data_inicio;
+    const dataViagem = await ContratoService.obterDataViagemReserva(reserva[0], loteResult[0]);
     const dataLimitePagamento = ContratoService.calcularDataLimiteEfetiva(regrasPacote.dataLimitePagamento, dataViagem, regrasPacote.prazoSegurancaDias);
     const configPagamento = await ConfiguracaoService.obterConfiguracoesPagamento();
     // Se o contrato já foi gerado, a condição fica travada (ver Checkout.tsx),
@@ -625,7 +625,7 @@ router.post("/reservas/:reserva_id/simular-pagamento", authMiddleware, async (re
     const regras = regrasDoPacote(pacote);
     if (!regras.formasPermitidas.includes(metodo)) return res.status(400).json({ erro: "A forma de pagamento não está disponível para este pacote" });
     const configuracao = await ConfiguracaoService.obterConfiguracoesPagamento();
-    const dataLimite = ContratoService.calcularDataLimiteEfetiva(regras.dataLimitePagamento, lote?.data_embarque || lote?.data_inicio, regras.prazoSegurancaDias);
+    const dataLimite = ContratoService.calcularDataLimiteEfetiva(regras.dataLimitePagamento, await ContratoService.obterDataViagemReserva(reserva, lote), regras.prazoSegurancaDias);
     const parcelasPorData = ContratoService.calcularParcelasMaximasBoleto(dataLimite, new Date(), configuracao.boleto_meses_maximo_antecedencia);
     const parcelasMaximasBoleto = Math.min(parcelasPorData, regras.boletoParcelasMaximo || parcelasPorData);
     const quantidade = metodo === 'pix' ? 1 : Number(req.body?.quantidade_parcelas || 1);

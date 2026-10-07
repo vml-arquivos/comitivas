@@ -8,7 +8,7 @@ import { api } from '../../contexts/AuthContext';
 type EstadoPagamento = { status?: string; status_reconciliado?: string; checkout_estado?: string; boleto_modo?: string; qr_code?: string; pix_copia_e_cola?: string; url_pagamento?: string; document_url?: string; parcelas?: any[] };
 
 const ESTADOS: Record<string, { titulo: string; descricao: string; ok?: boolean }> = {
-  aguardando_aprovacao_boleto: { titulo: 'Contrato validado · boletos em preparação', descricao: 'Estado legado reconciliado: sua assinatura foi confirmada e o fluxo segue automaticamente para a preparação dos boletos.' },
+  aguardando_aprovacao_boleto: { titulo: 'Contrato validado · boletos em preparação', descricao: 'Sua assinatura foi confirmada. A equipe fará a conferência do contrato e enviará seus boletos. Você pode acompanhar tudo em Minha Conta.' },
   boletos_em_preparacao: { titulo: 'Boletos em preparação', descricao: 'Sua contratação foi validada automaticamente. Os boletos estão sendo preparados e serão enviados ao e-mail cadastrado assim que forem disponibilizados.' },
   boletos_enviados: { titulo: 'Boletos enviados', descricao: 'As parcelas foram disponibilizadas pela equipe. Acompanhe os vencimentos e as confirmações de pagamento.' },
   aguardando_pagamento: { titulo: 'Aguardando pagamento', descricao: 'A reserva está aguardando confirmação financeira.' },

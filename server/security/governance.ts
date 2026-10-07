@@ -81,6 +81,7 @@ export function motivoBloqueioBoleto(gate: GateBoleto): string | null {
   if (!gate.cadastroAprovadoComEvidencia) return "Boleto bloqueado: aprovação do cadastro sem registro completo.";
   if (!gate.contratoExiste) return "Boleto bloqueado: contrato ainda não foi gerado.";
   if (!gate.contratoValidado) return "Boleto bloqueado: contrato ainda não foi validado pelo cliente.";
+  if (!gate.contratoAprovadoAdmin) return "Boleto bloqueado: o contrato aguarda conferência da equipe.";
   if (gate.formaPagamento !== "boleto") return "Boleto bloqueado: forma de pagamento não é boleto.";
   return null;
 }
