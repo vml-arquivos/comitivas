@@ -11,6 +11,8 @@ import { aprovarCadastroSeElegivel } from "../services/cadastroAprovacaoService.
 import { camposFaltantesCadastroMinimo } from "../security/governance.js";
 import { OAuthProviderName, OAuthService } from "../services/oauthService.js";
 
+import { emitirConfirmacaoEmail } from "../services/emailVerificationService.js";
+
 const router = Router();
 const AUTH_COOKIE = "auth_token";
 const OAUTH_COOKIE = "oauth_flow";
@@ -76,28 +78,6 @@ function urlWeb(req: Request, caminho: string): string {
   return new URL(caminho, `${base}/`).toString();
 }
 
-async function emitirConfirmacaoEmail(usuario: { id: string; email: string; nome: string }): Promise<boolean> {
-  const envioRecente = (await db.select({ id: verificacoesEmail.id })
-    .from(verificacoesEmail)
-    .where(and(
-      eq(verificacoesEmail.usuario_id, usuario.id),
-      isNull(verificacoesEmail.usado_em),
-      sql`${verificacoesEmail.criado_em} > CURRENT_TIMESTAMP - INTERVAL '60 seconds'`,
-    ))
-    .limit(1))[0];
-  if (envioRecente) return true;
-
-  const codigo = gerarCodigoEmail();
-  const agora = new Date();
-  await db.update(verificacoesEmail).set({ usado_em: agora }).where(and(eq(verificacoesEmail.usuario_id, usuario.id), isNull(verificacoesEmail.usado_em)));
-  await db.insert(verificacoesEmail).values({ id: createId(), usuario_id: usuario.id, codigo_hash: hashCodigo(codigo), expira_em: new Date(agora.getTime() + 30 * 60 * 1000), enviado_em: agora });
-  const envio = await new EmailProvider().sendEmailVerification(usuario.email, usuario.nome, codigo).catch((error: any) => ({ sent: false, reason: error?.message || "falha no provedor" }));
-  if (!envio.sent) {
-    await db.update(verificacoesEmail).set({ usado_em: new Date() }).where(and(eq(verificacoesEmail.usuario_id, usuario.id), isNull(verificacoesEmail.usado_em)));
-    console.error(`[AUTH] Confirmação OAuth não enviada: ${envio.reason || "provedor não confirmou o envio"}`);
-  }
-  return envio.sent;
-}
 
 interface CadastroRequest {
   nome: string;
@@ -182,10 +162,6 @@ function erroDeUnicidade(error: unknown): boolean {
 
 function hashCodigo(codigo: string): string {
   return createHash("sha256").update(codigo, "utf8").digest("hex");
-}
-
-function gerarCodigoEmail(): string {
-  return String(100000 + (randomBytes(4).readUInt32BE(0) % 900000));
 }
 
 router.get("/oauth/status", (_req: Request, res: Response) => {
@@ -464,16 +440,8 @@ router.post("/cadastro", async (req: Request<{}, {}, CadastroRequest>, res: Resp
       return criado;
     });
 
-    const codigo = gerarCodigoEmail();
-    const agora = new Date();
-    await db.update(verificacoesEmail).set({ usado_em: agora }).where(and(eq(verificacoesEmail.usuario_id, novoUsuario[0].id), isNull(verificacoesEmail.usado_em)));
-    await db.insert(verificacoesEmail).values({ id: createId(), usuario_id: novoUsuario[0].id, codigo_hash: hashCodigo(codigo), expira_em: new Date(agora.getTime() + 30 * 60 * 1000), enviado_em: agora });
-    const envio = await new EmailProvider().sendEmailVerification(novoUsuario[0].email, novoUsuario[0].nome, codigo).catch((error: any) => ({ sent: false, reason: error?.message || "falha no provedor" }));
-    if (!envio.sent) {
-      await db.update(verificacoesEmail).set({ usado_em: new Date() }).where(and(eq(verificacoesEmail.usuario_id, novoUsuario[0].id), isNull(verificacoesEmail.usado_em)));
-      console.error(`[AUTH] Confirmação de e-mail não enviada: ${envio.reason || "provedor não confirmou o envio"}`);
-    }
-    res.status(201).json({ usuario: novoUsuario[0], email_confirmacao_necessaria: true, envio_email: envio.sent ? "enviado" : "pendente" });
+    const enviado = await emitirConfirmacaoEmail(novoUsuario[0]);
+    res.status(201).json({ usuario: novoUsuario[0], email_confirmacao_necessaria: true, envio_email: enviado ? "enviado" : "pendente" });
   } catch (error) {
     console.error("[AUTH] Erro no cadastro:", error);
     if (erroDeUnicidade(error)) {
@@ -515,27 +483,7 @@ router.post("/reenviar-confirmacao", async (req: Request, res: Response) => {
     const usuario = (await db.select({ id: usuarios.id, email: usuarios.email, nome: usuarios.nome, email_confirmado: usuarios.email_confirmado }).from(usuarios).where(eq(usuarios.email, email)).limit(1))[0];
     if (!usuario || usuario.email_confirmado) return res.json(respostaNeutra);
 
-    // Evita disparos repetidos para o mesmo endereço sem bloquear login/cadastro.
-    // A resposta continua neutra para não revelar o estado da conta.
-    const envioRecente = (await db.select({ id: verificacoesEmail.id })
-      .from(verificacoesEmail)
-      .where(and(
-        eq(verificacoesEmail.usuario_id, usuario.id),
-        isNull(verificacoesEmail.usado_em),
-        sql`${verificacoesEmail.criado_em} > CURRENT_TIMESTAMP - INTERVAL '60 seconds'`,
-      ))
-      .limit(1))[0];
-    if (envioRecente) return res.json(respostaNeutra);
-
-    const codigo = gerarCodigoEmail();
-    const agora = new Date();
-    await db.update(verificacoesEmail).set({ usado_em: agora }).where(and(eq(verificacoesEmail.usuario_id, usuario.id), isNull(verificacoesEmail.usado_em)));
-    await db.insert(verificacoesEmail).values({ id: createId(), usuario_id: usuario.id, codigo_hash: hashCodigo(codigo), expira_em: new Date(agora.getTime() + 30 * 60 * 1000), enviado_em: agora });
-    const envio = await new EmailProvider().sendEmailVerification(usuario.email, usuario.nome, codigo).catch((error: any) => ({ sent: false, reason: error?.message || "falha no provedor" }));
-    if (!envio?.sent) {
-      await db.update(verificacoesEmail).set({ usado_em: new Date() }).where(and(eq(verificacoesEmail.usuario_id, usuario.id), isNull(verificacoesEmail.usado_em)));
-      console.error(`[AUTH] Reenvio de confirmação não enviado: ${envio?.reason || "provedor não confirmou o envio"}`);
-    }
+    await emitirConfirmacaoEmail(usuario);
     return res.json(respostaNeutra);
   } catch (error) {
     console.error("[AUTH] Erro no reenvio de confirmação:", error);

@@ -23,6 +23,8 @@ import { createId } from "@paralleldrive/cuid2";
 import Decimal from "decimal.js";
 import { cadastroAprovadoComEvidencia, camposFaltantesCadastroMinimo, motivoBloqueioBoleto, podeExporUsuario } from "../security/governance.js";
 
+import { emitirConfirmacaoEmail } from "../services/emailVerificationService.js";
+
 const router = Router();
 
 function somenteDigitos(valor: unknown): string {
@@ -1307,7 +1309,16 @@ router.post("/usuarios", requireRole("admin"), async (req: Request, res: Respons
       if (criado[0]?.tipo === "cliente" && req.usuario) {
         await registrarHistoricoCliente(criado[0].id, "cadastro", "Cliente cadastrado", "Cadastro criado pelo painel administrativo", req.usuario.id);
       }
+      let envioEmail: "enviado" | "pendente" | undefined;
+      if (criado[0]?.tipo === "cliente") {
+        const enviado = await emitirConfirmacaoEmail(criado[0]).catch((error: any) => {
+          console.error("[ADMIN] Confirmação de e-mail não enviada:", error?.message);
+          return false;
+        });
+        envioEmail = enviado ? "enviado" : "pendente";
+      }
       res.status(201).json({
+        envio_email: envioEmail,
         usuario: criado[0],
         senha_gerada: senha ? undefined : senhaTemporaria,
       });
@@ -1320,6 +1331,21 @@ router.post("/usuarios", requireRole("admin"), async (req: Request, res: Respons
   } catch (error: any) {
     console.error("[ADMIN] Erro ao criar usuário:", error);
     res.status(500).json({ erro: "Erro ao criar usuário" });
+  }
+});
+
+router.post("/usuarios/:id/reenviar-confirmacao", requireRole("admin"), async (req: Request, res: Response) => {
+  try {
+    const usuario = (await db.select({ id: usuarios.id, nome: usuarios.nome, email: usuarios.email, tipo: usuarios.tipo, ativo: usuarios.ativo, email_confirmado: usuarios.email_confirmado }).from(usuarios).where(eq(usuarios.id, req.params.id)).limit(1))[0];
+    if (!usuario || usuario.tipo !== "cliente") return res.status(404).json({ erro: "Cliente não encontrado" });
+    if (!usuario.ativo) return res.status(409).json({ erro: "O acesso do cliente está inativo" });
+    if (usuario.email_confirmado) return res.json({ mensagem: "O e-mail deste cliente já está confirmado." });
+    const enviado = await emitirConfirmacaoEmail(usuario);
+    if (!enviado) return res.status(502).json({ erro: "Não foi possível enviar. Confira os logs de e-mail no Coolify e os registros da Brevo." });
+    return res.json({ mensagem: "Confirmação enviada ou já solicitada no último minuto. O cliente deve entrar no site para informar o código." });
+  } catch (error: any) {
+    console.error("[ADMIN] Reenvio de confirmação falhou:", error?.message);
+    return res.status(502).json({ erro: "Falha no envio da confirmação. Confira os logs do servidor." });
   }
 });
 

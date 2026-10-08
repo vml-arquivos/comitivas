@@ -51,6 +51,8 @@ export default function Clientes() {
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [totalUsuarios, setTotalUsuarios] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [avisoEmail, setAvisoEmail] = useState('');
+  const [reenviandoEmail, setReenviandoEmail] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [filtroTipo, setFiltroTipo] = useState<string>('cliente');
@@ -175,6 +177,7 @@ export default function Clientes() {
       } else {
         const response = await api.post('/admin/usuarios', payload);
         setUsuarios((prev) => [response.data.usuario, ...prev]);
+        setAvisoEmail(response.data.envio_email === 'enviado' ? 'Cliente cadastrado. Confirmação enviada por e-mail.' : response.data.envio_email === 'pendente' ? 'Cliente cadastrado, mas o e-mail não foi enviado. Use Reenviar confirmação e confira os logs do servidor.' : '');
         if (response.data.senha_gerada) {
           setAvisoSenhaGerada(response.data.senha_gerada);
           return; // mantém o formulário aberto para o admin copiar a senha
@@ -186,6 +189,15 @@ export default function Clientes() {
     } finally {
       setSalvando(false);
     }
+  };
+
+  const reenviarConfirmacao = async (usuario: Usuario) => {
+    setReenviandoEmail(usuario.id); setError(null); setAvisoEmail('');
+    try {
+      const response = await api.post(`/admin/usuarios/${usuario.id}/reenviar-confirmacao`);
+      setAvisoEmail(response.data.mensagem);
+    } catch (err: any) { setError(err.response?.data?.erro || 'Não foi possível reenviar a confirmação.'); }
+    finally { setReenviandoEmail(null); }
   };
 
   const handleAlternarStatus = async (usuario: Usuario) => {
@@ -271,6 +283,7 @@ export default function Clientes() {
 
   return (
     <div className="admin-page">
+      {avisoEmail && <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{avisoEmail}</div>}
       <div className="admin-page-header">
         <div>
           <p className="admin-eyebrow">Cadastros</p>
@@ -427,6 +440,7 @@ export default function Clientes() {
                         <span className={`admin-status ${usuario.ativo ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>{usuario.ativo ? 'Ativo' : 'Inativo'}</span>
                       </td>
                       <td className="space-x-2 whitespace-nowrap text-right">
+                        {usuario.tipo === 'cliente' && <button type="button" disabled={reenviandoEmail !== null || !usuario.ativo} onClick={() => void reenviarConfirmacao(usuario)} className="p-1 text-sm text-primary disabled:opacity-50">{reenviandoEmail === usuario.id ? 'Enviando...' : 'Reenviar confirmação'}</button>}
                         {usuario.tipo === 'cliente' && (
                           <Link to={`/admin/clientes/${usuario.id}`} className="inline-flex p-1 text-gray-500 transition-colors hover:text-primary" title="Abrir ficha completa" aria-label={`Abrir ficha de ${usuario.nome}`}>
                             <Eye size={18} />
