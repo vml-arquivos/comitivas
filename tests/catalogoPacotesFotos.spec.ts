@@ -78,7 +78,7 @@ describe("catálogo simples de excursões, lotes e pacotes", () => {
     expect(home).toContain("fotoEventoAtiva");
     expect(home).toContain("periodosOferta");
     expect(home).toContain("destaque_titulo");
-    expect(eventos).toContain("Períodos");
+    expect(eventos).toContain("Escolha o fim de semana");
     expect(eventos).not.toContain("flatMap((modalidade)");
     expect(configurador).toContain("pacote.destaque_titulo");
     expect(configurador).toContain("periodoSolicitado");

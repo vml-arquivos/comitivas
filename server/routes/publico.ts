@@ -180,7 +180,7 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
               ...periodo,
               valor_total: configurado ? (loteAtivo?.valor || null) : null,
               ...comercialPublico,
-              disponibilidade: capacidade.disponibilidade === "configuracao_pendente" || !configurado ? "configuracao_pendente" : capacidade.disponibilidade === "esgotado" ? "esgotado" : loteAtivo ? (loteAtivo.vagas_disponiveis <= 5 ? "ultimas_vagas" : "disponivel") : aguardando ? "aguardando" : "esgotado",
+              disponibilidade: capacidade.disponibilidade === "configuracao_pendente" || !configurado ? "configuracao_pendente" : capacidade.disponibilidade === "esgotado" ? "esgotado" : loteAtivo ? (loteAtivo.vagas_disponiveis !== null && loteAtivo.vagas_disponiveis <= 5 ? "ultimas_vagas" : "disponivel") : aguardando ? "aguardando" : "esgotado",
               vagas_disponiveis: capacidade.vagas_disponiveis,
               capacidades_por_forma: capacidadesPublicas,
               lotes_comerciais: lotesComerciais,
@@ -194,7 +194,7 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
             forma_contratacao: modalidade.forma_contratacao,
             formas_contratacao: formasContratacao,
             ...comercialPublicoBase,
-            disponibilidade: capacidadeBase.disponibilidade === "configuracao_pendente" || !comercialBaseConfigurado ? "configuracao_pendente" : capacidadeBase.disponibilidade === "esgotado" ? "esgotado" : comercialBaseAtivo ? (comercialBaseAtivo.vagas_disponiveis <= 5 ? "ultimas_vagas" : "disponivel") : comercialBaseAguardando ? "aguardando" : "esgotado",
+            disponibilidade: capacidadeBase.disponibilidade === "configuracao_pendente" || !comercialBaseConfigurado ? "configuracao_pendente" : capacidadeBase.disponibilidade === "esgotado" ? "esgotado" : comercialBaseAtivo ? (comercialBaseAtivo.vagas_disponiveis !== null && comercialBaseAtivo.vagas_disponiveis <= 5 ? "ultimas_vagas" : "disponivel") : comercialBaseAguardando ? "aguardando" : "esgotado",
             capacidades_por_forma: capacidadesBasePublicas,
             fotos: await db.select({ id: fotosPacote.id, url_foto: fotosPacote.url_foto, legenda: fotosPacote.legenda, alt_text: fotosPacote.alt_text, ordem: fotosPacote.ordem, capa: fotosPacote.capa })
               .from(fotosPacote)

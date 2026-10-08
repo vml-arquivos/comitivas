@@ -669,7 +669,7 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
       const capacidadeEscolhida = formaSolicitada && capacidades.find(([forma]) => forma === formaSolicitada)?.[1];
       const capacidadeFallback = capacidades[0]?.[1] || await PacoteService.obterDisponibilidadeFisica(pacote, periodoId, null, transporteProprioSolicitado);
       const capacidade = capacidadeEscolhida || capacidades.reduce((melhor, [, atual]) => atual.vagas_disponiveis > melhor.vagas_disponiveis ? atual : melhor, capacidadeFallback);
-      const disponibilidadePorForma = Object.fromEntries(capacidades.map(([forma, resultado]) => { const comercial = statusComercialPublico(porForma.get(forma)!); return [forma, { ...comercial, disponibilidade: combinarDisponibilidade(resultado.disponibilidade, porForma.get(forma)), vagas_disponiveis: Math.min(resultado.vagas_disponiveis, Number(comercial.vagas_disponiveis || 0)), vagas_transporte: resultado.vagas_transporte, vagas_hospedagem: resultado.vagas_hospedagem }]; }));
+      const disponibilidadePorForma = Object.fromEntries(capacidades.map(([forma, resultado]) => { const comercial = statusComercialPublico(porForma.get(forma)!); return [forma, { ...comercial, disponibilidade: combinarDisponibilidade(resultado.disponibilidade, porForma.get(forma)), vagas_disponiveis: Math.min(resultado.vagas_disponiveis, (comercial.lote_comercial_id ? comercial.vagas_disponiveis ?? Number.MAX_SAFE_INTEGER : 0)), vagas_transporte: resultado.vagas_transporte, vagas_hospedagem: resultado.vagas_hospedagem }]; }));
       const regras = regrasDoPacote(pacote);
       const fotos = await db.select({ id: fotosPacote.id, url_foto: fotosPacote.url_foto, legenda: fotosPacote.legenda, alt_text: fotosPacote.alt_text, ordem: fotosPacote.ordem, capa: fotosPacote.capa })
         .from(fotosPacote).where(eq(fotosPacote.pacote_id, pacote.id)).orderBy(fotosPacote.ordem);
@@ -697,7 +697,7 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
           valor_total: comercialPeriodo?.lote?.valor || pacote.valor_total,
           ...comercialPublico,
           disponibilidade: combinarDisponibilidade(capacidadePeriodo.disponibilidade, comercialPeriodo),
-          vagas_disponiveis: Math.min(capacidadePeriodo.vagas_disponiveis, Number(comercialPublico.vagas_disponiveis || 0)),
+          vagas_disponiveis: Math.min(capacidadePeriodo.vagas_disponiveis, (comercialPublico.lote_comercial_id ? comercialPublico.vagas_disponiveis ?? Number.MAX_SAFE_INTEGER : 0)),
           lotes_comerciais: lotesComerciais,
         };
       }));
@@ -952,15 +952,14 @@ router.post("/:pacote_id/lotes-comerciais", authMiddleware, requireRole("admin")
     if (!pacote) return res.status(404).json({ erro: "Pacote não encontrado" });
     const periodos = await db.select({ id: pacotePeriodos.id }).from(pacotePeriodos).where(and(eq(pacotePeriodos.pacote_id, pacote.id), eq(pacotePeriodos.ativo, true)));
     const periodoId = String(req.body?.periodo_id || "").trim() || null;
-    if (periodos.length > 0 && !periodoId) return res.status(400).json({ erro: "Selecione o período deste lote comercial" });
     if (periodoId && !periodos.some((periodo) => periodo.id === periodoId)) return res.status(400).json({ erro: "O período não pertence a este pacote ou está indisponível" });
     const nome = String(req.body?.nome || "").trim().slice(0, 255);
-    const vagas = Number(req.body?.vagas_totais ?? req.body?.vagas);
+    const vagas = capacidadePlanejada(req.body?.vagas_totais ?? req.body?.vagas, "O limite do lote");
     const valor = Number(req.body?.valor);
-    const criterioEncerramento = ["vagas", "data", "vagas_data"].includes(String(req.body?.criterio_encerramento)) ? String(req.body.criterio_encerramento) : "vagas_data";
-    const inicio = dataPeriodo(req.body?.data_inicio, "A data inicial da venda");
+    const criterioEncerramento = ["vagas", "data", "vagas_data"].includes(String(req.body?.criterio_encerramento)) ? String(req.body.criterio_encerramento) : "vagas";
+    const inicio = req.body?.data_inicio ? dataPeriodo(req.body.data_inicio, "A data inicial da venda") : new Date();
     const fim = dataPeriodo(req.body?.data_fim, "A data final da venda", false);
-    if (!nome || !Number.isInteger(vagas) || vagas < 1) return res.status(400).json({ erro: "Informe nome e uma quantidade de vagas inteira maior que zero" });
+    if (!nome || (vagas !== null && vagas < 1)) return res.status(400).json({ erro: "Informe o nome; o limite de vagas pode ficar vazio ou deve ser maior que zero" });
     if (!Number.isFinite(valor) || valor < 0) return res.status(400).json({ erro: "Informe um preço válido para o lote" });
     if (criterioEncerramento !== "vagas" && !fim) return res.status(400).json({ erro: "Informe a data final quando o lote encerrar por data" });
     if (fim && inicio && inicio.getTime() > fim.getTime()) return res.status(400).json({ erro: "A data inicial da venda deve ser anterior à data final" });
@@ -969,7 +968,7 @@ router.post("/:pacote_id/lotes-comerciais", authMiddleware, requireRole("admin")
     if (formaEspecifica && !normalizarFormasContratacao(pacote.formas_contratacao, pacote.forma_contratacao, pacote.modalidade_hospedagem).includes(formaLote as typeof FORMAS_CONTRATACAO_VALIDAS[number])) {
       return res.status(400).json({ erro: "Escolha uma forma habilitada no pacote" });
     }
-    if (req.body?.ativo !== false) await validarCapacidadeComercialPeriodo({ pacoteId: pacote.id, periodoId, vagas, forma: formaEspecifica ? formaLote : undefined });
+    if (req.body?.ativo !== false && vagas !== null) await validarCapacidadeComercialPeriodo({ pacoteId: pacote.id, periodoId, vagas, forma: formaEspecifica ? formaLote : undefined });
     const existentesComerciais = await db.select({ id: pacoteLotesComerciais.id }).from(pacoteLotesComerciais).where(and(eq(pacoteLotesComerciais.pacote_id, pacote.id), periodoId ? eq(pacoteLotesComerciais.periodo_id, periodoId) : isNull(pacoteLotesComerciais.periodo_id)));
     const ordem = Number.isInteger(Number(req.body?.ordem)) ? Number(req.body.ordem) : existentesComerciais.length;
     const criado = (await db.insert(pacoteLotesComerciais).values({
@@ -989,10 +988,20 @@ router.put("/:pacote_id/lotes-comerciais/:lote_comercial_id", authMiddleware, re
   try {
     const atual = (await db.select().from(pacoteLotesComerciais).where(and(eq(pacoteLotesComerciais.id, req.params.lote_comercial_id), eq(pacoteLotesComerciais.pacote_id, req.params.pacote_id))).limit(1))[0];
     if (!atual) return res.status(404).json({ erro: "Lote comercial não encontrado" });
-    const ocupadas = Math.max(0, Number(atual.vagas_totais) - Number(atual.vagas_disponiveis));
-    const total = req.body?.vagas_totais !== undefined ? Number(req.body.vagas_totais) : Number(atual.vagas_totais);
-    const disponiveis = req.body?.vagas_disponiveis !== undefined ? Number(req.body.vagas_disponiveis) : (req.body?.vagas_totais !== undefined ? total - ocupadas : Number(atual.vagas_disponiveis));
-    if (!Number.isInteger(total) || total < 1 || total < ocupadas || !Number.isInteger(disponiveis) || disponiveis < 0 || disponiveis > total) return res.status(409).json({ erro: `A capacidade deve preservar as ${ocupadas} vagas já vendidas ou reservadas` });
+    const ocupadas = atual.vagas_totais === null
+      ? Number(((await db.execute(sql`SELECT COALESCE(SUM(h.quantidade), 0)::int AS total FROM inventario_holds h
+          JOIN reservas r ON r.id = h.reserva_id WHERE r.lote_comercial_id = ${atual.id}
+          AND (h.status = 'convertido' OR (h.status = 'ativo' AND h.expira_em > CURRENT_TIMESTAMP))
+          AND COALESCE(r.checkout_estado, '') NOT IN ('cancelado_cliente', 'cancelamento_aprovado', 'troca_pacote_cliente', 'reiniciado_cliente')`)).rows[0] as any)?.total || 0)
+      : Math.max(0, Number(atual.vagas_totais) - Number(atual.vagas_disponiveis));
+    const total = req.body?.vagas_totais !== undefined ? capacidadePlanejada(req.body.vagas_totais, "O limite do lote") : atual.vagas_totais;
+    const disponiveis = total === null ? null : (req.body?.vagas_disponiveis !== undefined ? Number(req.body.vagas_disponiveis) : (req.body?.vagas_totais !== undefined ? total - ocupadas : Number(atual.vagas_disponiveis)));
+    if (total !== null && (total < 1 || total < ocupadas || !Number.isInteger(disponiveis) || Number(disponiveis) < 0 || Number(disponiveis) > total)) return res.status(409).json({ erro: `A capacidade deve preservar as ${ocupadas} vagas já vendidas ou reservadas` });
+    const periodoId = req.body?.periodo_id !== undefined ? String(req.body.periodo_id || '').trim() || null : atual.periodo_id;
+    if (periodoId) {
+      const periodo = (await db.select({ id: pacotePeriodos.id }).from(pacotePeriodos).where(and(eq(pacotePeriodos.id, periodoId), eq(pacotePeriodos.pacote_id, atual.pacote_id), eq(pacotePeriodos.ativo, true))).limit(1))[0];
+      if (!periodo) return res.status(400).json({ erro: "O período não pertence ao pacote ou está indisponível" });
+    }
     const valor = req.body?.valor !== undefined ? Number(req.body.valor) : Number(atual.valor);
     const criterioEncerramento = req.body?.criterio_encerramento !== undefined
       ? (["vagas", "data", "vagas_data"].includes(String(req.body.criterio_encerramento)) ? String(req.body.criterio_encerramento) : null)
@@ -1004,12 +1013,12 @@ router.put("/:pacote_id/lotes-comerciais/:lote_comercial_id", authMiddleware, re
     if (criterioEncerramento !== "vagas" && !fim) return res.status(400).json({ erro: "Informe a data final quando o lote encerrar por data" });
     if (fim && inicio && inicio.getTime() > fim.getTime()) return res.status(400).json({ erro: "A data inicial da venda deve ser anterior à data final" });
     const ativoFinal = req.body?.ativo !== undefined ? Boolean(req.body.ativo) : Boolean(atual.ativo);
-    if (ativoFinal) await validarCapacidadeComercialPeriodo({ pacoteId: atual.pacote_id, periodoId: atual.periodo_id, vagas: total, ignorarId: atual.id, forma: atual.forma_especifica ? atual.forma_contratacao : undefined });
+    if (ativoFinal && total !== null) await validarCapacidadeComercialPeriodo({ pacoteId: atual.pacote_id, periodoId, vagas: total, ignorarId: atual.id, forma: atual.forma_especifica ? atual.forma_contratacao : undefined });
     const atualizado = (await db.update(pacoteLotesComerciais).set({
       nome: req.body?.nome !== undefined ? String(req.body.nome).trim().slice(0, 255) : undefined,
       descricao: req.body?.descricao !== undefined ? String(req.body.descricao || "").trim().slice(0, 2000) || null : undefined,
       ordem: req.body?.ordem !== undefined ? Number(req.body.ordem) : undefined,
-      vagas_totais: total, vagas_disponiveis: disponiveis, valor: valor.toFixed(2), data_inicio: inicio!, data_fim: fim, criterio_encerramento: criterioEncerramento,
+      periodo_id: periodoId, vagas_totais: total, vagas_disponiveis: disponiveis, valor: valor.toFixed(2), data_inicio: inicio!, data_fim: fim, criterio_encerramento: criterioEncerramento,
       ativo: req.body?.ativo !== undefined ? Boolean(req.body.ativo) : undefined, atualizado_em: new Date(),
     }).where(eq(pacoteLotesComerciais.id, atual.id)).returning())[0];
     return res.json({ mensagem: "Lote comercial atualizado", lote: atualizado });

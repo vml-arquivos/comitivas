@@ -14,8 +14,8 @@ export type LoteComercial = {
   nome: string;
   descricao: string | null;
   ordem: number;
-  vagas_totais: number;
-  vagas_disponiveis: number;
+  vagas_totais: number | null;
+  vagas_disponiveis: number | null;
   valor: string;
   data_inicio: Date;
   data_fim: Date | null;
@@ -51,8 +51,8 @@ function mapear(row: any): LoteComercial {
     nome: String(row.nome),
     descricao: row.descricao === null || row.descricao === undefined ? null : String(row.descricao),
     ordem: Number(row.ordem || 0),
-    vagas_totais: Number(row.vagas_totais || 0),
-    vagas_disponiveis: Number(row.vagas_disponiveis || 0),
+    vagas_totais: row.vagas_totais == null ? null : Number(row.vagas_totais),
+    vagas_disponiveis: row.vagas_disponiveis == null ? null : Number(row.vagas_disponiveis),
     valor: String(row.valor),
     data_inicio: new Date(row.data_inicio),
     data_fim: row.data_fim ? new Date(row.data_fim) : null,
@@ -106,7 +106,7 @@ async function migrarSaldoEncerradoNaTransacao(tx: any, lotes: LoteComercial[], 
   for (let indice = 0; indice < lotes.length - 1; indice += 1) {
     const atual = lotes[indice];
     const proximo = lotes[indice + 1];
-    if (atual.criterio_encerramento === "vagas" || !atual.data_fim || agora.getTime() <= atual.data_fim.getTime() || atual.vagas_disponiveis <= 0 || atual.saldo_migrado_em) continue;
+    if (atual.criterio_encerramento === "vagas" || !atual.data_fim || agora.getTime() <= atual.data_fim.getTime() || atual.vagas_disponiveis === null || atual.vagas_disponiveis <= 0 || atual.saldo_migrado_em) continue;
     const saldo = atual.vagas_disponiveis;
     const atualizado = await tx.execute(sql`
       UPDATE pacote_lotes_comerciais
@@ -118,8 +118,8 @@ async function migrarSaldoEncerradoNaTransacao(tx: any, lotes: LoteComercial[], 
       UPDATE pacote_lotes_comerciais
          SET vagas_totais = vagas_totais + ${saldo}, vagas_disponiveis = vagas_disponiveis + ${saldo}, atualizado_em = CURRENT_TIMESTAMP
        WHERE id = ${proximo.id}`);
-    proximo.vagas_totais += saldo;
-    proximo.vagas_disponiveis += saldo;
+    if (proximo.vagas_totais !== null) proximo.vagas_totais += saldo;
+    if (proximo.vagas_disponiveis !== null) proximo.vagas_disponiveis += saldo;
     atual.vagas_disponiveis = 0;
     atual.saldo_migrado_em = agora;
   }
@@ -127,7 +127,7 @@ async function migrarSaldoEncerradoNaTransacao(tx: any, lotes: LoteComercial[], 
 
 export class LoteComercialService {
   static async listar(pacoteId: string, periodoId?: string | null) {
-    const filtroPeriodo = periodoId ? sql` AND periodo_id = ${periodoId}` : sql``;
+    const filtroPeriodo = periodoId ? sql` AND (periodo_id = ${periodoId} OR periodo_id IS NULL)` : sql``;
     const rows = await db.execute(sql`
       SELECT id, pacote_id, periodo_id, forma_contratacao, forma_especifica, nome, descricao, ordem, vagas_totais, vagas_disponiveis,
              valor, data_inicio, data_fim, criterio_encerramento, saldo_migrado_em, ativo, criado_em, atualizado_em
@@ -144,8 +144,8 @@ export class LoteComercialService {
     await migrarSaldoEncerradoNaTransacao(tx, candidatos, agora);
     const proximos = candidatos.filter((lote) => estaFuturo(lote, agora));
     for (const lote of candidatos) {
-      if (!estaAberto(lote, agora) || lote.vagas_disponiveis <= 0) continue;
-      return { status: lote.vagas_disponiveis <= 5 ? "ultimas_vagas" : "disponivel", lote, proximos, configurado: true };
+      if (!estaAberto(lote, agora) || (lote.vagas_disponiveis !== null && lote.vagas_disponiveis <= 0)) continue;
+      return { status: lote.vagas_disponiveis !== null && lote.vagas_disponiveis <= 5 ? "ultimas_vagas" : "disponivel", lote, proximos, configurado: true };
     }
     return { status: proximos.length > 0 ? "aguardando" : "esgotado", lote: null, proximos, configurado: true };
     });
@@ -162,14 +162,14 @@ export class LoteComercialService {
         encontrouFuturo = true;
         continue;
       }
-      if (!estaAberto(lote, agora) || lote.vagas_disponiveis < quantidadeInteira) continue;
+      if (!estaAberto(lote, agora) || (lote.vagas_disponiveis !== null && lote.vagas_disponiveis < quantidadeInteira)) continue;
       if (valorEsperado !== undefined && Math.abs(Number(lote.valor) - valorEsperado) > 0.005) {
         throw new Error("O preço do lote mudou. Atualize a página para continuar com a condição vigente.");
       }
       const atualizado = await tx.execute(sql`
         UPDATE pacote_lotes_comerciais
            SET vagas_disponiveis = vagas_disponiveis - ${quantidadeInteira}, atualizado_em = CURRENT_TIMESTAMP
-         WHERE id = ${lote.id} AND ativo = true AND vagas_disponiveis >= ${quantidadeInteira}
+         WHERE id = ${lote.id} AND ativo = true AND (vagas_disponiveis IS NULL OR vagas_disponiveis >= ${quantidadeInteira})
          RETURNING id, pacote_id, periodo_id, forma_contratacao, forma_especifica, nome, descricao, ordem, vagas_totais, vagas_disponiveis,
                    valor, data_inicio, data_fim, criterio_encerramento, saldo_migrado_em, ativo, criado_em, atualizado_em`);
       if (atualizado.rows?.length) return mapear(atualizado.rows[0]);
@@ -183,7 +183,7 @@ export class LoteComercialService {
     const atualizado = await tx.execute(sql`
       UPDATE pacote_lotes_comerciais
          SET vagas_disponiveis = vagas_disponiveis - ${quantidadeInteira}, atualizado_em = CURRENT_TIMESTAMP
-       WHERE id = ${loteId} AND ativo = true AND vagas_disponiveis >= ${quantidadeInteira}
+       WHERE id = ${loteId} AND ativo = true AND (vagas_disponiveis IS NULL OR vagas_disponiveis >= ${quantidadeInteira})
        RETURNING id, pacote_id, periodo_id, forma_contratacao, forma_especifica, nome, descricao, ordem, vagas_totais, vagas_disponiveis,
                  valor, data_inicio, data_fim, criterio_encerramento, saldo_migrado_em, ativo, criado_em, atualizado_em`);
     if (!atualizado.rows?.length) throw new Error("O lote comercial desta reserva não possui mais vagas disponíveis.");
@@ -216,7 +216,7 @@ export function statusComercialPublico(status: StatusComercial) {
 
 /** Disponibilidade vendável exige simultaneamente estoque físico e condição comercial. */
 export function combinarCapacidadeComercial<T extends { vagas_disponiveis: number; disponibilidade: string }>(capacidade: T, comercial: StatusComercial): T {
-  const vagas = comercial.lote ? Math.min(capacidade.vagas_disponiveis, comercial.lote.vagas_disponiveis) : 0;
+  const vagas = comercial.lote ? Math.min(capacidade.vagas_disponiveis, comercial.lote.vagas_disponiveis ?? Number.MAX_SAFE_INTEGER) : 0;
   const disponibilidade = capacidade.disponibilidade === 'configuracao_pendente' || !comercial.configurado
     ? 'configuracao_pendente'
     : comercial.status === 'aguardando' ? 'aguardando'

@@ -154,13 +154,13 @@ const GALERIA_BARRETOS: FotoGaleria[] = [
 
 const ETAPAS = [
   {
-    titulo: 'Compare a oferta publicada',
+    titulo: 'Escolha seu pacote',
     texto: 'Veja excursão, lote, pacote, datas, disponibilidade e preço retornados pelo sistema.',
     Icone: BedDouble,
   },
   {
-    titulo: 'Personalize com segurança',
-    texto: 'Abra o configurador do lote e confirme a modalidade e os adicionais disponíveis para aquela venda.',
+    titulo: 'Viaje do seu jeito',
+    texto: 'Escolha seu fim de semana, onde ficar e se vai utilizar o transporte da excursão.',
     Icone: Sparkles,
   },
   {
@@ -219,7 +219,7 @@ function disponibilidadeOferta(oferta: Oferta) {
 function statusOferta(disponibilidade?: string | null) {
   if (disponibilidade === 'esgotado') return { label: 'Esgotado', classe: 'bg-slate-900 text-white' };
   if (disponibilidade === 'aguardando') return { label: 'Indisponível', classe: 'bg-slate-100 text-slate-700' };
-  if (disponibilidade === 'configuracao_pendente') return { label: 'Em configuração', classe: 'bg-amber-100 text-amber-900' };
+  if (disponibilidade === 'configuracao_pendente') return { label: 'Consultar opções', classe: 'bg-amber-100 text-amber-900' };
   if (disponibilidade === 'ultimas_vagas') return { label: 'Últimas vagas', classe: 'bg-amber-100 text-amber-900' };
   return { label: 'Disponível', classe: 'bg-emerald-100 text-emerald-900' };
 }
@@ -412,7 +412,7 @@ export default function Home() {
               O destino é Barretos. <span className="text-[#851F32]">A história é sua.</span>
             </h1>
             <p className="mt-8 max-w-xl text-base leading-7 text-[#425563] sm:text-lg sm:leading-8">
-              Encontre a excursão publicada, compare os pacotes e avance para a contratação sem perder a referência da sua escolha.
+              Escolha sua estadia, combine a viagem com os amigos e prepare-se para viver Barretos.
             </p>
             <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
               <a
@@ -425,7 +425,7 @@ export default function Home() {
                 Ver todas as excursões
               </Link>
             </div>
-            <p className="mt-5 text-xs leading-5 text-[#687882]">Preço e disponibilidade exibidos nesta página são os dados retornados pela oferta publicada no sistema.</p>
+            <p className="mt-5 text-xs leading-5 text-[#687882]">Escolha seu pacote e confira as opções para viajar com a gente.</p>
           </div>
 
           <div className="relative mx-auto w-full max-w-[720px] pb-8 lg:pb-16">
@@ -463,10 +463,7 @@ export default function Home() {
                   <p className="mt-3 text-sm font-bold text-[#334A58]">{ofertaAtiva.pacote.nome}</p>
                   {(ofertaAtiva.evento.destaque_titulo || ofertaAtiva.evento.destaque_texto) && <div className="mt-3 rounded-xl border border-[#851F32]/15 bg-[#F8F0F1] px-3 py-2.5"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">{ofertaAtiva.evento.destaque_titulo || 'Destaque da excursão'}</p>{ofertaAtiva.evento.destaque_texto && <p className="mt-1 line-clamp-3 whitespace-pre-line text-xs leading-5 text-[#5F7079]">{ofertaAtiva.evento.destaque_texto}</p>}</div>}
                   {(ofertaAtiva.pacote.destaque_titulo || ofertaAtiva.pacote.destaque_subtitulo || ofertaAtiva.pacote.destaque_texto) && <div className="mt-3 rounded-xl border border-[#851F32]/15 bg-[#F8F0F1] px-3 py-2.5"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">{ofertaAtiva.pacote.destaque_subtitulo || 'Destaque'}</p>{ofertaAtiva.pacote.destaque_titulo && <p className="mt-1 text-sm font-extrabold text-[#182D3B]">{ofertaAtiva.pacote.destaque_titulo}</p>}{ofertaAtiva.pacote.destaque_texto && <p className="mt-1 text-xs leading-5 text-[#5F7079]">{ofertaAtiva.pacote.destaque_texto}</p>}</div>}
-                  <div className="mt-4 border-y border-[#182D3B]/10 py-4 text-xs text-[#60717B]">
-                    <div className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 font-black uppercase tracking-[.12em] text-[#851F32]"><Calendar size={14} />Períodos</span><span className="font-extrabold text-[#182D3B]">{precoOferta(ofertaAtiva) || 'Valor no configurador'}</span></div>
-                    {periodosAtivos.length > 0 ? <div className="mt-3 max-h-36 space-y-2 overflow-y-auto pr-1">{periodosAtivos.map((periodo) => <div key={periodo.id} className="flex items-start justify-between gap-3 rounded-lg bg-[#FCFAF7] px-2.5 py-2"><span><strong className="block text-[#182D3B]">{periodo.nome}</strong><span>{formatarData(periodo.data_inicio, true)} a {formatarData(periodo.data_fim, true)}</span>{periodo.lote_comercial_nome && <small className="mt-0.5 block text-[10px] font-semibold text-[#851F32]">{periodo.lote_comercial_nome}{periodo.lote_comercial_data_fim ? ` · até ${formatarData(periodo.lote_comercial_data_fim, true)}` : ''}</small>}{periodo.lote_comercial_descricao && <small className="mt-0.5 block line-clamp-2 text-[10px] leading-4 text-[#60717B]">{periodo.lote_comercial_descricao}</small>}</span><span className="shrink-0 text-right"><strong className="block text-[11px] text-[#182D3B]">{(!periodo.lote_comercial_configurado || periodo.lote_comercial_nome) && periodo.valor_total ? formatarMoeda(periodo.valor_total) || 'Consultar' : 'Consultar'}</strong><span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${statusOferta(periodo.disponibilidade).classe}`}>{statusOferta(periodo.disponibilidade).label}</span></span></div>)}</div> : <p className="mt-2">Datas da excursão apresentadas no configurador.</p>}
-                  </div>
+                  <div className="mt-4 border-y border-[#182D3B]/10 py-4 text-sm text-[#60717B]"><p className="font-semibold">A partir de {precoOferta(ofertaAtiva) || 'valor a consultar'}</p><p className="mt-1">Escolha o fim de semana e os serviços na próxima etapa.</p></div>
                   {itensAtivos.length > 0 && <p className="mt-4 line-clamp-2 text-xs leading-5 text-[#687882]">{itensAtivos.join(' · ')}</p>}
                   <Link to={linkPacote(ofertaAtiva)} className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[#851F32] px-5 text-sm font-extrabold text-white transition hover:bg-[#6f1929]">
                     Escolher pacote e período <ArrowRight size={16} />
@@ -507,9 +504,9 @@ export default function Home() {
         <div className="mx-auto max-w-[1280px] px-5 sm:px-8 lg:px-10">
           <div className="grid gap-5 md:grid-cols-[1fr_auto] md:items-end">
             <div className="max-w-3xl">
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-[#851F32]">Oferta publicada</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-[#851F32]">Escolha sua viagem</p>
               <h2 className="font-editorial mt-3 text-4xl leading-tight text-[#182D3B] sm:text-5xl">Escolha com clareza antes de contratar.</h2>
-              <p className="mt-4 max-w-2xl text-sm leading-7 text-[#5C6F79] sm:text-base">Os cards abaixo usam a vitrine pública do próprio sistema. Sem pacote publicado, não exibimos preço ou disponibilidade fictícios.</p>
+              <p className="mt-4 max-w-2xl text-sm leading-7 text-[#5C6F79] sm:text-base">Escolha onde ficar. Na próxima etapa, você seleciona o fim de semana e os serviços da sua viagem.</p>
             </div>
             <Link to={linkEventos} className="inline-flex items-center gap-2 text-sm font-extrabold text-[#851F32] hover:text-[#6f1929]">Ver todos os pacotes <ArrowRight size={16} /></Link>
           </div>
@@ -539,11 +536,10 @@ export default function Home() {
                     <article key={`${oferta.lote.id}-${oferta.pacote.id}`} className="group flex min-h-[385px] min-w-0 flex-col rounded-[1.5rem] border border-[#182D3B]/10 bg-white p-6 shadow-[0_12px_35px_rgba(24,45,59,0.06)] transition hover:-translate-y-1 hover:shadow-[0_20px_45px_rgba(24,45,59,0.1)]">
                     <div className="flex items-start justify-between gap-4"><div><Link to={linkExcursao(oferta)} className="text-[10px] font-black uppercase tracking-[0.18em] text-[#851F32] hover:text-[#6f1929]">{oferta.evento.nome}</Link>{oferta.evento.subtitulo && <p className="mt-1 text-xs font-semibold leading-5 text-[#60717B]">{oferta.evento.subtitulo}</p>}<Link to={linkExcursao(oferta)} className="mt-2 inline-flex items-center gap-1 text-[11px] font-extrabold text-[#851F32] hover:text-[#6f1929]">Ver detalhes da excursão <ChevronRight size={13} /></Link></div><span className={`shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase ${status.classe}`}>{status.label}</span></div>
                     <h3 className="font-editorial mt-4 text-2xl leading-tight text-[#182D3B]">{oferta.pacote.nome}</h3>
-                    {(oferta.pacote.destaque_titulo || oferta.pacote.destaque_subtitulo || oferta.pacote.destaque_texto) && <div className="mt-3 rounded-xl border border-[#851F32]/15 bg-[#F8F0F1] px-3 py-2.5"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">{oferta.pacote.destaque_subtitulo || 'Destaque'}</p>{oferta.pacote.destaque_titulo && <p className="mt-1 text-sm font-extrabold text-[#182D3B]">{oferta.pacote.destaque_titulo}</p>}{oferta.pacote.destaque_texto && <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#5F7079]">{oferta.pacote.destaque_texto}</p>}</div>}
-                    <p className="mt-2 line-clamp-2 min-h-10 text-sm leading-5 text-[#6B7C85]">{oferta.pacote.descricao || oferta.lote.descricao || 'Detalhes completos disponíveis no configurador.'}</p>
-                    <div className="mt-5 border-y border-[#182D3B]/10 py-4 text-xs text-[#60717B]"><div className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-1.5 font-black uppercase tracking-[.12em] text-[#851F32]"><Calendar size={14} />Períodos</span><span className="inline-flex items-center gap-1.5"><MapPin size={14} className="text-[#851F32]" />{oferta.evento.local}</span></div>{periodos.length > 0 ? <div className="mt-3 space-y-2">{periodos.map((periodo) => <div key={periodo.id} className="flex items-start justify-between gap-3 rounded-lg bg-[#FCFAF7] px-2.5 py-2"><span><strong className="block text-[#182D3B]">{periodo.nome}</strong><span>{formatarData(periodo.data_inicio, true)} a {formatarData(periodo.data_fim, true)}</span>{periodo.lote_comercial_nome && <small className="mt-0.5 block text-[10px] font-semibold text-[#851F32]">{periodo.lote_comercial_nome}{periodo.lote_comercial_data_fim ? ` · até ${formatarData(periodo.lote_comercial_data_fim, true)}` : ''}</small>}{periodo.lote_comercial_descricao && <small className="mt-0.5 block line-clamp-2 text-[10px] leading-4 text-[#60717B]">{periodo.lote_comercial_descricao}</small>}</span><span className="shrink-0 text-right"><strong className="block text-[11px] text-[#182D3B]">{(!periodo.lote_comercial_configurado || periodo.lote_comercial_nome) && periodo.valor_total ? formatarMoeda(periodo.valor_total) || 'Consultar' : 'Consultar'}</strong><span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${statusOferta(periodo.disponibilidade).classe}`}>{statusOferta(periodo.disponibilidade).label}</span></span></div>)}</div> : <p className="mt-2">Datas da excursão apresentadas no configurador.</p>}</div>
-                    {itens.length > 0 && <ul className="mt-4 space-y-2">{itens.map((item) => <li key={item} className="flex items-start gap-2 text-xs leading-5 text-[#5F7079]"><Check size={14} className="mt-0.5 shrink-0 text-[#851F32]" />{item}</li>)}</ul>}
-                    <div className="mt-auto pt-6"><p className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#88949B]">Valor publicado a partir de</p><p className="font-editorial mt-1 text-2xl text-[#182D3B]">{precoOferta(oferta) || 'Consultar'}</p><Link to={linkPacote(oferta)} className={`mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full px-5 text-sm font-extrabold transition ${['esgotado', 'aguardando'].includes(String(disponibilidadeOferta(oferta))) ? 'pointer-events-none bg-slate-100 text-slate-400' : 'bg-[#851F32] text-white hover:bg-[#6f1929]'}`} aria-disabled={['esgotado', 'aguardando'].includes(String(disponibilidadeOferta(oferta)))}>{disponibilidadeOferta(oferta) === 'esgotado' ? 'Pacote esgotado' : disponibilidadeOferta(oferta) === 'aguardando' ? 'Indisponível no momento' : 'Escolher pacote e período'}{!['esgotado', 'aguardando'].includes(String(disponibilidadeOferta(oferta))) && <ArrowRight size={16} />}</Link></div>
+
+                    <p className="mt-2 line-clamp-2 min-h-10 text-sm leading-5 text-[#6B7C85]">{oferta.pacote.descricao || oferta.lote.descricao || 'Confira os serviços e escolha como viajar.'}</p>
+                    <p className="mt-4 inline-flex items-center gap-1.5 text-xs text-[#60717B]"><MapPin size={14} />{oferta.evento.local}</p><p className="mt-2 text-xs text-[#60717B]">Escolha seu fim de semana na próxima etapa.</p>
+                    <div className="mt-auto pt-6"><p className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#88949B]">A partir de</p><p className="font-editorial mt-1 text-2xl text-[#182D3B]">{precoOferta(oferta) || 'Consultar'}</p><Link to={linkPacote(oferta)} className={`mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full px-5 text-sm font-extrabold transition ${['esgotado', 'aguardando'].includes(String(disponibilidadeOferta(oferta))) ? 'pointer-events-none bg-slate-100 text-slate-400' : 'bg-[#851F32] text-white hover:bg-[#6f1929]'}`} aria-disabled={['esgotado', 'aguardando'].includes(String(disponibilidadeOferta(oferta)))}>{disponibilidadeOferta(oferta) === 'esgotado' ? 'Pacote esgotado' : disponibilidadeOferta(oferta) === 'aguardando' ? 'Indisponível no momento' : 'Escolher pacote e período'}{!['esgotado', 'aguardando'].includes(String(disponibilidadeOferta(oferta))) && <ArrowRight size={16} />}</Link></div>
                   </article>
                 );
               })}
@@ -624,7 +620,7 @@ export default function Home() {
         <div className="relative mx-auto max-w-4xl px-5 text-center sm:px-8">
           <CircleDollarSign className="mx-auto text-white/75" size={30} />
           <h2 className="font-editorial mt-6 text-4xl leading-tight sm:text-5xl">Sua próxima história pode começar pela escolha certa.</h2>
-          <p className="mx-auto mt-5 max-w-2xl text-sm leading-7 text-white/75 sm:text-base">Veja as ofertas publicadas e avance para o configurador. As condições comerciais aplicáveis são apresentadas no fluxo de contratação e registradas pelo sistema.</p>
+          <p className="mx-auto mt-5 max-w-2xl text-sm leading-7 text-white/75 sm:text-base">Escolha seu pacote, confira as opções e organize sua viagem. Antes de reservar, você verá os serviços incluídos, os valores e as condições de contratação.</p>
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link to={linkEventos} className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-white px-7 text-sm font-extrabold text-[#851F32] transition hover:bg-[#F8F5EF]">Ver pacotes disponíveis <ArrowRight size={16} /></Link>
             <WhatsAppCTA mensagem={MENSAGEM_WHATSAPP_PADRAO} label="Falar no WhatsApp" size="md" className="!bg-[#173F2D] hover:!bg-[#0f3324]" />
