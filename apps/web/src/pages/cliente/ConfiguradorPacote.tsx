@@ -96,6 +96,24 @@ function formatarPeriodo(data: string) {
   return new Date(data).toLocaleDateString('pt-BR');
 }
 
+function menorPrecoPacote(pacote?: PacotePublicado) {
+  if (!pacote) return 0;
+  const valoresPeriodo = (pacote.periodos || [])
+    .filter((periodo) => !['esgotado', 'aguardando'].includes(String(periodo.disponibilidade)))
+    .map((periodo) => Number(periodo.valor_total))
+    .filter((valor) => Number.isFinite(valor) && valor > 0);
+  if (valoresPeriodo.length) return Math.min(...valoresPeriodo);
+  const valor = Number(pacote.lote_comercial_valor || pacote.valor_total || 0);
+  return Number.isFinite(valor) && valor > 0 ? valor : 0;
+}
+
+function parcelamentoPacote(pacote?: PacotePublicado, valor?: number) {
+  const total = Number(valor || menorPrecoPacote(pacote));
+  const parcelas = Math.max(1, Number(pacote?.boleto_parcelas_maximo || 1));
+  if (!Number.isFinite(total) || total <= 0 || parcelas <= 1) return null;
+  return { parcelas, valor: total / parcelas };
+}
+
 export default function ConfiguradorPacote() {
   const { loteId } = useParams();
   const navigate = useNavigate();
@@ -110,6 +128,8 @@ export default function ConfiguradorPacote() {
   const [transporteProprio, setTransporteProprio] = useState(false);
   const [participantes, setParticipantes] = useState<ParticipanteCheckout[]>([]);
   const [calculo, setCalculo] = useState<any>(null);
+  const [cotacoesForma, setCotacoesForma] = useState<Partial<Record<FormaContratacaoPublica, any>>>({});
+  const [isCalculatingOptions, setIsCalculatingOptions] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isCalculating, setIsCalculating] = useState(false);
   const [isReserving, setIsReserving] = useState(false);
@@ -138,21 +158,17 @@ export default function ConfiguradorPacote() {
           ? listaPacotes.find((pacote: PacotePublicado) => pacote.id === pacoteSalvoId && pacote.disponibilidade !== 'esgotado')
           : undefined;
         const formaSalva = intencaoSalva?.formaContratacao as FormaContratacaoPublica | undefined;
-        const intencaoValida = Boolean(
-          retomando
-          && pacoteSalvo
-          && formaSalva
-          && formasPublicas(pacoteSalvo).includes(formaSalva),
-        );
 
-        // A URL pode apontar para um pacote/modalidade de interesse, mas nunca decide
-        // automaticamente o escopo jurídico/comercial. Só restauramos uma escolha
-        // quando o próprio cliente já a fez antes do login e está retomando o checkout.
-        if (intencaoValida && pacoteSalvo && formaSalva) {
+        // A escolha pública começa pelo produto. Ao voltar do login/cadastro,
+        // restauramos pacote, período e pessoas mesmo que o cliente ainda não tenha
+        // decidido o escopo de serviços. Transporte/hospedagem é decidido somente
+        // na etapa final, imediatamente antes da reserva/checkout.
+        if (retomando && pacoteSalvo) {
           setPacoteId(pacoteSalvo.id);
           setPeriodoId(intencaoSalva?.periodoId || (pacoteSalvo.periodos?.length === 1 ? pacoteSalvo.periodos[0].id : ''));
-          setFormaContratacao(formaSalva);
-          setTransporteProprio(Boolean(intencaoSalva?.transporteProprio) || formaSalva === 'hospedagem');
+          const formaValida = formaSalva && formasPublicas(pacoteSalvo).includes(formaSalva) ? formaSalva : '';
+          setFormaContratacao(formaValida);
+          setTransporteProprio(formaValida === 'hospedagem');
           setParticipantes(intencaoSalva?.participantes || []);
         } else {
           const pacoteDaVitrine = pacoteSolicitado
@@ -177,77 +193,98 @@ export default function ConfiguradorPacote() {
     carregarConfigurador();
   }, [loteId, pacoteSolicitado, periodoSolicitado]);
 
-  useEffect(() => {
-    if (isLoading || !loteId || !formaContratacao) return;
-    let cancelado = false;
-    api.get(`/pacotes/lotes/${loteId}/pacotes`, { params: { forma_contratacao: formaContratacao, transporte_proprio: transporteProprio || undefined, periodo_id: periodoId || undefined } })
-      .then((response) => { if (!cancelado) setPacotes(response.data.pacotes || []); })
-      .catch(() => undefined);
-    return () => { cancelado = true; };
-  }, [loteId, formaContratacao, periodoId, transporteProprio, isLoading]);
-
   const pacoteSelecionado = useMemo(() => pacotes.find((pacote) => pacote.id === pacoteId), [pacotes, pacoteId]);
-  const pacoteSugerido = useMemo(() => pacoteSolicitado ? pacotes.find((pacote) => pacote.id === pacoteSolicitado) : undefined, [pacotes, pacoteSolicitado]);
-  const formasDisponiveis: FormaContratacaoPublica[] = ['onibus_hospedagem', 'hospedagem', 'onibus'];
-  const pacotesDoTipo = useMemo(() => {
-    if (!formaContratacao) return [];
-    const filtrados = pacotes.filter((pacote) => formasPublicas(pacote).includes(formaContratacao));
-    // Um link de vitrine serve apenas como preferência visual. Depois de o cliente
-    // escolher o tipo de contratação, a mesma modalidade aparece primeiro se existir.
-    return [...filtrados].sort((a, b) => {
-      const modalidadePreferida = pacoteSugerido?.modalidade_hospedagem;
-      if (!modalidadePreferida) return 0;
-      return Number(b.modalidade_hospedagem === modalidadePreferida) - Number(a.modalidade_hospedagem === modalidadePreferida);
-    });
-  }, [pacotes, formaContratacao, pacoteSugerido]);
-  const exigeHospedagem = pacoteSelecionado?.modalidade_hospedagem !== 'camping' && (formaContratacao === 'hospedagem' || formaContratacao === 'onibus_hospedagem');
+  const formasDisponiveis = useMemo<FormaContratacaoPublica[]>(() => pacoteSelecionado ? formasPublicas(pacoteSelecionado) : [], [pacoteSelecionado]);
   const periodosDisponiveis = pacoteSelecionado?.periodos || [];
   const exigePeriodo = periodosDisponiveis.length > 0;
   const periodoSelecionado = periodosDisponiveis.find((periodo) => periodo.id === periodoId);
-  const loteComercialId = periodoSelecionado?.lote_comercial_id || pacoteSelecionado?.lote_comercial_id || undefined;
+  const exigeHospedagem = pacoteSelecionado?.modalidade_hospedagem !== 'camping' && (formaContratacao === 'hospedagem' || formaContratacao === 'onibus_hospedagem');
+  const selecaoProdutoCompleta = Boolean(pacoteSelecionado && (!exigePeriodo || periodoId));
+
+  const valorInicialPacote = useMemo(() => {
+    if (!pacoteSelecionado) return 0;
+    const valoresPeriodos = periodosDisponiveis
+      .filter((periodo) => !['esgotado', 'aguardando'].includes(String(periodo.disponibilidade)))
+      .map((periodo) => Number(periodo.valor_total))
+      .filter((valor) => Number.isFinite(valor) && valor > 0);
+    if (valoresPeriodos.length) return Math.min(...valoresPeriodos);
+    const valorPacote = Number(pacoteSelecionado.lote_comercial_valor || pacoteSelecionado.valor_total || 0);
+    return Number.isFinite(valorPacote) ? valorPacote : 0;
+  }, [pacoteSelecionado, periodosDisponiveis]);
+
+  // Depois que pacote/período e conta estão definidos, simulamos cada forma de
+  // contratação no backend. Assim o cliente compara valores reais sem o frontend
+  // inventar desconto, preço promocional ou disponibilidade.
   useEffect(() => {
-    if (isLoading || !loteId || !formaContratacao || (pacotes.length > 0 && !pacoteId) || (exigePeriodo && !periodoId)) {
+    if (!user || !loteId || !pacoteSelecionado || (exigePeriodo && !periodoId)) {
+      setCotacoesForma({});
+      return;
+    }
+    let cancelado = false;
+    setIsCalculatingOptions(true);
+    const carregar = async () => {
+      const resultados = await Promise.all(formasPublicas(pacoteSelecionado).map(async (forma) => {
+        try {
+          const response = await api.post('/pacotes/calcular', {
+            lote_id: loteId,
+            pacote_id: pacoteSelecionado.id,
+            periodo_id: periodoId || undefined,
+            forma_contratacao: forma,
+            transporte_proprio: forma === 'hospedagem',
+            itens: [],
+          });
+          return [forma, response.data] as const;
+        } catch (err: any) {
+          return [forma, { erro: err.response?.data?.erro || 'Indisponível' }] as const;
+        }
+      }));
+      if (!cancelado) setCotacoesForma(Object.fromEntries(resultados) as Partial<Record<FormaContratacaoPublica, any>>);
+      if (!cancelado) setIsCalculatingOptions(false);
+    };
+    void carregar();
+    return () => { cancelado = true; };
+  }, [user, loteId, pacoteSelecionado?.id, periodoId, exigePeriodo]);
+
+  useEffect(() => {
+    if (!formaContratacao) {
       setCalculo(null);
       return;
     }
-    const timer = setTimeout(async () => {
-      setIsCalculating(true);
-      try {
-        const response = await api.post('/pacotes/calcular', { lote_id: loteId, pacote_id: pacoteId || undefined, periodo_id: periodoId || undefined, lote_comercial_id: loteComercialId, forma_contratacao: formaContratacao, transporte_proprio: transporteProprio, itens: [] });
-        setCalculo(response.data);
-      } catch (err: any) {
-        setError(err.response?.data?.erro || 'Erro ao calcular o valor do pacote.');
-        setCalculo(null);
-      } finally {
-        setIsCalculating(false);
-      }
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [loteId, pacoteId, periodoId, loteComercialId, formaContratacao, transporteProprio, pacotes.length, isLoading, exigePeriodo]);
+    const cotacao = cotacoesForma[formaContratacao];
+    if (cotacao && !cotacao.erro) setCalculo(cotacao);
+    else setCalculo(null);
+  }, [formaContratacao, cotacoesForma]);
 
   const selecionarFormaContratacao = (forma: FormaContratacaoPublica) => {
-    if (formaContratacao !== forma) { setPacoteId(''); setPeriodoId(''); }
+    if (!pacoteSelecionado || !formasPublicas(pacoteSelecionado).includes(forma)) return;
+    const cotacao = cotacoesForma[forma];
+    if (cotacao?.erro) {
+      setError(cotacao.erro);
+      return;
+    }
     setFormaContratacao(forma);
     setTransporteProprio(forma === 'hospedagem');
-    setCalculo(null);
+    setCalculo(cotacao || null);
     setError('');
   };
 
   const selecionarPacote = (id: string) => {
     const selecionado = pacotes.find((pacote) => pacote.id === id);
-    if (!formaContratacao || !selecionado || !formasPublicas(selecionado).includes(formaContratacao)) {
-      setError('Escolha primeiro o tipo de contratação e depois um pacote compatível.');
-      return;
-    }
-    if (!transporteProprio && (selecionado.disponibilidade === 'esgotado' || selecionado.disponibilidade_por_forma?.[formaContratacao]?.disponibilidade === 'esgotado')) {
-      setError('Esta forma de contratação está esgotada para o pacote selecionado.');
+    if (!selecionado) return;
+    if (selecionado.disponibilidade === 'esgotado') {
+      setError('Este pacote está esgotado. Escolha outra opção.');
       return;
     }
     setPacoteId(id);
+    setFormaContratacao('');
+    setTransporteProprio(false);
+    setCotacoesForma({});
+    setCalculo(null);
     setPeriodoId(
       selecionado.periodos?.find((periodo) => periodo.id === periodoSolicitado)?.id
       || (selecionado.periodos?.length === 1 ? selecionado.periodos[0].id : ''),
     );
+    setError('');
     const leadId = lerLeadId();
     const leadIntentToken = lerLeadIntentToken();
     if (leadId && leadIntentToken && loteId) {
@@ -274,55 +311,27 @@ export default function ConfiguradorPacote() {
 
   const handleReservar = async () => {
     if (authLoading) return;
-    if (!formaContratacao) {
-      setError('Escolha o tipo de contratação para continuar.');
-      return;
-    }
     if (pacotes.length > 0 && !pacoteId) {
-      setError(formaContratacao === 'onibus' ? 'Escolha seu pacote de transporte para continuar.' : 'Escolha sua modalidade de hospedagem para continuar.');
+      setError('Escolha seu pacote para continuar.');
       return;
     }
     if (exigePeriodo && !periodoId) {
       setError('Escolha o período da viagem para continuar.');
       return;
     }
-    if ((!transporteProprio || exigeHospedagem) && (periodoSelecionado?.disponibilidade === 'esgotado' || periodoSelecionado?.disponibilidade === 'aguardando')) {
-      setError('Este período está esgotado. Escolha outra data para continuar.');
+    if (periodoSelecionado?.disponibilidade === 'esgotado' || periodoSelecionado?.disponibilidade === 'aguardando') {
+      setError('Este período não está disponível. Escolha outra data para continuar.');
       return;
     }
-    if (!transporteProprio && (pacoteSelecionado?.disponibilidade === 'esgotado' || pacoteSelecionado?.disponibilidade === 'aguardando')) {
-      setError('Esta modalidade está esgotada. Escolha outra opção para continuar.');
+    if (pacoteSelecionado?.disponibilidade === 'esgotado' || pacoteSelecionado?.disponibilidade === 'aguardando') {
+      setError('Este pacote não está disponível. Escolha outra opção para continuar.');
       return;
     }
     if (participantes.some((participante) => !participante.nome_completo.trim())) {
       setError('Informe o nome completo de cada pessoa adicionada à comitiva.');
       return;
     }
-    if (exigeHospedagem && participantes.some((participante) => !participante.sexo_operacional)) {
-      setError('Informe o sexo de cada pessoa para reservar o quarto correto.');
-      return;
-    }
-    if (user) {
-      try {
-        const perfil = (await api.get('/auth/perfil')).data.usuario;
-        const cadastroCompleto = Boolean(
-          ['masculino', 'feminino'].includes(String(perfil?.sexo || '').toLowerCase())
-          && String(perfil?.cep || '').replace(/\D/g, '').length === 8
-          && String(perfil?.logradouro || '').trim()
-          && String(perfil?.numero || '').trim()
-          && String(perfil?.bairro || '').trim()
-          && String(perfil?.cidade || '').trim()
-          && String(perfil?.estado || '').trim(),
-        );
-        if (!cadastroCompleto) {
-          const retorno = `/pacote/${loteId}?retomar=1${pacoteId ? `&pacote=${encodeURIComponent(pacoteId)}` : ''}`;
-          navigate(`/meus-dados?redirect=${encodeURIComponent(retorno)}`);
-          return;
-        }
-      } catch {
-        // O backend repetirá a validação se a consulta de perfil não estiver disponível.
-      }
-    }
+
     setError('');
     let leadId = lerLeadId();
     const leadIntentToken = lerLeadIntentToken();
@@ -330,13 +339,16 @@ export default function ConfiguradorPacote() {
       loteId: loteId!,
       pacoteId,
       periodoId: periodoId || undefined,
-      formaContratacao,
-      transporteProprio,
+      formaContratacao: formaContratacao || undefined,
+      transporteProprio: formaContratacao ? transporteProprio : undefined,
       participantes,
       criadoEm: new Date().toISOString(),
     };
     salvarIntencaoCheckout(intent);
 
+    // A conta vem antes da decisão final de serviços. O visitante escolhe pacote,
+    // período e pessoas sem ruído; depois do login/cadastro ele volta para esta
+    // mesma tela e decide transporte/hospedagem com preço real de cada opção.
     if (!user) {
       if (leadId && leadIntentToken) {
         api.patch(`/publico/leads/${leadId}/intencao`, {
@@ -353,6 +365,40 @@ export default function ConfiguradorPacote() {
       return;
     }
 
+    try {
+      const perfil = (await api.get('/auth/perfil')).data.usuario;
+      const cadastroCompleto = Boolean(
+        ['masculino', 'feminino'].includes(String(perfil?.sexo || '').toLowerCase())
+        && String(perfil?.cep || '').replace(/\D/g, '').length === 8
+        && String(perfil?.logradouro || '').trim()
+        && String(perfil?.numero || '').trim()
+        && String(perfil?.bairro || '').trim()
+        && String(perfil?.cidade || '').trim()
+        && String(perfil?.estado || '').trim(),
+      );
+      if (!cadastroCompleto) {
+        const retorno = `/pacote/${loteId}?retomar=1${pacoteId ? `&pacote=${encodeURIComponent(pacoteId)}` : ''}`;
+        navigate(`/meus-dados?redirect=${encodeURIComponent(retorno)}`);
+        return;
+      }
+    } catch {
+      // O backend repetirá a validação se a consulta de perfil não estiver disponível.
+    }
+
+    if (!formaContratacao) {
+      setError('Escolha como deseja contratar: completo, somente hospedagem ou somente transporte.');
+      return;
+    }
+    const cotacaoEscolhida = cotacoesForma[formaContratacao];
+    if (!cotacaoEscolhida || cotacaoEscolhida.erro) {
+      setError(cotacaoEscolhida?.erro || 'Aguarde a atualização do valor desta opção e tente novamente.');
+      return;
+    }
+    if (exigeHospedagem && participantes.some((participante) => !participante.sexo_operacional)) {
+      setError('Informe o sexo de cada pessoa para reservar o quarto correto.');
+      return;
+    }
+
     setIsReserving(true);
     try {
       const referencia = searchParams.get('ref') || lerReferenciaVendedor();
@@ -364,7 +410,7 @@ export default function ConfiguradorPacote() {
         lote_id: loteId,
         pacote_id: pacoteId || undefined,
         periodo_id: periodoId || undefined,
-        lote_comercial_id: loteComercialId,
+        lote_comercial_id: cotacaoEscolhida.lote_comercial_id || undefined,
         forma_contratacao: formaContratacao,
         transporte_proprio: transporteProprio,
         itens: [],
@@ -381,139 +427,147 @@ export default function ConfiguradorPacote() {
     }
   };
 
-  if (isLoading) return <div className="mx-auto max-w-7xl px-4 py-20 text-center text-[#182D3B]/60 sm:px-6 lg:px-8">Preparando sua experiência...</div>;
+  if (isLoading) return <div className="mx-auto max-w-7xl px-4 py-20 text-center text-[#182D3B]/60 sm:px-6 lg:px-8">Carregando pacotes...</div>;
+
+  const cotacaoCompleta = cotacoesForma.onibus_hospedagem && !cotacoesForma.onibus_hospedagem.erro ? Number(cotacoesForma.onibus_hospedagem.valor_total || 0) : 0;
+  const valorResumo = formaContratacao && calculo ? Number(calculo.valor_total || 0) : valorInicialPacote;
+  const parcelamentoResumo = parcelamentoPacote(pacoteSelecionado, valorResumo);
+  const podeAvancarProduto = Boolean(pacoteSelecionado && (!exigePeriodo || periodoId));
+  const podeFinalizar = Boolean(user && formaContratacao && calculo && !calculo.erro);
 
   return (
     <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-4 py-7 pb-28 sm:px-6 sm:py-12 lg:grid-cols-3 lg:gap-8 lg:px-8 lg:pb-14">
       <Helmet>
-        <title>Monte seu pacote | Excursão das Comitivas</title>
-        <meta name="description" content="Escolha o tipo de contratação, o pacote e confira as condições da sua reserva para Barretos." />
+        <title>Escolha seu pacote | Excursão das Comitivas</title>
+        <meta name="description" content="Escolha seu pacote, o fim de semana e finalize a contratação da Excursão das Comitivas." />
         <meta name="robots" content="noindex,follow" />
       </Helmet>
+
       <div className="space-y-6 lg:col-span-2">
         <div className="flex flex-col gap-4 rounded-2xl border border-[#182D3B]/10 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
-          <button type="button" onClick={() => navigate('/eventos')} className="inline-flex items-center gap-2 text-sm font-extrabold text-[#851F32] hover:underline"><ArrowLeft size={16}/>Voltar e comparar pacotes</button>
-          <div className="flex items-center gap-2 overflow-x-auto text-[11px] font-black uppercase tracking-[.1em] text-slate-400">
-            <span className="rounded-full bg-[#851F32] px-3 py-1.5 text-white">1 · Contrato</span><ArrowRight size={13}/><span>2 · Pacote</span><ArrowRight size={13}/><span>3 · Pessoas</span><ArrowRight size={13}/><span>4 · Checkout</span>
+          <button type="button" onClick={() => navigate('/eventos')} className="inline-flex items-center gap-2 text-sm font-extrabold text-[#851F32] hover:underline"><ArrowLeft size={16}/>Voltar aos pacotes</button>
+          <div className="flex items-center gap-2 overflow-x-auto text-[10px] font-black uppercase tracking-[.08em] text-slate-400">
+            <span className="rounded-full bg-[#851F32] px-3 py-1.5 text-white">1 · Pacote</span><ArrowRight size={12}/><span>2 · Período</span><ArrowRight size={12}/><span>3 · Pessoas</span><ArrowRight size={12}/><span>4 · Serviços</span>
           </div>
         </div>
-        <section className="rounded-[1.6rem] bg-[#182D3B] p-5 text-white shadow-[0_18px_50px_rgba(24,45,59,0.18)] sm:rounded-[2rem] sm:p-7">
-          <div className="flex items-center gap-3 text-[#E3AAB4]"><Sparkles size={18} /><span className="text-xs font-bold uppercase tracking-[0.18em]">Sua experiência, suas escolhas</span></div>
-          <h1 className="font-editorial mt-3 text-2xl font-bold tracking-[-0.025em] sm:text-4xl">Monte seu pacote de viagem</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-7 text-white/75">Primeiro escolha o que será contratado; depois selecione a modalidade e identifique quem viajará com você.</p>
+
+        <section className="rounded-[1.6rem] bg-[#182D3B] p-5 text-white shadow-[0_18px_50px_rgba(24,45,59,0.16)] sm:p-7">
+          <div className="flex items-center gap-2 text-[#E3AAB4]"><Sparkles size={17}/><span className="text-[11px] font-bold uppercase tracking-[0.16em]">Sua viagem</span></div>
+          <h1 className="font-editorial mt-2 text-3xl font-bold tracking-[-0.025em] sm:text-4xl">Escolha seu pacote</h1>
+          <p className="mt-2 text-sm text-white/70">Pacote, fim de semana e pessoas. Os serviços finais são definidos antes do contrato.</p>
         </section>
 
-        {error && <div className="rounded-lg bg-red-50 p-4 text-red-700">{error}</div>}
+        {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700">{error}</div>}
 
-        {pacotes.length > 0 && (
-          <section className="rounded-2xl border border-slate-200 bg-white p-5">
-            <div className="mb-4"><h2 className="text-xl font-bold text-slate-900">1. O que você quer contratar?</h2><p className="text-sm text-gray-500">Esta escolha define o escopo do contrato. As três opções ficam visíveis; as indisponíveis não podem ser selecionadas.</p></div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              {formasDisponiveis.map((forma) => {
-                const meta = formaContratacaoMeta[forma];
-                const selecionado = formaContratacao === forma;
-                const indisponivel = !pacotes.some((pacote) => formasPublicas(pacote).includes(forma));
-                return <button key={forma} type="button" aria-pressed={selecionado} disabled={indisponivel} onClick={() => selecionarFormaContratacao(forma)} className={`relative rounded-2xl border p-4 text-left transition-all disabled:cursor-not-allowed disabled:opacity-50 ${selecionado ? 'border-primary bg-primary/5 shadow-md ring-2 ring-primary/20' : 'border-gray-200 bg-white hover:border-primary/40'}`}>
-                  {selecionado && <span className="absolute right-3 top-3 rounded-full bg-primary p-1 text-white"><Check size={14} /></span>}
-                  <p className="pr-8 text-sm font-black text-slate-900">{meta.label}</p>
-                  <p className="mt-2 text-xs leading-5 text-gray-500">{meta.descricao}</p>
-                  {indisponivel && <span className="mt-3 inline-block rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold uppercase text-slate-500">Indisponível nesta excursão</span>}
-                </button>;
-              })}
-            </div>
-            {formaContratacao && <p className="mt-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">{formaContratacao === 'hospedagem' ? 'Vou por conta própria. Esta opção não reserva assento no ônibus da excursão.' : formaContratacao === 'onibus' ? 'Transporte da excursão incluído. Sem quarto ou área de camping.' : 'Transporte da excursão e acomodação incluídos. Camping não ocupa vaga de quarto.'}</p>}
-
-          </section>
-        )}
-
-        {pacoteSugerido && !formaContratacao && (
-          <div className="flex gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-            <Info size={18} className="mt-0.5 shrink-0" />
-            <p>Você escolheu <strong>{pacoteSugerido.nome}</strong>. Agora selecione somente o tipo de contratação e o período da viagem.</p>
+        <section>
+          <div className="mb-3 flex items-end justify-between gap-4">
+            <div><p className="text-[10px] font-black uppercase tracking-[.16em] text-[#851F32]">1 · Pacote</p><h2 className="mt-1 text-xl font-bold text-slate-900">Onde você quer ficar?</h2></div>
           </div>
-        )}
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {pacotes.map((pacote) => {
+              const meta = modalidadeMeta[pacote.modalidade_hospedagem];
+              const Icon = meta?.icon || TentTree;
+              const selecionado = pacote.id === pacoteId;
+              const aguardando = pacote.disponibilidade === 'aguardando';
+              const esgotado = pacote.disponibilidade === 'esgotado' || aguardando;
+              const preco = menorPrecoPacote(pacote);
+              const parcelamento = parcelamentoPacote(pacote, preco);
+              return <button key={pacote.id} type="button" aria-pressed={selecionado} disabled={esgotado} onClick={() => selecionarPacote(pacote.id)} className={`relative min-h-[245px] rounded-2xl border p-5 text-left transition-all disabled:cursor-not-allowed disabled:opacity-60 ${selecionado ? 'border-[#851F32] bg-[#851F32]/[0.035] shadow-lg ring-2 ring-[#851F32]/15' : 'border-slate-200 bg-white hover:-translate-y-0.5 hover:border-[#851F32]/35 hover:shadow-md'}`}>
+                {selecionado && <span className="absolute right-3 top-3 rounded-full bg-[#851F32] p-1 text-white"><Check size={14}/></span>}
+                {esgotado && <span className="absolute right-3 top-3 rounded-full bg-slate-800 px-2 py-1 text-[9px] font-black uppercase text-white">{aguardando ? 'Em breve' : 'Esgotado'}</span>}
+                <div className="mb-4 inline-flex rounded-xl bg-slate-100 p-3 text-[#851F32]"><Icon size={24}/></div>
+                <p className="text-[10px] font-black uppercase tracking-[.12em] text-[#851F32]">{meta?.label || 'Pacote'}</p>
+                <h3 className="mt-1 text-lg font-extrabold text-slate-900">{pacote.nome}</h3>
+                <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">{pacote.descricao || meta?.destaque}</p>
+                <div className="mt-5 border-t border-slate-100 pt-4">
+                  <p className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">A partir de</p>
+                  {parcelamento ? <><div className="mt-1 flex items-end gap-1.5"><span className="pb-1 text-xs font-bold text-slate-500">{parcelamento.parcelas}x de</span><strong className="font-editorial text-3xl leading-none text-[#182D3B]">{formatarMoeda(parcelamento.valor)}</strong></div><p className="mt-1 text-[11px] text-slate-500">Total {formatarMoeda(preco)} por pessoa</p></> : <strong className="font-editorial mt-1 block text-3xl leading-none text-[#182D3B]">{formatarMoeda(preco)}</strong>}
+                </div>
+              </button>;
+            })}
+          </div>
+          {pacotes.length === 0 && <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-7 text-center text-sm text-slate-500">Nenhum pacote disponível neste momento.</div>}
+        </section>
 
-        {formaContratacao && pacotesDoTipo.length === 0 && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Ainda não existe uma oferta com preço publicado para <strong>{formaContratacaoMeta[formaContratacao].label}</strong> nesta excursão. Escolha outro tipo ou aguarde a publicação comercial.</div>
-        )}
-
-        {formaContratacao && pacotesDoTipo.length > 0 && (
-          <section>
-            <div className="mb-3"><h2 className="text-xl font-bold text-slate-900">2. {pacoteSolicitado && pacoteSelecionado ? 'Pacote selecionado' : formaContratacao === 'onibus' ? 'Escolha seu pacote de transporte' : 'Escolha sua hospedagem'}</h2><p className="text-sm text-gray-500">{pacoteSolicitado && pacoteSelecionado ? 'O pacote escolhido na vitrine está abaixo. Se quiser, você pode trocar antes de continuar.' : <>Mostramos somente as opções cadastradas para <strong>{formaContratacaoMeta[formaContratacao].label.toLowerCase()}</strong>. O preço exibido é o preço real desse pacote.</>}</p></div>
-            {pacoteSolicitado && pacoteSelecionado && pacoteSelecionado.id === pacoteId ? (
-              <div className="rounded-2xl border border-primary/30 bg-primary/5 p-5 shadow-sm"><div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-black uppercase tracking-wide text-primary">Sua escolha</p><h3 className="mt-1 text-lg font-bold text-slate-900">{pacoteSelecionado.nome}</h3><p className="mt-1 text-sm text-slate-600">{formatarMoeda(pacoteSelecionado.valor_total)} · {rotuloPagamento(pacoteSelecionado)}</p></div><button type="button" onClick={() => { setPacoteId(''); setPeriodoId(''); setCalculo(null); }} className="rounded-full border border-primary/30 px-4 py-2 text-sm font-bold text-primary hover:bg-white">Trocar pacote</button></div></div>
-            ) : <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {pacotesDoTipo.map((pacote) => {
-                const meta = modalidadeMeta[pacote.modalidade_hospedagem];
-                const Icon = meta?.icon || TentTree;
-                const selecionado = pacote.id === pacoteId;
-                const aguardando = pacote.disponibilidade === 'aguardando' || pacote.disponibilidade_por_forma?.[formaContratacao]?.disponibilidade === 'aguardando';
-                const esgotado = !transporteProprio && (pacote.disponibilidade === 'esgotado' || aguardando || pacote.disponibilidade_por_forma?.[formaContratacao]?.disponibilidade === 'esgotado');
-                return <button key={pacote.id} type="button" aria-pressed={selecionado} disabled={esgotado} onClick={() => selecionarPacote(pacote.id)} className={`relative rounded-2xl border p-4 text-left transition-all sm:p-5 disabled:cursor-not-allowed disabled:opacity-60 ${selecionado ? 'border-primary bg-primary/5 shadow-lg ring-2 ring-primary/20' : 'border-gray-200 bg-white hover:border-primary/40 hover:shadow-md'}`}>
-                  {selecionado && <span className="absolute left-3 top-3 rounded-full bg-primary p-1 text-white"><Check size={14} /></span>}
-                  {pacote.disponibilidade !== 'disponivel' && <span className={`absolute right-3 top-3 rounded-full px-2 py-1 text-[10px] font-black uppercase ${aguardando ? 'bg-slate-100 text-slate-700' : esgotado ? 'bg-slate-800 text-white' : 'bg-amber-100 text-amber-800'}`}>{aguardando ? 'Indisponível' : esgotado ? 'Esgotado' : 'Últimas vagas'}</span>}
-                  <div className="mb-4 inline-flex rounded-xl bg-slate-100 p-3 text-primary"><Icon size={24} /></div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-primary">{formaContratacao === 'onibus' ? 'Transporte' : meta?.label}</p>
-                  <h3 className="mt-1 font-bold text-slate-900">{pacote.nome}</h3>
-                  {(pacote.destaque_titulo || pacote.destaque_subtitulo || pacote.destaque_texto) && <div className="mt-3 rounded-xl border border-[#C94F38]/15 bg-[#fff7f3] px-3 py-2.5"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#C94F38]">{pacote.destaque_subtitulo || 'Destaque'}</p>{pacote.destaque_titulo && <p className="mt-1 text-sm font-extrabold text-slate-900">{pacote.destaque_titulo}</p>}{pacote.destaque_texto && <p className="mt-1 text-xs leading-5 text-slate-600">{pacote.destaque_texto}</p>}</div>}
-                  <p className="mt-2 min-h-10 text-sm text-gray-500">{pacote.descricao || (formaContratacao === 'onibus' ? 'Transporte rodoviário da excursão.' : meta?.destaque)}</p>
-                  <p className="mt-4 text-xl font-bold text-slate-900">{formatarMoeda(pacote.valor_total)}</p>
-                  <p className="mt-1 text-xs font-semibold text-slate-500">{rotuloPagamento(pacote)}</p>
-                </button>;
-              })}
-            </div>}
-            {pacoteSelecionado && <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"><strong>{formaContratacaoMeta[formaContratacao].label}</strong> · {pacoteSelecionado.nome} selecionado.</div>}
-          </section>
-        )}
-
-        {pacoteSelecionado && exigePeriodo && <section className="rounded-2xl border border-[#C94F38]/20 bg-white p-5">
-          <div className="mb-3"><h2 className="text-xl font-bold text-slate-900">Escolha o período</h2><p className="text-sm text-gray-500">Este pacote possui mais de uma data. Selecione exatamente o final de semana ou intervalo desejado.</p></div>
-          <div className="grid gap-3 sm:grid-cols-2">{periodosDisponiveis.map((periodo) => { const aguardando = periodo.disponibilidade === 'aguardando'; const esgotado = (!transporteProprio || exigeHospedagem) && (periodo.disponibilidade === 'esgotado' || aguardando); return <button key={periodo.id} type="button" aria-pressed={periodoId === periodo.id} disabled={esgotado} onClick={() => { setPeriodoId(periodo.id); setCalculo(null); setError(''); }} className={`rounded-xl border p-4 text-left transition-all disabled:cursor-not-allowed disabled:opacity-60 ${periodoId === periodo.id ? 'border-primary bg-primary/5 shadow-md ring-2 ring-primary/20' : 'border-slate-200 hover:border-primary/40'}`}><div className="flex items-start justify-between gap-3"><p className="font-bold text-slate-900">{periodo.nome}</p>{periodo.disponibilidade && <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${aguardando ? 'bg-slate-100 text-slate-700' : esgotado ? 'bg-slate-800 text-white' : periodo.disponibilidade === 'ultimas_vagas' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{aguardando ? 'Indisponível' : esgotado ? 'Esgotado' : periodo.disponibilidade === 'ultimas_vagas' ? 'Últimas vagas' : 'Disponível'}</span>}</div><p className="mt-1 text-sm text-slate-600">{formatarPeriodo(periodo.data_inicio)} a {formatarPeriodo(periodo.data_fim)}</p>{periodo.lote_comercial_nome && <p className="mt-1 text-xs font-semibold text-primary">{periodo.lote_comercial_nome}{periodo.lote_comercial_data_fim ? ` · até ${formatarPeriodo(periodo.lote_comercial_data_fim)}` : ''}</p>}{periodo.valor_total && <p className="mt-1 text-sm font-black text-slate-900">{formatarMoeda(periodo.valor_total)} por pessoa</p>}{periodo.descricao && <p className="mt-2 text-xs leading-5 text-slate-500">{periodo.descricao}</p>}{periodoId === periodo.id && <span className="mt-2 inline-block text-xs font-bold text-primary">Período selecionado</span>}</button>; })}</div>
+        {pacoteSelecionado && exigePeriodo && <section className="rounded-2xl border border-[#182D3B]/10 bg-white p-5">
+          <div className="mb-3"><p className="text-[10px] font-black uppercase tracking-[.16em] text-[#851F32]">2 · Período</p><h2 className="mt-1 text-xl font-bold text-slate-900">Escolha o fim de semana</h2></div>
+          <div className="grid gap-3 sm:grid-cols-2">{periodosDisponiveis.map((periodo) => {
+            const aguardando = periodo.disponibilidade === 'aguardando';
+            const esgotado = periodo.disponibilidade === 'esgotado' || aguardando;
+            return <button key={periodo.id} type="button" aria-pressed={periodoId === periodo.id} disabled={esgotado} onClick={() => { setPeriodoId(periodo.id); setFormaContratacao(''); setCotacoesForma({}); setCalculo(null); setError(''); }} className={`relative rounded-xl border p-4 text-left transition-all disabled:cursor-not-allowed disabled:opacity-55 ${periodoId === periodo.id ? 'border-[#851F32] bg-[#851F32]/[0.035] ring-2 ring-[#851F32]/15' : 'border-slate-200 hover:border-[#851F32]/35'}`}>
+              <div className="flex items-start justify-between gap-3"><strong className="text-sm text-slate-900">{periodo.nome}</strong><span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase ${esgotado ? 'bg-slate-100 text-slate-600' : periodo.disponibilidade === 'ultimas_vagas' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{esgotado ? (aguardando ? 'Em breve' : 'Esgotado') : periodo.disponibilidade === 'ultimas_vagas' ? 'Últimas vagas' : 'Disponível'}</span></div>
+              <p className="mt-2 text-sm text-slate-600">{formatarPeriodo(periodo.data_inicio)} a {formatarPeriodo(periodo.data_fim)}</p>
+              {periodo.valor_total && <p className="mt-2 text-xs font-bold text-[#851F32]">A partir de {formatarMoeda(periodo.valor_total)}</p>}
+            </button>;
+          })}</div>
         </section>}
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-5">
+        {pacoteSelecionado && (!exigePeriodo || periodoId) && <section className="rounded-2xl border border-slate-200 bg-white p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div><h2 className="text-xl font-bold text-slate-900">3. Vai viajar com mais alguém?</h2><p className="text-sm text-gray-500">Adicione as pessoas da sua comitiva. Os dados serão identificados no contrato.</p></div>
-            <Button type="button" variant="outline" onClick={adicionarParticipante}><UserPlus size={16} className="mr-2" />Adicionar pessoa</Button>
+            <div><p className="text-[10px] font-black uppercase tracking-[.16em] text-[#851F32]">3 · Pessoas</p><h2 className="mt-1 text-xl font-bold text-slate-900">Quem vai com você?</h2></div>
+            <Button type="button" variant="outline" onClick={adicionarParticipante}><UserPlus size={16} className="mr-2"/>Adicionar pessoa</Button>
           </div>
-          {participantes.length > 0 && <div className="mt-4 space-y-3">
-            {participantes.map((participante, indice) => <div key={indice} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <div className="mb-3 flex items-center justify-between"><p className="text-sm font-bold text-slate-800">Pessoa {indice + 2}</p><button type="button" onClick={() => removerParticipante(indice)} className="rounded-md p-2 text-red-700 hover:bg-red-50" aria-label={`Remover pessoa ${indice + 2}`}><Trash2 size={16} /></button></div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="text-xs font-semibold text-slate-600 sm:col-span-2">Nome completo<input value={participante.nome_completo} onChange={(event) => atualizarParticipante(indice, 'nome_completo', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" required /></label>
-                <label className="text-xs font-semibold text-slate-600">CPF (opcional)<input value={participante.cpf || ''} onChange={(event) => atualizarParticipante(indice, 'cpf', event.target.value)} inputMode="numeric" className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
-                <label className="text-xs font-semibold text-slate-600">Data de nascimento<input type="date" value={participante.data_nascimento || ''} onChange={(event) => atualizarParticipante(indice, 'data_nascimento', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
-                <label className="text-xs font-semibold text-slate-600">Telefone (opcional)<input value={participante.telefone || ''} onChange={(event) => atualizarParticipante(indice, 'telefone', event.target.value)} inputMode="tel" className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
-                <label className="text-xs font-semibold text-slate-600">E-mail (opcional)<input type="email" value={participante.email || ''} onChange={(event) => atualizarParticipante(indice, 'email', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
-                {exigeHospedagem && <label className="text-xs font-semibold text-slate-600">Sexo da pessoa *<select required value={participante.sexo_operacional || ''} onChange={(event) => atualizarParticipante(indice, 'sexo_operacional', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">Selecione</option><option value="feminino">Feminino</option><option value="masculino">Masculino</option></select></label>}
-              </div>
-            </div>)}
-        </div>}
-        </section>
+          {participantes.length > 0 && <div className="mt-4 space-y-3">{participantes.map((participante, indice) => <div key={indice} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="mb-3 flex items-center justify-between"><p className="text-sm font-bold text-slate-800">Pessoa {indice + 2}</p><button type="button" onClick={() => removerParticipante(indice)} className="rounded-md p-2 text-red-700 hover:bg-red-50" aria-label={`Remover pessoa ${indice + 2}`}><Trash2 size={16}/></button></div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-xs font-semibold text-slate-600 sm:col-span-2">Nome completo<input value={participante.nome_completo} onChange={(event) => atualizarParticipante(indice, 'nome_completo', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" required/></label>
+              <label className="text-xs font-semibold text-slate-600">CPF (opcional)<input value={participante.cpf || ''} onChange={(event) => atualizarParticipante(indice, 'cpf', event.target.value)} inputMode="numeric" className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"/></label>
+              <label className="text-xs font-semibold text-slate-600">Nascimento<input type="date" value={participante.data_nascimento || ''} onChange={(event) => atualizarParticipante(indice, 'data_nascimento', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"/></label>
+              {user && exigeHospedagem && <label className="text-xs font-semibold text-slate-600">Sexo para alocação *<select required value={participante.sexo_operacional || ''} onChange={(event) => atualizarParticipante(indice, 'sexo_operacional', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">Selecione</option><option value="feminino">Feminino</option><option value="masculino">Masculino</option></select></label>}
+            </div>
+          </div>)}</div>}
+          <p className="mt-3 text-xs text-slate-500">Você + {participantes.length} {participantes.length === 1 ? 'acompanhante' : 'acompanhantes'}.</p>
+        </section>}
+
+        {podeAvancarProduto && !user && <section className="rounded-2xl border border-[#851F32]/15 bg-[#fff8f6] p-5 sm:flex sm:items-center sm:justify-between sm:gap-5">
+          <div><h2 className="font-bold text-[#182D3B]">Pacote escolhido.</h2><p className="mt-1 text-sm text-slate-600">Entre ou crie sua conta para escolher os serviços e finalizar.</p></div>
+          <Button className="mt-4 w-full sm:mt-0 sm:w-auto" onClick={handleReservar}>Entrar e continuar <ArrowRight size={16} className="ml-2"/></Button>
+        </section>}
+
+        {podeAvancarProduto && user && <section className="rounded-2xl border border-[#851F32]/20 bg-white p-5">
+          <div className="mb-4"><p className="text-[10px] font-black uppercase tracking-[.16em] text-[#851F32]">4 · Serviços</p><h2 className="mt-1 text-xl font-bold text-slate-900">Como você quer viajar?</h2><p className="mt-1 text-sm text-slate-500">Escolha agora. O valor abaixo será levado para o contrato e pagamento.</p></div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {formasDisponiveis.map((forma) => {
+              const meta = formaContratacaoMeta[forma];
+              const selecionado = formaContratacao === forma;
+              const cotacao = cotacoesForma[forma];
+              const indisponivel = Boolean(cotacao?.erro);
+              const valor = Number(cotacao?.valor_total || 0);
+              const economia = cotacaoCompleta > 0 && valor > 0 && valor < cotacaoCompleta ? cotacaoCompleta - valor : 0;
+              return <button key={forma} type="button" disabled={indisponivel || isCalculatingOptions} aria-pressed={selecionado} onClick={() => selecionarFormaContratacao(forma)} className={`relative rounded-2xl border p-4 text-left transition-all disabled:cursor-not-allowed disabled:opacity-50 ${selecionado ? 'border-[#851F32] bg-[#851F32]/[0.04] shadow-md ring-2 ring-[#851F32]/15' : 'border-slate-200 hover:border-[#851F32]/35'}`}>
+                {selecionado && <span className="absolute right-3 top-3 rounded-full bg-[#851F32] p-1 text-white"><Check size={13}/></span>}
+                <strong className="block pr-7 text-sm text-slate-900">{meta.label}</strong>
+                <p className="mt-2 text-xs leading-5 text-slate-500">{forma === 'onibus_hospedagem' ? 'Viagem completa' : forma === 'hospedagem' ? 'Você vai por conta própria' : 'Sem hospedagem'}</p>
+                <div className="mt-4 border-t border-slate-100 pt-3">{isCalculatingOptions && !cotacao ? <span className="text-xs text-slate-400">Calculando...</span> : indisponivel ? <span className="text-xs font-bold text-slate-500">Indisponível</span> : <><strong className="font-editorial text-2xl text-[#182D3B]">{formatarMoeda(valor)}</strong>{economia > 0 && <span className="mt-1 block text-[10px] font-black uppercase text-emerald-700">Economize {formatarMoeda(economia)}</span>}</>}</div>
+              </button>;
+            })}
+          </div>
+          <div className="mt-4 flex gap-2 rounded-xl bg-slate-50 p-3 text-xs text-slate-600"><Info size={15} className="mt-0.5 shrink-0 text-[#851F32]"/><p>Cupons promocionais válidos podem ser aplicados no checkout.</p></div>
+        </section>}
       </div>
 
       <aside className="lg:col-span-1">
-        <Card className="sticky top-[104px] overflow-hidden border-[#182D3B]/10 shadow-[0_18px_45px_rgba(24,45,59,0.10)]"><CardHeader className="border-b bg-[#182D3B] text-white"><CardTitle>Resumo da reserva</CardTitle></CardHeader><CardContent className="space-y-4 p-6">
-          <div className="flex justify-between gap-4 text-sm"><span className="text-gray-600">Contrato</span><span className="max-w-44 text-right font-semibold text-slate-900">{formaContratacao ? `${formaContratacaoMeta[formaContratacao].label}${transporteProprio ? ' · por conta própria' : ''}` : 'Escolha o tipo'}</span></div>
-          <div className="flex justify-between text-sm"><span className="text-gray-600">Pacote</span><span className="max-w-40 text-right font-medium">{pacoteSelecionado?.nome || (pacotes.length ? 'Escolha uma opção' : 'Pacote base')}</span></div>
-          {exigePeriodo && <div className="flex justify-between gap-4 text-sm"><span className="text-gray-600">Período</span><span className="max-w-48 text-right font-medium">{periodosDisponiveis.find((periodo) => periodo.id === periodoId)?.nome || 'Escolha uma data'}</span></div>}
-          <div className="flex justify-between text-sm"><span className="text-gray-600">Valor-base</span><span className="font-medium">{formatarMoeda(calculo?.valor_base || 0)}</span></div>
-          <div className="flex justify-between gap-4 text-sm"><span className="text-gray-600">Pagamento</span><span className="max-w-48 text-right font-medium text-slate-800">{rotuloPagamento(pacoteSelecionado)}</span></div>
-          <div className="border-t pt-4"><div className="flex items-center justify-between"><span className="text-lg font-bold">Total</span><span className="text-2xl font-bold text-primary">{isCalculating ? '...' : formatarMoeda(calculo?.valor_total || 0)}</span></div></div>
-          <Button className="mt-3 w-full" size="lg" onClick={handleReservar} isLoading={isReserving} disabled={isCalculating || !formaContratacao || (pacotes.length > 0 && !pacoteId) || (!transporteProprio && pacoteSelecionado?.disponibilidade === 'esgotado')}>{user ? 'Continuar para checkout' : 'Continuar'}</Button>
-          <div className="flex gap-2 rounded-md bg-blue-50 p-3 text-xs text-blue-700"><Info size={16} className="shrink-0" /><p>Na próxima etapa você entra ou cria sua conta. Sua escolha ficará salva para continuar sem recomeçar.</p></div>
+        <Card className="sticky top-[104px] overflow-hidden border-[#182D3B]/10 shadow-[0_18px_45px_rgba(24,45,59,0.10)]"><CardHeader className="border-b bg-[#182D3B] text-white"><CardTitle>Resumo</CardTitle></CardHeader><CardContent className="space-y-4 p-6">
+          <div className="flex justify-between gap-4 text-sm"><span className="text-gray-500">Pacote</span><strong className="max-w-48 text-right text-slate-900">{pacoteSelecionado?.nome || 'Escolha seu pacote'}</strong></div>
+          {pacoteSelecionado && exigePeriodo && <div className="flex justify-between gap-4 text-sm"><span className="text-gray-500">Período</span><strong className="max-w-48 text-right text-slate-900">{periodoSelecionado?.nome || 'Escolha o período'}</strong></div>}
+          {pacoteSelecionado && <div className="flex justify-between gap-4 text-sm"><span className="text-gray-500">Pessoas</span><strong className="text-slate-900">{participantes.length + 1}</strong></div>}
+          {user && <div className="flex justify-between gap-4 text-sm"><span className="text-gray-500">Serviços</span><strong className="max-w-48 text-right text-slate-900">{formaContratacao ? formaContratacaoMeta[formaContratacao].label : 'Escolha no passo 4'}</strong></div>}
+          <div className="border-t pt-4">
+            <p className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">{formaContratacao ? 'Total contratado' : 'A partir de'}</p>
+            {parcelamentoResumo && !formaContratacao ? <><div className="mt-1 flex items-end gap-1.5"><span className="pb-1 text-xs font-bold text-slate-500">{parcelamentoResumo.parcelas}x de</span><strong className="font-editorial text-3xl leading-none text-[#851F32]">{formatarMoeda(parcelamentoResumo.valor)}</strong></div><p className="mt-1 text-xs text-slate-500">Total {formatarMoeda(valorResumo)}</p></> : <strong className="font-editorial mt-1 block text-3xl text-[#851F32]">{isCalculating ? '...' : formatarMoeda(valorResumo)}</strong>}
+          </div>
+          {!user ? <Button className="w-full" size="lg" onClick={handleReservar} disabled={!podeAvancarProduto || authLoading}>Entrar e continuar</Button> : !formaContratacao ? <Button className="w-full" size="lg" disabled>Escolha os serviços</Button> : <Button className="w-full" size="lg" onClick={handleReservar} isLoading={isReserving} disabled={!podeFinalizar}>Continuar para contrato e pagamento</Button>}
+          <p className="text-center text-[11px] leading-5 text-slate-500">Preço e serviços são confirmados antes da assinatura.</p>
         </CardContent></Card>
       </aside>
 
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[#182D3B]/10 bg-white/95 p-3 shadow-[0_-12px_34px_rgba(24,45,59,.12)] backdrop-blur lg:hidden">
         <div className="mx-auto flex max-w-2xl items-center gap-3">
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-bold text-slate-500">{formaContratacao ? `${formaContratacaoMeta[formaContratacao].label}${transporteProprio ? ' · por conta própria' : ''} · ${pacoteSelecionado?.nome || 'escolha o pacote'}` : 'Escolha o tipo de contratação'}</p>
-            <p className="text-lg font-black text-[#182D3B]">{isCalculating ? 'Calculando…' : formatarMoeda(calculo?.valor_total || pacoteSelecionado?.valor_total || 0)}</p>
-          </div>
-          <Button onClick={handleReservar} isLoading={isReserving} disabled={isCalculating || !formaContratacao || (pacotes.length > 0 && !pacoteId) || (!transporteProprio && pacoteSelecionado?.disponibilidade === 'esgotado')}>{user ? 'Continuar' : 'Continuar'} <ArrowRight size={16}/></Button>
+          <div className="min-w-0 flex-1"><p className="truncate text-xs font-bold text-slate-500">{pacoteSelecionado?.nome || 'Escolha seu pacote'}</p><p className="text-lg font-black text-[#182D3B]">{formaContratacao ? formatarMoeda(valorResumo) : valorResumo > 0 ? `A partir de ${formatarMoeda(valorResumo)}` : 'Consultar'}</p></div>
+          {!user ? <Button onClick={handleReservar} disabled={!podeAvancarProduto || authLoading}>Continuar <ArrowRight size={16} className="ml-1"/></Button> : <Button onClick={handleReservar} isLoading={isReserving} disabled={!podeFinalizar}>Finalizar <ArrowRight size={16} className="ml-1"/></Button>}
         </div>
       </div>
     </div>
   );
+
 }

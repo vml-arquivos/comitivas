@@ -34,6 +34,7 @@ type Modalidade = {
   destaque_titulo?: string | null;
   destaque_subtitulo?: string | null;
   destaque_texto?: string | null;
+  boleto_parcelas_maximo?: number | null;
 };
 
 type Foto = {
@@ -224,11 +225,27 @@ function statusOferta(disponibilidade?: string | null) {
   return { label: 'Disponível', classe: 'bg-emerald-100 text-emerald-900' };
 }
 
-function precoOferta(oferta: Oferta) {
+function valorOferta(oferta: Oferta) {
   const periodos = periodosOferta(oferta);
   const possuiLoteConfigurado = periodos.some((periodo) => periodo.lote_comercial_configurado);
-  const precos = periodos.filter((periodo) => !['esgotado', 'aguardando'].includes(String(periodo.disponibilidade)) && (!periodo.lote_comercial_configurado || Boolean(periodo.lote_comercial_nome))).map((periodo) => Number(periodo.valor_total)).filter((valor) => Number.isFinite(valor) && valor > 0);
-  return formatarMoeda(precos.length ? Math.min(...precos) : possuiLoteConfigurado ? null : oferta.pacote.valor_total);
+  const precos = periodos
+    .filter((periodo) => !['esgotado', 'aguardando'].includes(String(periodo.disponibilidade)) && (!periodo.lote_comercial_configurado || Boolean(periodo.lote_comercial_nome)))
+    .map((periodo) => Number(periodo.valor_total))
+    .filter((valor) => Number.isFinite(valor) && valor > 0);
+  const valor = precos.length ? Math.min(...precos) : possuiLoteConfigurado ? 0 : Number(oferta.pacote.valor_total || 0);
+  return Number.isFinite(valor) && valor > 0 ? valor : null;
+}
+
+function precoOferta(oferta: Oferta) {
+  const valor = valorOferta(oferta);
+  return valor ? formatarMoeda(valor) : null;
+}
+
+function parcelamentoOferta(oferta: Oferta) {
+  const total = valorOferta(oferta);
+  const parcelas = Math.max(1, Number(oferta.pacote.boleto_parcelas_maximo || 1));
+  if (!total || parcelas <= 1) return null;
+  return { parcelas, valorParcela: total / parcelas, total };
 }
 
 export default function Home() {
@@ -377,7 +394,7 @@ export default function Home() {
   const statusAtivo = statusOferta(ofertaAtiva ? disponibilidadeOferta(ofertaAtiva) : undefined);
   const itensAtivos = normalizarItens(ofertaAtiva?.pacote.itens_inclusos);
   const fotoEventoAtiva = ofertaAtiva?.evento.fotos?.find((foto) => foto.capa)?.url_foto || ofertaAtiva?.evento.fotos?.[0]?.url_foto || '/images/hero-parque-peao.jpg';
-  const periodosAtivos = ofertaAtiva ? periodosOferta(ofertaAtiva) : [];
+  const parcelamentoAtivo = ofertaAtiva ? parcelamentoOferta(ofertaAtiva) : null;
 
   return (
     <div className="min-h-screen bg-[#F8F5EF] text-[#182D3B]">
@@ -463,7 +480,10 @@ export default function Home() {
                   <p className="mt-3 text-sm font-bold text-[#334A58]">{ofertaAtiva.pacote.nome}</p>
                   {(ofertaAtiva.evento.destaque_titulo || ofertaAtiva.evento.destaque_texto) && <div className="mt-3 rounded-xl border border-[#851F32]/15 bg-[#F8F0F1] px-3 py-2.5"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">{ofertaAtiva.evento.destaque_titulo || 'Destaque da excursão'}</p>{ofertaAtiva.evento.destaque_texto && <p className="mt-1 line-clamp-3 whitespace-pre-line text-xs leading-5 text-[#5F7079]">{ofertaAtiva.evento.destaque_texto}</p>}</div>}
                   {(ofertaAtiva.pacote.destaque_titulo || ofertaAtiva.pacote.destaque_subtitulo || ofertaAtiva.pacote.destaque_texto) && <div className="mt-3 rounded-xl border border-[#851F32]/15 bg-[#F8F0F1] px-3 py-2.5"><p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#851F32]">{ofertaAtiva.pacote.destaque_subtitulo || 'Destaque'}</p>{ofertaAtiva.pacote.destaque_titulo && <p className="mt-1 text-sm font-extrabold text-[#182D3B]">{ofertaAtiva.pacote.destaque_titulo}</p>}{ofertaAtiva.pacote.destaque_texto && <p className="mt-1 text-xs leading-5 text-[#5F7079]">{ofertaAtiva.pacote.destaque_texto}</p>}</div>}
-                  <div className="mt-4 border-y border-[#182D3B]/10 py-4 text-sm text-[#60717B]"><p className="font-semibold">A partir de {precoOferta(ofertaAtiva) || 'valor a consultar'}</p><p className="mt-1">Escolha o fim de semana e os serviços na próxima etapa.</p></div>
+                  <div className="mt-4 border-y border-[#182D3B]/10 py-4">
+                    <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#88949B]">A partir de</p>
+                    {parcelamentoAtivo ? <><div className="mt-1 flex items-end gap-2"><span className="pb-1 text-xs font-bold text-[#60717B]">{parcelamentoAtivo.parcelas}x de</span><strong className="font-editorial text-4xl leading-none text-[#851F32]">{formatarMoeda(parcelamentoAtivo.valorParcela)}</strong></div><p className="mt-1 text-xs text-[#60717B]">Total {formatarMoeda(parcelamentoAtivo.total)} por pessoa</p></> : <strong className="font-editorial mt-1 block text-3xl text-[#851F32]">{precoOferta(ofertaAtiva) || 'Consultar'}</strong>}
+                  </div>
                   {itensAtivos.length > 0 && <p className="mt-4 line-clamp-2 text-xs leading-5 text-[#687882]">{itensAtivos.join(' · ')}</p>}
                   <Link to={linkPacote(ofertaAtiva)} className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[#851F32] px-5 text-sm font-extrabold text-white transition hover:bg-[#6f1929]">
                     Escolher pacote e período <ArrowRight size={16} />
@@ -530,16 +550,14 @@ export default function Home() {
             <div className="mt-10 grid gap-5 md:grid-cols-2 xl:grid-cols-2">
               {ofertas.map((oferta) => {
                 const status = statusOferta(disponibilidadeOferta(oferta));
-                const itens = normalizarItens(oferta.pacote.itens_inclusos);
-                const periodos = periodosOferta(oferta);
+                const parcelamento = parcelamentoOferta(oferta);
                 return (
                     <article key={`${oferta.lote.id}-${oferta.pacote.id}`} className="group flex min-h-[385px] min-w-0 flex-col rounded-[1.5rem] border border-[#182D3B]/10 bg-white p-6 shadow-[0_12px_35px_rgba(24,45,59,0.06)] transition hover:-translate-y-1 hover:shadow-[0_20px_45px_rgba(24,45,59,0.1)]">
                     <div className="flex items-start justify-between gap-4"><div><Link to={linkExcursao(oferta)} className="text-[10px] font-black uppercase tracking-[0.18em] text-[#851F32] hover:text-[#6f1929]">{oferta.evento.nome}</Link>{oferta.evento.subtitulo && <p className="mt-1 text-xs font-semibold leading-5 text-[#60717B]">{oferta.evento.subtitulo}</p>}<Link to={linkExcursao(oferta)} className="mt-2 inline-flex items-center gap-1 text-[11px] font-extrabold text-[#851F32] hover:text-[#6f1929]">Ver detalhes da excursão <ChevronRight size={13} /></Link></div><span className={`shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase ${status.classe}`}>{status.label}</span></div>
                     <h3 className="font-editorial mt-4 text-2xl leading-tight text-[#182D3B]">{oferta.pacote.nome}</h3>
-
                     <p className="mt-2 line-clamp-2 min-h-10 text-sm leading-5 text-[#6B7C85]">{oferta.pacote.descricao || oferta.lote.descricao || 'Confira os serviços e escolha como viajar.'}</p>
                     <p className="mt-4 inline-flex items-center gap-1.5 text-xs text-[#60717B]"><MapPin size={14} />{oferta.evento.local}</p><p className="mt-2 text-xs text-[#60717B]">Escolha seu fim de semana na próxima etapa.</p>
-                    <div className="mt-auto pt-6"><p className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#88949B]">A partir de</p><p className="font-editorial mt-1 text-2xl text-[#182D3B]">{precoOferta(oferta) || 'Consultar'}</p><Link to={linkPacote(oferta)} className={`mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full px-5 text-sm font-extrabold transition ${['esgotado', 'aguardando'].includes(String(disponibilidadeOferta(oferta))) ? 'pointer-events-none bg-slate-100 text-slate-400' : 'bg-[#851F32] text-white hover:bg-[#6f1929]'}`} aria-disabled={['esgotado', 'aguardando'].includes(String(disponibilidadeOferta(oferta)))}>{disponibilidadeOferta(oferta) === 'esgotado' ? 'Pacote esgotado' : disponibilidadeOferta(oferta) === 'aguardando' ? 'Indisponível no momento' : 'Escolher pacote e período'}{!['esgotado', 'aguardando'].includes(String(disponibilidadeOferta(oferta))) && <ArrowRight size={16} />}</Link></div>
+                    <div className="mt-auto pt-6"><p className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#88949B]">A partir de</p>{parcelamento ? <><div className="mt-1 flex items-end gap-2"><span className="pb-1 text-xs font-bold text-[#60717B]">{parcelamento.parcelas}x de</span><strong className="font-editorial text-3xl leading-none text-[#851F32]">{formatarMoeda(parcelamento.valorParcela)}</strong></div><p className="mt-1 text-[11px] text-[#60717B]">Total {formatarMoeda(parcelamento.total)} por pessoa</p></> : <p className="font-editorial mt-1 text-3xl text-[#182D3B]">{precoOferta(oferta) || 'Consultar'}</p>}<Link to={linkPacote(oferta)} className={`mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full px-5 text-sm font-extrabold transition ${['esgotado', 'aguardando'].includes(String(disponibilidadeOferta(oferta))) ? 'pointer-events-none bg-slate-100 text-slate-400' : 'bg-[#851F32] text-white hover:bg-[#6f1929]'}`} aria-disabled={['esgotado', 'aguardando'].includes(String(disponibilidadeOferta(oferta)))}>{disponibilidadeOferta(oferta) === 'esgotado' ? 'Pacote esgotado' : disponibilidadeOferta(oferta) === 'aguardando' ? 'Indisponível no momento' : 'Escolher pacote'}{!['esgotado', 'aguardando'].includes(String(disponibilidadeOferta(oferta))) && <ArrowRight size={16} />}</Link></div>
                   </article>
                 );
               })}

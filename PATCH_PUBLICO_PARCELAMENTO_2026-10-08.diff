@@ -1,0 +1,19 @@
+diff --git a/server/routes/publico.ts b/server/routes/publico.ts
+index a9444b5..e7ed027 100644
+--- a/server/routes/publico.ts
++++ b/server/routes/publico.ts
+@@ -12,0 +13,6 @@ const router = Router();
++function boletoParcelasPublicas(configuracao: unknown): number | null {
++  if (!configuracao || typeof configuracao !== "object") return null;
++  const valor = Number((configuracao as Record<string, unknown>).boleto_parcelas_maximo);
++  return Number.isInteger(valor) && valor > 1 ? valor : null;
++}
++
+@@ -116,0 +123 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
++            configuracao_pagamento: pacotes.configuracao_pagamento,
+@@ -186,0 +194 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
++          const { configuracao_pagamento: configuracaoPagamento, ...modalidadePublica } = modalidade;
+@@ -188 +196,2 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
+-            ...modalidade,
++            ...modalidadePublica,
++            boleto_parcelas_maximo: boletoParcelasPublicas(configuracaoPagamento),
