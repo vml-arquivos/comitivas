@@ -89,6 +89,18 @@ function prepararDados(modalidade: "camping" | "quarto_ventilador" | "quarto_ar_
 }
 
 describe("ContratoService.gerarContratoHTML", () => {
+  it.each(['onibus_hospedagem', 'hospedagem', 'onibus'])('snapshot do camping respeita %s', async forma => {
+    prepararDados('camping');
+    banco.resultados[4][0].forma_contratacao = forma;
+    banco.resultados[4][0].itens_selecionados = ['Área de camping'];
+    const html = await ContratoService.gerarContratoHTML('reserva-validacao');
+    expect(html.includes('ÁREA DE CAMPING DA EXCURSÃO')).toBe(forma !== 'onibus');
+    expect(html.includes('DO TRANSPORTE RODOVIÁRIO')).toBe(forma !== 'hospedagem');
+    expect(html).not.toContain('DOS DADOS DA HOSPEDAGEM');
+    if (forma === 'hospedagem') expect(html).toContain('DO DESLOCAMENTO POR CONTA PRÓPRIA');
+    if (forma === 'onibus') expect(html).not.toContain('Área de camping');
+  });
+
   beforeEach(() => {
     prepararDados("quarto_ventilador");
     banco.resultados[4][0].forma_contratacao = "hospedagem";
@@ -132,7 +144,7 @@ describe("ContratoService.gerarContratoHTML", () => {
     });
 
     expect(html).toContain("123.456.789-09");
-    expect(html).toContain("Open Bar das 09h às 19h");
+    expect(html).not.toContain("Open Bar das 09h às 19h");
     expect(html).not.toContain("Paratudo");
     expect(html).toContain("translado compreende exclusivamente o percurso entre a hospedagem e o Parque do Peão");
     expect(html).toContain("CLÁUSULA VIGÉSIMA");

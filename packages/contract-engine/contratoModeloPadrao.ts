@@ -160,7 +160,7 @@ function transportValue(value: string | null, fallback: string): string {
 }
 
 export function renderizarContratoModeloPadrao({ snapshot, reservaId }: ContratoModeloContext): string {
-  const atualizado = snapshot.versao_contratual === "2026.2-operacional";
+  const atualizado = ["2026.2-operacional", "2026.3-camping"].includes(snapshot.versao_contratual || "");
   const c = snapshot.cliente || {};
   const h = snapshot.hospedagem || { modalidade: null, local: "" };
   const f = snapshot.financeiro || { total: "", desconto_pagamento: "", forma_pagamento: null, parcelas: 1, cronograma: [] };
@@ -190,6 +190,7 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
     ? `<p class="qualification"><strong>Atendimento comercial:</strong> ${escapeHtml(snapshot.vendedor.nome)}.</p>`
     : "";
   const modalidade = h.modalidade || null;
+  const temCamping = snapshot.versao_contratual === "2026.3-camping" && modalidade === "camping";
   const temHospedagem = Boolean(modalidade && modalidade !== "camping");
   const marcoServico = "início da prestação dos serviços";
   const custosAntecipados = temHospedagem
@@ -232,7 +233,12 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
   const imagemTexto = usoImagem.autorizado === false
     ? "O contratante não autoriza o uso de sua imagem para divulgação institucional da excursão."
     : `O contratante autoriza o uso de sua imagem pelo prazo de ${usoImagem.prazo_anos || 3} (três) anos para divulgação institucional da excursão, podendo manifestar oposição por escrito antes do início do evento.`;
-  const objetoTexto = temHospedagem && t.rodoviario_incluido
+  const blocoCamping = temCamping ? `<h2>ÁREA DE CAMPING DA EXCURSÃO</h2>
+<p>Local: ${escapeHtml(localHospedagem)}. Período: ${escapeHtml(checkin)} a ${escapeHtml(checkout)}.</p>
+<p>Esta contratação inclui a utilização da área de camping da excursão, sem reserva de quarto. Barraca, equipamentos e serviços adicionais somente estão incluídos quando expressamente relacionados neste contrato.</p>` : "";
+  const objetoTexto = temCamping
+    ? `O presente contrato tem por objeto a área de camping da excursão ${escapeHtml(pacoteNome)}, para ${escapeHtml(eventoNome)}, ${t.rodoviario_incluido ? "com transporte rodoviário de ida e volta" : "com deslocamento por conta própria, sem transporte rodoviário contratado"}, sem reserva de quarto.`
+    : temHospedagem && t.rodoviario_incluido
     ? `O presente contrato tem por objeto o pacote ${escapeHtml(pacoteNome)}, para ${escapeHtml(eventoNome)}, em ${escapeHtml(eventoLocal)}, com hospedagem e transporte rodoviário conforme a programação registrada neste instrumento.`
     : temHospedagem
       ? `O presente contrato tem por objeto a hospedagem do pacote ${escapeHtml(pacoteNome)}, para ${escapeHtml(eventoNome)}, em ${escapeHtml(eventoLocal)}, sem contratação de transporte rodoviário interestadual.`
@@ -324,7 +330,7 @@ export function renderizarContratoModeloPadrao({ snapshot, reservaId }: Contrato
   </div>
 </section>
 <h2>QUALIFICAÇÃO DAS PARTES:</h2>
-<p class="qualification">As partes qualificadas neste instrumento celebram, pelo presente, contrato para a prestação de serviços de <strong>${temHospedagem && t.rodoviario_incluido ? "HOSPEDAGEM E TRANSPORTE" : temHospedagem ? "HOSPEDAGEM" : "TRANSPORTE"}</strong>.</p>
+<p class="qualification">As partes qualificadas neste instrumento celebram, pelo presente, contrato para a prestação de serviços de <strong>${temCamping ? (t.rodoviario_incluido ? "TRANSPORTE E ÁREA DE CAMPING" : "ÁREA DE CAMPING") : temHospedagem && t.rodoviario_incluido ? "HOSPEDAGEM E TRANSPORTE" : temHospedagem ? "HOSPEDAGEM" : "TRANSPORTE"}</strong>.</p>
 <p class="qualification"><strong>Contratada:</strong> ${escapeHtml(CONTRATADA_DADOS.razao_social)}, empresa inscrita no CNPJ ${escapeHtml(CONTRATADA_DADOS.cnpj)}, com sede na Qr 502 conjunto 20 – Samambaia Sul/DF, CEP 72.210-420, e-mail: ${escapeHtml(CONTRATADA_DADOS.email)}</p>
 <p class="qualification"><strong>Contratante:</strong> ${escapeHtml(nome)}, nascido(a) em ${escapeHtml(nascimento)}, inscrito(a) no CPF ${escapeHtml(cpf(c.cpf))}, residente em ${escapeHtml(endereco)}, telefone ${escapeHtml(telefone)} e e-mail ${escapeHtml(email)}.</p>
 ${vendedorResponsavel}
@@ -333,7 +339,7 @@ ${vendedorResponsavel}
 <p class="clause"><strong>1.1</strong> ${objetoTexto}</p>
 <p class="clause"><strong>1.2</strong> O evento possui caráter regional e ocorre apenas uma vez ao ano, motivo pelo qual não será possível a remarcação do pacote para data fora da temporada oficial.</p>
 <p class="clause"><strong>1.3</strong> É de responsabilidade do contratante a leitura integral deste contrato antes de sua assinatura.</p>
-${blocoHospedagem}
+${blocoCamping}${blocoHospedagem}
 <h2>CLÁUSULA QUARTA<br/>DOS SERVIÇOS INCLUSOS</h2>
 ${servicosInclusosHtml}
 <h2>CLÁUSULA QUINTA<br/>DAS FORMAS DE PAGAMENTO</h2>

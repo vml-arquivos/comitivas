@@ -89,13 +89,10 @@ describe("catálogo simples de excursões, lotes e pacotes", () => {
     expect(home).not.toContain("params.set('periodo'");
   });
 
-  it("trata camping como modalidade somente transporte", () => {
-    const rotas = ler("server/routes/pacotes.ts");
+  it("permite configurar camping sem impor transporte", () => {
     const recursos = ler("server/services/contratacaoRecursos.ts");
-    expect(rotas).toContain('modalidade === "camping"');
-    expect(rotas).toContain('["onibus"]');
-    expect(recursos).toContain('modalidade === "camping"');
-    expect(recursos).toContain("transporte: true, hospedagem: false");
+    expect(recursos).not.toContain('if (modalidade === "camping") return ["onibus"]');
+    expect(recursos).toContain('const camping = forma === "hospedagem"');
   });
 
   it("mantém a sequência guiada sem duplicar preço e recursos físicos no pacote", () => {

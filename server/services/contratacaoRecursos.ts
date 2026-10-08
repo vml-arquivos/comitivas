@@ -9,6 +9,7 @@ export type RecursosContratados = {
   hospedagem: boolean;
   estrutura_quarto: EstruturaQuarto | null;
   transporte_proprio?: boolean;
+  camping?: boolean;
 };
 
 export const FORMAS_CONTRATACAO_VALIDAS: readonly FormaContratacaoValida[] = ["onibus_hospedagem", "hospedagem", "onibus"];
@@ -19,8 +20,7 @@ export function normalizarFormasContratacao(
   formaLegada: unknown,
   modalidadeBruta: unknown,
 ): FormaContratacaoValida[] {
-  const modalidade = String(modalidadeBruta || "").trim().toLowerCase();
-  if (modalidade === "camping") return ["onibus"];
+
   const candidatas = Array.isArray(formasBrutas) ? formasBrutas : [formasBrutas ?? formaLegada];
   return Array.from(new Set(candidatas
     .map((forma) => String(forma || "").trim().toLowerCase())
@@ -43,9 +43,14 @@ export function resolverRecursosContratacao(
   const transporteProprio = transporteProprioBruto === true || String(transporteProprioBruto || "").trim().toLowerCase() === "proprio";
 
   if (modalidade === "camping") {
-    return transporteProprio
-      ? { transporte: false, hospedagem: false, estrutura_quarto: null, transporte_proprio: true }
-      : { transporte: true, hospedagem: false, estrutura_quarto: null };
+    const camping = forma === "hospedagem" || forma === "onibus_hospedagem" || forma === "livre";
+    return {
+      transporte: (forma === "onibus" || forma === "onibus_hospedagem") && !transporteProprio,
+      hospedagem: false,
+      estrutura_quarto: null,
+      camping,
+      ...(transporteProprio || forma === "hospedagem" ? { transporte_proprio: true } : {}),
+    };
   }
 
   const estrutura_quarto: EstruturaQuarto | null = modalidade === "quarto_ar_condicionado"

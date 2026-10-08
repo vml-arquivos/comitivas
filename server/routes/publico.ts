@@ -6,7 +6,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { AuthService } from "../services/authService.js";
 import { PacoteService } from "../services/pacoteService.js";
 import { normalizarFormasContratacao } from "../services/contratacaoRecursos.js";
-import { LoteComercialService, normalizarFormaLote, statusComercialPublico } from "../services/loteComercialService.js";
+import { LoteComercialService, normalizarFormaLote, statusComercialPublico, combinarCapacidadeComercial } from "../services/loteComercialService.js";
 
 const router = Router();
 
@@ -127,7 +127,9 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
             modalidade_hospedagem: modalidade.modalidade_hospedagem,
             disponibilidade: modalidade.disponibilidade,
           } as const;
-          const capacidadeBasePorForma = await Promise.all(formasContratacao.map((forma) => PacoteService.obterDisponibilidadeFisica(pacoteFisico, null, forma)));
+          let capacidadeBasePorForma = await Promise.all(formasContratacao.map((forma) => PacoteService.obterDisponibilidadeFisica(pacoteFisico, null, forma)));
+          const comercialBasePorForma = await Promise.all(formasContratacao.map(async (forma) => [forma, await LoteComercialService.obterStatus(modalidade.id, null, normalizarFormaLote(forma))] as const));
+          capacidadeBasePorForma = capacidadeBasePorForma.map((capacidade, indice) => combinarCapacidadeComercial(capacidade, comercialBasePorForma[indice][1]));
           const capacidadesBasePublicas = formasContratacao.map((forma, indice) => {
             const capacidade = capacidadeBasePorForma[indice];
             return {
@@ -138,8 +140,8 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
               vagas_hospedagem: capacidade?.vagas_hospedagem == null ? null : Number(capacidade.vagas_hospedagem),
             };
           });
-          const comercialBasePorForma = await Promise.all(formasContratacao.map(async (forma) => [forma, await LoteComercialService.obterStatus(modalidade.id, null, normalizarFormaLote(forma))] as const));
-          const comercialBaseAtivo = comercialBasePorForma.map(([, status]) => status.lote).filter(Boolean).sort((a, b) => Number(a!.valor) - Number(b!.valor))[0] || null;
+
+          const comercialBaseAtivo = comercialBasePorForma.filter((_, indice) => capacidadeBasePorForma[indice].vagas_disponiveis > 0).map(([, status]) => status.lote).filter(Boolean).sort((a, b) => Number(a!.valor) - Number(b!.valor))[0] || null;
           const comercialBaseConfigurado = comercialBasePorForma.some(([, status]) => status.configurado);
           const comercialBaseAguardando = comercialBasePorForma.some(([, status]) => status.status === "aguardando");
           const capacidadeBase = capacidadeBasePorForma.reduce((melhor, atual) => atual.vagas_disponiveis > melhor.vagas_disponiveis ? atual : melhor, capacidadeBasePorForma[0] || await PacoteService.obterDisponibilidadeFisica({
@@ -154,7 +156,9 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
             .where(and(eq(pacotePeriodos.pacote_id, modalidade.id), eq(pacotePeriodos.ativo, true)))
             .orderBy(pacotePeriodos.ordem, pacotePeriodos.data_inicio);
           const periodos = await Promise.all(periodosBase.map(async (periodo) => {
-            const capacidades = await Promise.all(formasContratacao.map((forma) => PacoteService.obterDisponibilidadeFisica(pacoteFisico, periodo.id, forma)));
+            let capacidades = await Promise.all(formasContratacao.map((forma) => PacoteService.obterDisponibilidadeFisica(pacoteFisico, periodo.id, forma)));
+            const comerciais = await Promise.all(formasContratacao.map(async (forma) => [forma, await LoteComercialService.obterStatus(modalidade.id, periodo.id, normalizarFormaLote(forma))] as const));
+            capacidades = capacidades.map((capacidade, indice) => combinarCapacidadeComercial(capacidade, comerciais[indice][1]));
             const capacidadesPublicas = formasContratacao.map((forma, indice) => {
               const capacidade = capacidades[indice];
               return {
@@ -165,9 +169,9 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
                 vagas_hospedagem: capacidade?.vagas_hospedagem == null ? null : Number(capacidade.vagas_hospedagem),
               };
             });
-            const comerciais = await Promise.all(formasContratacao.map(async (forma) => [forma, await LoteComercialService.obterStatus(modalidade.id, periodo.id, normalizarFormaLote(forma))] as const));
+
             const lotesComerciais = await LoteComercialService.listar(modalidade.id, periodo.id);
-            const loteAtivo = comerciais.map(([, status]) => status.lote).filter(Boolean).sort((a, b) => Number(a!.valor) - Number(b!.valor))[0] || null;
+            const loteAtivo = comerciais.filter((_, indice) => capacidades[indice].vagas_disponiveis > 0).map(([, status]) => status.lote).filter(Boolean).sort((a, b) => Number(a!.valor) - Number(b!.valor))[0] || null;
             const configurado = comerciais.some(([, status]) => status.configurado);
             const aguardando = comerciais.some(([, status]) => status.status === "aguardando");
             const capacidade = capacidades.reduce((melhor, atual) => atual.vagas_disponiveis > melhor.vagas_disponiveis ? atual : melhor, capacidades[0] || capacidadeBase);
@@ -187,7 +191,7 @@ router.get("/ofertas", async (_req: Request, res: Response) => {
           return {
             ...modalidade,
             valor_total: comercialBaseConfigurado ? (comercialBaseAtivo?.valor || null) : null,
-            forma_contratacao: modalidade.modalidade_hospedagem === "camping" ? "onibus" : modalidade.forma_contratacao,
+            forma_contratacao: modalidade.forma_contratacao,
             formas_contratacao: formasContratacao,
             ...comercialPublicoBase,
             disponibilidade: capacidadeBase.disponibilidade === "configuracao_pendente" || !comercialBaseConfigurado ? "configuracao_pendente" : capacidadeBase.disponibilidade === "esgotado" ? "esgotado" : comercialBaseAtivo ? (comercialBaseAtivo.vagas_disponiveis <= 5 ? "ultimas_vagas" : "disponivel") : comercialBaseAguardando ? "aguardando" : "esgotado",

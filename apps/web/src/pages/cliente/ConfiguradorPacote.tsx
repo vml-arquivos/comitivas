@@ -68,7 +68,6 @@ const formaContratacaoMeta: Record<FormaContratacaoPublica, { label: string; des
 };
 
 function formasPublicas(pacote: PacotePublicado): FormaContratacaoPublica[] {
-  if (pacote.modalidade_hospedagem === 'camping') return ['onibus'];
   if (Array.isArray(pacote.formas_contratacao)) return pacote.formas_contratacao.filter((forma): forma is FormaContratacaoPublica => forma in formaContratacaoMeta);
   if (pacote.forma_contratacao in formaContratacaoMeta) return [pacote.forma_contratacao as FormaContratacaoPublica];
   return [];
@@ -201,7 +200,7 @@ export default function ConfiguradorPacote() {
       return Number(b.modalidade_hospedagem === modalidadePreferida) - Number(a.modalidade_hospedagem === modalidadePreferida);
     });
   }, [pacotes, formaContratacao, pacoteSugerido]);
-  const exigeHospedagem = formaContratacao === 'hospedagem' || formaContratacao === 'onibus_hospedagem';
+  const exigeHospedagem = pacoteSelecionado?.modalidade_hospedagem !== 'camping' && (formaContratacao === 'hospedagem' || formaContratacao === 'onibus_hospedagem');
   const periodosDisponiveis = pacoteSelecionado?.periodos || [];
   const exigePeriodo = periodosDisponiveis.length > 0;
   const periodoSelecionado = periodosDisponiveis.find((periodo) => periodo.id === periodoId);
@@ -422,20 +421,8 @@ export default function ConfiguradorPacote() {
                 </button>;
               })}
             </div>
-            {formaContratacao && formaContratacao !== 'hospedagem' && <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-sm font-bold text-slate-900">Como será o deslocamento?</p>
-              <p className="mt-1 text-xs leading-5 text-slate-500">Escolha se utilizará o transporte compartilhado da excursão. Quem for por conta própria não ocupa poltrona de ônibus; a hospedagem, quando contratada, continua sendo reservada normalmente.</p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${!transporteProprio ? 'border-primary bg-white ring-2 ring-primary/15' : 'border-slate-200 bg-white'}`}>
-                  <input type="radio" name="modo-transporte" checked={!transporteProprio} onChange={() => setTransporteProprio(false)} className="mt-1" />
-                  <span><strong className="block text-sm text-slate-900">Transporte da excursão</strong><span className="text-xs text-slate-500">Reserva uma vaga no ônibus do período.</span></span>
-                </label>
-                <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${transporteProprio ? 'border-primary bg-white ring-2 ring-primary/15' : 'border-slate-200 bg-white'}`}>
-                  <input type="radio" name="modo-transporte" checked={transporteProprio} onChange={() => setTransporteProprio(true)} className="mt-1" />
-                  <span><strong className="block text-sm text-slate-900">Vou por conta própria</strong><span className="text-xs text-slate-500">Não ocupa vaga de ônibus; o pacote e eventual hospedagem permanecem no contrato.</span></span>
-                </label>
-              </div>
-            </div>}
+            {formaContratacao && <p className="mt-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">{formaContratacao === 'hospedagem' ? 'Vou por conta própria. Esta opção não reserva assento no ônibus da excursão.' : formaContratacao === 'onibus' ? 'Transporte da excursão incluído. Sem quarto ou área de camping.' : 'Transporte da excursão e acomodação incluídos. Camping não ocupa vaga de quarto.'}</p>}
+
           </section>
         )}
 

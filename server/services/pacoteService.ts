@@ -1,3 +1,4 @@
+import { validarLimitesPeriodoNaTransacao } from "./capacidadePeriodoService.js";
 import { db } from "../db/index.js";
 import { eventos, lotes, pacotes, pacotePeriodos, itens_addon, cupons, reservas, inventarioHolds, precosLedger, cuponsUtilizacoes, comissaoRegras, comissoes, reservaGrupos, reservaParticipantes, usuarios } from "../db/schema.js";
 import { createId } from "@paralleldrive/cuid2";
@@ -27,6 +28,9 @@ function validarFormaContratacaoSelecionada(config: ConfiguracaoPacote, pacote: 
   const solicitada = String(config.forma_contratacao || formas[0]);
   if (!['onibus', 'hospedagem', 'onibus_hospedagem'].includes(solicitada)) throw new Error('Tipo de contratação inválido');
   if (!formas.includes(solicitada as typeof formas[number])) throw new Error('O tipo de contratação escolhido não está habilitado neste pacote');
+  if (config.transporte_proprio === true && solicitada !== 'hospedagem') {
+    throw new Error('Para ir por conta própria, selecione somente hospedagem ou área de camping.');
+  }
   return solicitada as 'onibus' | 'hospedagem' | 'onibus_hospedagem';
 }
 
@@ -122,6 +126,8 @@ async function alocarRecursosNaTransacao(
     throw new Error("Informe o sexo de todas as pessoas para direcionar a hospedagem");
   }
 
+  await validarLimitesPeriodoNaTransacao(tx, periodoId, pessoasDaReserva.length, recursos);
+
   if (recursos.transporte) {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`capacidade-transporte:${loteId}`}))`);
     for (const pessoa of pessoasDaReserva) {
@@ -213,6 +219,7 @@ function recursosPersistidosOuPublicados(reserva: any, pacote: PacoteOperacional
   const salvos = reserva?.recursos_contratados && typeof reserva.recursos_contratados === "object" ? reserva.recursos_contratados : {};
   if (typeof salvos.transporte === "boolean" && typeof salvos.hospedagem === "boolean") {
     return {
+      ...(typeof salvos.camping === "boolean" ? { camping: salvos.camping } : {}),
       transporte: salvos.transporte,
       hospedagem: salvos.hospedagem,
       ...(salvos.transporte_proprio === true ? { transporte_proprio: true } : {}),
@@ -225,7 +232,7 @@ function recursosPersistidosOuPublicados(reserva: any, pacote: PacoteOperacional
 }
 
 function recursosDivergem(a: RecursosContratados, b: RecursosContratados): boolean {
-  return a.transporte !== b.transporte || a.hospedagem !== b.hospedagem || Boolean(a.transporte_proprio) !== Boolean(b.transporte_proprio) || (a.estrutura_quarto || null) !== (b.estrutura_quarto || null);
+  return Boolean(a.camping) !== Boolean(b.camping) || a.transporte !== b.transporte || a.hospedagem !== b.hospedagem || Boolean(a.transporte_proprio) !== Boolean(b.transporte_proprio) || (a.estrutura_quarto || null) !== (b.estrutura_quarto || null);
 }
 
 export class PacoteService {
@@ -416,6 +423,19 @@ export class PacoteService {
       ? (await db.select({ transporte: pacotePeriodos.capacidade_transporte_planejada, hospedagem: pacotePeriodos.capacidade_hospedagem_planejada, evento_periodo_id: pacotePeriodos.evento_periodo_id })
         .from(pacotePeriodos).where(and(eq(pacotePeriodos.id, periodoId), eq(pacotePeriodos.pacote_id, pacote.id))).limit(1))[0]
       : undefined;
+    const ocupacaoPlanejada = planejamento && (planejamento.transporte != null || planejamento.hospedagem != null)
+      ? (await db.execute(sql`SELECT
+          (SELECT COUNT(*)::int FROM assento_alocacoes a JOIN reservas r ON r.id = a.reserva_id
+            LEFT JOIN pacote_periodos p ON p.id = r.periodo_id WHERE a.status = 'ativa'
+            AND (CASE WHEN ${planejamento.evento_periodo_id || null}::text IS NOT NULL
+              THEN COALESCE(r.evento_periodo_id, p.evento_periodo_id) = ${planejamento.evento_periodo_id || null}
+              ELSE r.periodo_id = ${periodoId || null} END)) AS transporte,
+          (SELECT COUNT(*)::int FROM quarto_alocacoes a JOIN reservas r ON r.id = a.reserva_id
+            LEFT JOIN pacote_periodos p ON p.id = r.periodo_id WHERE a.status = 'ativa'
+            AND (CASE WHEN ${planejamento.evento_periodo_id || null}::text IS NOT NULL
+              THEN COALESCE(r.evento_periodo_id, p.evento_periodo_id) = ${planejamento.evento_periodo_id || null}
+              ELSE r.periodo_id = ${periodoId || null} END)) AS hospedagem`)).rows[0] as { transporte: number; hospedagem: number } | undefined
+      : undefined;
     let vagasTransporte: number | null = null;
     let vagasHospedagem: number | null = null;
     let vagasHospedagemPorGrupo: Record<GrupoHospedagem, number> | null = null;
@@ -434,7 +454,7 @@ export class PacoteService {
           AND ${periodoOperacionalCompativel(periodoId)}`)).rows[0] as { total: number; configurado: number } | undefined;
       vagasTransporte = Math.max(0, Number(linha?.total || 0));
       transporteConfigurado = Number(linha?.configurado || 0) > 0;
-      if (planejamento?.transporte !== null && planejamento?.transporte !== undefined) vagasTransporte = Math.min(vagasTransporte, Number(planejamento.transporte));
+      if (planejamento?.transporte !== null && planejamento?.transporte !== undefined) vagasTransporte = Math.min(vagasTransporte, Math.max(0, Number(planejamento.transporte) - Number(ocupacaoPlanejada?.transporte || 0)));
     }
 
     if (recursos.hospedagem && recursos.estrutura_quarto) {
@@ -458,11 +478,11 @@ export class PacoteService {
         if (linha.genero === "masculino" || linha.genero === "feminino") vagasHospedagemPorGrupo[linha.genero] = Math.max(0, Number(linha.total || 0));
       }
       vagasHospedagem = vagasHospedagemPorGrupo.masculino + vagasHospedagemPorGrupo.feminino;
-      if (planejamento?.hospedagem !== null && planejamento?.hospedagem !== undefined) vagasHospedagem = Math.min(vagasHospedagem, Number(planejamento.hospedagem));
+      if (planejamento?.hospedagem !== null && planejamento?.hospedagem !== undefined) vagasHospedagem = Math.min(vagasHospedagem, Math.max(0, Number(planejamento.hospedagem) - Number(ocupacaoPlanejada?.hospedagem || 0)));
     }
 
     const limites = [vagasLote, vagasTransporte, vagasHospedagem].filter((valor): valor is number => valor !== null);
-    const vagasDisponiveis = Math.max(0, Math.min(...limites));
+    const vagasDisponiveis = Math.max(0, Math.min(Number.MAX_SAFE_INTEGER, ...limites));
     const configuracaoPendente = (recursos.transporte && !transporteConfigurado) || (recursos.hospedagem && !hospedagemConfigurada);
     const disponibilidade = pacote.disponibilidade === "esgotado"
       ? "esgotado"

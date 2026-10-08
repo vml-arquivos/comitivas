@@ -1,3 +1,4 @@
+import { validarLimitesPeriodoNaTransacao } from "./capacidadePeriodoService.js";
 import { createId } from "@paralleldrive/cuid2";
 import { sql } from "drizzle-orm";
 import { db } from "../db/index.js";
@@ -50,13 +51,14 @@ function recursosDoContratoValidado(snapshot: unknown): RecursosContratados | nu
   const modelo = String(dados.modelo_oficial || "").trim();
   const transporte = dados.transporte?.rodoviario_incluido === true || modelo === "transporte" || modelo === "hospedagem_transporte";
   const modalidade = String(dados.hospedagem?.modalidade || "").trim();
-  const hospedagem = modelo === "hospedagem" || modelo === "hospedagem_transporte" || Boolean(modalidade);
+  const camping = modalidade === "camping" && dados.versao_contratual === "2026.3-camping";
+  const hospedagem = !camping && (modelo === "hospedagem" || modelo === "hospedagem_transporte" || Boolean(modalidade));
   if (!modelo && typeof dados.transporte?.rodoviario_incluido !== "boolean" && !modalidade) return null;
   const estrutura_quarto = !hospedagem ? null
     : modalidade === "quarto_ar_condicionado" ? "ar_condicionado"
     : modalidade === "quarto_ventilador" ? "ventilador"
     : null;
-  return { transporte, hospedagem, estrutura_quarto };
+  return { transporte, hospedagem, estrutura_quarto, ...(camping ? { camping: true } : {}), ...(dados.transporte?.por_conta_propria === true ? { transporte_proprio: true } : {}) };
 }
 
 function recursosAutoritativos(reserva: ReservaOperacional, snapshotContratoValidado?: unknown): RecursosContratados {
@@ -74,6 +76,8 @@ function recursosAutoritativos(reserva: ReservaOperacional, snapshotContratoVali
     : {};
   if (typeof salvos.transporte === "boolean" && typeof salvos.hospedagem === "boolean") {
     return {
+      ...(salvos.camping === true ? { camping: true } : {}),
+      ...(salvos.transporte_proprio === true ? { transporte_proprio: true } : {}),
       transporte: salvos.transporte,
       hospedagem: salvos.hospedagem,
       estrutura_quarto: salvos.hospedagem
@@ -292,6 +296,8 @@ export class ContratacaoIntegridadeService {
       } else if (hold?.status === "convertido" && Number(hold.quantidade || 0) !== quantidadePessoas) {
         throw new Error("A quantidade de viajantes mudou depois da confirmação da reserva; é necessário refazer a contratação para preservar contrato e inventário");
       }
+
+      await validarLimitesPeriodoNaTransacao(tx, reserva.periodo_id, quantidadePessoas, recursos, reserva.id);
 
       if (recursos.transporte) {
         await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`capacidade-transporte:${reserva.lote_id}`}))`);

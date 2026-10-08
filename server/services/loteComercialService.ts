@@ -10,6 +10,7 @@ export type LoteComercial = {
   pacote_id: string;
   periodo_id: string | null;
   forma_contratacao: FormaLoteComercial;
+  forma_especifica?: boolean;
   nome: string;
   descricao: string | null;
   ordem: number;
@@ -46,6 +47,7 @@ function mapear(row: any): LoteComercial {
     pacote_id: String(row.pacote_id),
     periodo_id: row.periodo_id ? String(row.periodo_id) : null,
     forma_contratacao: normalizarFormaLote(row.forma_contratacao),
+    forma_especifica: row.forma_especifica === true,
     nome: String(row.nome),
     descricao: row.descricao === null || row.descricao === undefined ? null : String(row.descricao),
     ordem: Number(row.ordem || 0),
@@ -62,25 +64,25 @@ function mapear(row: any): LoteComercial {
   };
 }
 
-// A condição comercial pertence ao pacote e ao período. A forma de contratação
-// é escolhida no checkout; o campo legado continua sendo lido para não quebrar
-// registros antigos, mas não participa mais da seleção do lote.
+// Lotes antigos mantêm seu escopo compartilhado. Novos lotes podem ter preço por forma.
 async function consultar(executor: Executor, pacoteId: string, periodoId: string | null, _forma?: FormaLoteComercial, bloquear = false): Promise<LoteComercial[]> {
   const lock = bloquear ? sql` FOR UPDATE` : sql``;
   const rows = periodoId
     ? await executor.execute(sql`
-        SELECT id, pacote_id, periodo_id, forma_contratacao, nome, descricao, ordem, vagas_totais, vagas_disponiveis,
+        SELECT id, pacote_id, periodo_id, forma_contratacao, forma_especifica, nome, descricao, ordem, vagas_totais, vagas_disponiveis,
                valor, data_inicio, data_fim, criterio_encerramento, saldo_migrado_em, ativo, criado_em, atualizado_em
           FROM pacote_lotes_comerciais
          WHERE pacote_id = ${pacoteId} AND periodo_id = ${periodoId} AND ativo = true
          ORDER BY ordem ASC, data_inicio ASC, criado_em ASC, id ASC${lock}`)
     : await executor.execute(sql`
-        SELECT id, pacote_id, periodo_id, forma_contratacao, nome, descricao, ordem, vagas_totais, vagas_disponiveis,
+        SELECT id, pacote_id, periodo_id, forma_contratacao, forma_especifica, nome, descricao, ordem, vagas_totais, vagas_disponiveis,
                valor, data_inicio, data_fim, criterio_encerramento, saldo_migrado_em, ativo, criado_em, atualizado_em
           FROM pacote_lotes_comerciais
          WHERE pacote_id = ${pacoteId} AND periodo_id IS NULL AND ativo = true
          ORDER BY ordem ASC, data_inicio ASC, criado_em ASC, id ASC${lock}`);
-  return (rows.rows || []).map(mapear);
+  const lotes = (rows.rows || []).map(mapear);
+  const especificos = lotes.filter((lote: LoteComercial) => lote.forma_especifica && (!_forma || lote.forma_contratacao === _forma));
+  return especificos.length ? especificos : lotes.filter((lote: LoteComercial) => !lote.forma_especifica);
 }
 
 async function consultarCandidatos(executor: Executor, pacoteId: string, periodoId: string | null, _forma?: FormaLoteComercial, bloquear = false): Promise<LoteComercial[]> {
@@ -127,7 +129,7 @@ export class LoteComercialService {
   static async listar(pacoteId: string, periodoId?: string | null) {
     const filtroPeriodo = periodoId ? sql` AND periodo_id = ${periodoId}` : sql``;
     const rows = await db.execute(sql`
-      SELECT id, pacote_id, periodo_id, forma_contratacao, nome, descricao, ordem, vagas_totais, vagas_disponiveis,
+      SELECT id, pacote_id, periodo_id, forma_contratacao, forma_especifica, nome, descricao, ordem, vagas_totais, vagas_disponiveis,
              valor, data_inicio, data_fim, criterio_encerramento, saldo_migrado_em, ativo, criado_em, atualizado_em
         FROM pacote_lotes_comerciais
        WHERE pacote_id = ${pacoteId} AND ativo = true${filtroPeriodo}
@@ -168,7 +170,7 @@ export class LoteComercialService {
         UPDATE pacote_lotes_comerciais
            SET vagas_disponiveis = vagas_disponiveis - ${quantidadeInteira}, atualizado_em = CURRENT_TIMESTAMP
          WHERE id = ${lote.id} AND ativo = true AND vagas_disponiveis >= ${quantidadeInteira}
-         RETURNING id, pacote_id, periodo_id, forma_contratacao, nome, descricao, ordem, vagas_totais, vagas_disponiveis,
+         RETURNING id, pacote_id, periodo_id, forma_contratacao, forma_especifica, nome, descricao, ordem, vagas_totais, vagas_disponiveis,
                    valor, data_inicio, data_fim, criterio_encerramento, saldo_migrado_em, ativo, criado_em, atualizado_em`);
       if (atualizado.rows?.length) return mapear(atualizado.rows[0]);
     }
@@ -182,7 +184,7 @@ export class LoteComercialService {
       UPDATE pacote_lotes_comerciais
          SET vagas_disponiveis = vagas_disponiveis - ${quantidadeInteira}, atualizado_em = CURRENT_TIMESTAMP
        WHERE id = ${loteId} AND ativo = true AND vagas_disponiveis >= ${quantidadeInteira}
-       RETURNING id, pacote_id, periodo_id, forma_contratacao, nome, descricao, ordem, vagas_totais, vagas_disponiveis,
+       RETURNING id, pacote_id, periodo_id, forma_contratacao, forma_especifica, nome, descricao, ordem, vagas_totais, vagas_disponiveis,
                  valor, data_inicio, data_fim, criterio_encerramento, saldo_migrado_em, ativo, criado_em, atualizado_em`);
     if (!atualizado.rows?.length) throw new Error("O lote comercial desta reserva não possui mais vagas disponíveis.");
     return mapear(atualizado.rows[0]);
@@ -210,4 +212,15 @@ export function statusComercialPublico(status: StatusComercial) {
     vagas_disponiveis: status.lote?.vagas_disponiveis ?? null,
     lote_comercial_configurado: status.configurado,
   };
+}
+
+/** Disponibilidade vendável exige simultaneamente estoque físico e condição comercial. */
+export function combinarCapacidadeComercial<T extends { vagas_disponiveis: number; disponibilidade: string }>(capacidade: T, comercial: StatusComercial): T {
+  const vagas = comercial.lote ? Math.min(capacidade.vagas_disponiveis, comercial.lote.vagas_disponiveis) : 0;
+  const disponibilidade = capacidade.disponibilidade === 'configuracao_pendente' || !comercial.configurado
+    ? 'configuracao_pendente'
+    : comercial.status === 'aguardando' ? 'aguardando'
+    : vagas === 0 || capacidade.disponibilidade === 'esgotado' ? 'esgotado'
+    : vagas <= 5 ? 'ultimas_vagas' : 'disponivel';
+  return { ...capacidade, vagas_disponiveis: vagas, disponibilidade };
 }

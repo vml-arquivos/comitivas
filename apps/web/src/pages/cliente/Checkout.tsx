@@ -409,7 +409,10 @@ export default function Checkout() {
   const temHospedagem = typeof recursosReserva?.hospedagem === 'boolean'
     ? recursosReserva.hospedagem
     : !['onibus'].includes(String(reserva?.forma_contratacao || ''));
-  const tipoContratacaoLabel = temTransporte && temHospedagem
+  const temCamping = recursosReserva?.camping === true;
+  const tipoContratacaoLabel = temCamping
+    ? (temTransporte ? 'Transporte + área de camping' : 'Somente área de camping · por conta própria')
+    : temTransporte && temHospedagem
     ? 'Transporte + hospedagem'
     : temTransporte ? 'Somente transporte' : 'Somente hospedagem';
   const contratante = reserva?.contratante;
@@ -462,11 +465,11 @@ export default function Checkout() {
             <p className="mt-1 text-lg font-black text-secondary">{tipoContratacaoLabel}</p>
             <p className="mt-1 text-sm text-gray-600">Este é o escopo que será usado no contrato e na operação da sua reserva.</p>
           </div>
-          {temHospedagem && modalidade ? (
+          {(temHospedagem || temCamping) && modalidade ? (
             <div className="flex items-center gap-4 rounded-xl border border-red-100 bg-red-50/50 p-4">
               <modalidade.Icone size={34} className="shrink-0 text-primary" />
               <div>
-                <p className="text-xs font-bold uppercase tracking-wide text-primary">Hospedagem escolhida</p>
+                <p className="text-xs font-bold uppercase tracking-wide text-primary">{temCamping ? 'Área de camping contratada' : 'Hospedagem escolhida'}</p>
                 <p className="text-lg font-bold text-secondary">{modalidade.titulo}</p>
                 <p className="text-sm text-gray-600">{reserva?.pacote_nome || modalidade.descricao}</p>
               </div>

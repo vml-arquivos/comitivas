@@ -1,0 +1,1 @@
+ALTER TABLE pacote_lotes_comerciais ADD COLUMN IF NOT EXISTS forma_especifica BOOLEAN NOT NULL DEFAULT FALSE;

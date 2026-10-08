@@ -189,6 +189,7 @@ export const pacoteLotesComerciais = pgTable("pacote_lotes_comerciais", {
   id: text("id").primaryKey().$defaultFn(() => createId()),
   pacote_id: text("pacote_id").notNull().references(() => pacotes.id),
   periodo_id: text("periodo_id").references(() => pacotePeriodos.id),
+  forma_especifica: boolean("forma_especifica").notNull().default(false),
   forma_contratacao: varchar("forma_contratacao", { length: 32 }).notNull().default("onibus_hospedagem"),
   nome: varchar("nome", { length: 255 }).notNull(),
   descricao: text("descricao"),

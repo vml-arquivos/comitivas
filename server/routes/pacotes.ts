@@ -94,9 +94,7 @@ function validarConfiguracaoComercial(body: any) {
   const formaPadrao = "onibus_hospedagem";
   const formaSolicitada = String(body.forma_contratacao || formaPadrao).trim().toLowerCase();
   const formasInformadas = Array.isArray(body.formas_contratacao) ? body.formas_contratacao : [formaSolicitada];
-  const formasContratacao: string[] = modalidade === "camping"
-    ? ["onibus"]
-    : Array.from(new Set(formasInformadas.map((forma: unknown) => String(forma || "").trim().toLowerCase()).filter((forma: string) => FORMAS_CONTRATACAO.has(forma as typeof FORMAS_CONTRATACAO_VALIDAS[number]))));
+  const formasContratacao: string[] = Array.from(new Set(formasInformadas.map((forma: unknown) => String(forma || "").trim().toLowerCase()).filter((forma: string) => FORMAS_CONTRATACAO.has(forma as typeof FORMAS_CONTRATACAO_VALIDAS[number]))));
   if (formasContratacao.length === 0) throw new Error("Habilite ao menos uma forma de contratação");
   const formaContratacao = formasContratacao.includes(formaSolicitada) ? formaSolicitada : formasContratacao[0];
 
@@ -179,7 +177,7 @@ function regrasDoPacote(pacote: any) {
   };
 }
 
-async function validarCapacidadeComercialPeriodo(params: { pacoteId: string; periodoId: string | null; vagas: number; ignorarId?: string }) {
+async function validarCapacidadeComercialPeriodo(params: { pacoteId: string; periodoId: string | null; vagas: number; ignorarId?: string; forma?: string }) {
   if (!params.periodoId) return;
   const pacote = (await db.select({ formas: pacotes.formas_contratacao, forma: pacotes.forma_contratacao, modalidade: pacotes.modalidade_hospedagem })
     .from(pacotes).where(eq(pacotes.id, params.pacoteId)).limit(1))[0];
@@ -187,9 +185,9 @@ async function validarCapacidadeComercialPeriodo(params: { pacoteId: string; per
   const periodo = (await db.select({ transporte: pacotePeriodos.capacidade_transporte_planejada, hospedagem: pacotePeriodos.capacidade_hospedagem_planejada })
     .from(pacotePeriodos).where(and(eq(pacotePeriodos.id, params.periodoId), eq(pacotePeriodos.pacote_id, params.pacoteId))).limit(1))[0];
   if (!periodo) throw new Error("O período informado não pertence a este pacote");
-  const formas = normalizarFormasContratacao(pacote.formas, pacote.forma, pacote.modalidade);
+  const formas = params.forma ? [params.forma] : normalizarFormasContratacao(pacote.formas, pacote.forma, pacote.modalidade);
   const exigeTransporte = formas.some((forma) => forma === "onibus" || forma === "onibus_hospedagem");
-  const exigeHospedagem = formas.some((forma) => forma === "hospedagem" || forma === "onibus_hospedagem");
+  const exigeHospedagem = pacote.modalidade !== "camping" && formas.some((forma) => forma === "hospedagem" || forma === "onibus_hospedagem");
   const limites = [
     exigeTransporte ? periodo.transporte : null,
     exigeHospedagem ? periodo.hospedagem : null,
@@ -197,6 +195,7 @@ async function validarCapacidadeComercialPeriodo(params: { pacoteId: string; per
   const limite = limites.length ? Math.min(...limites.map(Number)) : null;
   if (limite === null) return;
   const condicoes = [eq(pacoteLotesComerciais.pacote_id, params.pacoteId), eq(pacoteLotesComerciais.periodo_id, params.periodoId), eq(pacoteLotesComerciais.ativo, true)];
+  if (params.forma) condicoes.push(eq(pacoteLotesComerciais.forma_contratacao, params.forma), eq(pacoteLotesComerciais.forma_especifica, true));
   if (params.ignorarId) condicoes.push(ne(pacoteLotesComerciais.id, params.ignorarId));
   const soma = (await db.select({ total: sql<number>`COALESCE(SUM(${pacoteLotesComerciais.vagas_totais}), 0)` }).from(pacoteLotesComerciais).where(and(...condicoes)))[0]?.total;
   const total = Number(soma || 0) + params.vagas;
@@ -544,7 +543,7 @@ router.get("/reservas/:reserva_id", authMiddleware, async (req: Request, res: Re
       pacote_nome: pacoteSelecionado[0]?.nome || null,
       pacote_descricao: pacoteSelecionado[0]?.descricao || null,
       modalidade_hospedagem: pacoteSelecionado[0]?.modalidade_hospedagem || null,
-      forma_contratacao: (reserva[0].recursos_contratados as any)?.forma_contratacao || (pacoteSelecionado[0]?.modalidade_hospedagem === "camping" ? "onibus" : pacoteSelecionado[0]?.forma_contratacao || "hospedagem"),
+      forma_contratacao: (reserva[0].recursos_contratados as any)?.forma_contratacao || (pacoteSelecionado[0]?.forma_contratacao || "hospedagem"),
       formas_contratacao: pacoteSelecionado[0]?.formas_contratacao || [],
       onibus_config: pacoteSelecionado[0]?.onibus_config || [],
       configuracao_pagamento: pacoteSelecionado[0]?.configuracao_pagamento || {},
@@ -670,7 +669,7 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
       const capacidadeEscolhida = formaSolicitada && capacidades.find(([forma]) => forma === formaSolicitada)?.[1];
       const capacidadeFallback = capacidades[0]?.[1] || await PacoteService.obterDisponibilidadeFisica(pacote, periodoId, null, transporteProprioSolicitado);
       const capacidade = capacidadeEscolhida || capacidades.reduce((melhor, [, atual]) => atual.vagas_disponiveis > melhor.vagas_disponiveis ? atual : melhor, capacidadeFallback);
-      const disponibilidadePorForma = Object.fromEntries(capacidades.map(([forma, resultado]) => { const comercial = statusComercialPublico(porForma.get(forma)!); return [forma, { ...comercial, disponibilidade: combinarDisponibilidade(resultado.disponibilidade, porForma.get(forma)), vagas_disponiveis: resultado.vagas_disponiveis, vagas_transporte: resultado.vagas_transporte, vagas_hospedagem: resultado.vagas_hospedagem }]; }));
+      const disponibilidadePorForma = Object.fromEntries(capacidades.map(([forma, resultado]) => { const comercial = statusComercialPublico(porForma.get(forma)!); return [forma, { ...comercial, disponibilidade: combinarDisponibilidade(resultado.disponibilidade, porForma.get(forma)), vagas_disponiveis: Math.min(resultado.vagas_disponiveis, Number(comercial.vagas_disponiveis || 0)), vagas_transporte: resultado.vagas_transporte, vagas_hospedagem: resultado.vagas_hospedagem }]; }));
       const regras = regrasDoPacote(pacote);
       const fotos = await db.select({ id: fotosPacote.id, url_foto: fotosPacote.url_foto, legenda: fotosPacote.legenda, alt_text: fotosPacote.alt_text, ordem: fotosPacote.ordem, capa: fotosPacote.capa })
         .from(fotosPacote).where(eq(fotosPacote.pacote_id, pacote.id)).orderBy(fotosPacote.ordem);
@@ -698,7 +697,7 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
           valor_total: comercialPeriodo?.lote?.valor || pacote.valor_total,
           ...comercialPublico,
           disponibilidade: combinarDisponibilidade(capacidadePeriodo.disponibilidade, comercialPeriodo),
-          vagas_disponiveis: capacidadePeriodo.vagas_disponiveis,
+          vagas_disponiveis: Math.min(capacidadePeriodo.vagas_disponiveis, Number(comercialPublico.vagas_disponiveis || 0)),
           lotes_comerciais: lotesComerciais,
         };
       }));
@@ -716,7 +715,7 @@ router.get("/lotes/:lote_id/pacotes", async (req: Request, res: Response) => {
           destaque_texto: pacote.destaque_texto,
           modalidade_hospedagem: pacote.modalidade_hospedagem,
           contrato_modelo: pacote.contrato_modelo,
-          forma_contratacao: pacote.modalidade_hospedagem === "camping" ? "onibus" : pacote.forma_contratacao,
+          forma_contratacao: pacote.forma_contratacao,
           formas_contratacao: formasContratacao,
           onibus_config: pacote.onibus_config,
           configuracao_pagamento: pacote.configuracao_pagamento,
@@ -965,11 +964,16 @@ router.post("/:pacote_id/lotes-comerciais", authMiddleware, requireRole("admin")
     if (!Number.isFinite(valor) || valor < 0) return res.status(400).json({ erro: "Informe um preço válido para o lote" });
     if (criterioEncerramento !== "vagas" && !fim) return res.status(400).json({ erro: "Informe a data final quando o lote encerrar por data" });
     if (fim && inicio && inicio.getTime() > fim.getTime()) return res.status(400).json({ erro: "A data inicial da venda deve ser anterior à data final" });
-    if (req.body?.ativo !== false) await validarCapacidadeComercialPeriodo({ pacoteId: pacote.id, periodoId, vagas });
+    const formaEspecifica = req.body?.forma_contratacao !== undefined;
+    const formaLote = formaEspecifica ? String(req.body.forma_contratacao) : "onibus_hospedagem";
+    if (formaEspecifica && !normalizarFormasContratacao(pacote.formas_contratacao, pacote.forma_contratacao, pacote.modalidade_hospedagem).includes(formaLote as typeof FORMAS_CONTRATACAO_VALIDAS[number])) {
+      return res.status(400).json({ erro: "Escolha uma forma habilitada no pacote" });
+    }
+    if (req.body?.ativo !== false) await validarCapacidadeComercialPeriodo({ pacoteId: pacote.id, periodoId, vagas, forma: formaEspecifica ? formaLote : undefined });
     const existentesComerciais = await db.select({ id: pacoteLotesComerciais.id }).from(pacoteLotesComerciais).where(and(eq(pacoteLotesComerciais.pacote_id, pacote.id), periodoId ? eq(pacoteLotesComerciais.periodo_id, periodoId) : isNull(pacoteLotesComerciais.periodo_id)));
     const ordem = Number.isInteger(Number(req.body?.ordem)) ? Number(req.body.ordem) : existentesComerciais.length;
     const criado = (await db.insert(pacoteLotesComerciais).values({
-      id: createId(), pacote_id: pacote.id, periodo_id: periodoId, forma_contratacao: "onibus_hospedagem",
+      id: createId(), pacote_id: pacote.id, periodo_id: periodoId, forma_contratacao: formaLote, forma_especifica: formaEspecifica,
       nome, descricao: String(req.body?.descricao || "").trim().slice(0, 2000) || null, ordem,
       vagas_totais: vagas, vagas_disponiveis: vagas, valor: valor.toFixed(2), data_inicio: inicio!, data_fim: fim, criterio_encerramento: criterioEncerramento,
       ativo: req.body?.ativo !== false, criado_em: new Date(), atualizado_em: new Date(),
@@ -1000,7 +1004,7 @@ router.put("/:pacote_id/lotes-comerciais/:lote_comercial_id", authMiddleware, re
     if (criterioEncerramento !== "vagas" && !fim) return res.status(400).json({ erro: "Informe a data final quando o lote encerrar por data" });
     if (fim && inicio && inicio.getTime() > fim.getTime()) return res.status(400).json({ erro: "A data inicial da venda deve ser anterior à data final" });
     const ativoFinal = req.body?.ativo !== undefined ? Boolean(req.body.ativo) : Boolean(atual.ativo);
-    if (ativoFinal) await validarCapacidadeComercialPeriodo({ pacoteId: atual.pacote_id, periodoId: atual.periodo_id, vagas: total, ignorarId: atual.id });
+    if (ativoFinal) await validarCapacidadeComercialPeriodo({ pacoteId: atual.pacote_id, periodoId: atual.periodo_id, vagas: total, ignorarId: atual.id, forma: atual.forma_especifica ? atual.forma_contratacao : undefined });
     const atualizado = (await db.update(pacoteLotesComerciais).set({
       nome: req.body?.nome !== undefined ? String(req.body.nome).trim().slice(0, 255) : undefined,
       descricao: req.body?.descricao !== undefined ? String(req.body.descricao || "").trim().slice(0, 2000) || null : undefined,
